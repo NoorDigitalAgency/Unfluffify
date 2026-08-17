@@ -1,4 +1,8 @@
 import {
+  PROPERTY_CONTEXT_RECOVERY_POLL_MS,
+  PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS,
+  PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS,
+  PROPERTY_LOCK_SUSPENDED_RECOVERY_GRACE_MS,
   projectPropertyLockView,
   type PropertyLockPresence,
   type PropertyLockState,
@@ -18,6 +22,8 @@ export type LockDirectiveRequest = Readonly<{
   pageUrl: string;
   baseUrl?: string;
   hasUnsavedChanges?: boolean;
+  /** Background-owned recovery checks bypass the settled context cache. */
+  refreshContext?: boolean;
 }>;
 
 type TabsLike = Readonly<{
@@ -25,6 +31,22 @@ type TabsLike = Readonly<{
 }>;
 
 type LockClient = Awaited<ReturnType<RewriteBackgroundServices["createLockClient"]>>;
+
+type LocalLockWarning = Readonly<{
+  kind: "off-candidate" | "cross-property";
+  key: string;
+  deadlineAt: number;
+  timer: ReturnType<typeof setTimeout>;
+  target?: LockDirectiveRequest;
+}>;
+
+type SuspendedContext = {
+  reason: "candidate_removed" | "candidate_feed_conflict";
+  request: LockDirectiveRequest;
+  recoveryDeadlineAt: number | null;
+  timer: ReturnType<typeof setTimeout> | null;
+  refreshing: boolean;
+};
 
 const UNKNOWN_PRESENCE: PropertyLockPresence = {
   visible: false,
@@ -83,13 +105,25 @@ function lockStateFromState(input: Readonly<{
   siteId: number | null;
   state: PropertyLockState | null;
   status: LockStatus;
+  warning?: Pick<LocalLockWarning, "kind" | "deadlineAt">;
+  blockedReason?: LockReason;
+  now?: number;
 }>) {
-  const view: PropertyLockView = input.state
-    ? projectPropertyLockView(input.state)
-    : { bannerVisible: true, reason: NO_LOCK_STATE_REASON[input.status], canEdit: false };
+  const view: PropertyLockView = input.warning
+    ? {
+        bannerVisible: true,
+        reason: input.warning.kind,
+        canEdit: false,
+        countdownSeconds: Math.max(0, Math.ceil((input.warning.deadlineAt - (input.now ?? Date.now())) / 1000)),
+      }
+    : input.blockedReason
+      ? { bannerVisible: true, reason: input.blockedReason, canEdit: false }
+      : input.state
+        ? projectPropertyLockView(input.state)
+        : { bannerVisible: true, reason: NO_LOCK_STATE_REASON[input.status], canEdit: false };
   const lockRole = input.state?.role ?? "unknown";
   const blockedReason = view.reason;
-  const authority = input.state?.role === "editor" &&
+  const authority = view.canEdit && input.state?.role === "editor" &&
     input.state.environmentKey &&
     input.state.editorSessionId &&
     input.state.lockToken &&
@@ -108,7 +142,11 @@ function lockStateFromState(input: Readonly<{
     baseUrl: input.baseUrl,
     siteId: input.siteId,
     lockRole,
-    configPresent: input.status === "ok" && input.siteId !== null,
+    configPresent: (
+      input.status === "ok" ||
+      input.status === "suspended_candidate_removed" ||
+      input.status === "suspended_candidate_feed_conflict"
+    ) && input.siteId !== null,
     canEdit: view.canEdit,
     blockedReason,
     ...(authority ? { authority } : {}),
@@ -143,10 +181,13 @@ export function createPropertyLockRuntime(input: Readonly<{
     blockedReason: LockReason;
     lockBanner: LockBannerVocabulary;
   }>) => Promise<void> | void;
+  now?: () => number;
 }>) {
+  const now = input.now ?? Date.now;
   const clients = new Map<string, LockClient>();
   const clientCreations = new Map<string, Promise<LockClient>>();
   const pageUrls = new Map<string, string>();
+  const baseUrls = new Map<string, string>();
   const unsavedByKey = new Map<string, boolean>();
   const claimedKeys = new Set<string>();
   const publishedLockStates = new Map<string, string>();
@@ -154,11 +195,34 @@ export function createPropertyLockRuntime(input: Readonly<{
   const activeKeyByTab = new Map<number, string>();
   const presenceByTab = new Map<number, PropertyLockPresence>();
   const generationByTab = new Map<number, number>();
+  const localWarningByTab = new Map<number, LocalLockWarning>();
+  const suspendedContextByTab = new Map<number, SuspendedContext>();
   const contextRuntime = input.context ?? createPageContextRuntime({
     currentEnvironmentKey: input.services.lynx.currentEnvironmentKey,
     hasToken: input.services.accounts.hasToken,
     resolve: input.services.lynx.resolvePropertyContext,
   });
+  const basePresenceForTab = (tabId: number): PropertyLockPresence =>
+    presenceByTab.get(tabId) ?? UNKNOWN_PRESENCE;
+
+  const presenceForTab = (tabId: number): PropertyLockPresence => {
+    const base = basePresenceForTab(tabId);
+    const suspended = suspendedContextByTab.get(tabId);
+    if (suspended) {
+      return { ...base, suspensionReason: suspended.reason };
+    }
+    const warning = localWarningByTab.get(tabId);
+    if (warning) {
+      // Off-candidate/cross-property pages cannot renew the prior property's
+      // lease even when the browser page itself is selected and focused.
+      return {
+        ...base,
+        visible: false,
+        suspensionReason: warning.kind === "off-candidate" ? "off_candidate" : "cross_property",
+      };
+    }
+    return base;
+  };
 
   const observeLockState = (
     tabId: number,
@@ -213,11 +277,52 @@ export function createPropertyLockRuntime(input: Readonly<{
     void publishLockState(tabId, state);
   };
 
+  const projectClientState = (
+    key: string,
+    tabId: number,
+    siteId: number,
+    state: PropertyLockState,
+  ): ReturnType<typeof lockStateFromState> => lockStateFromState({
+    pageUrl: pageUrls.get(key) ?? "",
+    baseUrl: baseUrls.get(key) ?? baseUrlFor(pageUrls.get(key) ?? ""),
+    siteId,
+    state,
+    status: "ok",
+    warning: localWarningByTab.get(tabId),
+    now: now(),
+  });
+
+  const observeAndPublishClientState = (
+    key: string,
+    tabId: number,
+    siteId: number,
+    state: PropertyLockState,
+  ): void => {
+    if (activeKeyByTab.get(tabId) !== key) {
+      return;
+    }
+    const pageUrl = pageUrls.get(key) ?? "";
+    const response = projectClientState(key, tabId, siteId, state);
+    const observation = observeLockState(tabId, pageUrl, response);
+    if (observation) {
+      void observation.then(
+        () => publishLockStateIfChanged(`tab:${tabId}`, tabId, response),
+        (error: unknown) => {
+          console.error("[Unfluffify][rewrite] Unable to observe property-lock facts", error);
+          publishLockStateIfChanged(`tab:${tabId}`, tabId, response);
+        },
+      );
+    } else {
+      publishLockStateIfChanged(`tab:${tabId}`, tabId, response);
+    }
+  };
+
   const releaseKey = async (key: string): Promise<void> => {
     const client = clients.get(key);
     const session = client?.editorSession();
     clients.delete(key);
     pageUrls.delete(key);
+    baseUrls.delete(key);
     unsavedByKey.delete(key);
     claimedKeys.delete(key);
     publishedLockStates.delete(key);
@@ -238,6 +343,178 @@ export function createPropertyLockRuntime(input: Readonly<{
     }
     activeKeyByTab.delete(tabId);
     await releaseKey(activeKey);
+  };
+
+  const clearLocalWarning = (tabId: number): void => {
+    const warning = localWarningByTab.get(tabId);
+    if (!warning) {
+      return;
+    }
+    clearTimeout(warning.timer);
+    localWarningByTab.delete(tabId);
+  };
+
+  const publishActiveClient = (tabId: number): void => {
+    const key = activeKeyByTab.get(tabId);
+    const client = key ? clients.get(key) : undefined;
+    if (!key || !client) {
+      return;
+    }
+    observeAndPublishClientState(key, tabId, client.editorSession().siteId, client.state());
+  };
+
+  const expireLocalWarning = async (tabId: number, warning: LocalLockWarning): Promise<void> => {
+    if (localWarningByTab.get(tabId) !== warning) {
+      return;
+    }
+    localWarningByTab.delete(tabId);
+    if (activeKeyByTab.get(tabId) === warning.key) {
+      activeKeyByTab.delete(tabId);
+      await releaseKey(warning.key);
+    }
+    if (warning.target) {
+      await runDirective({ ...warning.target, refreshContext: true });
+    }
+  };
+
+  const startLocalWarning = (
+    tabId: number,
+    inputWarning: Readonly<Omit<LocalLockWarning, "timer" | "deadlineAt"> & {
+      durationMs: number;
+      deadlineAt?: number;
+    }>,
+  ): LocalLockWarning => {
+    const existing = localWarningByTab.get(tabId);
+    if (
+      existing?.kind === inputWarning.kind &&
+      existing.key === inputWarning.key &&
+      (existing.target?.pageUrl === inputWarning.target?.pageUrl || !inputWarning.target)
+    ) {
+      return existing;
+    }
+    const preservedDeadlineAt = existing?.kind === inputWarning.kind &&
+      existing.key === inputWarning.key &&
+      !existing.target
+      ? existing.deadlineAt
+      : undefined;
+    clearLocalWarning(tabId);
+    const deadlineAt = inputWarning.deadlineAt ?? preservedDeadlineAt ?? now() + inputWarning.durationMs;
+    const armTick = (): LocalLockWarning => {
+      const warning: LocalLockWarning = {
+        kind: inputWarning.kind,
+        key: inputWarning.key,
+        deadlineAt,
+        ...(inputWarning.target ? { target: inputWarning.target } : {}),
+        timer: setTimeout(() => {
+          if (localWarningByTab.get(tabId) !== warning) {
+            return;
+          }
+          if (deadlineAt <= now()) {
+            void expireLocalWarning(tabId, warning).catch((error) => {
+              console.error("[Unfluffify][rewrite] Unable to release an elapsed property lock warning", error);
+            });
+            return;
+          }
+          const next = armTick();
+          localWarningByTab.set(tabId, next);
+          publishActiveClient(tabId);
+        }, Math.min(1_000, Math.max(0, deadlineAt - now()))),
+      };
+      return warning;
+    };
+    const warning = armTick();
+    localWarningByTab.set(tabId, warning);
+    return warning;
+  };
+
+  const clearSuspendedContext = (tabId: number): void => {
+    const suspended = suspendedContextByTab.get(tabId);
+    if (!suspended) {
+      return;
+    }
+    if (suspended.timer !== null) {
+      clearTimeout(suspended.timer);
+    }
+    suspendedContextByTab.delete(tabId);
+    const key = activeKeyByTab.get(tabId);
+    clients.get(key ?? "")?.clientStatus();
+  };
+
+  const scheduleSuspendedRefresh = (tabId: number, delayMs: number): void => {
+    const suspended = suspendedContextByTab.get(tabId);
+    if (!suspended || suspended.refreshing) {
+      return;
+    }
+    if (suspended.timer !== null) {
+      clearTimeout(suspended.timer);
+    }
+    const qualifies = presenceQualifies(basePresenceForTab(tabId));
+    if (!qualifies && suspended.recoveryDeadlineAt !== null && suspended.recoveryDeadlineAt <= now()) {
+      suspended.timer = null;
+      return;
+    }
+    suspended.timer = setTimeout(() => {
+      const current = suspendedContextByTab.get(tabId);
+      if (current !== suspended || current.refreshing) {
+        return;
+      }
+      current.timer = null;
+      const stillQualifies = presenceQualifies(basePresenceForTab(tabId));
+      if (!stillQualifies && current.recoveryDeadlineAt !== null && current.recoveryDeadlineAt <= now()) {
+        return;
+      }
+      current.refreshing = true;
+      void runDirective({ ...current.request, refreshContext: true })
+        .catch((error) => {
+          console.error("[Unfluffify][rewrite] Candidate recovery context refresh failed", error);
+        })
+        .finally(() => {
+          const latest = suspendedContextByTab.get(tabId);
+          if (latest !== current) {
+            return;
+          }
+          current.refreshing = false;
+          scheduleSuspendedRefresh(tabId, PROPERTY_CONTEXT_RECOVERY_POLL_MS);
+        });
+    }, Math.max(0, delayMs));
+  };
+
+  const beginSuspendedContext = (
+    tabId: number,
+    reason: SuspendedContext["reason"],
+    request: LockDirectiveRequest,
+  ): void => {
+    const existing = suspendedContextByTab.get(tabId);
+    const qualifies = presenceQualifies(basePresenceForTab(tabId));
+    const suspended: SuspendedContext = existing ?? {
+      reason,
+      request,
+      recoveryDeadlineAt: qualifies ? null : now() + PROPERTY_LOCK_SUSPENDED_RECOVERY_GRACE_MS,
+      timer: null,
+      refreshing: false,
+    };
+    suspended.reason = reason;
+    suspended.request = { ...request, refreshContext: undefined };
+    if (!qualifies && suspended.recoveryDeadlineAt === null) {
+      suspended.recoveryDeadlineAt = now() + PROPERTY_LOCK_SUSPENDED_RECOVERY_GRACE_MS;
+    }
+    suspendedContextByTab.set(tabId, suspended);
+    const key = activeKeyByTab.get(tabId);
+    clients.get(key ?? "")?.clientStatus();
+    scheduleSuspendedRefresh(tabId, PROPERTY_CONTEXT_RECOVERY_POLL_MS);
+  };
+
+  const mirrorSuspendedDeadline = (tabId: number, state: PropertyLockState): void => {
+    const suspended = suspendedContextByTab.get(tabId);
+    const value = state.timings.recoveryGraceUntilUtc;
+    if (!suspended || !value) {
+      return;
+    }
+    const deadlineAt = Date.parse(value);
+    if (Number.isFinite(deadlineAt)) {
+      suspended.recoveryDeadlineAt = deadlineAt;
+      scheduleSuspendedRefresh(tabId, PROPERTY_CONTEXT_RECOVERY_POLL_MS);
+    }
   };
 
   const getOrCreateClient = async (
@@ -264,7 +541,7 @@ export function createPropertyLockRuntime(input: Readonly<{
       environmentKey,
       tabId: request.tabId,
       siteId,
-      presence: () => presenceByTab.get(request.tabId) ?? UNKNOWN_PRESENCE,
+      presence: () => presenceForTab(request.tabId),
       hasUnsavedWork: () => unsavedByKey.get(key) === true,
       onOwnershipTransferred: () => {
         // A rotated/foreign fence is authoritative. Discard draft status before
@@ -278,23 +555,8 @@ export function createPropertyLockRuntime(input: Readonly<{
         });
       },
       onStateChange: (state) => {
-        if (activeKeyByTab.get(request.tabId) !== key) {
-          return;
-        }
-        const pageUrl = pageUrls.get(key) ?? request.pageUrl;
-        const response = lockStateFromState({ pageUrl, baseUrl, siteId, state, status: "ok" });
-        const observation = observeLockState(request.tabId, pageUrl, response);
-        if (observation) {
-          void observation.then(
-            () => publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response),
-            (error: unknown) => {
-              console.error("[Unfluffify][rewrite] Unable to observe property-lock facts", error);
-              publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
-            },
-          );
-        } else {
-          publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
-        }
+        mirrorSuspendedDeadline(request.tabId, state);
+        observeAndPublishClientState(key, request.tabId, siteId, state);
       },
     })
       .then(async (client) => {
@@ -305,6 +567,7 @@ export function createPropertyLockRuntime(input: Readonly<{
         }
         clients.set(key, client);
         pageUrls.set(key, request.pageUrl);
+        baseUrls.set(key, baseUrl);
         return client;
       });
     clientCreations.set(key, creation);
@@ -317,10 +580,15 @@ export function createPropertyLockRuntime(input: Readonly<{
     }
   };
 
-  return {
-    async directive(request: LockDirectiveRequest) {
+  async function runDirective(
+    request: LockDirectiveRequest,
+  ): Promise<ReturnType<typeof lockStateFromState>> {
       const generation = generationByTab.get(request.tabId) ?? 0;
-      const context = await contextRuntime.resolve({ tabId: request.tabId, pageUrl: request.pageUrl });
+      const context = await contextRuntime.resolve({
+        tabId: request.tabId,
+        pageUrl: request.pageUrl,
+        refresh: request.refreshContext === true,
+      });
       if ((generationByTab.get(request.tabId) ?? 0) !== generation) {
         throw new Error("Property-lock directive was superseded by tab navigation");
       }
@@ -339,18 +607,33 @@ export function createPropertyLockRuntime(input: Readonly<{
       if (blockedStatus) {
         // Auth, transport, settings and candidate-feed suspension are retryable.
         // Keep any current client/draft alive but project a blocked directive.
+        if (context.status === "suspended_candidate_removed") {
+          beginSuspendedContext(request.tabId, "candidate_removed", request);
+        } else if (context.status === "suspended_candidate_feed_conflict") {
+          beginSuspendedContext(request.tabId, "candidate_feed_conflict", request);
+        }
+        const activeKey = activeKeyByTab.get(request.tabId);
+        const activeClient = activeKey ? clients.get(activeKey) : undefined;
+        const suspensionReason = context.status === "suspended_candidate_removed"
+          ? "candidate-removed" as const
+          : context.status === "suspended_candidate_feed_conflict"
+            ? "candidate-feed-conflict" as const
+            : undefined;
         const response = lockStateFromState({
           pageUrl: request.pageUrl,
           baseUrl,
           siteId: context.siteId,
-          state: null,
+          state: suspensionReason ? activeClient?.state() ?? null : null,
           status: blockedStatus,
+          ...(suspensionReason ? { blockedReason: suspensionReason } : {}),
         });
         await observeLockState(request.tabId, request.pageUrl, response);
         publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
         return response;
       }
-      if (context.status === "unmanaged" || context.status === "managed_non_candidate" || context.siteId === null) {
+      if (context.status === "unmanaged" || context.siteId === null) {
+        clearSuspendedContext(request.tabId);
+        clearLocalWarning(request.tabId);
         await releaseActiveForTab(request.tabId);
         const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: null, state: null, status: "not_candidate" });
         await observeLockState(request.tabId, request.pageUrl, response);
@@ -364,6 +647,75 @@ export function createPropertyLockRuntime(input: Readonly<{
         return response;
       }
       const key = clientKey(context.environmentKey, request.tabId, context.siteId);
+      if (context.status === "managed_non_candidate") {
+        clearSuspendedContext(request.tabId);
+        const activeKey = activeKeyByTab.get(request.tabId);
+        const activeClient = activeKey ? clients.get(activeKey) : undefined;
+        if (activeKey === key && activeClient?.state().role === "editor") {
+          pageUrls.set(key, request.pageUrl);
+          baseUrls.set(key, baseUrl);
+          const warning = startLocalWarning(request.tabId, {
+            kind: "off-candidate",
+            key,
+            durationMs: PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS,
+            target: request,
+          });
+          activeClient.clientStatus();
+          const response = lockStateFromState({
+            pageUrl: request.pageUrl,
+            baseUrl,
+            siteId: context.siteId,
+            state: activeClient.state(),
+            status: "ok",
+            warning,
+            now: now(),
+          });
+          await observeLockState(request.tabId, request.pageUrl, response);
+          publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
+          return response;
+        }
+        clearLocalWarning(request.tabId);
+        await releaseActiveForTab(request.tabId);
+        const response = lockStateFromState({
+          pageUrl: request.pageUrl,
+          baseUrl,
+          siteId: null,
+          state: null,
+          status: "not_candidate",
+        });
+        await observeLockState(request.tabId, request.pageUrl, response);
+        publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
+        return response;
+      }
+      clearSuspendedContext(request.tabId);
+      const previousActiveKey = activeKeyByTab.get(request.tabId);
+      if (previousActiveKey && previousActiveKey !== key) {
+        const previousClient = clients.get(previousActiveKey);
+        if (previousClient) {
+          pageUrls.set(previousActiveKey, request.pageUrl);
+          baseUrls.set(previousActiveKey, baseUrl);
+          const warning = startLocalWarning(request.tabId, {
+            kind: "cross-property",
+            key: previousActiveKey,
+            durationMs: PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS,
+            target: request,
+          });
+          previousClient.clientStatus();
+          const response = lockStateFromState({
+            pageUrl: request.pageUrl,
+            baseUrl,
+            siteId: context.siteId,
+            state: previousClient.state(),
+            status: "ok",
+            warning,
+            now: now(),
+          });
+          await observeLockState(request.tabId, request.pageUrl, response);
+          publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
+          return response;
+        }
+      }
+      clearLocalWarning(request.tabId);
       await releaseActiveForTab(request.tabId, key);
       activeKeyByTab.set(request.tabId, key);
       const client = await getOrCreateClient(
@@ -378,16 +730,20 @@ export function createPropertyLockRuntime(input: Readonly<{
       }
       const previousPageUrl = pageUrls.get(key);
       const previousUnsaved = unsavedByKey.get(key);
-      unsavedByKey.set(key, request.hasUnsavedChanges === true);
+      const nextUnsaved = request.refreshContext === true
+        ? previousUnsaved === true
+        : request.hasUnsavedChanges === true;
+      unsavedByKey.set(key, nextUnsaved);
+      pageUrls.set(key, request.pageUrl);
+      baseUrls.set(key, baseUrl);
       if (!claimedKeys.has(key)) {
         client.claim();
         claimedKeys.add(key);
       }
-      if (previousPageUrl !== request.pageUrl || previousUnsaved !== (request.hasUnsavedChanges === true)) {
+      if (previousPageUrl !== request.pageUrl || previousUnsaved !== nextUnsaved) {
         client.clientStatus();
-        pageUrls.set(key, request.pageUrl);
       }
-      if (presenceQualifies(presenceByTab.get(request.tabId) ?? UNKNOWN_PRESENCE)) {
+      if (presenceQualifies(presenceForTab(request.tabId))) {
         client.heartbeat();
       }
       const state = client.state();
@@ -395,26 +751,39 @@ export function createPropertyLockRuntime(input: Readonly<{
       await observeLockState(request.tabId, request.pageUrl, response);
       publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
       return response;
-    },
+  }
+
+  return {
+    directive: runDirective,
     activity(tabId: number, siteId: number): void {
       const activeKey = activeKeyByTab.get(tabId);
       const client = activeKey ? clients.get(activeKey) : undefined;
       if (
         client?.editorSession().siteId === siteId &&
-        presenceQualifies(presenceByTab.get(tabId) ?? UNKNOWN_PRESENCE)
+        presenceQualifies(presenceForTab(tabId))
       ) {
         client.activity();
       }
     },
     presenceChanged(tabId: number, presence: PropertyLockPresence): void {
       presenceByTab.set(tabId, presence);
+      const suspended = suspendedContextByTab.get(tabId);
+      if (suspended) {
+        if (presenceQualifies(presence)) {
+          suspended.recoveryDeadlineAt = null;
+          scheduleSuspendedRefresh(tabId, 0);
+        } else {
+          suspended.recoveryDeadlineAt ??= now() + PROPERTY_LOCK_SUSPENDED_RECOVERY_GRACE_MS;
+          scheduleSuspendedRefresh(tabId, PROPERTY_CONTEXT_RECOVERY_POLL_MS);
+        }
+      }
       const activeKey = activeKeyByTab.get(tabId);
       const client = activeKey ? clients.get(activeKey) : undefined;
       if (!client || client.isClosed()) {
         return;
       }
       client.clientStatus();
-      if (presenceQualifies(presence)) {
+      if (presenceQualifies(presenceForTab(tabId))) {
         client.heartbeat();
       }
     },
@@ -423,17 +792,40 @@ export function createPropertyLockRuntime(input: Readonly<{
         const session = client.editorSession();
         if (
           !client.isClosed() &&
-          presenceQualifies(presenceByTab.get(session.tabId) ?? UNKNOWN_PRESENCE)
+          presenceQualifies(presenceForTab(session.tabId))
         ) {
           client.heartbeat();
         }
       }
+    },
+    navigationCommitted(tabId: number): void {
+      // Navigation terminates the document draft immediately but keeps the
+      // prior lease long enough for same-property/off-candidate and
+      // cross-property deadline handling on the next canonical context.
+      generationByTab.set(tabId, (generationByTab.get(tabId) ?? 0) + 1);
+      const activeKey = activeKeyByTab.get(tabId);
+      if (activeKey) {
+        unsavedByKey.set(activeKey, false);
+      }
+      clearSuspendedContext(tabId);
+      if (activeKey && clients.has(activeKey)) {
+        startLocalWarning(tabId, {
+          kind: "cross-property",
+          key: activeKey,
+          durationMs: PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS,
+        });
+      }
+      latestLockStates.delete(tabId);
+      publishedLockStates.delete(`tab:${tabId}`);
+      clients.get(activeKey ?? "")?.clientStatus();
     },
     async terminateTab(
       tabId: number,
       options: Readonly<{ forgetPresence?: boolean }> = {},
     ): Promise<void> {
       generationByTab.set(tabId, (generationByTab.get(tabId) ?? 0) + 1);
+      clearSuspendedContext(tabId);
+      clearLocalWarning(tabId);
       const keys = [...clients.entries()]
         .filter(([, client]) => client.editorSession().tabId === tabId)
         .map(([key]) => key);
@@ -456,10 +848,15 @@ export function createPropertyLockRuntime(input: Readonly<{
           session.editorSessionId === request.editorSessionId;
       });
       const state = client?.state();
+      const clientTabId = client?.editorSession().tabId;
       if (
         !client ||
         client.isClosed() ||
+        (clientTabId !== undefined && (
+          localWarningByTab.has(clientTabId) || suspendedContextByTab.has(clientTabId)
+        )) ||
         state?.role !== "editor" ||
+        !projectPropertyLockView(state).canEdit ||
         state.editorSessionId !== request.editorSessionId ||
         !state.lockToken ||
         state.lockToken !== request.lockToken

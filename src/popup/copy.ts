@@ -11,6 +11,9 @@ const POPUP_LOCK_COPY = {
       ? `Editing is being transferred to ${lock.toName}`
       : "Editing is being transferred",
   "disconnect-warning": () => "Connection lost; editor role may be released",
+  "inactivity-warning": () => "No recent page interaction; editor role may be released",
+  "off-candidate": () => "Return to a Live Page candidate to keep the editor role",
+  "cross-property": () => "Return to the previous property to keep the editor role",
   "takeover-suggested": (lock) => lock.fromName
     ? `${lock.fromName} wants to take over editing`
     : "Another editor wants to take over editing",

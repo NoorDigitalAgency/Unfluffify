@@ -28,6 +28,20 @@ const CONTENT_LOCK_COPY = {
       ? "Connection lost. Editing is temporarily paused while the property lock reconnects."
       : `Connection lost. You will lose the editor role in ${countdown}s unless the connection recovers.`;
   },
+  "inactivity-warning": (lock) => {
+    const countdown = remainingSeconds(lock);
+    return countdown === null
+      ? "No recent page interaction. Editing is temporarily paused."
+      : `No recent page interaction. You will lose the editor role in ${countdown}s unless you continue editing.`;
+  },
+  "off-candidate": (lock) => {
+    const countdown = remainingSeconds(lock) ?? 0;
+    return `This page is not a current Live Page candidate. Return to a candidate page within ${countdown}s or you will lose the editor role.`;
+  },
+  "cross-property": (lock) => {
+    const countdown = remainingSeconds(lock) ?? 0;
+    return `You left the previous property. Return to it within ${countdown}s or you will lose the editor role.`;
+  },
   "takeover-suggested": (lock) => lock.fromName
     ? `${lock.fromName} would like to edit this property`
     : "Someone would like to edit this property",

@@ -83,6 +83,9 @@ export function reducePropertyLockState(
       ownershipGeneration: typeof message.ownershipGeneration === "number" ? message.ownershipGeneration : undefined,
       timings: mirrorBackendTimings({
         expiresAtUtc: typeof message.expiresAtUtc === "string" ? message.expiresAtUtc : undefined,
+        recoveryGraceUntilUtc: typeof message.recoveryGraceUntilUtc === "string"
+          ? message.recoveryGraceUntilUtc
+          : undefined,
         secondsRemaining: typeof message.secondsRemaining === "number" ? message.secondsRemaining : undefined,
       }),
     };
@@ -109,6 +112,11 @@ export function reducePropertyLockState(
       ...state,
       connectivity: "connected",
       state: "expiry_warning",
+      timings: mirrorBackendTimings({
+        expiresAtUtc: state.timings.expiresAtUtc,
+        recoveryGraceUntilUtc: state.timings.recoveryGraceUntilUtc,
+        secondsRemaining: typeof message.secondsRemaining === "number" ? message.secondsRemaining : undefined,
+      }),
     };
   }
   if (message.type === "takeover_suggestion") {

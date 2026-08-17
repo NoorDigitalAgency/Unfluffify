@@ -14,6 +14,8 @@ import {
   PROPERTY_LOCK_PASSIVE_RELEASE_COUNTDOWN_MS,
   PROPERTY_LOCK_RECONNECT_DELAY_MS,
   PROPERTY_LOCK_RECONNECT_MAX_DELAY_MS,
+  PROPERTY_CONTEXT_RECOVERY_POLL_MS,
+  PROPERTY_LOCK_SUSPENDED_RECOVERY_GRACE_MS,
   parseServerMessage,
   createPropertyLockClient,
   projectPropertyLockView,
@@ -118,14 +120,18 @@ describe("P9 property-lock client", () => {
     expect(PROPERTY_LOCK_RECONNECT_DELAY_MS).toBe(2_000);
     expect(PROPERTY_LOCK_RECONNECT_MAX_DELAY_MS).toBe(60_000);
     expect(PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS).toBe(70_000);
+    expect(PROPERTY_LOCK_SUSPENDED_RECOVERY_GRACE_MS).toBe(10 * 60_000);
+    expect(PROPERTY_CONTEXT_RECOVERY_POLL_MS).toBe(15_000);
     expect(PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS).toBe(70_000);
     expect(PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS).toBe(30_000);
     expect(PROPERTY_LOCK_PASSIVE_RELEASE_COUNTDOWN_MS).toBe(60_000);
     expect(mirrorBackendTimings({
       expiresAtUtc: "2026-07-07T00:00:00Z",
+      recoveryGraceUntilUtc: "2026-07-07T00:10:00Z",
       secondsRemaining: 42,
     })).toEqual({
       expiresAtUtc: "2026-07-07T00:00:00Z",
+      recoveryGraceUntilUtc: "2026-07-07T00:10:00Z",
       secondsRemaining: 42,
     });
   });
@@ -309,6 +315,46 @@ describe("P9 property-lock client", () => {
       toName: "B",
     });
     expect(states.length).toBeGreaterThan(5);
+  });
+
+  it("projects backend inactivity and passive-release deadlines without inventing them", () => {
+    const ws = fakeSocket();
+    const client = createPropertyLockClient({
+      socket: ws.socket,
+      editorSession: editorSession(),
+      persistEditorSession() {},
+    });
+    ws.emit("open");
+    ws.emit("message", JSON.stringify({ type: "subscribed", editorSessionId: "editor-1" }));
+    ws.emit("message", JSON.stringify({
+      type: "lock_state",
+      state: "locked",
+      isEditor: true,
+      editorSessionId: "editor-1",
+      lockToken: "fence-one",
+    }));
+    ws.emit("message", JSON.stringify({ type: "inactivity_warning", secondsRemaining: 69 }));
+    expect(projectPropertyLockView(client.state())).toEqual({
+      bannerVisible: true,
+      reason: "inactivity-warning",
+      canEdit: false,
+      countdownSeconds: 69,
+    });
+
+    ws.emit("message", JSON.stringify({
+      type: "lock_state",
+      state: "expiry_warning",
+      isEditor: false,
+      editorName: "Other",
+      secondsRemaining: 60,
+    }));
+    expect(projectPropertyLockView(client.state())).toEqual({
+      bannerVisible: true,
+      reason: "locked",
+      canEdit: false,
+      countdownSeconds: 60,
+      editorName: "Other",
+    });
   });
 
   it("suppresses heartbeat after the editor idle window but sends activity and status frames", () => {

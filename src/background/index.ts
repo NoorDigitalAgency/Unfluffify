@@ -189,10 +189,14 @@ export function startRewriteBackground(): void {
     },
     onTabTerminated(tabId, reason) {
       // Navigation/reload and tab close are draft-terminal, unlike a transient
-      // network failure. Release the lease first, then erase every tab-scoped
-      // durable continuation so the next document starts a new editor session.
+      // network failure. A close releases immediately; navigation retains only
+      // the lease while its off-candidate/cross-property deadline is resolved.
       return beginTabCleanup(tabId, async () => {
-        await lockRuntime.terminateTab(tabId, { forgetPresence: reason === "tab-closed" });
+        if (reason === "tab-closed") {
+          await lockRuntime.terminateTab(tabId);
+        } else {
+          lockRuntime.navigationCommitted(tabId);
+        }
         await clearTabContinuation(tabId);
       });
     },

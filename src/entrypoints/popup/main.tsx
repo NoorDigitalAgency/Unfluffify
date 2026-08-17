@@ -580,7 +580,12 @@ async function refreshTodoContext(
   const response = await getPopupBus().request("page.context", {
     tabId: context.tabId,
     pageUrl: context.url,
-    refresh: options.force === true || due,
+    // The background lock runtime owns suspended recovery cadence so it can
+    // continue with the panel closed and stop after the grace window. During a
+    // suspension the popup only samples that generation-safe cached result.
+    refresh: options.force === true || (due &&
+      todoStatus !== "suspended_candidate_removed" &&
+      todoStatus !== "suspended_candidate_feed_conflict"),
   }, { target: "background" });
   if (boundTabId !== context.tabId || boundTabKey !== requestKey) {
     return;

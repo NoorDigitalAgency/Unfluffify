@@ -56,6 +56,23 @@ export function projectPropertyLockView(state: PropertyLockState): PropertyLockV
       fromName: state.takeoverSuggestion.fromName,
     };
   }
+  if (state.state === "expiry_warning") {
+    if (state.role === "editor") {
+      return {
+        bannerVisible: true,
+        reason: "inactivity-warning",
+        canEdit: false,
+        countdownSeconds: state.timings.secondsRemaining,
+      };
+    }
+    return {
+      bannerVisible: true,
+      reason: "locked",
+      canEdit: false,
+      countdownSeconds: state.timings.secondsRemaining,
+      ...(state.editorName ? { editorName: state.editorName } : {}),
+    };
+  }
   if (state.role === "editor") {
     return { bannerVisible: false, reason: "editor", canEdit: true };
   }

@@ -3,6 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 import { createFetchJsonTransport, createRewriteBackgroundServices } from "../../../src/background/services";
 import { createPropertyLockRuntime } from "../../../src/background/lock-runtime";
 import type { JsonRequest, JsonResponse } from "../../../src/lynx";
+import {
+  PROPERTY_CONTEXT_RECOVERY_POLL_MS,
+  PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS,
+  PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS,
+  PROPERTY_LOCK_SUSPENDED_RECOVERY_GRACE_MS,
+} from "../../../src/lock";
 
 function fakeSocket() {
   const listeners = new Map<string, Array<(event: { data?: unknown }) => void>>();
@@ -677,7 +683,7 @@ describe("rewrite background services", () => {
     expect(sockets[0].sent.map((frame) => JSON.parse(frame).type)).not.toContain("release_lock");
   });
 
-  it("keeps lock.directive idempotent and recreates clients after socket close", async () => {
+  it("keeps lock.directive idempotent and defers a cross-property release", async () => {
     const sockets: ReturnType<typeof fakeSocket>[] = [];
     const tabMessages: unknown[] = [];
     const contextRequests: JsonRequest[] = [];
@@ -761,16 +767,20 @@ describe("rewrite background services", () => {
     expect(statusFrame).not.toHaveProperty("pageUrl");
     expect(statusFrame).not.toHaveProperty("clientId");
 
-    await runtime.directive({ ...request, pageUrl: "https://other.example/page", baseUrl: "https://other.example" });
-    expect(sockets).toHaveLength(2);
+    const crossProperty = await runtime.directive({
+      ...request,
+      pageUrl: "https://other.example/page",
+      baseUrl: "https://other.example",
+    });
+    expect(sockets).toHaveLength(1);
+    expect(crossProperty).toMatchObject({
+      canEdit: false,
+      blockedReason: "cross-property",
+      lockBanner: { countdownSeconds: 30 },
+    });
+    expect(sockets[0].sent.map((frame) => JSON.parse(frame).type)).not.toContain("release_lock");
+    await runtime.terminateTab(5);
     expect(sockets[0].sent.map((frame) => JSON.parse(frame).type)).toContain("release_lock");
-    const tabMessageCount = tabMessages.length;
-    sockets[0].emit("message", JSON.stringify({ type: "lock_state", state: "locked", isEditor: true, editorName: "Old" }));
-    expect(tabMessages).toHaveLength(tabMessageCount);
-
-    sockets[0].emit("close");
-    await runtime.directive(request);
-    expect(sockets).toHaveLength(3);
   });
 
   it("keeps the editor lease alive from background after the panel stops issuing directives", async () => {
@@ -885,6 +895,253 @@ describe("rewrite background services", () => {
       await expect(services.repos.editorSessionRepo.load("stage.example.com", 5, 5542))
         .resolves.toEqual({ ok: true, value: null });
       expect(runtime.authorizeMutation(envelope)).toMatchObject({ ok: false, status: "stale_fence" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("polls a suspended candidate in background and resumes the same draft on recovery", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-17T12:00:00Z"));
+    try {
+      let contextRequests = 0;
+      const sockets: ReturnType<typeof fakeSocket>[] = [];
+      const services = createRewriteBackgroundServices({
+        transport: async (request) => {
+          contextRequests += 1;
+          return hubContext(request, {
+            status: contextRequests === 2 ? "managed_non_candidate" : "managed_candidate",
+          });
+        },
+        socketFactory() {
+          const socket = fakeSocket();
+          sockets.push(socket);
+          return socket.socket;
+        },
+        editorSessionIdFactory: () => "editor-recovery",
+      });
+      await services.settings.update((current) => ({
+        ...current,
+        stageBase: "stage.example.com",
+        token: "live",
+      }));
+      const runtime = createPropertyLockRuntime({ services });
+      const presence = { visible: true, focusedWindow: true, browserIdle: false };
+      runtime.presenceChanged(14, presence);
+      const request = {
+        tabId: 14,
+        pageUrl: "https://example.com/page",
+        hasUnsavedChanges: true,
+      };
+      await runtime.directive(request);
+      sockets[0].emit("open");
+      sockets[0].emit("message", JSON.stringify({ type: "subscribed", editorSessionId: "editor-recovery" }));
+      sockets[0].emit("message", JSON.stringify({
+        type: "lock_state",
+        state: "locked",
+        isEditor: true,
+        editorSessionId: "editor-recovery",
+        lockToken: "fence-recovery",
+        ownershipGeneration: 1,
+        propertyRevision: 1,
+        feedRevision: 1,
+      }));
+
+      await expect(runtime.directive({ ...request, refreshContext: true })).resolves.toMatchObject({
+        blockedReason: "candidate-removed",
+        canEdit: false,
+        lockRole: "editor",
+        configPresent: true,
+      });
+      const mutation = {
+        operationId: "save-after-recovery",
+        environmentKey: "stage.example.com",
+        siteId: 5542,
+        editorSessionId: "editor-recovery",
+        lockToken: "fence-recovery",
+        expectedPropertyRevision: 1,
+        expectedFeedRevision: 1,
+      };
+      expect(runtime.authorizeMutation(mutation)).toMatchObject({ ok: false, status: "stale_fence" });
+      expect(JSON.parse(sockets[0].sent.at(-1) ?? "{}")).toMatchObject({
+        type: "client_status",
+        suspensionReason: "candidate_removed",
+        hasUnsavedWork: true,
+      });
+      await vi.advanceTimersByTimeAsync(PROPERTY_CONTEXT_RECOVERY_POLL_MS - 1);
+      expect(contextRequests).toBe(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(contextRequests).toBe(3);
+
+      const statusFrames = sockets[0].sent
+        .map((frame) => JSON.parse(frame))
+        .filter((frame) => frame.type === "client_status");
+      expect(statusFrames.at(-1)).not.toHaveProperty("suspensionReason");
+      expect(statusFrames.at(-1)).toMatchObject({ hasUnsavedWork: true });
+      expect(runtime.authorizeMutation(mutation)).toEqual({ ok: true, request: mutation });
+      await vi.advanceTimersByTimeAsync(PROPERTY_CONTEXT_RECOVERY_POLL_MS * 2);
+      expect(contextRequests).toBe(3);
+      await runtime.terminateTab(14);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops suspended recovery after grace and checks immediately on refocus", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-17T12:00:00Z"));
+    try {
+      let contextRequests = 0;
+      const sockets: ReturnType<typeof fakeSocket>[] = [];
+      const services = createRewriteBackgroundServices({
+        transport: async (request) => {
+          contextRequests += 1;
+          return hubContext(request, {
+            status: contextRequests === 1 ? "managed_candidate" : "managed_non_candidate",
+          });
+        },
+        socketFactory() {
+          const socket = fakeSocket();
+          sockets.push(socket);
+          return socket.socket;
+        },
+        editorSessionIdFactory: () => "editor-grace",
+      });
+      await services.settings.update((current) => ({
+        ...current,
+        stageBase: "stage.example.com",
+        token: "live",
+      }));
+      const runtime = createPropertyLockRuntime({ services });
+      const request = { tabId: 15, pageUrl: "https://example.com/page", hasUnsavedChanges: true };
+      runtime.presenceChanged(15, { visible: true, focusedWindow: true, browserIdle: false });
+      await runtime.directive(request);
+      sockets[0].emit("open");
+      sockets[0].emit("message", JSON.stringify({ type: "subscribed", editorSessionId: "editor-grace" }));
+      sockets[0].emit("message", JSON.stringify({
+        type: "lock_state",
+        state: "locked",
+        isEditor: true,
+        editorSessionId: "editor-grace",
+        lockToken: "fence-grace",
+        ownershipGeneration: 1,
+      }));
+      await runtime.directive({ ...request, refreshContext: true });
+      runtime.presenceChanged(15, {
+        visible: false,
+        focusedWindow: true,
+        browserIdle: false,
+        suspensionReason: "tab-hidden",
+      });
+      expect(JSON.parse(sockets[0].sent.at(-1) ?? "{}")).toMatchObject({
+        type: "client_status",
+        visible: false,
+        suspensionReason: "candidate_removed",
+      });
+
+      await vi.advanceTimersByTimeAsync(PROPERTY_LOCK_SUSPENDED_RECOVERY_GRACE_MS);
+      const requestsAtGrace = contextRequests;
+      await vi.advanceTimersByTimeAsync(PROPERTY_CONTEXT_RECOVERY_POLL_MS * 2);
+      expect(contextRequests).toBe(requestsAtGrace);
+
+      runtime.presenceChanged(15, { visible: true, focusedWindow: true, browserIdle: false });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(contextRequests).toBe(requestsAtGrace + 1);
+      await runtime.terminateTab(15);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("releases an editor after the off-candidate deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const sockets: ReturnType<typeof fakeSocket>[] = [];
+      const services = createRewriteBackgroundServices({
+        transport: async (request) => hubContext(request, {
+          status: String((request.body as { url?: string } | undefined)?.url).includes("off-candidate")
+            ? "managed_non_candidate"
+            : "managed_candidate",
+        }),
+        socketFactory() {
+          const socket = fakeSocket();
+          sockets.push(socket);
+          return socket.socket;
+        },
+        editorSessionIdFactory: () => "editor-off-candidate",
+      });
+      await services.settings.update((current) => ({ ...current, stageBase: "stage.example.com", token: "live" }));
+      const runtime = createPropertyLockRuntime({ services });
+      runtime.presenceChanged(16, { visible: true, focusedWindow: true, browserIdle: false });
+      await runtime.directive({ tabId: 16, pageUrl: "https://example.com/page" });
+      sockets[0].emit("open");
+      sockets[0].emit("message", JSON.stringify({ type: "subscribed", editorSessionId: "editor-off-candidate" }));
+      sockets[0].emit("message", JSON.stringify({
+        type: "lock_state",
+        state: "locked",
+        isEditor: true,
+        editorSessionId: "editor-off-candidate",
+        lockToken: "fence-off-candidate",
+      }));
+
+      runtime.navigationCommitted(16);
+      expect(sockets[0].sent.map((frame) => JSON.parse(frame).type)).not.toContain("release_lock");
+      const warning = await runtime.directive({
+        tabId: 16,
+        pageUrl: "https://example.com/off-candidate",
+      });
+      expect(warning).toMatchObject({
+        blockedReason: "off-candidate",
+        canEdit: false,
+        lockBanner: { countdownSeconds: 70 },
+      });
+      await vi.advanceTimersByTimeAsync(PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS);
+      expect(sockets[0].sent.map((frame) => JSON.parse(frame).type)).toContain("release_lock");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("holds the prior property through the cross-property cooldown", async () => {
+    vi.useFakeTimers();
+    try {
+      const sockets: ReturnType<typeof fakeSocket>[] = [];
+      const services = createRewriteBackgroundServices({
+        transport: async (request) => hubContext(request, {
+          siteId: String((request.body as { url?: string } | undefined)?.url).includes("other.example") ? 777 : 5542,
+        }),
+        socketFactory() {
+          const socket = fakeSocket();
+          sockets.push(socket);
+          return socket.socket;
+        },
+        editorSessionIdFactory: () => `editor-cross-${sockets.length + 1}`,
+      });
+      await services.settings.update((current) => ({ ...current, stageBase: "stage.example.com", token: "live" }));
+      const runtime = createPropertyLockRuntime({ services });
+      runtime.presenceChanged(17, { visible: true, focusedWindow: true, browserIdle: false });
+      await runtime.directive({ tabId: 17, pageUrl: "https://example.com/page" });
+      sockets[0].emit("open");
+      const sessionId = JSON.parse(sockets[0].sent[0] ?? "{}").editorSessionId;
+      sockets[0].emit("message", JSON.stringify({ type: "subscribed", editorSessionId: sessionId }));
+      sockets[0].emit("message", JSON.stringify({
+        type: "lock_state",
+        state: "locked",
+        isEditor: true,
+        editorSessionId: sessionId,
+        lockToken: "fence-cross",
+      }));
+
+      const warning = await runtime.directive({ tabId: 17, pageUrl: "https://other.example/page" });
+      expect(warning).toMatchObject({
+        blockedReason: "cross-property",
+        lockBanner: { countdownSeconds: 30 },
+      });
+      expect(sockets).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS);
+      expect(sockets[0].sent.map((frame) => JSON.parse(frame).type)).toContain("release_lock");
+      expect(sockets).toHaveLength(2);
+      await runtime.terminateTab(17);
     } finally {
       vi.useRealTimers();
     }
