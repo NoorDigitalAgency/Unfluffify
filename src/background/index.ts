@@ -283,28 +283,33 @@ export function startRewriteBackground(): void {
     return response.ok ? response.data : { rows: request.rows };
   });
   bus.onCommand("ai.run", async (request) => {
-    const environmentKey = await services.lynx.currentEnvironmentKey();
-    if (!environmentKey) {
-      return { status: "environment_unconfigured" };
+    const releaseKeepAlive = runtime.keepAlive.acquireUntilRelease("ai.run");
+    try {
+      const environmentKey = await services.lynx.currentEnvironmentKey();
+      if (!environmentKey) {
+        return { status: "environment_unconfigured" };
+      }
+      if (!request.snapshot.pages.some((page) => canonicalPageKey(page.url) === request.pageKey)) {
+        return { status: "invalid_page_scope" };
+      }
+      const snapshot = await services.property.overlayAiCorpus(
+        environmentKey,
+        request.siteId,
+        request.snapshot,
+      );
+      const result = await services.lynx.runAiJob(snapshot, {
+        tabId: request.tabId,
+        clientRunId: request.clientRunId,
+        environmentKey,
+        siteId: request.siteId,
+        pageKey: request.pageKey,
+      });
+      return result.status === "ok"
+        ? { status: result.status, sessionId: result.sessionId, selectors: result.selectors }
+        : { status: result.status, httpStatus: "httpStatus" in result ? result.httpStatus : undefined };
+    } finally {
+      releaseKeepAlive();
     }
-    if (!request.snapshot.pages.some((page) => canonicalPageKey(page.url) === request.pageKey)) {
-      return { status: "invalid_page_scope" };
-    }
-    const snapshot = await services.property.overlayAiCorpus(
-      environmentKey,
-      request.siteId,
-      request.snapshot,
-    );
-    const result = await services.lynx.runAiJob(snapshot, {
-      tabId: request.tabId,
-      clientRunId: request.clientRunId,
-      environmentKey,
-      siteId: request.siteId,
-      pageKey: request.pageKey,
-    });
-    return result.status === "ok"
-      ? { status: result.status, sessionId: result.sessionId, selectors: result.selectors }
-      : { status: result.status, httpStatus: "httpStatus" in result ? result.httpStatus : undefined };
   });
   bus.onCommand("ai.resume", async (request) => {
     const environmentKey = await services.lynx.currentEnvironmentKey();

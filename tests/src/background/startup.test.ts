@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { BusFrame } from "../../../src/messaging/contract";
+import { DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS } from "../../../src/domain/constants";
 
 describe("rewrite background startup", () => {
   afterEach(() => {
@@ -115,6 +117,126 @@ describe("rewrite background startup", () => {
       ok: true,
       payload: [{ name: "markings.changed" }],
     });
+  });
+
+  it("holds the service-worker keepalive until AI polling reaches a terminal result", async () => {
+    const originalFetch = globalThis.fetch;
+    let finishStatus: (() => void) | null = null;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/get_selectors")) {
+        return new Response(JSON.stringify({ session_id: "backend-run-1" }), { status: 200 });
+      }
+      if (url.endsWith("/get_selectors/status/backend-run-1")) {
+        return await new Promise<Response>((resolve) => {
+          finishStatus = () => resolve(new Response(JSON.stringify({
+            session_id: "backend-run-1",
+            status: "done",
+          }), { status: 200 }));
+        });
+      }
+      if (url.endsWith("/get_selectors/result/backend-run-1")) {
+        return new Response(JSON.stringify({
+          inclusionSelectors: ["main"],
+          exclusionSelectors: [".ad"],
+        }), { status: 200 });
+      }
+      return new Response("{}", { status: 500 });
+    }) as typeof fetch;
+    try {
+      const addMessageListener = vi.fn();
+      const addAlarmListener = vi.fn();
+      const createAlarm = vi.fn();
+      const clearAlarm = vi.fn();
+      globalThis.chrome = {
+        runtime: { onMessage: { addListener: addMessageListener } },
+        action: { onClicked: { addListener: vi.fn() } },
+        alarms: {
+          create: createAlarm,
+          clear: clearAlarm,
+          onAlarm: { addListener: addAlarmListener },
+        },
+      } as unknown as typeof chrome;
+
+      const { startRewriteBackground } = await import("../../../src/background/index");
+      startRewriteBackground();
+      const listener = addMessageListener.mock.calls[0]?.[0] as (
+        frame: BusFrame,
+        sender: unknown,
+        sendResponse: (reply: BusFrame) => void,
+      ) => boolean;
+      let requestSeq = 0;
+      const request = (name: string, payload: unknown): Promise<BusFrame> => new Promise((resolve) => {
+        requestSeq += 1;
+        const keepOpen = listener({
+          kind: "uf-bus/1",
+          frameType: "request",
+          id: `request-${requestSeq}`,
+          seq: requestSeq,
+          name,
+          source: "popup",
+          sourceInstance: "popup:test",
+          target: "background",
+          payload,
+        }, {}, resolve);
+        expect(keepOpen).toBe(true);
+      });
+      await request("settings.save", {
+        stageBase: "stage.example.com",
+        configEndpoint: "https://config.example.com",
+        aiEndpoint: "https://ai.example.com",
+      });
+
+      const aiReply = request("ai.run", {
+        tabId: 77,
+        siteId: 42,
+        pageKey: "/page",
+        clientRunId: "popup-run-1",
+        snapshot: {
+          baseUrl: "https://example.com",
+          renderMode: "rendered",
+          defaultExclusionSelectors: [...DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS],
+          pages: [{
+            url: "https://www.example.com/page",
+            renderedHtml: "<html><main>Job</main></html>",
+            renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
+          }],
+        },
+      });
+      for (let tick = 0; tick < 50 && finishStatus === null; tick += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      expect(finishStatus).not.toBeNull();
+      expect(createAlarm).toHaveBeenCalledWith("uf-rewrite-brain-keepalive", { periodInMinutes: 0.5 });
+      const keepAliveClearsBeforeWake = clearAlarm.mock.calls.filter(
+        ([name]) => name === "uf-rewrite-brain-keepalive",
+      ).length;
+
+      // An alarm wake while the network request is still pending must see the
+      // active long-running lease and leave it intact.
+      for (const [alarmListener] of addAlarmListener.mock.calls) {
+        alarmListener({ name: "uf-rewrite-brain-keepalive" });
+      }
+      expect(clearAlarm.mock.calls.filter(
+        ([name]) => name === "uf-rewrite-brain-keepalive",
+      )).toHaveLength(keepAliveClearsBeforeWake);
+
+      finishStatus?.();
+      await expect(aiReply).resolves.toMatchObject({
+        frameType: "reply",
+        ok: true,
+        payload: {
+          status: "ok",
+          sessionId: "backend-run-1",
+          selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+        },
+      });
+      expect(clearAlarm.mock.calls.filter(
+        ([name]) => name === "uf-rewrite-brain-keepalive",
+      )).toHaveLength(keepAliveClearsBeforeWake + 1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("serves property-lock directives through the shipped typed bus", async () => {

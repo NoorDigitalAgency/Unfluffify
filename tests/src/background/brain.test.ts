@@ -168,6 +168,36 @@ describe("P3 background brain", () => {
     expect(keepAlive.isActive()).toBe(false);
   });
 
+  it("keeps an until-release lease beyond the ordinary bounded hold", () => {
+    const timers: Array<() => void> = [];
+    const cleared: string[] = [];
+    const keepAlive = createKeepAliveController({
+      holdMs: 30_000,
+      setTimeout(callback) {
+        timers.push(callback);
+        return timers.length;
+      },
+      createAlarm() {},
+      clearAlarm(name) {
+        cleared.push(name);
+      },
+    });
+    const releaseOrdinary = keepAlive.acquire("ordinary-event");
+    const releaseAi = keepAlive.acquireUntilRelease("ai.run");
+
+    releaseOrdinary();
+    timers.forEach((callback) => callback());
+    keepAlive.handleAlarm({ name: keepAlive.alarmName() });
+
+    expect(keepAlive.isActive()).toBe(true);
+    expect(keepAlive.reasons()).toEqual(["ai.run"]);
+    expect(cleared).toEqual([]);
+
+    releaseAi();
+    expect(keepAlive.isActive()).toBe(false);
+    expect(cleared).toEqual([keepAlive.alarmName()]);
+  });
+
   it("runs a headless observe -> signal -> projection loop", () => {
     const brain = createRewriteBrain(9);
     const emitted = brain.observe({

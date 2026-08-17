@@ -12,11 +12,9 @@ export type KeepAliveHost = Readonly<{
 export function createKeepAliveController(host: KeepAliveHost = {}) {
   const activeReasons = new Map<string, number>();
   const alarmName = "uf-rewrite-brain-keepalive";
-  const timers = new Map<string, unknown>();
+  const timers = new Map<symbol, unknown>();
   const setTimer: (callback: () => void, delay: number) => unknown =
     host.setTimeout ?? ((callback, delay) => globalThis.setTimeout(callback, delay));
-  const clearTimer: (handle: unknown) => void =
-    host.clearTimeout ?? ((handle) => globalThis.clearTimeout(handle as number));
   const syncAlarm = (): void => {
     if (activeReasons.size > 0) {
       void host.createAlarm?.(alarmName, { periodInMinutes: 0.5 });
@@ -24,46 +22,53 @@ export function createKeepAliveController(host: KeepAliveHost = {}) {
       void host.clearAlarm?.(alarmName);
     }
   };
+  const decrement = (reason: string): void => {
+    const nextCount = (activeReasons.get(reason) ?? 0) - 1;
+    if (nextCount > 0) {
+      activeReasons.set(reason, nextCount);
+    } else {
+      activeReasons.delete(reason);
+    }
+    syncAlarm();
+  };
+  const acquire = (reason: string, bounded: boolean): KeepAliveRelease => {
+    activeReasons.set(reason, (activeReasons.get(reason) ?? 0) + 1);
+    syncAlarm();
+    let completed = false;
+    let released = false;
+    const timerKey = Symbol(reason);
+    if (bounded && host.holdMs && host.holdMs > 0) {
+      timers.set(timerKey, setTimer(() => {
+        timers.delete(timerKey);
+        if (!completed) {
+          completed = true;
+          decrement(reason);
+        }
+      }, host.holdMs));
+    }
+    return () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      // Ordinary message work receives a bounded grace hold even when its
+      // synchronous handler has returned. Long-running work opts out and owns
+      // the lease until its promise settles.
+      if (timers.has(timerKey)) {
+        return;
+      }
+      if (!completed) {
+        completed = true;
+        decrement(reason);
+      }
+    };
+  };
   return {
     acquire(reason: string): KeepAliveRelease {
-      activeReasons.set(reason, (activeReasons.get(reason) ?? 0) + 1);
-      syncAlarm();
-      if (host.holdMs && host.holdMs > 0) {
-        const existing = timers.get(reason);
-        if (existing) {
-          clearTimer(existing);
-        }
-        timers.set(reason, setTimer(() => {
-          timers.delete(reason);
-          activeReasons.delete(reason);
-          syncAlarm();
-        }, host.holdMs));
-      }
-      let released = false;
-      return () => {
-        if (released) {
-          return;
-        }
-        released = true;
-        const timer = timers.get(reason);
-        if (!timer) {
-          // Bounded holds stay alive until their timeout expires.
-        }
-        if (timer && !host.holdMs) {
-          clearTimer(timer);
-          timers.delete(reason);
-        }
-        if (timer && host.holdMs) {
-          return;
-        }
-        const nextCount = (activeReasons.get(reason) ?? 0) - 1;
-        if (nextCount > 0) {
-          activeReasons.set(reason, nextCount);
-        } else {
-          activeReasons.delete(reason);
-        }
-        syncAlarm();
-      };
+      return acquire(reason, true);
+    },
+    acquireUntilRelease(reason: string): KeepAliveRelease {
+      return acquire(reason, false);
     },
     isActive(): boolean {
       return activeReasons.size > 0;
