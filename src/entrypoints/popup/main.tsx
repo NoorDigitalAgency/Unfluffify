@@ -40,6 +40,9 @@ import { createEventLog } from "../../popup/event-log";
 import type { LockBannerVocabulary, LockReason } from "../../domain/schema/facts";
 import { resolvePopupLockCopy } from "../../popup/copy";
 
+Object.assign(document.documentElement.dataset, { theme: "nordic", themeMode: "system" });
+document.documentElement.style.colorScheme = "light dark";
+
 type PopupDebugApi = Readonly<{
   getViewState: () => Record<string, unknown>;
 }>;

@@ -39,6 +39,7 @@ function installEntrypointDom(href: string): void {
   Object.defineProperty(globalThis, "document", {
     configurable: true,
     value: {
+      documentElement: { dataset: {}, style: {} },
       getElementById: vi.fn(() => ({ id: "root" })),
       body: {
         appendChild: vi.fn(() => ({ id: "root" })),

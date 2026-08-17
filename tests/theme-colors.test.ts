@@ -182,6 +182,13 @@ test("popup injects the CSS layers in the requested order", () => {
   ]);
 });
 
+test("popup stamps the legacy production theme before boot", () => {
+  const popupMain = readFileSync(new URL("../src/entrypoints/popup/main.tsx", import.meta.url), "utf8");
+
+  assert.match(popupMain, /Object\.assign\(document\.documentElement\.dataset, \{ theme: "nordic", themeMode: "system" \}\)/);
+  assert.match(popupMain, /document\.documentElement\.style\.colorScheme = "light dark"/);
+});
+
 test("theme layers define shared tokens, components, and utilities", () => {
   const themeColorCss = readFileSync(new URL("../src/theme-color.css", import.meta.url), "utf8");
   const themeComponentsCss = readFileSync(new URL("../src/theme-components.css", import.meta.url), "utf8");
