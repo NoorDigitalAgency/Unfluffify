@@ -25,9 +25,9 @@ slice below.
 | C-MARK-5 | PASS | `study/legacy-locked-contracts.md:66` | Exact toggleable set and `LINK` omission: `src/domain/constants.ts:52`, `tests/src/domain/taxonomy.test.ts:35`, `tests/src/domain/taxonomy.test.ts:52`. |
 | C-MARK-6 | PASS | `study/legacy-locked-contracts.md:69` | Collection is taxonomy-only after hidden/chrome/immutable/closed guards: `src/content/marking/engine.ts:97`; full-width footer regression: `tests/src/content/marking/dom-bridge.test.ts:776`. |
 | C-MARK-7 | PASS | `study/legacy-locked-contracts.md:75` | Generated and user exclusions share `exception` and one renderer path: `src/domain/evaluate.ts:57`, `src/content/marking/renderer.ts:54`. |
-| C-MARK-8 | FAIL | `study/legacy-locked-contracts.md:82` | Unmark deletes every descendant row (`src/content/marking/store.ts:18`) and no leaf `forceIncludeSet` equivalent exists. Remediation: **G2a**. |
+| C-MARK-8 | PASS | `study/legacy-locked-contracts.md:82` | Exact-boundary unmark preserves independent descendant exclusions, clears only dependent include punches, and retains a visible textual leaf: `src/content/marking/store.ts:18`, `src/domain/evaluate.ts:64`; golden proof at `tests/src/content/marking/marking.test.ts:337`. Landed in `9e95b1e2`. |
 | C-MARK-9 | PASS | `study/legacy-locked-contracts.md:91` | First exclude-click on an existing generated exclusion writes `{excluded:false}`: `src/content/marking/store.ts:18`, pinned at `tests/src/content/marking/marking.test.ts:312`. |
-| C-MARK-10 | FAIL | `study/legacy-locked-contracts.md:94` | `classifyNode` projects `exception` to every descendant under the nearest excluded row (`src/domain/evaluate.ts:57`), and the renderer draws each entry (`src/content/marking/renderer.ts:215`). No nested projection collapse exists. Remediation: **G2a**. |
+| C-MARK-10 | PASS | `study/legacy-locked-contracts.md:94` | The renderer preserves the complete classification map while collapsing nested exception boxes below their nearest projected boundary: `src/content/marking/renderer.ts:171`, `src/content/marking/renderer.ts:287`; DOM proof at `tests/src/content/marking/dom-bridge.test.ts:413`. Landed in `9e95b1e2`. |
 | C-MARK-11 | PASS | `study/legacy-locked-contracts.md:100` | The approved unified-row schema preserves the observable data: `src/storage/config.ts:11`, `src/domain/schema/marking.ts:8`; D14 authority is pinned at `tests/src/background/property-snapshot-authority.test.ts:51`. |
 | C-MARK-12 | FAIL | `study/legacy-locked-contracts.md:107` | Only an obsolete type field remains (`src/types/config.ts:25`); no collector, target suppression, or submission writer exists. Remediation: **G2b**. |
 | C-MARK-13 | PASS | `study/legacy-locked-contracts.md:113` | Both selector seed directions stamp `explicit:true`: `src/domain/selector-seed.ts:28`, `tests/src/domain/selector-seed.test.ts:41`. |
@@ -132,7 +132,7 @@ slice below.
 
 | Slice | Contracts | Implementation and proof |
 |---|---|---|
-| **G2a — exact boundary truth and collapsed projection** | C-MARK-8, C-MARK-10 | Unmark only the exact boundary while cleaning only dependent include punches; preserve descendant excludes; add the leaf-boundary force-include rule; collapse ordinary descendant projection below an excluded boundary. Golden tests cover nested explicit rows and a textual leaf button. |
+| **G2a — exact boundary truth and collapsed projection** | C-MARK-8, C-MARK-10 | **Landed in `9e95b1e2`.** Unmark now changes only the exact boundary, preserves descendant excludes, cleans dependent include punches, retains textual leaf boundaries, and collapses ordinary descendant projection below an excluded boundary. |
 | **G2b — generated whitespace and accessibility reality** | C-MARK-12, C-TGT-8 | Add the silent-whitespace collector/lifecycle/submission path and resolve `aria-hidden`/sr-only/interaction-gated ambiguity with paint/hit reality rather than blanket rejection. Tests prove generated rows stay out of marking UI and real visible a11y-hidden prose survives. |
 | **G2c — AI timing authority** | C-SUB-7 | Import one timeout/poll definition into popup deadline, run-record deadline, and poll defaults; add a guard that rejects numeric duplicates. |
 
@@ -155,7 +155,7 @@ fail-closed.
 
 ## Totals
 
-- PASS: 95
+- PASS: 97
 - PARTIAL: 12
-- FAIL: 5
+- FAIL: 3
 - Inventory: 112 / 112
