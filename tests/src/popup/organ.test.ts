@@ -77,8 +77,8 @@ describe("rewrite popup FSM", () => {
     );
     state = transitionPopupState(state, signal(3, "lock.blocked", {
       pageUrl: "https://example.com",
-      blockedReason: "Locked by Dana",
-      banner: { visible: true, text: "Locked by Dana", countdownSeconds: 42 },
+      blockedReason: "locked",
+      banner: { visible: true, reason: "locked", editorName: "Dana", countdownSeconds: 42 },
     }));
     state = transitionPopupState(state, signal(4, "run.completed", {
       pageUrl: "https://example.com",
@@ -89,7 +89,8 @@ describe("rewrite popup FSM", () => {
     expect(state).toMatchObject({
       name: "locked",
       priorState: "post_ai_clean",
-      projectionBlockedReason: "Locked by Dana",
+      projectionBlockedReason: "locked",
+      lockBanner: { visible: true, text: "Locked by Dana", countdownSeconds: 42 },
       selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
     });
 

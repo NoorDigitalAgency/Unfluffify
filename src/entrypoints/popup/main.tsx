@@ -37,6 +37,8 @@ import { isRenderModeConfirmed } from "../../storage/config";
 import { resolvePopupView, type PopupView, type PopupViewRequest } from "../../popup/view";
 import { createSignalCursor } from "../../popup/signal-cursor";
 import { createEventLog } from "../../popup/event-log";
+import type { LockBannerVocabulary, LockReason } from "../../domain/schema/facts";
+import { resolvePopupLockCopy } from "../../popup/copy";
 
 type PopupDebugApi = Readonly<{
   getViewState: () => Record<string, unknown>;
@@ -691,7 +693,7 @@ type LockDirectiveResponse = Readonly<{
   lockRole: "unknown" | "editor" | "passive";
   configPresent: boolean;
   canEdit: boolean;
-  blockedReason: string;
+  blockedReason: LockReason;
   authority?: Readonly<{
     environmentKey: string;
     editorSessionId: string;
@@ -699,7 +701,7 @@ type LockDirectiveResponse = Readonly<{
     propertyRevision: number;
     feedRevision: number;
   }>;
-  lockBanner: Readonly<{ visible: boolean; text: string; countdownSeconds?: number }>;
+  lockBanner: LockBannerVocabulary;
 }>;
 
 function lockAllowsEditing(lock: LockDirectiveResponse): boolean {
@@ -737,8 +739,8 @@ function unavailableLockDirective(context: TargetTabContext): LockDirectiveRespo
     lockRole: "unknown",
     configPresent: false,
     canEdit: false,
-    blockedReason: "property-lock",
-    lockBanner: { visible: true, text: "Property lock unavailable" },
+    blockedReason: "unavailable",
+    lockBanner: { visible: true, reason: "unavailable" },
   };
 }
 
@@ -877,7 +879,11 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     await pullSignals(context.tabId, requestKey);
     const lock = await refreshLockDirective(context, requestKey);
     if (!lock || !lockAllowsEditing(lock)) {
-      logEvent("Enable marking refused", lock ? lock.lockBanner.text || lock.status : "lock unavailable", "danger");
+      logEvent(
+        "Enable marking refused",
+        lock ? resolvePopupLockCopy(lock.lockBanner) || lock.status : "lock unavailable",
+        "danger",
+      );
       render();
       return;
     }

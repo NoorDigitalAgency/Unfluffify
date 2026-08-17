@@ -330,6 +330,9 @@ describe("rewrite background startup", () => {
         blockedReason: "signed-out",
       },
     });
+    const lockResponse = (response as { payload?: { lockBanner?: unknown } }).payload;
+    expect(lockResponse?.lockBanner).toEqual({ visible: true, reason: "signed-out" });
+    expect(lockResponse?.lockBanner).not.toHaveProperty("text");
 
     let signalsResponse: unknown;
     runtimeListener({
@@ -356,10 +359,12 @@ describe("rewrite background startup", () => {
         source: "brain",
         payload: {
           blockedReason: "signed-out",
-          banner: { visible: true, text: "Sign in to use the property lock" },
+          banner: { visible: true, reason: "signed-out" },
         },
       }],
     });
+    const lockSignal = (signalsResponse as { payload?: Array<{ payload?: { banner?: unknown } }> }).payload?.[0];
+    expect(lockSignal?.payload?.banner).not.toHaveProperty("text");
   });
 
   it("serves CDP device emulation through the shipped typed bus", async () => {

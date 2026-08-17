@@ -1,4 +1,5 @@
-import { projectPropertyLockView, type PropertyLockState } from "../lock";
+import { projectPropertyLockView, type PropertyLockState, type PropertyLockView } from "../lock";
+import type { LockBannerVocabulary, LockReason } from "../domain/schema/facts";
 import type { RewriteBackgroundServices } from "./services";
 import { createRealmBus, type LockStatus } from "../messaging/realms";
 import { createTabTransport } from "../messaging/transports/tabs";
@@ -31,12 +32,12 @@ function baseUrlFor(url: string): string {
  *  operator can fix in one step, whereas an unreachable backend or a missing
  *  config is something else again. Reporting them all as "unavailable" sends the
  *  operator looking for a connection fault that is not there. */
-const NO_LOCK_STATE_TEXT: Readonly<Record<LockStatus, string>> = {
-  ok: "Property lock connecting",
-  not_configured: "Property lock not configured",
-  not_candidate: "Not a managed property",
-  signed_out: "Sign in to use the property lock",
-  unavailable: "Property lock unavailable",
+const NO_LOCK_STATE_REASON: Readonly<Record<LockStatus, LockReason>> = {
+  ok: "connecting",
+  not_configured: "not-configured",
+  not_candidate: "not-candidate",
+  signed_out: "signed-out",
+  unavailable: "unavailable",
 };
 
 function lockStateFromState(input: Readonly<{
@@ -46,17 +47,11 @@ function lockStateFromState(input: Readonly<{
   state: PropertyLockState | null;
   status: LockStatus;
 }>) {
-  const view = input.state
+  const view: PropertyLockView = input.state
     ? projectPropertyLockView(input.state)
-    : { bannerVisible: true, text: NO_LOCK_STATE_TEXT[input.status], canEdit: false };
+    : { bannerVisible: true, reason: NO_LOCK_STATE_REASON[input.status], canEdit: false };
   const lockRole = input.state?.role ?? "unknown";
-  const blockedReason = view.canEdit
-    ? ""
-    : input.status === "not_candidate"
-      ? "not-candidate"
-      : input.status === "signed_out"
-        ? "signed-out"
-        : "property-lock";
+  const blockedReason = view.reason;
   const authority = input.state?.role === "editor" &&
     input.state.environmentKey &&
     input.state.editorSessionId &&
@@ -82,8 +77,11 @@ function lockStateFromState(input: Readonly<{
     ...(authority ? { authority } : {}),
     lockBanner: {
       visible: view.bannerVisible,
-      text: view.text,
+      reason: view.reason,
       ...(view.countdownSeconds === undefined ? {} : { countdownSeconds: view.countdownSeconds }),
+      ...(view.editorName ? { editorName: view.editorName } : {}),
+      ...(view.fromName ? { fromName: view.fromName } : {}),
+      ...(view.toName ? { toName: view.toName } : {}),
     },
   };
 }
@@ -99,8 +97,8 @@ export function createPropertyLockRuntime(input: Readonly<{
     lockRole: "unknown" | "editor" | "passive";
     configPresent: boolean;
     canEdit: boolean;
-    blockedReason: string;
-    lockBanner: Readonly<{ visible: boolean; text: string; countdownSeconds?: number }>;
+    blockedReason: LockReason;
+    lockBanner: LockBannerVocabulary;
   }>) => void;
 }>) {
   const clients = new Map<string, LockClient>();

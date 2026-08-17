@@ -1,7 +1,14 @@
 import { z } from "zod";
 
-import { LockRoleSchema, type LockRole } from "../domain/schema/facts";
+import {
+  LockBannerVocabularySchema,
+  LockReasonSchema,
+  LockRoleSchema,
+  type LockReason,
+  type LockRole,
+} from "../domain/schema/facts";
 import type { CommandEnvelope, CommandReply } from "../messaging/contracts";
+import { resolveContentLockCopy } from "./copy";
 import type { ContentPresentation } from "./organ";
 
 export const ContentLockStateSchema = z.object({
@@ -9,11 +16,8 @@ export const ContentLockStateSchema = z.object({
   configPresent: z.boolean(),
   lockRole: LockRoleSchema,
   canEdit: z.boolean(),
-  blockedReason: z.string(),
-  banner: z.object({
-    visible: z.boolean(),
-    text: z.string(),
-  }),
+  blockedReason: LockReasonSchema,
+  banner: LockBannerVocabularySchema,
 });
 
 export type ContentLockState = z.infer<typeof ContentLockStateSchema>;
@@ -22,7 +26,7 @@ export type ContentAuthorityState = Readonly<{
   configPresent: boolean;
   lockRole: LockRole;
   lockBlocked: boolean;
-  blockedReason: string;
+  blockedReason: LockReason | "";
   banner: Readonly<{ visible: boolean; text: string }>;
 }>;
 
@@ -131,7 +135,10 @@ export function authorityFromLockState(state: ContentLockState): ContentAuthorit
     lockRole: state.lockRole,
     lockBlocked: !state.canEdit,
     blockedReason: state.blockedReason,
-    banner: state.banner,
+    banner: {
+      visible: state.banner.visible,
+      text: resolveContentLockCopy(state.banner),
+    },
   };
 }
 

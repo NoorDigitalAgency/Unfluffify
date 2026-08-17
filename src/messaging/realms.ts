@@ -10,7 +10,11 @@ import {
 import { defineBus, type DefineBusOptions } from "./bus";
 import { z } from "zod";
 import { AiRunPayloadSnapshotSchema } from "../domain/schema/submission";
-import { LockRoleSchema } from "../domain/schema/facts";
+import {
+  LockBannerVocabularySchema,
+  LockReasonSchema,
+  LockRoleSchema,
+} from "../domain/schema/facts";
 import { RenderModeSchema } from "../domain/schema/property";
 import { ConfigSnapshotSchema, PageKeySchema, PropertySaveRequestSchema, SelectorSetSchema } from "../storage/config";
 import { MarkRowSchema } from "../domain/schema/marking";
@@ -36,7 +40,7 @@ const LockStateResponseSchema = z.object({
   lockRole: LockRoleSchema,
   configPresent: z.boolean(),
   canEdit: z.boolean(),
-  blockedReason: z.string(),
+  blockedReason: LockReasonSchema,
   authority: z.object({
     environmentKey: z.string().min(1),
     editorSessionId: z.string().min(1),
@@ -44,11 +48,7 @@ const LockStateResponseSchema = z.object({
     propertyRevision: z.number().int().nonnegative(),
     feedRevision: z.number().int().nonnegative(),
   }).optional(),
-  lockBanner: z.object({
-    visible: z.boolean(),
-    text: z.string(),
-    countdownSeconds: z.number().optional(),
-  }),
+  lockBanner: LockBannerVocabularySchema,
 });
 
 const EmulationApplyRequestSchema = z.object({

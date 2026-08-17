@@ -1,4 +1,6 @@
 import type { BrainSignal } from "../../domain/schema/signals";
+import { LockBannerVocabularySchema } from "../../domain/schema/facts";
+import { resolvePopupLockCopy } from "../copy";
 
 export type PopupStateName =
   | "boot"
@@ -71,17 +73,14 @@ function parseSelectors(value: unknown): PopupSelectorList | undefined {
 }
 
 function parseLockBanner(value: unknown): PropertyLockBanner | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-  const candidate = value as { visible?: unknown; text?: unknown; countdownSeconds?: unknown };
-  if (typeof candidate.visible !== "boolean" || typeof candidate.text !== "string") {
+  const parsed = LockBannerVocabularySchema.safeParse(value);
+  if (!parsed.success) {
     return undefined;
   }
   return {
-    visible: candidate.visible,
-    text: candidate.text,
-    ...(typeof candidate.countdownSeconds === "number" ? { countdownSeconds: candidate.countdownSeconds } : {}),
+    visible: parsed.data.visible,
+    text: resolvePopupLockCopy(parsed.data),
+    ...(parsed.data.countdownSeconds === undefined ? {} : { countdownSeconds: parsed.data.countdownSeconds }),
   };
 }
 
@@ -112,7 +111,7 @@ export function transitionPopupState(state: PopupState, signal: BrainSignal): Po
     case "lock.blocked": {
       const blockedReason = typeof signal.payload.blockedReason === "string"
         ? signal.payload.blockedReason
-        : "property-lock";
+        : "locked";
       const lockBanner = parseLockBanner(signal.payload.banner);
       return state.name === "locked"
         ? { ...base, projectionBlockedReason: blockedReason, lockBanner }

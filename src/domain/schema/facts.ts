@@ -4,6 +4,31 @@ import { RenderModeSchema, SiteIdSchema } from "./property";
 
 export const LockRoleSchema = z.enum(["unknown", "editor", "passive"]);
 
+/** Stable lock vocabulary shared across realms. These values describe what the
+ *  lock is doing; each surface owns the words it shows for them. */
+export const LockReasonSchema = z.enum([
+  "extension-context-invalidated",
+  "connecting",
+  "transfer",
+  "disconnect-warning",
+  "takeover-suggested",
+  "editor",
+  "locked",
+  "not-configured",
+  "not-candidate",
+  "signed-out",
+  "unavailable",
+]);
+
+export const LockBannerVocabularySchema = z.object({
+  visible: z.boolean(),
+  reason: LockReasonSchema,
+  countdownSeconds: z.number().int().nonnegative().optional(),
+  editorName: z.string().optional(),
+  fromName: z.string().optional(),
+  toName: z.string().optional(),
+}).strict();
+
 const RunSelectorsSchema = z.object({
   exclusionSelectors: z.array(z.string()),
   inclusionSelectors: z.array(z.string()),
@@ -34,12 +59,8 @@ export const TabFactsSchema = z.object({
   inspectionPending: z.boolean().optional(),
   lockRole: LockRoleSchema.default("unknown"),
   lockCanEdit: z.boolean().optional(),
-  lockBlockedReason: z.string().optional(),
-  lockBanner: z.object({
-    visible: z.boolean(),
-    text: z.string(),
-    countdownSeconds: z.number().int().nonnegative().optional(),
-  }).optional(),
+  lockBlockedReason: LockReasonSchema.optional(),
+  lockBanner: LockBannerVocabularySchema.optional(),
   configPresent: z.boolean().default(false),
   reconciliationPending: z.boolean().default(false),
   reconciliationReason: z.string().optional(),
@@ -47,4 +68,6 @@ export const TabFactsSchema = z.object({
 });
 
 export type LockRole = z.infer<typeof LockRoleSchema>;
+export type LockReason = z.infer<typeof LockReasonSchema>;
+export type LockBannerVocabulary = z.infer<typeof LockBannerVocabularySchema>;
 export type TabFacts = z.infer<typeof TabFactsSchema>;

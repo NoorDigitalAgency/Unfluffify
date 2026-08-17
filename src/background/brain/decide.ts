@@ -136,8 +136,8 @@ export function decideSignals(prev: TabFacts | null, next: TabFacts): readonly S
       cause: "property-lock",
       payload: {
         pageUrl,
-        blockedReason: next.lockBlockedReason ?? "property-lock",
-        banner: next.lockBanner ?? { visible: true, text: "Property locked" },
+        blockedReason: next.lockBlockedReason ?? "locked",
+        banner: next.lockBanner ?? { visible: true, reason: "locked" },
       },
     });
   }

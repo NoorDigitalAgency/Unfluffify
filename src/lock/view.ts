@@ -1,31 +1,37 @@
 import type { PropertyLockState } from "./reducer";
+import type { LockReason } from "../domain/schema/facts";
 
 export type PropertyLockView = Readonly<{
   bannerVisible: boolean;
-  text: string;
+  reason: LockReason;
   canEdit: boolean;
   countdownSeconds?: number;
+  editorName?: string;
+  fromName?: string;
+  toName?: string;
 }>;
 
 export function projectPropertyLockView(state: PropertyLockState): PropertyLockView {
   if (state.terminal) {
-    return { bannerVisible: true, text: "Extension context invalidated", canEdit: false };
+    return { bannerVisible: true, reason: "extension-context-invalidated", canEdit: false };
   }
   if (state.state === "unlocked" && state.role === "unknown") {
-    return { bannerVisible: true, text: "Property lock connecting", canEdit: false };
+    return { bannerVisible: true, reason: "connecting", canEdit: false };
   }
   if (state.state === "transfer" && state.transfer) {
     return {
       bannerVisible: true,
-      text: `Editing is being transferred from ${state.transfer.fromName} to ${state.transfer.toName}`,
+      reason: "transfer",
       canEdit: false,
       countdownSeconds: state.timings.secondsRemaining,
+      fromName: state.transfer.fromName,
+      toName: state.transfer.toName,
     };
   }
   if (state.state === "disconnect_warning") {
     return {
       bannerVisible: true,
-      text: "Connection lost; editor role may be released",
+      reason: "disconnect-warning",
       canEdit: false,
       countdownSeconds: state.timings.secondsRemaining,
     };
@@ -33,18 +39,20 @@ export function projectPropertyLockView(state: PropertyLockState): PropertyLockV
   if (state.takeoverSuggestion?.fromName) {
     return {
       bannerVisible: true,
-      text: `${state.takeoverSuggestion.fromName} wants to take over editing`,
+      reason: "takeover-suggested",
       canEdit: false,
       countdownSeconds: state.timings.secondsRemaining,
+      fromName: state.takeoverSuggestion.fromName,
     };
   }
   if (state.role === "editor") {
-    return { bannerVisible: false, text: "", canEdit: true };
+    return { bannerVisible: false, reason: "editor", canEdit: true };
   }
   return {
     bannerVisible: true,
-    text: state.editorName ? `Locked by ${state.editorName}` : "Property locked",
+    reason: "locked",
     canEdit: false,
     countdownSeconds: state.timings.secondsRemaining,
+    ...(state.editorName ? { editorName: state.editorName } : {}),
   };
 }

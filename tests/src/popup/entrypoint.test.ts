@@ -215,7 +215,7 @@ function makeRuntime(handler: (frame: BusFrame) => Promise<unknown> | unknown) {
           lockRole: "editor",
           configPresent: true,
           canEdit: true,
-          blockedReason: "",
+          blockedReason: "editor",
           authority: {
             environmentKey: "example.com",
             editorSessionId: "editor-1",
@@ -223,7 +223,7 @@ function makeRuntime(handler: (frame: BusFrame) => Promise<unknown> | unknown) {
             propertyRevision: 4,
             feedRevision: 2,
           },
-          lockBanner: { visible: false, text: "" },
+          lockBanner: { visible: false, reason: "editor" },
         });
       }
       if (frame.name === "emulation.apply") {

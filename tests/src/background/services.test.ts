@@ -433,7 +433,7 @@ describe("rewrite background services", () => {
     });
     expect(directive).toMatchObject({
       status: "unavailable",
-      lockBanner: { text: "Property lock unavailable" },
+      lockBanner: { reason: "unavailable" },
     });
   });
 
@@ -471,13 +471,13 @@ describe("rewrite background services", () => {
     expect(outOfScope).toMatchObject({
       status: "not_candidate",
       siteId: null,
-      lockBanner: { visible: true, text: "Not a managed property" },
+      lockBanner: { visible: true, reason: "not-candidate" },
     });
 
     const offline = await createPropertyLockRuntime({ services: unavailable }).directive(request);
     expect(offline).toMatchObject({
       status: "unavailable",
-      lockBanner: { visible: true, text: "Property lock unavailable" },
+      lockBanner: { visible: true, reason: "unavailable" },
     });
   });
 
@@ -507,7 +507,7 @@ describe("rewrite background services", () => {
       status: "signed_out",
       siteId: null,
       lockRole: "unknown",
-      lockBanner: { visible: true, text: "Sign in to use the property lock" },
+      lockBanner: { visible: true, reason: "signed-out" },
     });
     // Nothing was asked and no socket was opened with an empty token.
     expect(requests).toEqual([]);

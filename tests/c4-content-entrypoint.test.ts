@@ -53,9 +53,9 @@ async function applyLockState(
     configPresent: true,
     lockRole: "editor",
     canEdit: true,
-    blockedReason: "",
+    blockedReason: "editor",
     ...patch,
-    banner: { visible: false, text: "", ...banner },
+    banner: { visible: false, reason: "editor", ...banner },
   });
 }
 
@@ -319,8 +319,8 @@ describe("C4 rewrite content entrypoints", () => {
     expect(clean).toEqual({ ok: true, data: { ok: true, active: true, dirty: false, tree: "rewrite" } });
     await applyLockState(listener, {
       canEdit: false,
-      blockedReason: "post_ai",
-      banner: { visible: false, text: "Post AI" },
+      blockedReason: "locked",
+      banner: { visible: false, reason: "locked" },
     });
     await expect(dispatchContentCommand(listener, "resetContentMain")).resolves.toMatchObject({
       ok: true,
@@ -580,18 +580,24 @@ describe("C4 rewrite content entrypoints", () => {
     const configBlocked = await applyLockState(listener, {
       configPresent: false,
       canEdit: false,
-      blockedReason: "config-missing",
-      banner: { visible: true, text: "Config missing" },
+      blockedReason: "not-configured",
+      banner: { visible: true, reason: "not-configured" },
     });
     expect(configBlocked).toMatchObject({ ok: true, data: { ok: true } });
     expect(elements.some((element) => element.attributes["data-uf-content-curtain"] === "true")).toBe(true);
     expect(elements.some((element) => element.attributes["data-uf-content-banner"] === "true")).toBe(true);
+    expect(elements.some((element) => element.textContent === "Property lock not configured")).toBe(true);
     expect(await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/page" })).toMatchObject({
       ok: false,
       failure: { code: "config-missing" },
     });
 
-    await applyLockState(listener, { lockRole: "passive", canEdit: false, blockedReason: "property-lock" });
+    await applyLockState(listener, {
+      lockRole: "passive",
+      canEdit: false,
+      blockedReason: "locked",
+      banner: { visible: true, reason: "locked" },
+    });
     expect(await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/page" })).toMatchObject({
       ok: false,
       failure: { code: "property-lock" },

@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-import { TabFactsSchema, type TabFacts } from "../../domain/schema/facts";
+import {
+  LockBannerVocabularySchema,
+  LockReasonSchema,
+  TabFactsSchema,
+  type TabFacts,
+} from "../../domain/schema/facts";
 
 export const BrainSensationSourceSchema = z.enum(["background", "content", "popup", "page"]);
 
@@ -32,12 +37,8 @@ export const TabFactsPatchSchema = z.object({
   inspectionPending: z.boolean().optional(),
   lockRole: z.enum(["unknown", "editor", "passive"]).optional(),
   lockCanEdit: z.boolean().optional(),
-  lockBlockedReason: z.string().optional(),
-  lockBanner: z.object({
-    visible: z.boolean(),
-    text: z.string(),
-    countdownSeconds: z.number().int().nonnegative().optional(),
-  }).optional(),
+  lockBlockedReason: LockReasonSchema.optional(),
+  lockBanner: LockBannerVocabularySchema.optional(),
   configPresent: z.boolean().optional(),
   reconciliationPending: z.boolean().optional(),
   reconciliationReason: z.string().optional(),

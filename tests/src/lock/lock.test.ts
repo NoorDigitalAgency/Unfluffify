@@ -111,7 +111,7 @@ describe("P9 property-lock client", () => {
       state: "unlocked",
       timings: {},
       terminal: false,
-    })).toEqual({ bannerVisible: true, text: "Property lock connecting", canEdit: false });
+    })).toEqual({ bannerVisible: true, reason: "connecting", canEdit: false });
   });
 
   it("combines websocket and independent HTTP reachability", () => {
@@ -160,9 +160,10 @@ describe("P9 property-lock client", () => {
     expect(JSON.parse(ws.sent.at(-1) ?? "{}")).toMatchObject({ type: "take_lock", clientId: "backend-1" });
     expect(projectPropertyLockView(client.state())).toEqual({
       bannerVisible: true,
-      text: "Locked by Other",
+      reason: "locked",
       canEdit: false,
       countdownSeconds: 60,
+      editorName: "Other",
     });
     ws.emit("message", JSON.stringify({
       type: "lock_state",
@@ -209,12 +210,15 @@ describe("P9 property-lock client", () => {
     ws.emit("message", JSON.stringify({ type: "disconnect_warning", reason: "network", secondsRemaining: 70 }));
     expect(projectPropertyLockView(client.state())).toEqual({
       bannerVisible: true,
-      text: "Connection lost; editor role may be released",
+      reason: "disconnect-warning",
       canEdit: false,
       countdownSeconds: 70,
     });
     ws.emit("message", JSON.stringify({ type: "takeover_suggestion", suggestionId: "s1", fromName: "Other" }));
-    expect(projectPropertyLockView(client.state()).text).toBe("Other wants to take over editing");
+    expect(projectPropertyLockView(client.state())).toMatchObject({
+      reason: "takeover-suggested",
+      fromName: "Other",
+    });
     ws.emit("message", JSON.stringify({ type: "suggestion_pending", suggestionId: "s1" }));
     expect(client.state().suggestionPending).toBe(true);
     ws.emit("message", JSON.stringify({ type: "suggestion_response", suggestionId: "s1" }));
@@ -225,9 +229,11 @@ describe("P9 property-lock client", () => {
     ws.emit("message", JSON.stringify({ type: "transfer_countdown", fromName: "A", toName: "B", secondsRemaining: 12 }));
     expect(projectPropertyLockView(client.state())).toEqual({
       bannerVisible: true,
-      text: "Editing is being transferred from A to B",
+      reason: "transfer",
       canEdit: false,
       countdownSeconds: 12,
+      fromName: "A",
+      toName: "B",
     });
     expect(states.length).toBeGreaterThan(5);
   });
