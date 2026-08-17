@@ -363,7 +363,9 @@ describe("rewrite popup entrypoint", () => {
       () => runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "lock.action"),
       "lock action dispatch",
     );
-    expect(window.confirm).toHaveBeenCalled();
+    // App dispatches this callback only after its inline confirmation; the
+    // entrypoint must not open a blocking native dialog.
+    expect(window.confirm).not.toHaveBeenCalled();
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "lock.action",
       target: "background",

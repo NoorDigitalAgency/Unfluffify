@@ -143,7 +143,8 @@ describe("popup App surface", () => {
     const markup = renderApp(CONTINUE_LOCKED);
 
     expect(markup).toContain('id="lock-continue-here"');
-    expect(markup).toContain("Continue here anyway");
+    expect(markup).toContain("Continue here");
+    expect(markup).not.toContain("Discard and continue");
   });
 
   it("exposes the marking control ids the live QA and orchestration scripts drive", () => {

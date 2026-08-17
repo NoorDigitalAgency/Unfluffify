@@ -613,7 +613,9 @@ function ensureContentSurfaceStyles(): void {
   gap: 8px;
   pointer-events: auto;
 }
-[data-uf-content-lock-action="true"] {
+[data-uf-content-lock-action="true"],
+[data-uf-content-lock-confirm="discard"],
+[data-uf-content-lock-confirm-cancel="true"] {
   min-height: 32px;
   padding: 6px 10px;
   border: 1px solid currentColor;
@@ -756,6 +758,14 @@ function setContentInputBlocked(blocked: boolean, reason: string): void {
     return;
   }
   const blockInput = (event: Event): void => {
+    const target = event.target;
+    if (
+      target &&
+      contentSurfaceRoot &&
+      (target === contentSurfaceRoot || contentSurfaceRoot.contains(target as Node))
+    ) {
+      return;
+    }
     if (event.cancelable !== false) {
       event.preventDefault();
     }
@@ -872,10 +882,34 @@ function renderContentSurface(): void {
         button.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
-          if (
-            action.confirmDiscard &&
-            !window.confirm("Continuing will discard unsaved work in the current editor session. Continue?")
-          ) {
+          if (action.confirmDiscard) {
+            actions.replaceChildren();
+            const prompt = document.createElement("span");
+            prompt.setAttribute("role", "alert");
+            prompt.setAttribute("data-uf-content-lock-confirmation", "discard");
+            prompt.textContent = "Discard unsaved work in the current editor session?";
+            const confirm = document.createElement("button");
+            confirm.type = "button";
+            confirm.setAttribute("data-uf-content-lock-confirm", "discard");
+            confirm.textContent = "Discard and continue";
+            confirm.addEventListener("click", (confirmEvent) => {
+              confirmEvent.preventDefault();
+              confirmEvent.stopPropagation();
+              void getContentBus().request("lock.action", action, { target: "background" });
+            });
+            const cancel = document.createElement("button");
+            cancel.type = "button";
+            cancel.setAttribute("data-uf-content-lock-confirm-cancel", "true");
+            cancel.textContent = "Cancel";
+            cancel.addEventListener("click", (cancelEvent) => {
+              cancelEvent.preventDefault();
+              cancelEvent.stopPropagation();
+              lastContentSurfaceSignature = "";
+              renderContentSurface();
+            });
+            actions.appendChild(prompt);
+            actions.appendChild(confirm);
+            actions.appendChild(cancel);
             return;
           }
           void getContentBus().request("lock.action", action, { target: "background" });

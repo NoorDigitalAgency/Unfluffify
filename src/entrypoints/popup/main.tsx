@@ -1136,12 +1136,6 @@ async function dispatchLockAction(action: LockAction): Promise<void> {
   if (!context) {
     return;
   }
-  if (
-    action.confirmDiscard &&
-    !window.confirm("Continuing will discard unsaved work in the current editor session. Continue?")
-  ) {
-    return;
-  }
   await getPopupBus().request("lock.action", { ...action, tabId: context.tabId }, { target: "background" });
   await refreshPopup();
 }

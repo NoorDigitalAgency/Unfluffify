@@ -455,6 +455,19 @@ button.property-lock__button {
   font-size: 11px;
 }
 
+.property-lock__actions,
+.property-lock__confirmation {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.property-lock__confirmation > span {
+  max-width: 180px;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
 .header-actions {
   position: relative;
   margin-left: auto;

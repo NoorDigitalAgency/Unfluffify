@@ -438,6 +438,30 @@ export function App({
   onThemeModeChange?: (mode: ThemeMode) => void;
 }>) {
   const [themeMenuOpen, setThemeMenuOpen] = React.useState(false);
+  const [pendingLockAction, setPendingLockAction] = React.useState<LockAction | null>(null);
+  const lockActions = presentation.lockBanner.actions ?? [];
+  const pendingLockActionIsCurrent = pendingLockAction !== null && lockActions.some((action) =>
+    action.kind === pendingLockAction.kind && action.suggestionId === pendingLockAction.suggestionId
+  );
+  React.useEffect(() => {
+    if (pendingLockAction && !pendingLockActionIsCurrent) {
+      setPendingLockAction(null);
+    }
+  }, [pendingLockAction, pendingLockActionIsCurrent]);
+  const requestLockAction = (action: LockAction): void => {
+    if (action.confirmDiscard) {
+      setPendingLockAction(action);
+      return;
+    }
+    onLockAction?.(action);
+  };
+  const confirmLockAction = (): void => {
+    const action = pendingLockAction;
+    setPendingLockAction(null);
+    if (action) {
+      onLockAction?.(action);
+    }
+  };
   const buttons = resolvePopupActionButtons(presentation, {
     runAi: Boolean(onRunAi),
     save: Boolean(onSave),
@@ -682,18 +706,39 @@ export function App({
           </span>
         </span>
         <span className="property-lock__actions">
-          {(presentation.lockBanner.actions ?? []).map((action) => (
-            <button
-              key={`${action.kind}:${action.suggestionId ?? ""}`}
-              id={`lock-${action.kind}`}
-              type="button"
-              className="property-lock__button"
-              disabled={!onLockAction}
-              onClick={() => onLockAction?.(action)}
-            >
-              {action.confirmDiscard ? `${LOCK_ACTION_LABEL[action.kind]} anyway` : LOCK_ACTION_LABEL[action.kind]}
-            </button>
-          ))}
+          {pendingLockActionIsCurrent ? (
+            <span className="property-lock__confirmation" role="alert" data-lock-confirmation="discard">
+              <span>Discard unsaved work in the current editor session?</span>
+              <button
+                id="lock-confirm-discard"
+                type="button"
+                className="property-lock__button"
+                disabled={!onLockAction}
+                onClick={confirmLockAction}
+              >
+                Discard and continue
+              </button>
+              <button
+                id="lock-cancel-discard"
+                type="button"
+                className="property-lock__button u-btn-secondary"
+                onClick={() => setPendingLockAction(null)}
+              >
+                Cancel
+              </button>
+            </span>
+          ) : lockActions.map((action) => (
+              <button
+                key={`${action.kind}:${action.suggestionId ?? ""}`}
+                id={`lock-${action.kind}`}
+                type="button"
+                className="property-lock__button"
+                disabled={!onLockAction}
+                onClick={() => requestLockAction(action)}
+              >
+                {LOCK_ACTION_LABEL[action.kind]}
+              </button>
+            ))}
           <button
             id="lock-refresh"
             type="button"

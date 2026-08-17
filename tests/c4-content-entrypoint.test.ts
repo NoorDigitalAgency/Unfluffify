@@ -808,6 +808,18 @@ describe("C4 rewrite content entrypoints", () => {
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),
     } as unknown as Event);
+    expect(sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({ name: "lock.action" }));
+    const inlineConfirmation = elements.find((element) =>
+      element.attributes["data-uf-content-lock-confirmation"] === "discard"
+    );
+    const confirmButton = elements.find((element) =>
+      element.attributes["data-uf-content-lock-confirm"] === "discard"
+    );
+    expect(inlineConfirmation?.textContent).toBe("Discard unsaved work in the current editor session?");
+    confirmButton?.listeners.get("click")?.({
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as Event);
     expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "lock.action",
       target: "background",
