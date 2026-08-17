@@ -298,7 +298,7 @@ versioned fixtures, but live acceptance waits for the corresponding H slice.
 | ☑ | **C4** | Todo + candidate badges from the background's last valid canonical feed: header `covered/actionable`; per-type `marked/1` uncapped; silent empty-type exclusion; conflict/removal suspension surfaces and 15s recovery checks. **Landed in `4c666969`.** | C3, H4 | `4/6`, `6/6`, `0/1`, `1/1`, `3/1` states/color semantics pass; empty vs error is distinct; candidate return yields Ready-to-save without auto-write. |
 | ☑ | **C5** | Lynx checklist + Hub `/publish`: fail-closed authority/`cssInfo` gate, one saved mark per non-empty type, publication unknown/retry UI, authoritative response adoption. **Landed in `14095440`.** | C4, H5 | Client never calls GraphQL publication directly; submitted fingerprint changes only after definitive Hub success; empty-only feed cannot publish. |
 | ☑ | **C6** | Preview surface: emit `preview.exit.requested` / `preview.exited`; add the exit control. Today preview is a **one-way door**. **Landed in `ae727d1f`.** | B3 | Entering and exiting preview returns to the origin mode without dirtying a draft (INV-6.10). |
-| ☐ | **C7** | Theme customization UI over the existing 16-theme token catalog (D4). | C1 | Theme selection persists and applies. |
+| ☑ | **C7** | Theme customization UI over the existing 16-theme token catalog (D4). **Landed in `52d1bc02`.** | C1 | Theme selection persists and applies. |
 
 ### Phase D — in-page visual parity
 
