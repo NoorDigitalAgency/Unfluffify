@@ -99,7 +99,7 @@ export function createPropertyLockRuntime(input: Readonly<{
     canEdit: boolean;
     blockedReason: LockReason;
     lockBanner: LockBannerVocabulary;
-  }>) => void;
+  }>) => Promise<void> | void;
 }>) {
   const clients = new Map<string, LockClient>();
   const pageUrls = new Map<string, string>();
@@ -114,19 +114,17 @@ export function createPropertyLockRuntime(input: Readonly<{
     tabId: number,
     pageUrl: string,
     state: ReturnType<typeof lockStateFromState>,
-  ): void => {
-    input.observeLockFacts?.({
-      tabId,
-      siteId: state.siteId,
-      baseUrl: state.baseUrl,
-      pageUrl,
-      lockRole: state.lockRole,
-      configPresent: state.configPresent,
-      canEdit: state.canEdit,
-      blockedReason: state.blockedReason,
-      lockBanner: state.lockBanner,
-    });
-  };
+  ): Promise<void> | void => input.observeLockFacts?.({
+    tabId,
+    siteId: state.siteId,
+    baseUrl: state.baseUrl,
+    pageUrl,
+    lockRole: state.lockRole,
+    configPresent: state.configPresent,
+    canEdit: state.canEdit,
+    blockedReason: state.blockedReason,
+    lockBanner: state.lockBanner,
+  });
 
   const publishLockState = async (tabId: number, state: ReturnType<typeof lockStateFromState>): Promise<void> => {
     if (!input.tabs) {
@@ -205,8 +203,18 @@ export function createPropertyLockRuntime(input: Readonly<{
         }
         const pageUrl = pageUrls.get(key) ?? request.pageUrl;
         const response = lockStateFromState({ pageUrl, baseUrl, siteId, state, status: "ok" });
-        observeLockState(request.tabId, pageUrl, response);
-        publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
+        const observation = observeLockState(request.tabId, pageUrl, response);
+        if (observation) {
+          void observation.then(
+            () => publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response),
+            (error: unknown) => {
+              console.error("[Unfluffify][rewrite] Unable to observe property-lock facts", error);
+              publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
+            },
+          );
+        } else {
+          publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
+        }
       },
     });
     clients.set(key, client);
@@ -225,7 +233,7 @@ export function createPropertyLockRuntime(input: Readonly<{
       if (!await input.services.accounts.hasToken()) {
         releaseActiveForTab(request.tabId);
         const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: null, state: null, status: "signed_out" });
-        observeLockState(request.tabId, request.pageUrl, response);
+        await observeLockState(request.tabId, request.pageUrl, response);
         publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
         return response;
       }
@@ -245,14 +253,14 @@ export function createPropertyLockRuntime(input: Readonly<{
       if (resolvedSite.status === "network_error") {
         activeKeyByTab.delete(request.tabId);
         const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: null, state: null, status: "unavailable" });
-        observeLockState(request.tabId, request.pageUrl, response);
+        await observeLockState(request.tabId, request.pageUrl, response);
         publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
         return response;
       }
       if (resolvedSite.siteId === null) {
         releaseActiveForTab(request.tabId);
         const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: null, state: null, status: "not_candidate" });
-        observeLockState(request.tabId, request.pageUrl, response);
+        await observeLockState(request.tabId, request.pageUrl, response);
         publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
         return response;
       }
@@ -275,7 +283,7 @@ export function createPropertyLockRuntime(input: Readonly<{
       client.heartbeat();
       const state = client.state();
       const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: resolvedSite.siteId, state, status: "ok" });
-      observeLockState(request.tabId, request.pageUrl, response);
+      await observeLockState(request.tabId, request.pageUrl, response);
       publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
       return response;
     },

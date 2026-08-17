@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createRewriteBrain } from "../../../src/background/index";
 import { decideSignals } from "../../../src/background/brain/decide";
@@ -8,6 +8,7 @@ import { createSignalLog } from "../../../src/background/brain/signals";
 import { createKeepAliveController } from "../../../src/background/keepalive";
 import { persistDurableFacts, reDeriveVolatile, rehydrateDurableFacts } from "../../../src/background/persistence";
 import { createRewriteBrainRuntime } from "../../../src/background/rewrite-brain-runtime";
+import { createSignalCursor } from "../../../src/popup/signal-cursor";
 import { createMemoryStore, createTabStateRepo } from "../../../src/storage";
 
 describe("P3 background brain", () => {
@@ -300,7 +301,59 @@ describe("P3 background brain", () => {
     expect(brain.snapshot()).toMatchObject({ lastSignalSeq: 10, candidate: true });
   });
 
-  it("serves consumed-once cursor requests through the mounted runtime", () => {
+  it("rehydrates the durable head once before the first post-restart signal", async () => {
+    const repo = createTabStateRepo(createMemoryStore());
+    const firstRuntime = createRewriteBrainRuntime({ addMessageListener() {} });
+    const first = await firstRuntime.handle({
+      type: "uf.rewriteBrain.observe",
+      sensation: {
+        tabId: 9,
+        source: "popup",
+        reason: "activate",
+        facts: {
+          tabId: 9,
+          pageUrl: "https://example.com/page",
+          baseUrl: "https://example.com",
+          markingEnabled: true,
+        },
+      },
+    }) as { signals: Array<{ seq: number }> };
+    const firstBrain = await firstRuntime.getBrain(9);
+    const durable = firstBrain.snapshot();
+    expect(durable).not.toBeNull();
+    if (!durable) {
+      throw new Error("first runtime did not produce durable facts");
+    }
+    await persistDurableFacts(repo, durable, 10);
+
+    const cursor = createSignalCursor();
+    expect(cursor.claim(first.signals[0].seq)).toBe(true);
+    const rehydrate = vi.fn((tabId: number) => rehydrateDurableFacts(repo, tabId));
+    const restartedRuntime = createRewriteBrainRuntime({
+      addMessageListener() {},
+      rehydrateDurableFacts: rehydrate,
+    });
+    const [resumed, resumedBrain] = await Promise.all([
+      restartedRuntime.handle({
+        type: "uf.rewriteBrain.observe",
+        sensation: {
+          tabId: 9,
+          source: "popup",
+          reason: "deactivate",
+          facts: { tabId: 9, markingEnabled: false },
+        },
+      }) as Promise<{ signals: Array<{ seq: number }> }>,
+      restartedRuntime.getBrain(9),
+    ]);
+
+    expect(rehydrate).toHaveBeenCalledTimes(1);
+    expect(resumed.signals[0].seq).toBe(2);
+    expect(resumedBrain.snapshot()).toMatchObject({ lastSignalSeq: 2 });
+    expect(cursor.claim(resumed.signals[0].seq)).toBe(true);
+    expect(cursor.consumedThrough()).toBe(2);
+  });
+
+  it("serves consumed-once cursor requests through the mounted runtime", async () => {
     let listener: ((message: unknown) => unknown) | null = null;
     const alarms: string[] = [];
     const runtime = createRewriteBrainRuntime({
@@ -319,15 +372,14 @@ describe("P3 background brain", () => {
     });
     runtime.start();
 
-    const call = (message: unknown): unknown => {
-      let response: unknown;
-      listener?.(message, null, (value: unknown) => {
-        response = value;
+    const call = async (message: unknown): Promise<unknown> => await new Promise((resolve) => {
+      const keepOpen = listener?.(message, null, (value: unknown) => {
+        resolve(value);
       });
-      return response;
-    };
+      expect(keepOpen).toBe(true);
+    });
 
-    const observed = call({
+    const observed = await call({
       type: "uf.rewriteBrain.observe",
       sensation: {
         tabId: 1,
@@ -337,16 +389,16 @@ describe("P3 background brain", () => {
       },
     });
     expect(observed).toMatchObject({ ok: true, signals: [{ seq: 1, name: "marking.enabled" }] });
-    expect(call({ type: "uf.rewriteBrain.pull", tabId: 1, afterSeq: 0 })).toMatchObject({
+    expect(await call({ type: "uf.rewriteBrain.pull", tabId: 1, afterSeq: 0 })).toMatchObject({
       ok: true,
       signals: [{ seq: 1, name: "marking.enabled" }],
     });
-    expect(call({ type: "uf.rewriteBrain.consume", tabId: 1, organId: "popup", seq: 1 })).toEqual({ ok: true });
-    expect(call({ type: "uf.rewriteBrain.pull", tabId: 1, afterSeq: 0, organId: "popup" })).toEqual({
+    expect(await call({ type: "uf.rewriteBrain.consume", tabId: 1, organId: "popup", seq: 1 })).toEqual({ ok: true });
+    expect(await call({ type: "uf.rewriteBrain.pull", tabId: 1, afterSeq: 0, organId: "popup" })).toEqual({
       ok: true,
       signals: [],
     });
-    expect(call({ type: "uf.rewriteBrain.snapshot", tabId: 1 })).toMatchObject({
+    expect(await call({ type: "uf.rewriteBrain.snapshot", tabId: 1 })).toMatchObject({
       ok: true,
       projection: { signalHead: 1 },
     });
@@ -354,7 +406,7 @@ describe("P3 background brain", () => {
     expect(alarms[0]).toBe("clear:uf-rewrite-brain-keepalive");
   });
 
-  it("mounts runtime listeners through sendResponse", () => {
+  it("mounts runtime listeners through sendResponse", async () => {
     let mounted: ((message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown) | null = null;
     const runtime = createRewriteBrainRuntime({
       addMessageListener(listener) {
@@ -362,22 +414,20 @@ describe("P3 background brain", () => {
       },
     });
     runtime.start();
-    let response: unknown = null;
-
-    const keepChannelOpen = mounted?.({
-      type: "uf.rewriteBrain.snapshot",
-      tabId: 4,
-    }, null, (value) => {
-      response = value;
+    const response = await new Promise<unknown>((resolve) => {
+      const keepChannelOpen = mounted?.({
+        type: "uf.rewriteBrain.snapshot",
+        tabId: 4,
+      }, null, resolve);
+      expect(keepChannelOpen).toBe(true);
     });
 
-    expect(keepChannelOpen).toBe(true);
     expect(response).toMatchObject({ ok: true });
   });
 
-  it("treats an operator toggle as the marking change, not the row count", () => {
+  it("treats an operator toggle as the marking change, not the row count", async () => {
     const runtime = createRewriteBrainRuntime({ addMessageListener() {} });
-    const observe = (facts: Record<string, unknown>) => runtime.handle({
+    const observe = async (facts: Record<string, unknown>) => await runtime.handle({
       type: "uf.rewriteBrain.observe",
       tabId: 7,
       sensation: {
@@ -389,15 +439,15 @@ describe("P3 background brain", () => {
     });
 
     // Arriving at the session emits nothing about markings.
-    const first = observe({ markingToggleSeq: 0 });
+    const first = await observe({ markingToggleSeq: 0 }) as { signals?: Array<{ name: string }> };
     expect((first.signals ?? []).map((signal: { name?: string }) => signal.name)).not.toContain("markings.changed");
 
     // One toggle, one change.
-    const second = observe({ markingToggleSeq: 1 });
+    const second = await observe({ markingToggleSeq: 1 }) as { signals?: Array<{ name: string }> };
     expect((second.signals ?? []).map((signal: { name?: string }) => signal.name)).toContain("markings.changed");
 
     // The same count again is not a new change, however much the page mutated.
-    const third = observe({ markingToggleSeq: 1 });
+    const third = await observe({ markingToggleSeq: 1 }) as { signals?: Array<{ name: string }> };
     expect((third.signals ?? []).map((signal: { name?: string }) => signal.name)).not.toContain("markings.changed");
   });
 

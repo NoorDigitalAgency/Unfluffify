@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createKeepAliveController } from "./keepalive";
 import { createRewriteBrain } from "./rewrite-brain";
 import { BrainSensationSchema } from "./brain/fold";
+import type { TabFacts } from "../domain/schema/facts";
 
 const RuntimeRequestSchema = z.discriminatedUnion("type", [
   z.object({
@@ -34,10 +35,11 @@ export type RuntimeHost = Readonly<{
   createAlarm?: (name: string, info: { periodInMinutes: number }) => void | Promise<void>;
   clearAlarm?: (name: string) => void | Promise<void>;
   addAlarmListener?: (listener: (alarm: { name?: string }) => void) => void;
+  rehydrateDurableFacts?: (tabId: number) => Promise<TabFacts | null>;
 }>;
 
 export function createRewriteBrainRuntime(host: RuntimeHost) {
-  const brains = new Map<number, ReturnType<typeof createRewriteBrain>>();
+  const brains = new Map<number, Promise<ReturnType<typeof createRewriteBrain>>>();
   const keepAlive = createKeepAliveController({
     createAlarm: host.createAlarm,
     clearAlarm: host.clearAlarm,
@@ -45,42 +47,57 @@ export function createRewriteBrainRuntime(host: RuntimeHost) {
     holdMs: 30_000,
   });
 
-  const getBrain = (tabId: number): ReturnType<typeof createRewriteBrain> => {
-    let brain = brains.get(tabId);
-    if (!brain) {
-      brain = createRewriteBrain(tabId);
-      brains.set(tabId, brain);
+  /** One tab gets one construction promise. Concurrent first messages all wait
+   *  on the same durable read, so none can fold against an empty brain while a
+   *  sibling request is still restoring the prior signal head. */
+  const getBrain = (tabId: number): Promise<ReturnType<typeof createRewriteBrain>> => {
+    let pending = brains.get(tabId);
+    if (!pending) {
+      pending = (async () => createRewriteBrain(
+        tabId,
+        await host.rehydrateDurableFacts?.(tabId) ?? null,
+      ))();
+      brains.set(tabId, pending);
+      void pending.catch(() => {
+        if (brains.get(tabId) === pending) {
+          brains.delete(tabId);
+        }
+      });
     }
-    return brain;
+    return pending;
   };
 
-  const handle = (message: unknown, _sender?: unknown): unknown => {
+  const handle = (message: unknown, _sender?: unknown): Promise<unknown> | undefined => {
     const parsed = RuntimeRequestSchema.safeParse(message);
     if (!parsed.success) {
       return undefined;
     }
     const request = parsed.data;
-    if (request.type === "uf.rewriteBrain.observe") {
-      const release = keepAlive.acquire("observe");
-      try {
-        return { ok: true, signals: getBrain(request.sensation.tabId).observe(request.sensation) };
-      } finally {
-        release();
+    return (async () => {
+      if (request.type === "uf.rewriteBrain.observe") {
+        const release = keepAlive.acquire("observe");
+        try {
+          const brain = await getBrain(request.sensation.tabId);
+          return { ok: true, signals: brain.observe(request.sensation) };
+        } finally {
+          release();
+        }
       }
-    }
-    if (request.type === "uf.rewriteBrain.pull") {
-      return {
-        ok: true,
-        signals: request.organId
-          ? getBrain(request.tabId).pullForOrgan(request.organId, request.afterSeq)
-          : getBrain(request.tabId).pullSignals(request.afterSeq),
-      };
-    }
-    if (request.type === "uf.rewriteBrain.consume") {
-      getBrain(request.tabId).markConsumed(request.organId, request.seq);
-      return { ok: true };
-    }
-    return { ok: true, snapshot: getBrain(request.tabId).snapshot(), projection: getBrain(request.tabId).project() };
+      const brain = await getBrain(request.tabId);
+      if (request.type === "uf.rewriteBrain.pull") {
+        return {
+          ok: true,
+          signals: request.organId
+            ? brain.pullForOrgan(request.organId, request.afterSeq)
+            : brain.pullSignals(request.afterSeq),
+        };
+      }
+      if (request.type === "uf.rewriteBrain.consume") {
+        brain.markConsumed(request.organId, request.seq);
+        return { ok: true };
+      }
+      return { ok: true, snapshot: brain.snapshot(), projection: brain.project() };
+    })();
   };
 
   return {
@@ -92,7 +109,10 @@ export function createRewriteBrainRuntime(host: RuntimeHost) {
         if (result === undefined) {
           return undefined;
         }
-        sendResponse?.(result);
+        void result.then(
+          (response) => sendResponse?.(response),
+          () => sendResponse?.({ ok: false, error: "brain-rehydrate-failed" }),
+        );
         return true;
       });
     },

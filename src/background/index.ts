@@ -69,6 +69,7 @@ export function startRewriteBackground(): void {
   const services = createRewriteBackgroundServices();
   const runtime = createRewriteBrainRuntime({
     addMessageListener() {},
+    rehydrateDurableFacts: services.persistence.rehydrateDurableFacts,
     createAlarm(name, info) {
       api.alarms?.create(name, info);
     },
@@ -111,8 +112,8 @@ export function startRewriteBackground(): void {
   const lockRuntime = createPropertyLockRuntime({
     services,
     tabs: api.tabs,
-    observeLockFacts(facts) {
-      const brain = runtime.getBrain(facts.tabId);
+    async observeLockFacts(facts) {
+      const brain = await runtime.getBrain(facts.tabId);
       brain.observe({
         tabId: facts.tabId,
         source: "background",
@@ -131,26 +132,28 @@ export function startRewriteBackground(): void {
       });
       const snapshot = brain.snapshot();
       if (snapshot) {
-        void services.persistence.persistDurableFacts(snapshot);
+        await services.persistence.persistDurableFacts(snapshot);
       }
     },
   });
-  bus.onCommand("signals.pull", (request, meta) => {
+  bus.onCommand("signals.pull", async (request, meta) => {
     const tabId = request.tabId === 0 ? parseSenderTabId(meta.sourceInstance) ?? 0 : request.tabId;
+    const brain = await runtime.getBrain(tabId);
     return [...(request.organId
-      ? runtime.getBrain(tabId).pullForOrgan(request.organId, request.afterSeq)
-      : runtime.getBrain(tabId).pullSignals(request.afterSeq))];
+      ? brain.pullForOrgan(request.organId, request.afterSeq)
+      : brain.pullSignals(request.afterSeq))];
   });
-  bus.onCommand("signals.consume", (request, meta) => {
+  bus.onCommand("signals.consume", async (request, meta) => {
     const tabId = request.tabId === 0 ? parseSenderTabId(meta.sourceInstance) ?? 0 : request.tabId;
-    runtime.getBrain(tabId).markConsumed(request.organId, request.seq);
+    const brain = await runtime.getBrain(tabId);
+    brain.markConsumed(request.organId, request.seq);
     return { ok: true as const };
   });
-  bus.on("fact.reported", (envelope, meta) => {
+  bus.on("fact.reported", async (envelope, meta) => {
     const tabId = envelope.sensation.tabId === 0
       ? parseSenderTabId(meta.sourceInstance) ?? 0
       : envelope.sensation.tabId;
-    const brain = runtime.getBrain(tabId);
+    const brain = await runtime.getBrain(tabId);
     brain.observe({
       ...envelope.sensation,
       tabId,
@@ -161,7 +164,7 @@ export function startRewriteBackground(): void {
     });
     const snapshot = brain.snapshot();
     if (snapshot) {
-      void services.persistence.persistDurableFacts(snapshot);
+      await services.persistence.persistDurableFacts(snapshot);
     }
     const siteId = typeof envelope.sensation.facts.siteId === "number" ? envelope.sensation.facts.siteId : snapshot?.siteId ?? null;
     if (envelope.sensation.reason === "activity-ping" && siteId !== null) {
