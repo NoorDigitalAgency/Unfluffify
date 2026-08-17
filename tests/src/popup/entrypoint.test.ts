@@ -340,6 +340,37 @@ describe("rewrite popup entrypoint", () => {
     ].map((expected) => expect.objectContaining(expected)));
   });
 
+  it("routes lock banner actions through the background-owned transfer path", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = vi.fn();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const runtime = makeRuntime(async (message) => replyFrame(message, message.name === "lock.action"
+      ? { status: "ok" }
+      : []));
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: makeTabsSendMessage(() => ({ ok: true, active: false })) },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await waitFor(() => render.mock.calls.length > 0, "popup render");
+    render.mock.calls.at(-1)?.[0].props.onLockAction({
+      kind: "continue-here",
+      confirmDiscard: true,
+    });
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "lock.action"),
+      "lock action dispatch",
+    );
+    expect(window.confirm).toHaveBeenCalled();
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "lock.action",
+      target: "background",
+      payload: { kind: "continue-here", confirmDiscard: true, tabId: 77 },
+    }));
+  });
+
   it("loads, applies, persists, and live-syncs the global appearance", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     const render = vi.fn();
@@ -806,10 +837,10 @@ describe("rewrite popup entrypoint", () => {
 
     render.mock.calls.at(-1)?.[0].props.onSave();
     await flushEntrypointWork();
-    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
-      name: "lock.directive",
-      payload: expect.objectContaining({ hasUnsavedChanges: true }),
-    }));
+    expect(runtime.sendMessage.mock.calls
+      .map(([frame]) => frame)
+      .filter((frame) => frame.name === "lock.directive")
+      .every((frame) => !("hasUnsavedChanges" in frame.payload))).toBe(true);
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("deactivateContentMain", {}));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "config.save",

@@ -29,6 +29,7 @@ const FULL_HANDLERS = {
   onPreview: NOOP,
   onExitPreview: NOOP,
   onRefresh: NOOP,
+  onLockAction: NOOP,
   onSettingsChange: NOOP,
   onSettingsSave: NOOP,
   onCredentialsChange: NOOP,
@@ -128,7 +129,23 @@ const LOCKED: PopupState = {
   lockBanner: { visible: true, text: "Locked by Dana R.", countdownSeconds: 42 },
 };
 
+const CONTINUE_LOCKED: PopupState = {
+  ...LOCKED,
+  lockBanner: {
+    visible: true,
+    text: "Your other session is editing this property",
+    actions: [{ kind: "continue-here", confirmDiscard: true }],
+  },
+};
+
 describe("popup App surface", () => {
+  it("renders conservative same-user continuation controls", () => {
+    const markup = renderApp(CONTINUE_LOCKED);
+
+    expect(markup).toContain('id="lock-continue-here"');
+    expect(markup).toContain("Continue here anyway");
+  });
+
   it("exposes the marking control ids the live QA and orchestration scripts drive", () => {
     const markup = renderApp(SILENT);
     const silent = renderSilentView();

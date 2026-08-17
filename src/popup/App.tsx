@@ -6,6 +6,7 @@ import type { PopupPresentation } from "./organ/memory";
 import type { TodoCoverage } from "../domain/schema/todo";
 import type { PageContextResolution } from "../domain/schema/context";
 import type { PublicationChecklistGate } from "../domain/publication";
+import type { LockAction, LockActionKind } from "../domain/schema/facts";
 import {
   DEFAULT_POPUP_APPEARANCE,
   THEME_OPTIONS,
@@ -176,6 +177,14 @@ export const EMPTY_POPUP_CREDENTIALS_FORM: PopupCredentialsForm = {
 };
 
 export const RENDER_MODE_NOT_SET_REASON = "render-mode-not-set";
+
+const LOCK_ACTION_LABEL: Readonly<Record<LockActionKind, string>> = {
+  "continue-here": "Continue here",
+  "suggest-takeover": "Ask to take over",
+  "accept-takeover": "Accept takeover",
+  "reject-takeover": "Keep editing",
+  "take-over": "Take over",
+};
 
 export function resolvePopupActionButtons(presentation: PopupPresentation, availability: PopupActionAvailability) {
   // A submission carries the render mode, so guessing one would ship ground
@@ -370,6 +379,7 @@ export function App({
   onPreview,
   onExitPreview,
   onRefresh,
+  onLockAction,
   onSettingsChange,
   onSettingsSave,
   onCredentialsChange,
@@ -405,6 +415,7 @@ export function App({
   onPreview?: () => void;
   onExitPreview?: () => void;
   onRefresh?: () => void;
+  onLockAction?: (action: LockAction) => void;
   onSettingsChange?: (field: PopupSettingsField, value: string) => void;
   onSettingsSave?: () => void;
   onCredentialsChange?: (field: PopupCredentialsField, value: string) => void;
@@ -671,6 +682,18 @@ export function App({
           </span>
         </span>
         <span className="property-lock__actions">
+          {(presentation.lockBanner.actions ?? []).map((action) => (
+            <button
+              key={`${action.kind}:${action.suggestionId ?? ""}`}
+              id={`lock-${action.kind}`}
+              type="button"
+              className="property-lock__button"
+              disabled={!onLockAction}
+              onClick={() => onLockAction?.(action)}
+            >
+              {action.confirmDiscard ? `${LOCK_ACTION_LABEL[action.kind]} anyway` : LOCK_ACTION_LABEL[action.kind]}
+            </button>
+          ))}
           <button
             id="lock-refresh"
             type="button"

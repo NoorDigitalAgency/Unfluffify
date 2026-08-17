@@ -246,6 +246,9 @@ export function startRewriteBackground(): void {
     const snapshot = brain.snapshot();
     if (snapshot) {
       await services.persistence.persistDurableFacts(snapshot);
+      // This fact belongs to the tab, not the popup. Publishing it here keeps
+      // heartbeats accurate while every UI surface is closed.
+      lockRuntime.unsavedChanged(tabId, snapshot.hasUnsavedWork);
     }
     const siteId = typeof envelope.sensation.facts.siteId === "number" ? envelope.sensation.facts.siteId : snapshot?.siteId ?? null;
     if (envelope.sensation.reason === "activity-ping" && siteId !== null) {
@@ -264,6 +267,11 @@ export function startRewriteBackground(): void {
   bus.onCommand("lock.directive", async (request) => {
     await awaitTabTermination(request.tabId);
     return await lockRuntime.directive(request);
+  });
+  bus.onCommand("lock.action", async (request, meta) => {
+    const tabId = request.tabId ?? parseSenderTabId(meta.sourceInstance) ?? 0;
+    await awaitTabTermination(tabId);
+    return lockRuntime.action({ ...request, tabId });
   });
   bus.onCommand("emulation.apply", (request) => renderEmulation.apply(request.tabId, request.mode, request.scale, request.allowReload === true));
   bus.onCommand("emulation.clear", async (request) => {

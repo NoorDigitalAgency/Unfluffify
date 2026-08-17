@@ -19,7 +19,8 @@ export type PropertyLockState = Readonly<{
   acceptedSuggestionId?: string;
   transfer?: Readonly<{ fromName: string; toName: string }>;
   canContinueHere?: boolean;
-  otherTabHasUnsavedChanges?: boolean;
+  isSameUserEditor?: boolean;
+  otherTabHasUnsavedWork?: boolean;
   environmentKey?: string;
   editorSessionId?: string;
   lockToken?: string;
@@ -71,8 +72,13 @@ export function reducePropertyLockState(
       suggestionResponseId: undefined,
       acceptedSuggestionId: undefined,
       transfer: undefined,
-      canContinueHere: typeof message.canContinueHere === "boolean" ? message.canContinueHere : state.canContinueHere,
-      otherTabHasUnsavedChanges: typeof message.otherTabHasUnsavedChanges === "boolean" ? message.otherTabHasUnsavedChanges : state.otherTabHasUnsavedChanges,
+      canContinueHere: message.canContinueHere === true,
+      isSameUserEditor: message.isSameUserEditor === true,
+      // Missing status is intentionally unknown, never an inherited clean bit.
+      // The view treats unknown as dirty before a destructive same-user transfer.
+      otherTabHasUnsavedWork: typeof message.otherTabHasUnsavedWork === "boolean"
+        ? message.otherTabHasUnsavedWork
+        : undefined,
       // Fence authority belongs to this exact lock_state. Never retain a token
       // from an older grant when the backend omits it after loss or transfer.
       environmentKey: typeof message.environmentKey === "string" ? message.environmentKey : undefined,

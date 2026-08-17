@@ -34,6 +34,7 @@ export const TabFactsPatchSchema = z.object({
   previewExitRequested: z.boolean().optional(),
   savedSeq: z.number().int().nonnegative().optional(),
   discardedSeq: z.number().int().nonnegative().optional(),
+  hasUnsavedWork: z.boolean().optional(),
   inspectionPending: z.boolean().optional(),
   lockRole: z.enum(["unknown", "editor", "passive"]).optional(),
   lockCanEdit: z.boolean().optional(),
@@ -66,6 +67,18 @@ export function fold(prevFacts: TabFacts | null, sensation: BrainSensation): Tab
     typeof parsed.facts.pageUrl === "string" &&
     typeof prev.pageUrl === "string" &&
     parsed.facts.pageUrl !== prev.pageUrl;
+  const markingExited = prev.markingEnabled === true && parsed.facts.markingEnabled === false;
+  const saved = (parsed.facts.savedSeq ?? prev.savedSeq ?? 0) > (prev.savedSeq ?? 0);
+  const discarded = (parsed.facts.discardedSeq ?? prev.discardedSeq ?? 0) > (prev.discardedSeq ?? 0);
+  const becameDirty = (parsed.facts.markingToggleSeq ?? 0) > (prev.markingToggleSeq ?? 0) ||
+    parsed.facts.runPhase === "running" ||
+    parsed.facts.runPhase === "completed" ||
+    (parsed.facts.reconciliationPending === true && parsed.facts.reconciliationReason === "saving");
+  const hasUnsavedWork = parsed.facts.hasUnsavedWork ?? (
+    pageUrlChanged || markingExited || saved || discarded
+      ? false
+      : becameDirty ? true : prev.hasUnsavedWork
+  );
 
   return TabFactsSchema.parse({
     ...prev,
@@ -80,6 +93,7 @@ export function fold(prevFacts: TabFacts | null, sensation: BrainSensation): Tab
     previewExitRequested: pageUrlChanged
       ? false
       : parsed.facts.previewExitRequested ?? prev.previewExitRequested,
+    hasUnsavedWork,
     reconciliationPending: pageUrlChanged
       ? false
       : parsed.facts.reconciliationPending ?? prev.reconciliationPending,

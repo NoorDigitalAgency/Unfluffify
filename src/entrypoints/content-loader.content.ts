@@ -20,6 +20,7 @@ import {
 } from "../content/organ";
 import { createFreezeController, createRevealVisitController, createSpaGuard } from "../content/stabilization";
 import type { BrainSignal } from "../domain/schema/signals";
+import type { LockActionKind } from "../domain/schema/facts";
 import type { CommandEnvelope } from "../messaging/contracts";
 import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
@@ -112,6 +113,14 @@ const CONTENT_INPUT_EVENTS = [
   "drop",
   "submit",
 ] as const;
+
+const CONTENT_LOCK_ACTION_LABEL: Readonly<Record<LockActionKind, string>> = {
+  "continue-here": "Continue here",
+  "suggest-takeover": "Ask to take over",
+  "accept-takeover": "Accept takeover",
+  "reject-takeover": "Keep editing",
+  "take-over": "Take over",
+};
 
 function isUserMarkingDirty(): boolean {
   return userToggleCount > 0;
@@ -599,6 +608,21 @@ function ensureContentSurfaceStyles(): void {
   flex: 1;
   min-width: 0;
 }
+[data-uf-content-banner-actions="true"] {
+  display: flex;
+  gap: 8px;
+  pointer-events: auto;
+}
+[data-uf-content-lock-action="true"] {
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.82);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
 [data-uf-content-curtain="true"] {
   position: absolute;
   inset: 0;
@@ -834,6 +858,32 @@ function renderContentSurface(): void {
     bannerCopy.setAttribute("data-uf-content-banner-copy", "true");
     bannerCopy.textContent = banner.text;
     bannerElement.appendChild(bannerCopy);
+    if (banner.actions?.length) {
+      const actions = document.createElement("span");
+      actions.setAttribute("data-uf-content-banner-actions", "true");
+      for (const action of banner.actions) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.setAttribute("data-uf-content-lock-action", "true");
+        button.setAttribute("data-uf-lock-action-kind", action.kind);
+        button.textContent = action.confirmDiscard
+          ? `${CONTENT_LOCK_ACTION_LABEL[action.kind]} anyway`
+          : CONTENT_LOCK_ACTION_LABEL[action.kind];
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (
+            action.confirmDiscard &&
+            !window.confirm("Continuing will discard unsaved work in the current editor session. Continue?")
+          ) {
+            return;
+          }
+          void getContentBus().request("lock.action", action, { target: "background" });
+        });
+        actions.appendChild(button);
+      }
+      bannerElement.appendChild(actions);
+    }
     root.appendChild(bannerElement);
   }
   if (motionPaused) {

@@ -1,5 +1,5 @@
 import type { BrainSignal } from "../../domain/schema/signals";
-import { LockBannerVocabularySchema } from "../../domain/schema/facts";
+import { LockBannerVocabularySchema, type LockAction } from "../../domain/schema/facts";
 import { resolvePopupLockCopy } from "../copy";
 
 export type PopupStateName =
@@ -32,6 +32,7 @@ export type PropertyLockBanner = Readonly<{
   visible: boolean;
   text: string;
   countdownSeconds?: number;
+  actions?: readonly LockAction[];
 }>;
 
 export type PopupState = Readonly<{
@@ -81,6 +82,7 @@ function parseLockBanner(value: unknown): PropertyLockBanner | undefined {
     visible: parsed.data.visible,
     text: resolvePopupLockCopy(parsed.data),
     ...(parsed.data.countdownSeconds === undefined ? {} : { countdownSeconds: parsed.data.countdownSeconds }),
+    ...(parsed.data.actions ? { actions: parsed.data.actions } : {}),
   };
 }
 

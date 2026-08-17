@@ -4,6 +4,23 @@ import { RenderModeSchema, SiteIdSchema } from "./property";
 
 export const LockRoleSchema = z.enum(["unknown", "editor", "passive"]);
 
+export const LockActionKindSchema = z.enum([
+  "continue-here",
+  "suggest-takeover",
+  "accept-takeover",
+  "reject-takeover",
+  "take-over",
+]);
+
+export const LockActionSchema = z.object({
+  kind: LockActionKindSchema,
+  suggestionId: z.string().min(1).optional(),
+  /** The action knowingly destroys another editor session's reported work. The
+   *  surface must confirm before dispatching it; the background repeats this
+   *  bit in the fenced Hub command. */
+  confirmDiscard: z.boolean().optional(),
+}).strict();
+
 /** Stable lock vocabulary shared across realms. These values describe what the
  *  lock is doing; each surface owns the words it shows for them. */
 export const LockReasonSchema = z.enum([
@@ -32,6 +49,7 @@ export const LockBannerVocabularySchema = z.object({
   editorName: z.string().optional(),
   fromName: z.string().optional(),
   toName: z.string().optional(),
+  actions: z.array(LockActionSchema).optional(),
 }).strict();
 
 const RunSelectorsSchema = z.object({
@@ -61,6 +79,7 @@ export const TabFactsSchema = z.object({
   previewExitRequested: z.boolean().optional(),
   savedSeq: z.number().int().nonnegative().optional(),
   discardedSeq: z.number().int().nonnegative().optional(),
+  hasUnsavedWork: z.boolean().default(false),
   inspectionPending: z.boolean().optional(),
   lockRole: LockRoleSchema.default("unknown"),
   lockCanEdit: z.boolean().optional(),
@@ -73,6 +92,8 @@ export const TabFactsSchema = z.object({
 });
 
 export type LockRole = z.infer<typeof LockRoleSchema>;
+export type LockActionKind = z.infer<typeof LockActionKindSchema>;
+export type LockAction = z.infer<typeof LockActionSchema>;
 export type LockReason = z.infer<typeof LockReasonSchema>;
 export type LockBannerVocabulary = z.infer<typeof LockBannerVocabularySchema>;
 export type TabFacts = z.infer<typeof TabFactsSchema>;

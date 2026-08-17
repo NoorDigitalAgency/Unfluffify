@@ -239,6 +239,7 @@ describe("P9 property-lock client", () => {
       canEdit: false,
       countdownSeconds: 60,
       editorName: "Other",
+      actions: [{ kind: "suggest-takeover" }],
     });
     ws.emit("message", JSON.stringify({
       type: "lock_state",
@@ -272,6 +273,84 @@ describe("P9 property-lock client", () => {
     expect(projectPropertyLockView(client.state()).canEdit).toBe(false);
     client.heartbeat();
     expect(JSON.parse(ws.sent.at(-1) ?? "{}")).not.toMatchObject({ type: "heartbeat" });
+  });
+
+  it("fences same-user continuation and accepted takeover commands", () => {
+    const ws = fakeSocket();
+    const operationIds = ["continue-op", "accept-op"];
+    const client = createPropertyLockClient({
+      socket: ws.socket,
+      editorSession: editorSession(),
+      persistEditorSession() {},
+      operationId: () => operationIds.shift() ?? "unexpected-op",
+    });
+    ws.emit("open");
+    ws.emit("message", JSON.stringify({
+      type: "subscribed",
+      editorSessionId: "editor-1",
+      propertyRevision: 4,
+      feedRevision: 2,
+    }));
+    ws.emit("message", JSON.stringify({
+      type: "lock_state",
+      state: "locked",
+      isEditor: false,
+      isSameUserEditor: true,
+      canContinueHere: true,
+      otherTabHasUnsavedWork: false,
+      editorSessionId: "editor-other-tab",
+      lockToken: "same-user-token",
+      propertyRevision: 4,
+      feedRevision: 2,
+    }));
+    expect(projectPropertyLockView(client.state()).actions).toEqual([{ kind: "continue-here" }]);
+    client.continueEditing(false, false);
+    expect(JSON.parse(ws.sent.at(-1) ?? "{}")).toMatchObject({
+      type: "continue_editing",
+      lockToken: "same-user-token",
+      operationId: "continue-op",
+      expectedPropertyRevision: 4,
+      expectedFeedRevision: 2,
+      discardPrevious: false,
+    });
+
+    // A missing freshness bit must not inherit the earlier clean status.
+    ws.emit("message", JSON.stringify({
+      type: "lock_state",
+      state: "locked",
+      isEditor: false,
+      isSameUserEditor: true,
+      canContinueHere: true,
+      editorSessionId: "editor-other-tab",
+      lockToken: "same-user-token",
+      propertyRevision: 4,
+      feedRevision: 2,
+    }));
+    expect(projectPropertyLockView(client.state()).actions).toEqual([
+      { kind: "continue-here", confirmDiscard: true },
+    ]);
+
+    ws.emit("message", JSON.stringify({
+      type: "lock_state",
+      state: "locked",
+      isEditor: true,
+      editorSessionId: "editor-1",
+      lockToken: "owner-token",
+      propertyRevision: 8,
+      feedRevision: 5,
+    }));
+    ws.emit("message", JSON.stringify({ type: "takeover_suggestion", suggestionId: "suggestion-1", fromName: "Other" }));
+    client.respondToSuggestion("suggestion-1", true, true);
+    expect(JSON.parse(ws.sent.at(-1) ?? "{}")).toMatchObject({
+      type: "respond_to_suggestion",
+      suggestionId: "suggestion-1",
+      accept: true,
+      discardUnsaved: true,
+      lockToken: "owner-token",
+      operationId: "accept-op",
+      expectedPropertyRevision: 8,
+      expectedFeedRevision: 5,
+    });
   });
 
   it("mirrors lock server handoff warnings and suggestion states", () => {

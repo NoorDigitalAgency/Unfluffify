@@ -812,7 +812,6 @@ describe("rewrite background services", () => {
         tabId: 5,
         pageUrl: "https://example.com/page",
         baseUrl: "https://example.com",
-        hasUnsavedChanges: true,
       };
 
       await runtime.directive(request);
@@ -834,6 +833,12 @@ describe("rewrite background services", () => {
         propertyRevision: 4,
         feedRevision: 2,
       }));
+      // The durable brain reports this independently of any popup directive.
+      runtime.unsavedChanged(5, true);
+      expect(JSON.parse(sockets[0].sent.at(-1) ?? "{}")).toMatchObject({
+        type: "client_status",
+        hasUnsavedWork: true,
+      });
       const heartbeatCount = () => sockets[0].sent
         .map((frame) => JSON.parse(frame))
         .filter((frame) => frame.type === "heartbeat").length;
@@ -1194,6 +1199,30 @@ describe("rewrite background services", () => {
       hasUnsavedWork: true,
     });
     sockets[0].emit("message", JSON.stringify({
+      type: "takeover_suggestion",
+      suggestionId: "suggestion-transfer-1",
+      fromName: "Other",
+    }));
+    expect(runtime.action({
+      tabId: 9,
+      kind: "accept-takeover",
+      suggestionId: "suggestion-transfer-1",
+      confirmDiscard: true,
+    })).toEqual({ status: "ok" });
+    const accepted = sockets[0].sent
+      .map((frame) => JSON.parse(frame))
+      .filter((frame) => frame.type === "respond_to_suggestion");
+    expect(accepted).toHaveLength(1);
+    expect(accepted[0]).toMatchObject({
+      suggestionId: "suggestion-transfer-1",
+      accept: true,
+      discardUnsaved: true,
+      lockToken: "fence-one",
+      expectedPropertyRevision: 4,
+      expectedFeedRevision: 2,
+    });
+    expect(accepted[0].operationId).toEqual(expect.any(String));
+    sockets[0].emit("message", JSON.stringify({
       type: "lock_state",
       state: "locked",
       isEditor: false,
@@ -1207,6 +1236,10 @@ describe("rewrite background services", () => {
     expect(JSON.parse(sockets[0].sent.at(-1) ?? "{}")).toMatchObject({
       type: "client_status",
       hasUnsavedWork: false,
+    });
+    await expect(runtime.directive({ tabId: 9, pageUrl: "https://example.com/page" })).resolves.toMatchObject({
+      lockRole: "passive",
+      canEdit: false,
     });
   });
 

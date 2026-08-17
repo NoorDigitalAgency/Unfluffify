@@ -8,7 +8,7 @@ import {
   type PropertyLockState,
   type PropertyLockView,
 } from "../lock";
-import type { LockBannerVocabulary, LockReason } from "../domain/schema/facts";
+import type { LockAction, LockBannerVocabulary, LockReason } from "../domain/schema/facts";
 import type { RewriteBackgroundServices } from "./services";
 import { createRealmBus, type LockStatus } from "../messaging/realms";
 import { createTabTransport } from "../messaging/transports/tabs";
@@ -25,6 +25,8 @@ export type LockDirectiveRequest = Readonly<{
   /** Background-owned recovery checks bypass the settled context cache. */
   refreshContext?: boolean;
 }>;
+
+export type LockActionRequest = Readonly<LockAction & { tabId: number }>;
 
 type TabsLike = Readonly<{
   sendMessage(tabId: number, message: unknown): Promise<unknown> | unknown;
@@ -108,6 +110,7 @@ function lockStateFromState(input: Readonly<{
   warning?: Pick<LocalLockWarning, "kind" | "deadlineAt">;
   blockedReason?: LockReason;
   now?: number;
+  hasUnsavedWork?: boolean;
 }>) {
   const view: PropertyLockView = input.warning
     ? {
@@ -157,6 +160,11 @@ function lockStateFromState(input: Readonly<{
       ...(view.editorName ? { editorName: view.editorName } : {}),
       ...(view.fromName ? { fromName: view.fromName } : {}),
       ...(view.toName ? { toName: view.toName } : {}),
+      ...(view.actions ? {
+        actions: view.actions.map((action) => action.kind === "accept-takeover" && input.hasUnsavedWork === false
+          ? { ...action, confirmDiscard: undefined }
+          : action),
+      } : {}),
     },
   };
 }
@@ -188,7 +196,8 @@ export function createPropertyLockRuntime(input: Readonly<{
   const clientCreations = new Map<string, Promise<LockClient>>();
   const pageUrls = new Map<string, string>();
   const baseUrls = new Map<string, string>();
-  const unsavedByKey = new Map<string, boolean>();
+  const unsavedByTab = new Map<number, boolean>();
+  const unsavedKnownTabs = new Set<number>();
   const claimedKeys = new Set<string>();
   const publishedLockStates = new Map<string, string>();
   const latestLockStates = new Map<number, ReturnType<typeof lockStateFromState>>();
@@ -290,6 +299,7 @@ export function createPropertyLockRuntime(input: Readonly<{
     status: "ok",
     warning: localWarningByTab.get(tabId),
     now: now(),
+    ...(unsavedKnownTabs.has(tabId) ? { hasUnsavedWork: unsavedByTab.get(tabId) === true } : {}),
   });
 
   const observeAndPublishClientState = (
@@ -323,7 +333,6 @@ export function createPropertyLockRuntime(input: Readonly<{
     clients.delete(key);
     pageUrls.delete(key);
     baseUrls.delete(key);
-    unsavedByKey.delete(key);
     claimedKeys.delete(key);
     publishedLockStates.delete(key);
     client?.close();
@@ -542,12 +551,13 @@ export function createPropertyLockRuntime(input: Readonly<{
       tabId: request.tabId,
       siteId,
       presence: () => presenceForTab(request.tabId),
-      hasUnsavedWork: () => unsavedByKey.get(key) === true,
+      hasUnsavedWork: () => unsavedByTab.get(request.tabId) === true,
       onOwnershipTransferred: () => {
         // A rotated/foreign fence is authoritative. Discard draft status before
         // publishing the passive state so no subsequent frame can advertise the
         // previous owner's unsaved work.
-        unsavedByKey.set(key, false);
+        unsavedByTab.set(request.tabId, false);
+        unsavedKnownTabs.add(request.tabId);
         return input.onAuthoritativeTransfer?.({
           tabId: request.tabId,
           environmentKey,
@@ -729,11 +739,13 @@ export function createPropertyLockRuntime(input: Readonly<{
         throw new Error("Property-lock directive was superseded by tab navigation");
       }
       const previousPageUrl = pageUrls.get(key);
-      const previousUnsaved = unsavedByKey.get(key);
-      const nextUnsaved = request.refreshContext === true
+      const previousUnsaved = unsavedByTab.get(request.tabId);
+      const nextUnsaved = unsavedKnownTabs.has(request.tabId)
         ? previousUnsaved === true
-        : request.hasUnsavedChanges === true;
-      unsavedByKey.set(key, nextUnsaved);
+        : request.refreshContext === true
+          ? previousUnsaved === true
+          : request.hasUnsavedChanges === true;
+      unsavedByTab.set(request.tabId, nextUnsaved);
       pageUrls.set(key, request.pageUrl);
       baseUrls.set(key, baseUrl);
       if (!claimedKeys.has(key)) {
@@ -755,6 +767,44 @@ export function createPropertyLockRuntime(input: Readonly<{
 
   return {
     directive: runDirective,
+    action(request: LockActionRequest): Readonly<{ status: "ok" | "unavailable" }> {
+      const activeKey = activeKeyByTab.get(request.tabId);
+      const client = activeKey ? clients.get(activeKey) : undefined;
+      if (!client || client.isClosed()) {
+        return { status: "unavailable" };
+      }
+      switch (request.kind) {
+        case "continue-here":
+          client.continueEditing(false, request.confirmDiscard === true);
+          break;
+        case "suggest-takeover":
+          client.suggestTakeover();
+          break;
+        case "accept-takeover":
+          if (!request.suggestionId) return { status: "unavailable" };
+          client.respondToSuggestion(request.suggestionId, true, request.confirmDiscard === true);
+          break;
+        case "reject-takeover":
+          if (!request.suggestionId) return { status: "unavailable" };
+          client.respondToSuggestion(request.suggestionId, false, false);
+          break;
+        case "take-over":
+          client.claim();
+          break;
+      }
+      return { status: "ok" };
+    },
+    unsavedChanged(tabId: number, value: boolean): void {
+      const previous = unsavedByTab.get(tabId);
+      unsavedKnownTabs.add(tabId);
+      unsavedByTab.set(tabId, value);
+      if (previous === value) {
+        return;
+      }
+      const activeKey = activeKeyByTab.get(tabId);
+      clients.get(activeKey ?? "")?.clientStatus();
+      publishActiveClient(tabId);
+    },
     activity(tabId: number, siteId: number): void {
       const activeKey = activeKeyByTab.get(tabId);
       const client = activeKey ? clients.get(activeKey) : undefined;
@@ -805,7 +855,8 @@ export function createPropertyLockRuntime(input: Readonly<{
       generationByTab.set(tabId, (generationByTab.get(tabId) ?? 0) + 1);
       const activeKey = activeKeyByTab.get(tabId);
       if (activeKey) {
-        unsavedByKey.set(activeKey, false);
+        unsavedByTab.set(tabId, false);
+        unsavedKnownTabs.add(tabId);
       }
       clearSuspendedContext(tabId);
       if (activeKey && clients.has(activeKey)) {
@@ -836,6 +887,8 @@ export function createPropertyLockRuntime(input: Readonly<{
       if (options.forgetPresence !== false) {
         presenceByTab.delete(tabId);
       }
+      unsavedByTab.delete(tabId);
+      unsavedKnownTabs.delete(tabId);
       latestLockStates.delete(tabId);
       publishedLockStates.delete(`tab:${tabId}`);
       await input.services.repos.editorSessionRepo.clearForTab(tabId);

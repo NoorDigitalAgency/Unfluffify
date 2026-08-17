@@ -12,6 +12,7 @@ import { z } from "zod";
 import { AiRunPayloadSnapshotSchema } from "../domain/schema/submission";
 import {
   LockBannerVocabularySchema,
+  LockActionSchema,
   LockReasonSchema,
   LockRoleSchema,
 } from "../domain/schema/facts";
@@ -35,6 +36,12 @@ const LockDirectiveRequestSchema = z.object({
   pageUrl: z.string(),
   baseUrl: z.string().optional(),
   hasUnsavedChanges: z.boolean().optional(),
+});
+
+const LockActionRequestSchema = LockActionSchema.extend({
+  /** Content frames derive this from the runtime sender; popup frames name the
+   *  tab explicitly because a side panel is not itself a tab. */
+  tabId: z.number().int().nonnegative().optional(),
 });
 
 /** Why there is or is not a lock. Declared once here so the runtime that
@@ -307,6 +314,10 @@ export const applicationContract = defineContract({
     "lock.directive": {
       request: LockDirectiveRequestSchema,
       response: LockStateResponseSchema,
+    },
+    "lock.action": {
+      request: LockActionRequestSchema,
+      response: z.object({ status: z.enum(["ok", "unavailable"]) }),
     },
     "emulation.apply": {
       request: EmulationApplyRequestSchema,

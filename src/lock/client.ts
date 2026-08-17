@@ -71,8 +71,10 @@ export function createPropertyLockClient(input: Readonly<{
   onOwnershipTransferred?: (event: PropertyLockOwnershipTransfer) => Promise<void> | void;
   networkReachable?: () => Promise<boolean>;
   now?: () => number;
+  operationId?: () => string;
 }>) {
   const now = input.now ?? Date.now;
+  const operationId = input.operationId ?? (() => globalThis.crypto?.randomUUID?.() ?? `lock-${now()}-${Math.random()}`);
   let editorSession = input.editorSession;
   let state: PropertyLockState = {
     ...INITIAL_PROPERTY_LOCK_STATE,
@@ -95,6 +97,12 @@ export function createPropertyLockClient(input: Readonly<{
     type: LockClientMessageType;
     extra?: Readonly<Record<string, string | number | boolean>>;
   }> = [];
+
+  const transferEnvelope = (): Readonly<Record<string, string | number | boolean>> => ({
+    operationId: operationId(),
+    expectedPropertyRevision: state.propertyRevision ?? 0,
+    expectedFeedRevision: state.feedRevision ?? 0,
+  });
 
   const setState = (next: PropertyLockState): void => {
     state = next;
@@ -368,10 +376,16 @@ export function createPropertyLockClient(input: Readonly<{
       send("suggest_takeover");
     },
     respondToSuggestion(suggestionId: string, accept: boolean, discardUnsaved: boolean): void {
-      send("respond_to_suggestion", { suggestionId, accept, discardUnsaved });
+      send("respond_to_suggestion", {
+        suggestionId,
+        accept,
+        discardUnsaved,
+        discardPrevious: discardUnsaved,
+        ...(accept ? transferEnvelope() : {}),
+      });
     },
     continueEditing(force: boolean, discardPrevious: boolean): void {
-      send("continue_editing", { force, discardPrevious });
+      send("continue_editing", { force, discardPrevious, discardUnsaved: discardPrevious, ...transferEnvelope() });
     },
     close(): void {
       if (disposed) {

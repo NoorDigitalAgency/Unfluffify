@@ -589,7 +589,9 @@ describe("C4 rewrite content entrypoints", () => {
       children: unknown[];
       textContent: string;
       isConnected: boolean;
+      listeners: Map<string, EventListener>;
       setAttribute: (name: string, value: string) => void;
+      addEventListener: (name: string, listener: EventListener) => void;
       appendChild: (child: unknown) => unknown;
       replaceChildren: (...children: unknown[]) => void;
       remove: () => void;
@@ -602,8 +604,12 @@ describe("C4 rewrite content entrypoints", () => {
         children: [] as unknown[],
         textContent: "",
         isConnected: true,
+        listeners: new Map<string, EventListener>(),
         setAttribute(name: string, value: string) {
           this.attributes[name] = value;
+        },
+        addEventListener(name: string, listener: EventListener) {
+          this.listeners.set(name, listener);
         },
         appendChild(child: unknown) {
           this.children.push(child);
@@ -684,6 +690,7 @@ describe("C4 rewrite content entrypoints", () => {
         postMessage: vi.fn(),
         addEventListener: vi.fn((type: string, listener: EventListener) => windowListeners.set(type, listener)),
         removeEventListener: vi.fn((type: string) => windowListeners.delete(type)),
+        confirm: vi.fn(() => true),
       },
     });
     vi.doMock("wxt/utils/define-content-script", () => ({ defineContentScript: (config: unknown) => config }));
@@ -765,7 +772,15 @@ describe("C4 rewrite content entrypoints", () => {
       },
       {
         blockedReason: "takeover-suggested",
-        banner: { visible: true, reason: "takeover-suggested", fromName: "Kai" },
+        banner: {
+          visible: true,
+          reason: "takeover-suggested",
+          fromName: "Kai",
+          actions: [
+            { kind: "accept-takeover", suggestionId: "suggestion-1", confirmDiscard: true },
+            { kind: "reject-takeover", suggestionId: "suggestion-1" },
+          ],
+        },
         expected: "Kai would like to edit this property",
         live: "polite",
       },
@@ -786,6 +801,22 @@ describe("C4 rewrite content entrypoints", () => {
       });
       expect((transitionBanner?.children[0] as typeof elements[number]).textContent).toBe(transition.expected);
     }
+    const acceptButton = elements.find((element) =>
+      element.attributes["data-uf-lock-action-kind"] === "accept-takeover"
+    );
+    acceptButton?.listeners.get("click")?.({
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as Event);
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "lock.action",
+      target: "background",
+      payload: {
+        kind: "accept-takeover",
+        suggestionId: "suggestion-1",
+        confirmDiscard: true,
+      },
+    }));
     await applyLockState(listener);
     expect(contentRoot?.children.some((element) =>
       (element as typeof elements[number]).attributes["data-uf-content-banner"] === "true"

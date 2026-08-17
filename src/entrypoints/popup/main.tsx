@@ -44,7 +44,7 @@ import { isRenderModeConfirmed } from "../../storage/config";
 import { resolvePopupView, type PopupView, type PopupViewRequest } from "../../popup/view";
 import { createSignalCursor } from "../../popup/signal-cursor";
 import { createEventLog } from "../../popup/event-log";
-import type { LockBannerVocabulary, LockReason } from "../../domain/schema/facts";
+import type { LockAction, LockBannerVocabulary, LockReason } from "../../domain/schema/facts";
 import { resolvePopupLockCopy } from "../../popup/copy";
 import type { TodoCoverage } from "../../domain/schema/todo";
 import type { PageContextResolution } from "../../domain/schema/context";
@@ -1127,22 +1127,23 @@ async function requestLockDirective(context: TargetTabContext): Promise<LockDire
     tabId: context.tabId,
     pageUrl: context.url,
     baseUrl: baseUrlFor(context.url),
-    hasUnsavedChanges: hasLocalUnsavedChanges(),
   }, { target: "background" });
   return response.ok ? response.data as LockDirectiveResponse : unavailableLockDirective(context);
 }
 
-function hasLocalUnsavedChanges(): boolean {
-  const state = store.getState();
-  const stateName = state.name === "locked" ? state.priorState ?? "silent" : state.name;
-  return [
-    "pre_ai_dirty",
-    "running",
-    "post_ai_clean",
-    "preview_open",
-    "exit_restoring",
-    "reconciling",
-  ].includes(stateName);
+async function dispatchLockAction(action: LockAction): Promise<void> {
+  const context = await resolveTargetTabContext();
+  if (!context) {
+    return;
+  }
+  if (
+    action.confirmDiscard &&
+    !window.confirm("Continuing will discard unsaved work in the current editor session. Continue?")
+  ) {
+    return;
+  }
+  await getPopupBus().request("lock.action", { ...action, tabId: context.tabId }, { target: "background" });
+  await refreshPopup();
 }
 
 function unavailableLockDirective(context: TargetTabContext): LockDirectiveResponse {
@@ -2240,6 +2241,7 @@ function render(): void {
       onPreview={() => { void showPreview(); }}
       onExitPreview={() => { void exitPreview(); }}
       onRefresh={() => { void refreshPopup(); }}
+      onLockAction={(action) => { void dispatchLockAction(action); }}
       onSettingsChange={updateSettingsField}
       onSettingsSave={() => { void saveStoredSettings(); }}
       onCredentialsChange={updateCredentialsField}

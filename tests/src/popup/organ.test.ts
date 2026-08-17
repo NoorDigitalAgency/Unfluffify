@@ -101,7 +101,13 @@ describe("rewrite popup FSM", () => {
     state = transitionPopupState(state, signal(3, "lock.blocked", {
       pageUrl: "https://example.com",
       blockedReason: "locked",
-      banner: { visible: true, reason: "locked", editorName: "Dana", countdownSeconds: 42 },
+      banner: {
+        visible: true,
+        reason: "locked",
+        editorName: "Dana",
+        countdownSeconds: 42,
+        actions: [{ kind: "continue-here", confirmDiscard: true }],
+      },
     }));
     state = transitionPopupState(state, signal(4, "run.completed", {
       pageUrl: "https://example.com",
@@ -113,7 +119,12 @@ describe("rewrite popup FSM", () => {
       name: "locked",
       priorState: "post_ai_clean",
       projectionBlockedReason: "locked",
-      lockBanner: { visible: true, text: "Locked by Dana", countdownSeconds: 42 },
+      lockBanner: {
+        visible: true,
+        text: "Locked by Dana",
+        countdownSeconds: 42,
+        actions: [{ kind: "continue-here", confirmDiscard: true }],
+      },
       selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
     });
 

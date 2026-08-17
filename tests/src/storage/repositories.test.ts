@@ -62,6 +62,7 @@ describe("P2 storage repositories", () => {
         lockRole: "editor" as const,
         configPresent: true,
         reconciliationPending: false,
+        hasUnsavedWork: false,
         lastSignalSeq: 3,
       },
       updatedAt: 10,

@@ -79,6 +79,83 @@ describe("P3 background brain", () => {
     });
   });
 
+  it("keeps durable unsaved-work truth across popup closure and uncertain saves", () => {
+    let facts = fold(null, {
+      tabId: 1,
+      source: "content",
+      reason: "content-started",
+      facts: { tabId: 1, pageUrl: "https://example.com/a", markingEnabled: true },
+    });
+    expect(facts.hasUnsavedWork).toBe(false);
+
+    facts = fold(facts, {
+      tabId: 1,
+      source: "content",
+      reason: "marking-toggle",
+      facts: { tabId: 1, markingToggleSeq: 1 },
+    });
+    expect(facts.hasUnsavedWork).toBe(true);
+
+    facts = fold(facts, {
+      tabId: 1,
+      source: "popup",
+      reason: "save-reconciliation-started",
+      facts: { tabId: 1, reconciliationPending: true, reconciliationReason: "saving" },
+    });
+    facts = fold(facts, {
+      tabId: 1,
+      source: "popup",
+      reason: "save-unknown",
+      facts: { tabId: 1, reconciliationPending: false, reconciliationReason: "network_unknown" },
+    });
+    expect(facts.hasUnsavedWork).toBe(true);
+
+    facts = fold(facts, {
+      tabId: 1,
+      source: "popup",
+      reason: "session-saved",
+      facts: { tabId: 1, savedSeq: 1, markingEnabled: false },
+    });
+    expect(facts.hasUnsavedWork).toBe(false);
+    facts = fold(facts, {
+      tabId: 1,
+      source: "background",
+      reason: "publication-status",
+      facts: { tabId: 1, candidate: true },
+    });
+    expect(facts.hasUnsavedWork).toBe(false);
+
+    facts = fold(facts, {
+      tabId: 1,
+      source: "popup",
+      reason: "ai-run-completed",
+      facts: { tabId: 1, runPhase: "completed" },
+    });
+    expect(facts.hasUnsavedWork).toBe(true);
+    facts = fold(facts, {
+      tabId: 1,
+      source: "popup",
+      reason: "session-discarded",
+      facts: { tabId: 1, discardedSeq: 1 },
+    });
+    expect(facts.hasUnsavedWork).toBe(false);
+
+    facts = fold(facts, {
+      tabId: 1,
+      source: "content",
+      reason: "marking-toggle",
+      facts: { tabId: 1, markingEnabled: true, markingToggleSeq: 2 },
+    });
+    expect(facts.hasUnsavedWork).toBe(true);
+    facts = fold(facts, {
+      tabId: 1,
+      source: "content",
+      reason: "navigation",
+      facts: { tabId: 1, pageUrl: "https://example.com/b" },
+    });
+    expect(facts.hasUnsavedWork).toBe(false);
+  });
+
   it("decides activation, navigation, and reconciliation signals", () => {
     const prev = createInitialTabFacts(1);
     const next = {
@@ -87,6 +164,7 @@ describe("P3 background brain", () => {
       pageUrl: "https://example.com/a",
       markingEnabled: true,
       reconciliationPending: true,
+      hasUnsavedWork: false,
     };
 
     expect(decideSignals(prev, next).map((decision) => decision.name)).toEqual([
@@ -179,6 +257,7 @@ describe("P3 background brain", () => {
       lockRole: "editor" as const,
       configPresent: true,
       reconciliationPending: true,
+      hasUnsavedWork: false,
       lastSignalSeq: 5,
     };
 
