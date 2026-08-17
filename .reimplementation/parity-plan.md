@@ -285,7 +285,7 @@ versioned fixtures, but live acceptance waits for the corresponding H slice.
 | ☑ | **B4** | Delete `preLockPopupState` / `settlePreLockAiRun` / `store.reset()` transitions and the fabricated `source:"brain"` offline signals. **Landed in `1b77582c`.** | B2 | The organ only ever moves via the transition table; a property-lock episode returns to `priorState` mechanically. |
 | ☑ | **B5** | Replace composed display strings with reason/phase codes plus per-layer copy tables (C-SPIN-2). **Landed in `660fcb8d`.** | B3 | No layer sends user-visible copy across a realm boundary. |
 | ☑ | **B6** | Call `rehydrateDurableFacts` on brain construction; restore `seq` past the persisted head. **Landed in `ca7b4b41`.** | — | After a simulated SW restart the popup's cursor still receives subsequent signals. |
-| ☐ | **B7** | Tag the directive/overlay root `data-uf-extension-ui="true"` and gate re-render on genuine DOM change. | B3 | Extension chrome mutations trigger **zero** engine rebuilds. |
+| ☑ | **B7** | Tag the directive/overlay root `data-uf-extension-ui="true"` and gate re-render on genuine DOM change. **Landed in `ddf655f7`.** | B3 | Extension chrome mutations trigger **zero** engine rebuilds. |
 | ☐ | **B8** | Memoize `landmarkCount` / `geometryFor` per pass and make observer-driven work branch-scoped (INV-4.1/4.2). | B7 | Per-toggle render cost is bounded; a scroll storm does not trigger full rebuilds. |
 
 ### Phase C — close the operator loop
