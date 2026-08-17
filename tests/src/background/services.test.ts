@@ -658,6 +658,11 @@ describe("rewrite background services", () => {
         },
       },
     });
+    runtime.presenceChanged(5, {
+      visible: true,
+      focusedWindow: true,
+      browserIdle: false,
+    });
     const request = { tabId: 5, pageUrl: "https://example.com/page", baseUrl: "https://example.com", hasUnsavedChanges: false };
     await services.settings.update((current) => ({ ...current, stageBase: "stage.example.com", token: "live" }));
 
@@ -743,6 +748,11 @@ describe("rewrite background services", () => {
         token: "live",
       }));
       const runtime = createPropertyLockRuntime({ services });
+      runtime.presenceChanged(5, {
+        visible: true,
+        focusedWindow: true,
+        browserIdle: false,
+      });
       const request = {
         tabId: 5,
         pageUrl: "https://example.com/page",
@@ -804,9 +814,97 @@ describe("rewrite background services", () => {
         propertyRevision: 4,
         feedRevision: 2,
       });
+
+      const beforeHidden = heartbeatCount();
+      runtime.presenceChanged(5, {
+        visible: false,
+        focusedWindow: true,
+        browserIdle: false,
+        suspensionReason: "tab-hidden",
+      });
+      const hiddenStatus = sockets[0].sent
+        .map((frame) => JSON.parse(frame))
+        .findLast((frame) => frame.type === "client_status");
+      expect(hiddenStatus).toMatchObject({
+        visible: false,
+        focusedWindow: true,
+        browserIdle: false,
+        suspensionReason: "tab-hidden",
+      });
+      vi.advanceTimersByTime(30_001);
+      runtime.heartbeat();
+      expect(heartbeatCount()).toBe(beforeHidden);
+
+      await runtime.terminateTab(5);
+      expect(sockets[0].sent.map((frame) => JSON.parse(frame).type)).toContain("release_lock");
+      await expect(services.repos.editorSessionRepo.load("stage.example.com", 5, 5542))
+        .resolves.toEqual({ ok: true, value: null });
+      expect(runtime.authorizeMutation(envelope)).toMatchObject({ ok: false, status: "stale_fence" });
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("does not resurrect an editor session when navigation wins a context-resolution race", async () => {
+    let contextRequest: JsonRequest | null = null;
+    let resolveContext: ((response: JsonResponse) => void) | null = null;
+    const sockets: ReturnType<typeof fakeSocket>[] = [];
+    const services = createRewriteBackgroundServices({
+      transport: async (request) => {
+        if (contextRequest) {
+          return hubContext(request);
+        }
+        return await new Promise<JsonResponse>((resolve) => {
+          contextRequest = request;
+          resolveContext = resolve;
+        });
+      },
+      socketFactory() {
+        const ws = fakeSocket();
+        sockets.push(ws);
+        return ws.socket;
+      },
+      editorSessionIdFactory: () => "superseded-editor",
+    });
+    await services.settings.update((current) => ({
+      ...current,
+      stageBase: "stage.example.com",
+      token: "live",
+    }));
+    const runtime = createPropertyLockRuntime({ services });
+    runtime.presenceChanged(9, {
+      visible: true,
+      focusedWindow: true,
+      browserIdle: false,
+    });
+
+    const pending = runtime.directive({
+      tabId: 9,
+      pageUrl: "https://example.com/old",
+      baseUrl: "https://example.com",
+    });
+    await vi.waitFor(() => expect(contextRequest).not.toBeNull());
+    await runtime.terminateTab(9, { forgetPresence: false });
+    resolveContext?.(hubContext(contextRequest as JsonRequest));
+
+    await expect(pending).rejects.toThrow("superseded by tab navigation");
+    expect(sockets).toEqual([]);
+    await expect(services.repos.editorSessionRepo.load("stage.example.com", 9, 5542))
+      .resolves.toEqual({ ok: true, value: null });
+
+    await runtime.directive({
+      tabId: 9,
+      pageUrl: "https://example.com/new",
+      baseUrl: "https://example.com",
+    });
+    expect(sockets).toHaveLength(1);
+    sockets[0].emit("open");
+    expect(JSON.parse(sockets[0].sent[0] ?? "{}")).toMatchObject({
+      type: "subscribe",
+      visible: true,
+      focusedWindow: true,
+      browserIdle: false,
+    });
   });
 
   it("does not permanently cache transient context failures", async () => {

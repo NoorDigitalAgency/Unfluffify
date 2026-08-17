@@ -638,7 +638,17 @@ describe("rewrite background startup", () => {
     const saveRequests: Array<{ url: string; body: unknown }> = [];
     globalThis.chrome = {
       runtime: { sendMessage: vi.fn(), onMessage: { addListener: addMessageListener } },
-      tabs: { sendMessage: vi.fn() },
+      tabs: {
+        sendMessage: vi.fn(),
+        query: vi.fn().mockResolvedValue([{ id: 5, windowId: 1, active: true }]),
+      },
+      windows: {
+        getLastFocused: vi.fn().mockResolvedValue({ id: 1 }),
+      },
+      idle: {
+        setDetectionInterval: vi.fn(),
+        queryState: vi.fn().mockResolvedValue("active"),
+      },
       action: { onClicked: { addListener: vi.fn() } },
       alarms: {
         create: vi.fn(),

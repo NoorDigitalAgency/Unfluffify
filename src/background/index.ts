@@ -4,6 +4,10 @@ import { createRenderEmulationRuntime } from "./render-emulation-runtime";
 import { createRewriteBackgroundServices } from "./services";
 import { createAuthTokenMonitor } from "./auth-token-monitor";
 import { createPageContextRuntime } from "./page-context-runtime";
+import {
+  createLockBrowserLifecycle,
+  type LockBrowserApi,
+} from "./lock-browser-lifecycle";
 import { connectionSettingsOf } from "../storage/settings";
 import { getInstalledBrowserApi } from "../common/browser";
 import { createRealmBus } from "../messaging/realms";
@@ -113,11 +117,18 @@ export function startRewriteBackground(): void {
     hasToken: services.accounts.hasToken,
     resolve: services.lynx.resolvePropertyContext,
   });
+  const tabTerminations = new Map<number, Promise<void>>();
+  const awaitTabTermination = async (tabId: number): Promise<void> => {
+    while (tabTerminations.has(tabId)) {
+      await tabTerminations.get(tabId);
+    }
+  };
   const lockRuntime = createPropertyLockRuntime({
     services,
     context: pageContextRuntime,
     tabs: api.tabs,
     async observeLockFacts(facts) {
+      await awaitTabTermination(facts.tabId);
       const brain = await runtime.getBrain(facts.tabId);
       brain.observe({
         tabId: facts.tabId,
@@ -141,6 +152,37 @@ export function startRewriteBackground(): void {
       }
     },
   });
+  const lockBrowserLifecycle = createLockBrowserLifecycle({
+    api: api as unknown as LockBrowserApi,
+    onPresenceChanged(tabId, presence) {
+      lockRuntime.presenceChanged(tabId, presence);
+    },
+    onTabTerminated(tabId, reason) {
+      // Navigation/reload and tab close are draft-terminal, unlike a transient
+      // network failure. Release the lease first, then erase every tab-scoped
+      // durable continuation so the next document starts a new editor session.
+      runtime.forgetBrain(tabId);
+      const termination = (async () => {
+        await lockRuntime.terminateTab(tabId, { forgetPresence: reason === "tab-closed" });
+        const latestRun = await services.repos.runRecordRepo.loadLatestForTab(tabId);
+        if (latestRun.ok && latestRun.value) {
+          await services.repos.runRecordRepo.clear(latestRun.value.sessionId);
+        }
+        await services.repos.tabStateRepo.clear(tabId);
+      })();
+      tabTerminations.set(tabId, termination);
+      const clearTermination = () => {
+        if (tabTerminations.get(tabId) === termination) {
+          tabTerminations.delete(tabId);
+        }
+      };
+      void termination.then(clearTermination, clearTermination);
+      return termination;
+    },
+  });
+  void lockBrowserLifecycle.start().catch((error) => {
+    console.error("[Unfluffify][rewrite] Unable to initialize browser lock presence", error);
+  });
   // The lease belongs to the background editor session, not to the side-panel
   // document. Closing the panel therefore removes no client and no heartbeat.
   api.alarms?.create(PROPERTY_LOCK_HEARTBEAT_ALARM, { periodInMinutes: 0.5 });
@@ -153,6 +195,7 @@ export function startRewriteBackground(): void {
   });
   bus.onCommand("signals.pull", async (request, meta) => {
     const tabId = request.tabId === 0 ? parseSenderTabId(meta.sourceInstance) ?? 0 : request.tabId;
+    await awaitTabTermination(tabId);
     const brain = await runtime.getBrain(tabId);
     return [...(request.organId
       ? brain.pullForOrgan(request.organId, request.afterSeq)
@@ -160,6 +203,7 @@ export function startRewriteBackground(): void {
   });
   bus.onCommand("signals.consume", async (request, meta) => {
     const tabId = request.tabId === 0 ? parseSenderTabId(meta.sourceInstance) ?? 0 : request.tabId;
+    await awaitTabTermination(tabId);
     const brain = await runtime.getBrain(tabId);
     brain.markConsumed(request.organId, request.seq);
     return { ok: true as const };
@@ -168,6 +212,7 @@ export function startRewriteBackground(): void {
     const tabId = envelope.sensation.tabId === 0
       ? parseSenderTabId(meta.sourceInstance) ?? 0
       : envelope.sensation.tabId;
+    await awaitTabTermination(tabId);
     const brain = await runtime.getBrain(tabId);
     brain.observe({
       ...envelope.sensation,
@@ -195,7 +240,10 @@ export function startRewriteBackground(): void {
       }
     }
   });
-  bus.onCommand("lock.directive", (request) => lockRuntime.directive(request));
+  bus.onCommand("lock.directive", async (request) => {
+    await awaitTabTermination(request.tabId);
+    return await lockRuntime.directive(request);
+  });
   bus.onCommand("emulation.apply", (request) => renderEmulation.apply(request.tabId, request.mode, request.scale, request.allowReload === true));
   bus.onCommand("emulation.clear", async (request) => {
     await renderEmulation.clear(request.tabId);

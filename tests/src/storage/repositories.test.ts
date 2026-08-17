@@ -106,6 +106,25 @@ describe("P2 storage repositories", () => {
     await expect(configRepo.load("a.example.com", 123)).resolves.toEqual({ ok: true, value: config });
   });
 
+  it("clears a persisted editor session by tab after a worker restart", async () => {
+    const store = createMemoryStore();
+    const firstRuntimeRepo = createEditorSessionRepo(store);
+    await firstRuntimeRepo.save({
+      environmentKey: "a.example.com",
+      tabId: 7,
+      siteId: 123,
+      editorSessionId: "editor-session-7",
+      createdAt: 1,
+      updatedAt: 2,
+    });
+
+    const restartedRepo = createEditorSessionRepo(store);
+    await restartedRepo.clearForTab(7);
+
+    await expect(restartedRepo.load("a.example.com", 7, 123))
+      .resolves.toEqual({ ok: true, value: null });
+  });
+
   it("returns structured schema errors for malformed persisted blobs", async () => {
     const repo = createRunRecordRepo(createMemoryStore({
       "aiRun:bad": {

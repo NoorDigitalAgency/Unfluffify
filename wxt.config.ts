@@ -64,6 +64,7 @@ export default defineConfig({
       "alarms",
       "browsingData",
       "webNavigation",
+      "idle",
       "activeTab",
       "offscreen",
     ],

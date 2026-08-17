@@ -22,6 +22,7 @@ const EXPECTED_PERMISSIONS = [
   "alarms",
   "browsingData",
   "webNavigation",
+  "idle",
   "activeTab",
   "offscreen",
 ];

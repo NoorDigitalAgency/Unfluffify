@@ -34,6 +34,14 @@ test("manifest uses extension-compatible media permissions", async () => {
   assert.ok(!manifest.permissions.includes("videoCapture"));
 });
 
+test("manifest grants the browser lifecycle signals required by property-lock presence", async () => {
+  const manifest = await readManifestUnderTest();
+
+  assert.ok(manifest.permissions.includes("tabs"));
+  assert.ok(manifest.permissions.includes("webNavigation"));
+  assert.ok(manifest.permissions.includes("idle"));
+});
+
 test("manifest exposes the content UI icon font without the global icon stylesheet", async () => {
   const manifest = await readManifestUnderTest();
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);

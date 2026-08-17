@@ -1,4 +1,9 @@
-import { projectPropertyLockView, type PropertyLockState, type PropertyLockView } from "../lock";
+import {
+  projectPropertyLockView,
+  type PropertyLockPresence,
+  type PropertyLockState,
+  type PropertyLockView,
+} from "../lock";
 import type { LockBannerVocabulary, LockReason } from "../domain/schema/facts";
 import type { RewriteBackgroundServices } from "./services";
 import { createRealmBus, type LockStatus } from "../messaging/realms";
@@ -20,6 +25,17 @@ type TabsLike = Readonly<{
 }>;
 
 type LockClient = Awaited<ReturnType<RewriteBackgroundServices["createLockClient"]>>;
+
+const UNKNOWN_PRESENCE: PropertyLockPresence = {
+  visible: false,
+  focusedWindow: false,
+  browserIdle: true,
+  suspensionReason: "browser-presence-unknown",
+};
+
+function presenceQualifies(presence: PropertyLockPresence): boolean {
+  return presence.visible && presence.focusedWindow && !presence.browserIdle;
+}
 
 export type MutationFenceFailure = Readonly<{
   ok: false;
@@ -131,6 +147,8 @@ export function createPropertyLockRuntime(input: Readonly<{
   const publishedLockStates = new Map<string, string>();
   const latestLockStates = new Map<number, ReturnType<typeof lockStateFromState>>();
   const activeKeyByTab = new Map<number, string>();
+  const presenceByTab = new Map<number, PropertyLockPresence>();
+  const generationByTab = new Map<number, number>();
   const contextRuntime = input.context ?? createPageContextRuntime({
     currentEnvironmentKey: input.services.lynx.currentEnvironmentKey,
     hasToken: input.services.accounts.hasToken,
@@ -190,22 +208,31 @@ export function createPropertyLockRuntime(input: Readonly<{
     void publishLockState(tabId, state);
   };
 
-  const releaseKey = (key: string): void => {
-    clients.get(key)?.close();
+  const releaseKey = async (key: string): Promise<void> => {
+    const client = clients.get(key);
+    const session = client?.editorSession();
     clients.delete(key);
     pageUrls.delete(key);
     unsavedByKey.delete(key);
     claimedKeys.delete(key);
     publishedLockStates.delete(key);
+    client?.close();
+    if (session) {
+      await input.services.repos.editorSessionRepo.clear(
+        session.environmentKey,
+        session.tabId,
+        session.siteId,
+      );
+    }
   };
 
-  const releaseActiveForTab = (tabId: number, nextKey?: string): void => {
+  const releaseActiveForTab = async (tabId: number, nextKey?: string): Promise<void> => {
     const activeKey = activeKeyByTab.get(tabId);
     if (!activeKey || activeKey === nextKey) {
       return;
     }
-    releaseKey(activeKey);
     activeKeyByTab.delete(tabId);
+    await releaseKey(activeKey);
   };
 
   const getOrCreateClient = async (
@@ -213,6 +240,7 @@ export function createPropertyLockRuntime(input: Readonly<{
     environmentKey: string,
     siteId: number,
     baseUrl: string,
+    generation: number,
   ): Promise<LockClient> => {
     const key = clientKey(environmentKey, request.tabId, siteId);
     const existing = clients.get(key);
@@ -228,31 +256,37 @@ export function createPropertyLockRuntime(input: Readonly<{
       claimedKeys.delete(key);
     }
     const creation = input.services.createLockClient({
-        environmentKey,
-        tabId: request.tabId,
-        siteId,
-        hasUnsavedWork: () => unsavedByKey.get(key) === true,
-        onStateChange: (state) => {
-          if (activeKeyByTab.get(request.tabId) !== key) {
-            return;
-          }
-          const pageUrl = pageUrls.get(key) ?? request.pageUrl;
-          const response = lockStateFromState({ pageUrl, baseUrl, siteId, state, status: "ok" });
-          const observation = observeLockState(request.tabId, pageUrl, response);
-          if (observation) {
-            void observation.then(
-              () => publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response),
-              (error: unknown) => {
-                console.error("[Unfluffify][rewrite] Unable to observe property-lock facts", error);
-                publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
-              },
-            );
-          } else {
-            publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
-          }
-        },
-      })
-      .then((client) => {
+      environmentKey,
+      tabId: request.tabId,
+      siteId,
+      presence: () => presenceByTab.get(request.tabId) ?? UNKNOWN_PRESENCE,
+      hasUnsavedWork: () => unsavedByKey.get(key) === true,
+      onStateChange: (state) => {
+        if (activeKeyByTab.get(request.tabId) !== key) {
+          return;
+        }
+        const pageUrl = pageUrls.get(key) ?? request.pageUrl;
+        const response = lockStateFromState({ pageUrl, baseUrl, siteId, state, status: "ok" });
+        const observation = observeLockState(request.tabId, pageUrl, response);
+        if (observation) {
+          void observation.then(
+            () => publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response),
+            (error: unknown) => {
+              console.error("[Unfluffify][rewrite] Unable to observe property-lock facts", error);
+              publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
+            },
+          );
+        } else {
+          publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
+        }
+      },
+    })
+      .then(async (client) => {
+        if ((generationByTab.get(request.tabId) ?? 0) !== generation) {
+          client.close();
+          await input.services.repos.editorSessionRepo.clearForTab(request.tabId);
+          throw new Error("Property-lock directive was superseded by tab navigation");
+        }
         clients.set(key, client);
         pageUrls.set(key, request.pageUrl);
         return client;
@@ -269,7 +303,11 @@ export function createPropertyLockRuntime(input: Readonly<{
 
   return {
     async directive(request: LockDirectiveRequest) {
+      const generation = generationByTab.get(request.tabId) ?? 0;
       const context = await contextRuntime.resolve({ tabId: request.tabId, pageUrl: request.pageUrl });
+      if ((generationByTab.get(request.tabId) ?? 0) !== generation) {
+        throw new Error("Property-lock directive was superseded by tab navigation");
+      }
       const baseUrl = context.baseUrl ?? request.baseUrl ?? baseUrlFor(request.pageUrl);
       const blockedStatus: LockStatus | null = context.status === "authentication_required"
         ? "signed_out"
@@ -297,7 +335,7 @@ export function createPropertyLockRuntime(input: Readonly<{
         return response;
       }
       if (context.status === "unmanaged" || context.status === "managed_non_candidate" || context.siteId === null) {
-        releaseActiveForTab(request.tabId);
+        await releaseActiveForTab(request.tabId);
         const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: null, state: null, status: "not_candidate" });
         await observeLockState(request.tabId, request.pageUrl, response);
         publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
@@ -310,9 +348,18 @@ export function createPropertyLockRuntime(input: Readonly<{
         return response;
       }
       const key = clientKey(context.environmentKey, request.tabId, context.siteId);
-      releaseActiveForTab(request.tabId, key);
+      await releaseActiveForTab(request.tabId, key);
       activeKeyByTab.set(request.tabId, key);
-      const client = await getOrCreateClient(request, context.environmentKey, context.siteId, baseUrl);
+      const client = await getOrCreateClient(
+        request,
+        context.environmentKey,
+        context.siteId,
+        baseUrl,
+        generation,
+      );
+      if ((generationByTab.get(request.tabId) ?? 0) !== generation) {
+        throw new Error("Property-lock directive was superseded by tab navigation");
+      }
       const previousPageUrl = pageUrls.get(key);
       const previousUnsaved = unsavedByKey.get(key);
       unsavedByKey.set(key, request.hasUnsavedChanges === true);
@@ -324,7 +371,9 @@ export function createPropertyLockRuntime(input: Readonly<{
         client.clientStatus();
         pageUrls.set(key, request.pageUrl);
       }
-      client.heartbeat();
+      if (presenceQualifies(presenceByTab.get(request.tabId) ?? UNKNOWN_PRESENCE)) {
+        client.heartbeat();
+      }
       const state = client.state();
       const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: context.siteId, state, status: "ok" });
       await observeLockState(request.tabId, request.pageUrl, response);
@@ -334,16 +383,54 @@ export function createPropertyLockRuntime(input: Readonly<{
     activity(tabId: number, siteId: number): void {
       const activeKey = activeKeyByTab.get(tabId);
       const client = activeKey ? clients.get(activeKey) : undefined;
-      if (client?.editorSession().siteId === siteId) {
+      if (
+        client?.editorSession().siteId === siteId &&
+        presenceQualifies(presenceByTab.get(tabId) ?? UNKNOWN_PRESENCE)
+      ) {
         client.activity();
+      }
+    },
+    presenceChanged(tabId: number, presence: PropertyLockPresence): void {
+      presenceByTab.set(tabId, presence);
+      const activeKey = activeKeyByTab.get(tabId);
+      const client = activeKey ? clients.get(activeKey) : undefined;
+      if (!client || client.isClosed()) {
+        return;
+      }
+      client.clientStatus();
+      if (presenceQualifies(presence)) {
+        client.heartbeat();
       }
     },
     heartbeat(): void {
       for (const client of clients.values()) {
-        if (!client.isClosed()) {
+        const session = client.editorSession();
+        if (
+          !client.isClosed() &&
+          presenceQualifies(presenceByTab.get(session.tabId) ?? UNKNOWN_PRESENCE)
+        ) {
           client.heartbeat();
         }
       }
+    },
+    async terminateTab(
+      tabId: number,
+      options: Readonly<{ forgetPresence?: boolean }> = {},
+    ): Promise<void> {
+      generationByTab.set(tabId, (generationByTab.get(tabId) ?? 0) + 1);
+      const keys = [...clients.entries()]
+        .filter(([, client]) => client.editorSession().tabId === tabId)
+        .map(([key]) => key);
+      activeKeyByTab.delete(tabId);
+      for (const key of keys) {
+        await releaseKey(key);
+      }
+      if (options.forgetPresence !== false) {
+        presenceByTab.delete(tabId);
+      }
+      latestLockStates.delete(tabId);
+      publishedLockStates.delete(`tab:${tabId}`);
+      await input.services.repos.editorSessionRepo.clearForTab(tabId);
     },
     authorizeMutation<T extends PropertyMutationEnvelope>(request: T): MutationFenceAuthorization<T> {
       const client = [...clients.values()].find((candidate) => {

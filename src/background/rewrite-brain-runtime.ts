@@ -118,6 +118,9 @@ export function createRewriteBrainRuntime(host: RuntimeHost) {
     },
     handle,
     getBrain,
+    forgetBrain(tabId: number): void {
+      brains.delete(tabId);
+    },
     keepAlive,
   };
 }
