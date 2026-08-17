@@ -65,6 +65,13 @@ class FakeElement {
     return this.attributes.has(name);
   }
 
+  closest(selector: string): FakeElement | null {
+    if (selector === '[data-uf-extension-ui="true"]' && this.getAttribute("data-uf-extension-ui") === "true") {
+      return this;
+    }
+    return this.parentElement?.closest(selector) ?? null;
+  }
+
   getAttributeNames(): string[] {
     return [...this.attributes.keys()];
   }
@@ -337,11 +344,78 @@ describe("P6 DOM bridge", () => {
     expect(renderedOverlay?.style.border).not.toBe("");
     expect(engine.overlayRoot().style.pointerEvents).toBe("none");
     expect(engine.overlayRoot().style.position).toBe("fixed");
+    expect(engine.overlayRoot().getAttribute("data-uf-extension-ui")).toBe("true");
 
     const renderer = createOverlayRenderer({ document: doc as unknown as Document });
     renderer.clear();
     expect(renderer.root.children).toHaveLength(11);
     expect(renderer.root.children.every((layer) => layer.children.length === 0)).toBe(true);
+  });
+
+  it("rebuilds for page mutations but not extension chrome mutations", () => {
+    const doc = new FakeDocument();
+    const callbacks: Array<(records: MutationRecord[]) => void> = [];
+    const animationFrames: Array<() => void> = [];
+    Object.assign(doc.defaultView, {
+      MutationObserver: class {
+        constructor(callback: (records: MutationRecord[]) => void) {
+          callbacks.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+      requestAnimationFrame(callback: () => void) {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      },
+    });
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const first = new FakeElement("P", rect(0, 0, 120, 20), "First");
+    root.ownerDocument = doc;
+    first.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(first);
+    const engine = createMarkingEngine(root as unknown as Element);
+    const mutation = callbacks[0];
+    expect(mutation).toBeDefined();
+
+    const extensionRoot = new FakeElement("DIV", rect(0, 0, 300, 20));
+    extensionRoot.ownerDocument = doc;
+    extensionRoot.setAttribute("data-uf-extension-ui", "true");
+    root.appendChild(extensionRoot);
+    mutation?.([{
+      type: "childList",
+      target: root,
+      addedNodes: [extensionRoot],
+      removedNodes: [],
+    } as unknown as MutationRecord]);
+    const transientChrome = new FakeElement("ASIDE", rect(0, 0, 300, 20), "Lock banner");
+    transientChrome.ownerDocument = doc;
+    extensionRoot.appendChild(transientChrome);
+    transientChrome.parentElement = null;
+    mutation?.([{
+      type: "childList",
+      target: extensionRoot,
+      addedNodes: [],
+      removedNodes: [transientChrome],
+    } as unknown as MutationRecord]);
+
+    expect(animationFrames).toHaveLength(0);
+
+    const second = new FakeElement("P", rect(0, 30, 120, 20), "Second");
+    second.ownerDocument = doc;
+    root.appendChild(second);
+    mutation?.([{
+      type: "childList",
+      target: root,
+      addedNodes: [second],
+      removedNodes: [],
+    } as unknown as MutationRecord]);
+
+    expect(animationFrames).toHaveLength(1);
+    animationFrames[0]?.();
+    expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[2]", excluded: false });
   });
 
   it("matches the legacy 052c Shift-widening golden fixture", () => {

@@ -371,6 +371,7 @@ function ensureContentSurfaceRoot(): HTMLElement | null {
     return contentSurfaceRoot;
   }
   contentSurfaceRoot = document.createElement("div");
+  contentSurfaceRoot.setAttribute("data-uf-extension-ui", "true");
   contentSurfaceRoot.setAttribute("data-uf-content-surface-root", "true");
   contentSurfaceRoot.style.position = "fixed";
   contentSurfaceRoot.style.inset = "0";

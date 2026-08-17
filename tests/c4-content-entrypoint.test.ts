@@ -584,6 +584,8 @@ describe("C4 rewrite content entrypoints", () => {
       banner: { visible: true, reason: "not-configured" },
     });
     expect(configBlocked).toMatchObject({ ok: true, data: { ok: true } });
+    expect(elements.find((element) => element.attributes["data-uf-content-surface-root"] === "true")?.attributes)
+      .toMatchObject({ "data-uf-extension-ui": "true" });
     expect(elements.some((element) => element.attributes["data-uf-content-curtain"] === "true")).toBe(true);
     expect(elements.some((element) => element.attributes["data-uf-content-banner"] === "true")).toBe(true);
     expect(elements.some((element) => element.textContent === "Property lock not configured")).toBe(true);

@@ -202,12 +202,23 @@ export function createMarkingEngine(rootElement: Element) {
       const element = node.nodeType === 1 ? node as Element : node.parentElement;
       return Boolean(element?.closest?.('[data-uf-extension-ui="true"]'));
     };
+    const isExtensionOnlyMutation = (record: MutationRecord): boolean => {
+      // Mutations inside an extension root are ours even when a removed child is
+      // already detached and can no longer find that root through `closest`.
+      if (isExtensionNode(record.target)) {
+        return true;
+      }
+      if (record.type !== "childList") {
+        return false;
+      }
+      // Mounting or removing the root itself targets the page parent, so inspect
+      // the changed nodes in that one boundary case.
+      const changedNodes = [...record.addedNodes, ...record.removedNodes];
+      return changedNodes.length > 0 && changedNodes.every((node) => isExtensionNode(node));
+    };
     if (view?.MutationObserver) {
       const observer = new view.MutationObserver((records) => {
-        if (records.every((record) =>
-          isExtensionNode(record.target) &&
-          [...record.addedNodes, ...record.removedNodes].every((node) => isExtensionNode(node))
-        )) {
+        if (records.every(isExtensionOnlyMutation)) {
           return;
         }
         scheduleRender();
