@@ -47,7 +47,7 @@ describe("contract parity matrix", () => {
     const remediation = matrix.split("## FAIL remediation slices")[1]?.split("## Fail-open")[0] ?? "";
     const failures = matrixRows().filter((row) => row.verdict === "FAIL");
 
-    expect(failures).toHaveLength(3);
+    expect(failures).toHaveLength(1);
     for (const row of failures) {
       expect(remediation, `${row.id} remediation`).toContain(row.id);
       expect(row.rewriteEvidence, `${row.id} slice`).toMatch(/Remediation: \*\*G2[a-z]\*\*/);

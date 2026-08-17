@@ -29,7 +29,7 @@ slice below.
 | C-MARK-9 | PASS | `study/legacy-locked-contracts.md:91` | First exclude-click on an existing generated exclusion writes `{excluded:false}`: `src/content/marking/store.ts:18`, pinned at `tests/src/content/marking/marking.test.ts:312`. |
 | C-MARK-10 | PASS | `study/legacy-locked-contracts.md:94` | The renderer preserves the complete classification map while collapsing nested exception boxes below their nearest projected boundary: `src/content/marking/renderer.ts:171`, `src/content/marking/renderer.ts:287`; DOM proof at `tests/src/content/marking/dom-bridge.test.ts:413`. Landed in `9e95b1e2`. |
 | C-MARK-11 | PASS | `study/legacy-locked-contracts.md:100` | The approved unified-row schema preserves the observable data: `src/storage/config.ts:11`, `src/domain/schema/marking.ts:8`; D14 authority is pinned at `tests/src/background/property-snapshot-authority.test.ts:51`. |
-| C-MARK-12 | FAIL | `study/legacy-locked-contracts.md:107` | Only an obsolete type field remains (`src/types/config.ts:25`); no collector, target suppression, or submission writer exists. Remediation: **G2b**. |
+| C-MARK-12 | PASS | `study/legacy-locked-contracts.md:107` | The bridge identifies visible empty block candidates (`src/content/marking/dom-view.ts:77`), evaluation emits lifecycle-only explicit exclusion rows without an overlay (`src/domain/evaluate.ts:62`, `src/domain/evaluate.ts:134`), and target conversion suppresses them. Refresh/removal proof: `tests/src/content/marking/dom-bridge.test.ts:296`. Landed in `2c73af7b`. |
 | C-MARK-13 | PASS | `study/legacy-locked-contracts.md:113` | Both selector seed directions stamp `explicit:true`: `src/domain/selector-seed.ts:28`, `tests/src/domain/selector-seed.test.ts:41`. |
 | C-MARK-14 | PARTIAL | `study/legacy-locked-contracts.md:120` | Dirty/session one-shot gating exists (`src/entrypoints/content-loader.content.ts:1357`), but there is no dedicated `selectorSuppressedXpaths` authority beyond retained unexclude rows. |
 | C-MARK-15 | PASS | `study/legacy-locked-contracts.md:125` | Exclude normalization removes overlaps/descendants and converts generated ancestors: `src/content/marking/store.ts:23`, `src/content/marking/store.ts:78`, pinned at `tests/src/content/marking/marking.test.ts:161`. |
@@ -45,12 +45,12 @@ slice below.
 | C-TGT-5 | PASS | `study/legacy-locked-contracts.md:189` | Page-shell/root stops, width independence, and descendants-only floor: `src/domain/widening.ts:54`, `tests/src/domain/widening.test.ts:109`, `tests/src/domain/widening.test.ts:124`. The approved F2 tradeoff remains documented. |
 | C-TGT-6 | PARTIAL | `study/legacy-locked-contracts.md:210` | Core self-markability is centralized (`src/domain/boundary.ts:67`), but the leaf/direct-descendant toggleable-boundary distinction depends on hit ordering instead of an explicit predicate. |
 | C-TGT-7 | PASS | `study/legacy-locked-contracts.md:215` | Mobile-width/page-height geometry and visible CSS clamps: `src/domain/visibility.ts:32`, `src/domain/visibility.ts:66`, `tests/src/domain/visibility.test.ts:27`. |
-| C-TGT-8 | FAIL | `study/legacy-locked-contracts.md:223` | Accessibility-hidden metadata is rejected unconditionally (`src/domain/visibility.ts:50`); the required hit-test reality check is absent. Remediation: **G2b**. |
+| C-TGT-8 | PASS | `study/legacy-locked-contracts.md:223` | `aria-hidden` and sr-only metadata are ambiguous until the composed multi-point paint check resolves them (`src/content/marking/dom-view.ts:180`, `src/content/marking/paint-reachability.ts:37`, `src/domain/visibility.ts:77`); visible-prose proof at `tests/src/content/marking/dom-bridge.test.ts:276`. Landed in `2c73af7b`. |
 | C-SHDW-1 | PARTIAL | `study/legacy-locked-contracts.md:229` | Open roots flatten recursively (`src/content/marking/dom-view.ts:36`), but a closed-shadow host is serialized as empty (`src/content/marking/dom-view.ts:361`), dropping the host and light DOM rather than only skipping the closed root. |
 | C-SHDW-2 | PASS | `study/legacy-locked-contracts.md:235` | Flattened children share continuous positional indices: `src/content/marking/dom-view.ts:208`, `tests/src/domain/xpath.test.ts:14`, `tests/src/content/marking/marking.test.ts:94`. |
 | C-SHDW-3 | PASS | `study/legacy-locked-contracts.md:240` | Bridge enumeration descends open roots and page-world instruments closed hosts: `src/content/marking/dom-view.ts:208`, `src/page-world/program.js:39`, `tests/src/content/marking/dom-bridge.test.ts:193`. |
 | C-SUB-1 | PARTIAL | `study/legacy-locked-contracts.md:249` | Extension and automation roots cannot shift capture XPaths (`tests/src/content/marking/dom-bridge.test.ts:216`, `tests/src/content/marking/dom-bridge.test.ts:234`); the consent bypass style is still serialized and there is no separately named shallow-boundary store. |
-| C-SUB-2 | PARTIAL | `study/legacy-locked-contracts.md:253` | Unified walk implements explicit rescue, excluded-ancestor suppression, immutable tags, implicit positive/negative rows, and root rejection (`src/domain/evaluate.ts:102`–`132`); silent-whitespace clause (c) and the accessibility reality check remain missing (G2b). |
+| C-SUB-2 | PASS | `study/legacy-locked-contracts.md:253` | The unified walk implements explicit rescue, excluded-ancestor suppression, immutable tags, implicit positive/negative rows, root rejection, and lifecycle-only silent-whitespace exclusions (`src/domain/evaluate.ts:102`, `src/domain/evaluate.ts:122`); DOM/submission proof at `tests/src/content/marking/dom-bridge.test.ts:296`. |
 | C-SUB-3 | PASS | `study/legacy-locked-contracts.md:267` | Full positive and negative ground truth comes from the one evaluation walk: `src/domain/evaluate.ts:108`, `tests/src/content/marking/marking.test.ts:435`. |
 | C-SUB-4 | PASS | `study/legacy-locked-contracts.md:270` | Positional schema plus capture alignment guard: `src/domain/schema/marking.ts:5`, `tests/src/content/marking/marking.test.ts:459`. |
 | C-SUB-5 | PASS | `study/legacy-locked-contracts.md:272` | Full authoritative corpus overlay, static raw HTML, and raw-DOM refinement: `src/storage/property-snapshot-authority.ts:81`, `src/offscreen/xpath-refinement.ts:114`, `tests/src/background/startup.test.ts:144`. |
@@ -133,7 +133,7 @@ slice below.
 | Slice | Contracts | Implementation and proof |
 |---|---|---|
 | **G2a — exact boundary truth and collapsed projection** | C-MARK-8, C-MARK-10 | **Landed in `9e95b1e2`.** Unmark now changes only the exact boundary, preserves descendant excludes, cleans dependent include punches, retains textual leaf boundaries, and collapses ordinary descendant projection below an excluded boundary. |
-| **G2b — generated whitespace and accessibility reality** | C-MARK-12, C-TGT-8 | Add the silent-whitespace collector/lifecycle/submission path and resolve `aria-hidden`/sr-only/interaction-gated ambiguity with paint/hit reality rather than blanket rejection. Tests prove generated rows stay out of marking UI and real visible a11y-hidden prose survives. |
+| **G2b — generated whitespace and accessibility reality** | C-MARK-12, C-TGT-8 | **Landed in `2c73af7b`.** Silent-whitespace rows now live only in evaluation/submission, disappear on refresh when stale, and stay out of overlays/targeting; ambiguous a11y metadata is resolved by composed paint reachability. |
 | **G2c — AI timing authority** | C-SUB-7 | Import one timeout/poll definition into popup deadline, run-record deadline, and poll defaults; add a guard that rejects numeric duplicates. |
 
 ## Fail-open / fail-closed API audit
@@ -155,7 +155,7 @@ fail-closed.
 
 ## Totals
 
-- PASS: 97
-- PARTIAL: 12
-- FAIL: 3
+- PASS: 100
+- PARTIAL: 11
+- FAIL: 1
 - Inventory: 112 / 112
