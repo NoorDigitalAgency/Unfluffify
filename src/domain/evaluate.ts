@@ -1,4 +1,5 @@
 import type { CanonicalMarkSet, Classification, MarkRow } from "./schema/marking";
+import type { StructuralRole } from "./boundary";
 import { isImmutableTag } from "./taxonomy";
 import { compareXpathsInDocumentOrder, isDocumentRootRowXPath, isXPathInSubtree } from "./xpath";
 
@@ -10,6 +11,7 @@ export type EvaluationNode = Readonly<{
   visible: boolean;
   ownsDirectText?: boolean;
   structuralBoundary?: boolean;
+  structuralRole?: StructuralRole;
   pageShell?: boolean;
   landmarkCount?: number;
   chrome?: boolean;

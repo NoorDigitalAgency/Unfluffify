@@ -57,7 +57,7 @@ function toWidenNode(node: EvaluationNode, parent?: WidenNode | null): WidenNode
     depthFromBody: node.xpath.split("/").length - 3,
     visible: node.visible,
     ownsDirectText: node.ownsDirectText,
-    structuralRole: node.structuralBoundary ? "card-group" as const : "generic" as const,
+    structuralRole: node.structuralRole ?? (node.structuralBoundary ? "card-group" as const : "generic" as const),
     pageShell: node.pageShell,
     landmarkCount: node.landmarkCount,
     textualMarkableContentCount: node.ownsDirectText ? 1 : undefined,

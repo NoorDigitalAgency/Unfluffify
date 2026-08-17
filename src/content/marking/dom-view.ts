@@ -222,6 +222,7 @@ function buildNode(
     visible: isUserVisible(element, geometryFor(element)),
     ownsDirectText: ownsDirectText(element),
     structuralBoundary: isStructuralBoundary(element, xpath),
+    structuralRole: structuralRoleFor(element),
     pageShell: tagName === "HTML" || tagName === "BODY" || tagName === "MAIN" || landmarkCount(element) >= 2,
     landmarkCount: landmarkCount(element),
     chrome: isExtensionUi(element),

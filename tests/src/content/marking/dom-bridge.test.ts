@@ -344,6 +344,37 @@ describe("P6 DOM bridge", () => {
     expect(renderer.root.children.every((layer) => layer.children.length === 0)).toBe(true);
   });
 
+  it("matches the legacy 052c Shift-widening golden fixture", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 400, 400));
+    const broadPlain = new FakeElement("DIV", rect(0, 0, 380, 360), "Outer copy");
+    const nearestGroup = new FakeElement("SECTION", rect(10, 10, 360, 320));
+    const toggleable = new FakeElement("FOOTER", rect(20, 20, 160, 200), "Footer copy");
+    const gap = new FakeElement("DIV", rect(30, 30, 140, 100));
+    const clicked = new FakeElement("P", rect(40, 40, 120, 20), "Clicked copy");
+    const sibling = new FakeElement("ARTICLE", rect(200, 20, 150, 200), "Sibling copy");
+    for (const element of [root, broadPlain, nearestGroup, toggleable, gap, clicked, sibling]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    gap.appendChild(clicked);
+    toggleable.appendChild(gap);
+    nearestGroup.appendChild(toggleable);
+    nearestGroup.appendChild(sibling);
+    broadPlain.appendChild(nearestGroup);
+    root.appendChild(broadPlain);
+    doc.hits = [clicked, gap, toggleable, nearestGroup, broadPlain, root];
+
+    const widened = createMarkingEngine(root as unknown as Element)
+      .resolveAtPoint(50, 45, "exclude", true);
+
+    // Legacy priority chooses the nearest structured group. It crosses the
+    // ineligible one-child gap, outranks the nearer footer boundary, and does
+    // not climb to the broad ordinary markable wrapper.
+    expect(widened?.xpath).toBe("/main[1]/div[1]/section[1]");
+  });
+
   it("seeds toggleable default exclusions before the first read-only render", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));

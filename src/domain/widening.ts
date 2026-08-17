@@ -5,6 +5,7 @@ import {
   isSelfMarkable,
   ownsDirectText,
 } from "./boundary";
+import { isToggleableDefaultTag } from "./taxonomy";
 
 export type WidenNode = BoundaryNode & Readonly<{
   parent?: WidenNode | null;
@@ -55,7 +56,9 @@ export function isEligibleWidenTarget(node: WidenNode, ctx: WideningContext = {}
   if (isPageShell(node)) {
     return false;
   }
-  if (isSelfMarkable(node, ctx) && holdsMultipleTextualMarkableContent(node, ctx)) {
+  // W4/F3 applies to descendants-only wrappers. A self-markable element with
+  // direct text remains a valid ancestor even when it owns one content piece.
+  if (isSelfMarkable(node, ctx) && ownsDirectText(node, ctx)) {
     return true;
   }
   if (!ownsDirectText(node, ctx) && holdsMultipleTextualMarkableContent(node, ctx)) {
@@ -65,14 +68,45 @@ export function isEligibleWidenTarget(node: WidenNode, ctx: WideningContext = {}
 }
 
 export function chooseWidenTarget(node: WidenNode, ctx: WideningContext = {}): WidenNode {
-  let selected = node;
+  const isStructuredGroup = (candidate: WidenNode) => isGroupingWidenTarget(candidate, ctx);
+  const isToggleableBoundary = (candidate: WidenNode) =>
+    isToggleableDefaultTag(candidate.tagName) && isEligibleWidenTarget(candidate, ctx);
+
+  // C-TGT-4 step 1: Shift on an already meaningful boundary stays there.
+  if (isStructuredGroup(node) || isToggleableBoundary(node)) {
+    return node;
+  }
+
+  const ancestors: WidenNode[] = [];
   let cursor = ctx.getParent?.(node) ?? node.parent;
-  while (cursor) {
-    if (!isEligibleWidenTarget(cursor, ctx)) {
+  const seen = new Set<WidenNode>();
+  while (cursor && !seen.has(cursor)) {
+    const tagName = cursor.tagName.trim().toUpperCase();
+    if (tagName === "BODY" || tagName === "HTML") {
       break;
     }
-    selected = cursor;
+    seen.add(cursor);
+    ancestors.push(cursor);
     cursor = ctx.getParent?.(cursor) ?? cursor.parent;
   }
-  return selected;
+
+  // Steps 2 and 3 are nearest-first and outrank every ordinary markable
+  // ancestor, even when an ineligible wrapper separates the chain.
+  const structuredGroup = ancestors.find(isStructuredGroup);
+  if (structuredGroup) {
+    return structuredGroup;
+  }
+  const toggleable = ancestors.find(isToggleableBoundary);
+  if (toggleable) {
+    return toggleable;
+  }
+
+  // Step 4: only now select the broadest ordinary eligible ancestor.
+  let broadest: WidenNode | null = null;
+  for (const ancestor of ancestors) {
+    if (isEligibleWidenTarget(ancestor, ctx)) {
+      broadest = ancestor;
+    }
+  }
+  return broadest ?? node;
 }
