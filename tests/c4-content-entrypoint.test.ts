@@ -144,12 +144,22 @@ describe("C4 rewrite content entrypoints", () => {
         }),
       },
     });
+    const scrollTo = vi.fn((_x: number, y: number) => {
+      if (y === 500) {
+        (document.documentElement as unknown as { scrollHeight: number }).scrollHeight = 1500;
+      }
+    });
+    const requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
+      callback(0);
+      return 1;
+    });
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: {
         innerHeight: 500,
         scrollY: 123,
-        scrollTo: vi.fn(),
+        scrollTo,
+        requestAnimationFrame,
         postMessage: vi.fn(),
         addEventListener: vi.fn((type: string, listener: EventListener) => {
           windowListeners.set(type, listener);
@@ -207,6 +217,8 @@ describe("C4 rewrite content entrypoints", () => {
       command: "SET_MOTION_PAUSED",
       sessionNonce: expect.stringMatching(/^rewrite-stabilization-/),
     }), "*");
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(12);
+    expect(scrollTo).toHaveBeenCalledWith(0, 1500);
     expect(window.scrollTo).toHaveBeenCalledWith(0, 123);
     documentListeners.get("keydown")?.({ code: "Space" } as unknown as Event);
     documentListeners.get("keyup")?.({ code: "Space" } as unknown as Event);

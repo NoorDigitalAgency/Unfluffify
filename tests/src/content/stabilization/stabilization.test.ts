@@ -41,7 +41,7 @@ describe("P5 page stabilization", () => {
       hasVerticalScrollRoom: true,
       activationStale: false,
       initialScrollHeight: 1_000,
-      expandedScrollHeight: 1_500,
+      measureExpandedScrollHeight: () => 1_500,
       scrollTo: (position) => steps.push(position),
       suppressLazyLoading: () => steps.push("suppress"),
       freezeAtBottom: () => steps.push("freeze"),
@@ -56,6 +56,51 @@ describe("P5 page stabilization", () => {
       suppressLazyLoading: () => steps.push("unexpected"),
       freezeAtBottom: () => steps.push("unexpected"),
     })).resolves.toMatchObject({ skipped: true });
+  });
+
+  it("yields paint between scrolls and freezes at the re-measured bottom", async () => {
+    const steps: string[] = [];
+    let scrollHeight = 1_000;
+    let paintCount = 0;
+
+    const result = await runReveal({
+      hasVerticalScrollRoom: true,
+      activationStale: false,
+      initialScrollHeight: scrollHeight,
+      measureExpandedScrollHeight: () => {
+        steps.push(`measure:${scrollHeight}`);
+        return scrollHeight;
+      },
+      scrollTo: (position, measuredScrollHeight) => {
+        steps.push(`scroll:${position}:${measuredScrollHeight}`);
+      },
+      waitForPaint: async () => {
+        paintCount += 1;
+        steps.push(`paint:${paintCount}`);
+        if (paintCount === 2) {
+          scrollHeight = 1_500;
+        }
+      },
+      suppressLazyLoading: () => steps.push("suppress"),
+      freezeAtBottom: () => steps.push("freeze"),
+    });
+
+    expect(steps).toEqual([
+      "scroll:top:1000",
+      "paint:1",
+      "scroll:half:1000",
+      "paint:2",
+      "suppress",
+      "paint:3",
+      "measure:1500",
+      "scroll:bottom:1500",
+      "paint:4",
+      "freeze",
+      "paint:5",
+      "scroll:restore:1500",
+      "paint:6",
+    ]);
+    expect(result).toEqual({ skipped: false, lazyExpansions: 1, frozenAtBottom: true });
   });
 
   it("runs reveal once per page visit until navigation reset", async () => {
@@ -287,7 +332,7 @@ describe("page-visit reveal ritual", () => {
       hasVerticalScrollRoom: true,
       activationStale: false,
       initialScrollHeight: 2000,
-      expandedScrollHeight: 3000,
+      measureExpandedScrollHeight: () => 3000,
       scrollTo: (position) => log.push(`scroll:${position}`),
       suppressLazyLoading: () => log.push("suppress-lazy"),
       freezeAtBottom: () => log.push("freeze"),

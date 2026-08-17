@@ -255,6 +255,28 @@ async function runActivationStabilization(pageUrl: string): Promise<{ skipped: b
       payload,
     }, "*");
   };
+  const waitForPaint = (): Promise<void> => new Promise((resolve) => {
+    if (typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") {
+      setTimeout(resolve, 0);
+      return;
+    }
+    let settled = false;
+    const fallback = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve();
+      }
+    }, 100);
+    const finish = (): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(fallback);
+      resolve();
+    };
+    window.requestAnimationFrame(() => window.requestAnimationFrame(finish));
+  });
   postPageCommand("ARM", {});
   return await revealController.run({
     hasVerticalScrollRoom: typeof document !== "undefined" && typeof window !== "undefined"
@@ -262,16 +284,19 @@ async function runActivationStabilization(pageUrl: string): Promise<{ skipped: b
       : false,
     activationStale: pageUrl !== (typeof location !== "undefined" ? location.href : pageUrl),
     initialScrollHeight: typeof document !== "undefined" ? document.documentElement.scrollHeight : 0,
-    expandedScrollHeight: typeof document !== "undefined" ? document.documentElement.scrollHeight : undefined,
-    scrollTo(position) {
+    measureExpandedScrollHeight: () => typeof document !== "undefined"
+      ? document.documentElement.scrollHeight
+      : 0,
+    scrollTo(position, measuredScrollHeight) {
       if (typeof window === "undefined") {
         return;
       }
       if (position === "top") window.scrollTo(0, 0);
-      if (position === "half") window.scrollTo(0, Math.floor((document.documentElement.scrollHeight || 0) / 2));
-      if (position === "bottom") window.scrollTo(0, document.documentElement.scrollHeight || 0);
+      if (position === "half") window.scrollTo(0, Math.floor(measuredScrollHeight / 2));
+      if (position === "bottom") window.scrollTo(0, measuredScrollHeight);
       if (position === "restore") window.scrollTo(0, initialScrollY);
     },
+    waitForPaint,
     suppressLazyLoading() {
       postPageCommand("SET_LAZY_LOADING_SUPPRESSED", { suppressed: true });
     },
