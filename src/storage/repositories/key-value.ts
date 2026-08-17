@@ -45,6 +45,12 @@ export function createMemoryStore(seed: Readonly<Record<string, unknown>> = {}):
   };
 }
 
+export function createDefaultStore(): KeyValueStore {
+  return typeof globalThis.indexedDB === "undefined"
+    ? createMemoryStore()
+    : createIndexedDbStore();
+}
+
 type IndexedDbFactory = Pick<IDBFactory, "open">;
 
 export function createIndexedDbStore(options: Readonly<{

@@ -233,4 +233,17 @@ describe("consent overlay hiding", () => {
       }
     }
   });
+
+  it("retains the required high-confidence consent selectors", () => {
+    for (const required of [
+      "[role='alertdialog' i]",
+      "[aria-modal='true' i]",
+      "dialog[open]",
+      "[id*='gdpr' i]",
+      "[class*='interstitial' i]",
+    ]) {
+      expect(CONSENT_OVERLAY_SELECTORS.some((selector) => selector.includes(required)), required)
+        .toBe(true);
+    }
+  });
 });

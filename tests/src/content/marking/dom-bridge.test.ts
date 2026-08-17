@@ -135,6 +135,7 @@ class FakeDocument {
   };
   hits: FakeElement[] = [];
   pointHits: ((x: number, y: number) => FakeElement[]) | null = null;
+  hitReadCount = 0;
   createElementCount = 0;
 
   constructor() {
@@ -156,6 +157,7 @@ class FakeDocument {
   }
 
   elementsFromPoint(x: number, y: number): FakeElement[] {
+    this.hitReadCount += 1;
     return this.pointHits?.(x, y) ?? this.hits;
   }
 }
@@ -188,6 +190,28 @@ describe("P6 DOM bridge", () => {
     doc.hits = [cover, target];
 
     expect(isPaintReachable(target as unknown as Element, doc as unknown as Document)).toBe(false);
+  });
+
+  it("reuses hover resolution until a bridge refresh invalidates it", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const target = new FakeElement("P", rect(10, 10, 100, 20), "Hover copy");
+    root.ownerDocument = doc;
+    target.ownerDocument = doc;
+    root.appendChild(target);
+    doc.hits = [target, root];
+    const engine = createMarkingEngine(root as unknown as Element);
+
+    engine.hoverAtPoint(20, 15);
+    const firstProbeReads = doc.hitReadCount;
+    engine.hoverAtPoint(20, 15);
+
+    expect(doc.hitReadCount).toBe(firstProbeReads);
+
+    engine.refresh();
+    engine.hoverAtPoint(20, 15);
+
+    expect(doc.hitReadCount).toBeGreaterThan(firstProbeReads);
   });
 
   it("builds an Element-backed shadow-flattened bridge view", () => {

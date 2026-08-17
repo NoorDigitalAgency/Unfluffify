@@ -9,13 +9,13 @@ import {
 } from "../lock";
 import {
   createConfigRepo,
-  createIndexedDbStore,
+  createDefaultStore,
   createEditorSessionRepo,
   createLocalPropertyRepo,
-  createMemoryStore,
   createRunRecordRepo,
   createSettingsRepo,
   createTabStateRepo,
+  type KeyValueStore,
 } from "../storage";
 import { SelectorSetSchema, type ConfigSnapshot } from "../storage/config";
 import type { Settings } from "../storage/settings";
@@ -57,12 +57,6 @@ type EndpointSettings = Readonly<{
   stageBase?: string;
   token?: string;
 }>;
-
-function createBackgroundStore() {
-  return typeof globalThis.indexedDB === "undefined"
-    ? createMemoryStore()
-    : createIndexedDbStore();
-}
 
 function resolveEndpoint(base: string | undefined, path: string): string {
   if (!base) {
@@ -129,8 +123,9 @@ export function createRewriteBackgroundServices(input: Readonly<{
   socketFactory?: (url: string) => WebSocketLike;
   networkReachability?: () => Promise<boolean>;
   editorSessionIdFactory?: () => string;
+  store?: KeyValueStore;
 }> = {}) {
-  const store = createBackgroundStore();
+  const store = input.store ?? createDefaultStore();
   const tabStateRepo = createTabStateRepo(store);
   const configRepo = createConfigRepo(store);
   const runRecordRepo = createRunRecordRepo(store);
@@ -155,6 +150,28 @@ export function createRewriteBackgroundServices(input: Readonly<{
     };
     const queued = settingsWrites.then(run, run);
     settingsWrites = queued.catch(() => undefined);
+    return queued;
+  };
+  /** Property authority transitions are read-modify-write operations spanning
+   *  the config and local-property repositories. Keep a queue per property so
+   *  independent sites remain parallel while same-property loads, saves, and
+   *  render-mode choices cannot overwrite one another from a shared baseline. */
+  const propertyOperations = new Map<string, Promise<unknown>>();
+  const withPropertyOperation = <T>(
+    environmentKey: string,
+    siteId: number,
+    operation: () => Promise<T>,
+  ): Promise<T> => {
+    const key = `${environmentKey.trim().toLowerCase()}:${siteId}`;
+    const previous = propertyOperations.get(key) ?? Promise.resolve();
+    const queued = previous.then(operation, operation);
+    const tail = queued.then(() => undefined, () => undefined);
+    propertyOperations.set(key, tail);
+    void tail.finally(() => {
+      if (propertyOperations.get(key) === tail) {
+        propertyOperations.delete(key);
+      }
+    });
     return queued;
   };
   const baseTransport = input.transport ?? (async (request) => {
@@ -187,22 +204,55 @@ export function createRewriteBackgroundServices(input: Readonly<{
        *  A 404 clears it, retaining only the documented local render-mode
        *  exception. A transport, auth, or validation failure is not an
        *  authoritative answer and therefore leaves durable state untouched. */
-      async applyBackendLoad(environmentKey: string, siteId: number, outcome: Readonly<{
+      applyBackendLoad(environmentKey: string, siteId: number, outcome: Readonly<{
         status: "ok" | "auth_error" | "not_found" | "invalid" | "error";
         config?: ConfigSnapshot;
       }>) {
-        if (outcome.status === "auth_error" || outcome.status === "invalid" || outcome.status === "error") {
+        return withPropertyOperation(environmentKey, siteId, async () => {
+          if (outcome.status === "auth_error" || outcome.status === "invalid" || outcome.status === "error") {
+            const existing = await localPropertyRepo.load(environmentKey, siteId);
+            return {
+              renderMode: existing.ok ? existing.value?.renderMode : undefined,
+              source: "local" as const,
+            };
+          }
+          if (outcome.status === "ok") {
+            const stored = await configRepo.load(environmentKey, siteId);
+            const adopted = adoptAuthoritativeSnapshot(
+              stored.ok ? stored.value : null,
+              outcome.config,
+              { environmentKey, siteId },
+            );
+            await configRepo.save(adopted);
+            await localPropertyRepo.save({
+              environmentKey,
+              siteId,
+              backendConfigPresent: true,
+              updatedAt: new Date().toISOString(),
+            });
+            return { renderMode: adopted.renderMode, source: "backend" as const };
+          }
+          await configRepo.clear(environmentKey, siteId);
           const existing = await localPropertyRepo.load(environmentKey, siteId);
-          return {
-            renderMode: existing.ok ? existing.value?.renderMode : undefined,
-            source: "local" as const,
-          };
-        }
-        if (outcome.status === "ok") {
+          const keptRenderMode = existing.ok ? existing.value?.renderMode : undefined;
+          await localPropertyRepo.save({
+            environmentKey,
+            siteId,
+            backendConfigPresent: false,
+            ...(keptRenderMode ? { renderMode: keptRenderMode } : {}),
+            updatedAt: new Date().toISOString(),
+          });
+          return { renderMode: keptRenderMode, source: "local" as const };
+        });
+      },
+      /** A validated successful save response atomically replaces the durable
+       *  background baseline. Any unexplained shrink throws before storage. */
+      applyBackendSave(environmentKey: string, siteId: number, snapshot: ConfigSnapshot) {
+        return withPropertyOperation(environmentKey, siteId, async () => {
           const stored = await configRepo.load(environmentKey, siteId);
           const adopted = adoptAuthoritativeSnapshot(
             stored.ok ? stored.value : null,
-            outcome.config,
+            snapshot,
             { environmentKey, siteId },
           );
           await configRepo.save(adopted);
@@ -212,57 +262,32 @@ export function createRewriteBackgroundServices(input: Readonly<{
             backendConfigPresent: true,
             updatedAt: new Date().toISOString(),
           });
-          return { renderMode: adopted.renderMode, source: "backend" as const };
-        }
-        await configRepo.clear(environmentKey, siteId);
-        const existing = await localPropertyRepo.load(environmentKey, siteId);
-        const keptRenderMode = existing.ok ? existing.value?.renderMode : undefined;
-        await localPropertyRepo.save({
-          environmentKey,
-          siteId,
-          backendConfigPresent: false,
-          ...(keptRenderMode ? { renderMode: keptRenderMode } : {}),
-          updatedAt: new Date().toISOString(),
+          return adopted;
         });
-        return { renderMode: keptRenderMode, source: "local" as const };
       },
-      /** A validated successful save response atomically replaces the durable
-       *  background baseline. Any unexplained shrink throws before storage. */
-      async applyBackendSave(environmentKey: string, siteId: number, snapshot: ConfigSnapshot) {
-        const stored = await configRepo.load(environmentKey, siteId);
-        const adopted = adoptAuthoritativeSnapshot(
-          stored.ok ? stored.value : null,
-          snapshot,
-          { environmentKey, siteId },
-        );
-        await configRepo.save(adopted);
-        await localPropertyRepo.save({
-          environmentKey,
-          siteId,
-          backendConfigPresent: true,
-          updatedAt: new Date().toISOString(),
+      overlayAiCorpus(environmentKey: string, siteId: number, live: Parameters<typeof overlayLivePageOnAuthoritativeCorpus>[1]) {
+        return withPropertyOperation(environmentKey, siteId, async () => {
+          const stored = await configRepo.load(environmentKey, siteId);
+          return overlayLivePageOnAuthoritativeCorpus(stored.ok ? stored.value : null, live);
         });
-        return adopted;
-      },
-      async overlayAiCorpus(environmentKey: string, siteId: number, live: Parameters<typeof overlayLivePageOnAuthoritativeCorpus>[1]) {
-        const stored = await configRepo.load(environmentKey, siteId);
-        return overlayLivePageOnAuthoritativeCorpus(stored.ok ? stored.value : null, live);
       },
       /** Refused when the backend already has a configuration for the property:
        *  local storage is only permitted while it does not. */
-      async rememberRenderMode(environmentKey: string, siteId: number, renderMode: RenderMode) {
-        const existing = await localPropertyRepo.load(environmentKey, siteId);
-        if (existing.ok && existing.value?.backendConfigPresent) {
-          return { stored: false as const, reason: "backend-config-present" as const };
-        }
-        await localPropertyRepo.save({
-          environmentKey,
-          siteId,
-          backendConfigPresent: false,
-          renderMode,
-          updatedAt: new Date().toISOString(),
+      rememberRenderMode(environmentKey: string, siteId: number, renderMode: RenderMode) {
+        return withPropertyOperation(environmentKey, siteId, async () => {
+          const existing = await localPropertyRepo.load(environmentKey, siteId);
+          if (existing.ok && existing.value?.backendConfigPresent) {
+            return { stored: false as const, reason: "backend-config-present" as const };
+          }
+          await localPropertyRepo.save({
+            environmentKey,
+            siteId,
+            backendConfigPresent: false,
+            renderMode,
+            updatedAt: new Date().toISOString(),
+          });
+          return { stored: true as const };
         });
-        return { stored: true as const };
       },
     },
     settings: {

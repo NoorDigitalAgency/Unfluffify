@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createRewriteBackgroundServices } from "../../../src/background/services";
 import type { ConfigSnapshot } from "../../../src/storage/config";
+import { createMemoryStore, type KeyValueStore } from "../../../src/storage";
 
 const SITE_ID = 4821;
 const ENVIRONMENT_KEY = "a.example.com";
@@ -45,6 +46,56 @@ afterEach(() => {
 });
 
 describe("local storage is only for an unconfigured property", () => {
+  it("serializes same-property authority transitions so a render-mode choice survives", async () => {
+    const memory = createMemoryStore();
+    let releaseFirstLocalWrite!: () => void;
+    let markFirstLocalWriteStarted!: () => void;
+    const firstLocalWriteStarted = new Promise<void>((resolve) => {
+      markFirstLocalWriteStarted = resolve;
+    });
+    const firstLocalWriteGate = new Promise<void>((resolve) => {
+      releaseFirstLocalWrite = resolve;
+    });
+    let localWrites = 0;
+    const store: KeyValueStore = {
+      get: (key) => memory.get(key),
+      remove: (key) => memory.remove(key),
+      clear: () => memory.clear(),
+      async set(key, value) {
+        if (key.startsWith("local-property:") && localWrites++ === 0) {
+          markFirstLocalWriteStarted();
+          await firstLocalWriteGate;
+        }
+        await memory.set(key, value);
+      },
+    };
+    const svc = createRewriteBackgroundServices({
+      transport: async () => ({ status: 200, body: {} }),
+      store,
+    });
+
+    const backendNotFound = svc.property.applyBackendLoad(
+      ENVIRONMENT_KEY,
+      SITE_ID,
+      { status: "not_found" },
+    );
+    await firstLocalWriteStarted;
+    const remember = svc.property.rememberRenderMode(ENVIRONMENT_KEY, SITE_ID, "static");
+    let rememberSettled = false;
+    void remember.finally(() => { rememberSettled = true; });
+    await Promise.resolve();
+
+    expect(rememberSettled).toBe(false);
+
+    releaseFirstLocalWrite();
+    await Promise.all([backendNotFound, remember]);
+
+    await expect(svc.repos.localPropertyRepo.load(ENVIRONMENT_KEY, SITE_ID)).resolves.toMatchObject({
+      ok: true,
+      value: { backendConfigPresent: false, renderMode: "static" },
+    });
+  });
+
   it("stores an operator's render mode while the backend has no configuration", async () => {
     const svc = services();
     await svc.property.applyBackendLoad(ENVIRONMENT_KEY, SITE_ID, { status: "not_found" });

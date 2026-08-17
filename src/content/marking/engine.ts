@@ -167,8 +167,10 @@ export function createMarkingEngine(rootElement: Element) {
   let renderScheduled = false;
   let scheduledWork: "geometry" | "structural" | null = null;
   let silentHighlightsArmed = false;
+  let hoverResolution: Readonly<{ x: number; y: number; node: EvaluationNode | null }> | null = null;
 
   const refreshBridge = (): void => {
+    hoverResolution = null;
     bridge = createDomBridgeView(rootElement);
     store = createMarkingStore({ root: bridge.root }, mergeDefaultExclusions(bridge.root, store.canonicalSet()));
   };
@@ -204,6 +206,7 @@ export function createMarkingEngine(rootElement: Element) {
     }
   };
   const scheduleRender = (work: "geometry" | "structural"): void => {
+    hoverResolution = null;
     if (work === "structural" || scheduledWork === null) {
       scheduledWork = work;
     }
@@ -378,6 +381,7 @@ export function createMarkingEngine(rootElement: Element) {
       return findEvaluationNode(bridge.root, resolved.xpath);
     },
     toggle(node: EvaluationNode, mode: Exclude<MarkMode, "disabled" | "passthrough">): void {
+      hoverResolution = null;
       const element = bridge.byXpath.get(node.xpath)?.element;
       if (element) {
         renderer.acknowledge(element, node.xpath, mode);
@@ -392,7 +396,11 @@ export function createMarkingEngine(rootElement: Element) {
       renderCurrent();
     },
     hoverAtPoint(x: number, y: number): void {
+      if (hoverResolution?.x === x && hoverResolution.y === y) {
+        return;
+      }
       const node = this.resolveAtPoint(x, y, "exclude");
+      hoverResolution = { x, y, node };
       const element = node ? bridge.byXpath.get(node.xpath)?.element ?? null : null;
       renderer.setHover(element, node?.xpath ?? "");
     },
@@ -404,10 +412,12 @@ export function createMarkingEngine(rootElement: Element) {
       return renderSilent();
     },
     clearOverlays(): void {
+      hoverResolution = null;
       silentHighlightsArmed = false;
       renderer.clear();
     },
     dispose(): void {
+      hoverResolution = null;
       observerCleanup?.();
       observerCleanup = null;
       renderer.dispose();
