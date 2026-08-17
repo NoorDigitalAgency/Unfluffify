@@ -127,6 +127,27 @@ export function decideSignals(prev: TabFacts | null, next: TabFacts): readonly S
       payload: { pageUrl },
     });
   }
+  const lockPresentationChanged =
+    prev?.lockBlockedReason !== next.lockBlockedReason ||
+    JSON.stringify(prev?.lockBanner) !== JSON.stringify(next.lockBanner);
+  if (next.lockCanEdit === false && (prev?.lockCanEdit !== false || lockPresentationChanged)) {
+    decisions.push({
+      name: "lock.blocked",
+      cause: "property-lock",
+      payload: {
+        pageUrl,
+        blockedReason: next.lockBlockedReason ?? "property-lock",
+        banner: next.lockBanner ?? { visible: true, text: "Property locked" },
+      },
+    });
+  }
+  if (prev?.lockCanEdit === false && next.lockCanEdit === true) {
+    decisions.push({
+      name: "lock.acquired",
+      cause: "property-lock",
+      payload: { pageUrl },
+    });
+  }
   if (prev?.reconciliationPending !== true && next.reconciliationPending) {
     decisions.push({
       name: "reconciliation.started",

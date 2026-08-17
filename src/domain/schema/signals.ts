@@ -19,6 +19,8 @@ export const BrainSignalNameSchema = z.enum([
   "inspection.ended",
   "reconciliation.started",
   "reconciliation.ended",
+  "lock.blocked",
+  "lock.acquired",
 ]);
 
 export const BrainSignalSourceSchema = z.enum(["brain", "content", "popup"]);

@@ -36,6 +36,7 @@ export type PopupState = Readonly<{
   name: PopupStateName;
   lastConsumedSeq: number;
   priorState?: PopupStateName;
+  overlayPriorState?: PopupStateName;
   reconciliationReason: ReconciliationReason;
   projectionBlockedReason?: string;
   contentRows?: readonly PopupContentRow[];
@@ -69,12 +70,72 @@ function parseSelectors(value: unknown): PopupSelectorList | undefined {
   };
 }
 
+function parseLockBanner(value: unknown): PropertyLockBanner | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  const candidate = value as { visible?: unknown; text?: unknown; countdownSeconds?: unknown };
+  if (typeof candidate.visible !== "boolean" || typeof candidate.text !== "string") {
+    return undefined;
+  }
+  return {
+    visible: candidate.visible,
+    text: candidate.text,
+    ...(typeof candidate.countdownSeconds === "number" ? { countdownSeconds: candidate.countdownSeconds } : {}),
+  };
+}
+
 export function transitionPopupState(state: PopupState, signal: BrainSignal): PopupState {
   if (signal.seq <= state.lastConsumedSeq) {
     return state;
   }
+  if (state.name === "locked" && signal.name !== "lock.blocked" && signal.name !== "lock.acquired") {
+    const underlay = transitionPopupState({
+      ...state,
+      name: state.priorState ?? "silent",
+      priorState: state.overlayPriorState,
+      overlayPriorState: undefined,
+      projectionBlockedReason: undefined,
+      lockBanner: undefined,
+    }, signal);
+    return {
+      ...underlay,
+      name: "locked",
+      priorState: underlay.name,
+      overlayPriorState: underlay.priorState,
+      projectionBlockedReason: state.projectionBlockedReason,
+      lockBanner: state.lockBanner,
+    };
+  }
   const base = { ...state, lastConsumedSeq: signal.seq };
   switch (signal.name) {
+    case "lock.blocked": {
+      const blockedReason = typeof signal.payload.blockedReason === "string"
+        ? signal.payload.blockedReason
+        : "property-lock";
+      const lockBanner = parseLockBanner(signal.payload.banner);
+      return state.name === "locked"
+        ? { ...base, projectionBlockedReason: blockedReason, lockBanner }
+        : {
+          ...base,
+          name: "locked",
+          priorState: state.name,
+          overlayPriorState: state.priorState,
+          projectionBlockedReason: blockedReason,
+          lockBanner,
+        };
+    }
+    case "lock.acquired":
+      return state.name === "locked"
+        ? {
+          ...base,
+          name: state.priorState ?? "silent",
+          priorState: state.overlayPriorState,
+          overlayPriorState: undefined,
+          projectionBlockedReason: undefined,
+          lockBanner: undefined,
+        }
+        : base;
     case "marking.enabled":
       return { ...base, name: "pre_ai_clean", reconciliationReason: "", priorState: undefined };
     case "markings.changed":

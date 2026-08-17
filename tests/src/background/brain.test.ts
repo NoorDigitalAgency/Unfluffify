@@ -453,6 +453,42 @@ describe("P3 background brain", () => {
     expect(brain.pullSignals(0).every((signal) => signal.source === "brain")).toBe(true);
   });
 
+  it("derives property-lock overlay edges from observed lock facts", () => {
+    const brain = createRewriteBrain(2);
+    const observe = (facts: Record<string, unknown>) => brain.observe({
+      tabId: 2,
+      source: "background",
+      reason: "property-lock",
+      facts: { tabId: 2, pageUrl: "https://example.com/page", ...facts },
+    });
+
+    expect(observe({
+      lockRole: "passive",
+      lockCanEdit: false,
+      lockBlockedReason: "Locked by Dana",
+      lockBanner: { visible: true, text: "Locked by Dana", countdownSeconds: 42 },
+    })).toMatchObject([{
+      name: "lock.blocked",
+      source: "brain",
+      payload: {
+        blockedReason: "Locked by Dana",
+        banner: { visible: true, text: "Locked by Dana", countdownSeconds: 42 },
+      },
+    }]);
+    expect(observe({
+      lockRole: "passive",
+      lockCanEdit: false,
+      lockBlockedReason: "Locked by Dana",
+      lockBanner: { visible: true, text: "Locked by Dana", countdownSeconds: 42 },
+    })).toEqual([]);
+    expect(observe({
+      lockRole: "editor",
+      lockCanEdit: true,
+      lockBlockedReason: "",
+      lockBanner: { visible: false, text: "" },
+    })).toMatchObject([{ name: "lock.acquired", source: "brain" }]);
+  });
+
   it("rejects the retired raw signal-emission runtime message", () => {
     const runtime = createRewriteBrainRuntime({ addMessageListener() {} });
     expect(runtime.handle({

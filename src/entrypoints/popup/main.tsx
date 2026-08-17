@@ -49,9 +49,9 @@ declare global {
 }
 
 const rootElement = document.getElementById("app") ?? document.getElementById("root") ?? document.body.appendChild(document.createElement("div"));
-const store = createPopupStore({ name: "silent", lastConsumedSeq: 0, reconciliationReason: "" });
+let store = createPopupStore({ name: "silent", lastConsumedSeq: 0, reconciliationReason: "" });
+let unsubscribeStore: (() => void) | null = null;
 const root = createRoot(rootElement);
-let seq = 0;
 let popupFactSequence = 0;
 let boundTabId: number | null = null;
 let boundTabKey: string | null = null;
@@ -64,7 +64,6 @@ let lastSubmissionSnapshot: AiRunPayloadSnapshot | null = null;
 let lastSubmissionKey: string | null = null;
 let activeRunSessionId: string | null = null;
 let aiResumeRequestKey: string | null = null;
-let preLockPopupState: ReturnType<typeof store.getState> | null = null;
 let activeSiteId: number | null = null;
 let settingsForm: PopupSettingsForm = EMPTY_POPUP_SETTINGS_FORM;
 /** Null until a load succeeds. The form stays read-only that whole time so a
@@ -80,8 +79,7 @@ let hasStoredToken = false;
 let authState: PopupAuthState = "unknown";
 let authBusy = false;
 let authMessage = "";
-/** Kept outside the store so the preference survives the resets that a lock
- *  takeover or a tab rebinding performs on the projected state. */
+/** Kept outside the store so the preference survives a tab rebind. */
 let desktopPreviewEnabled = false;
 /** What the tab is currently emulating, so the standing posture can be re-asserted
  *  after a reload without re-attaching the debugger on every poll tick. Null means
@@ -144,10 +142,17 @@ function safeOrigin(url: string): string {
   }
 }
 
-/** Every reset must carry the local view preferences forward — they are not
- *  brain facts, so nothing downstream would restore them. */
-function resetPopupState(next: Parameters<typeof store.reset>[0]): void {
-  store.reset(next ? { ...next, desktopPreviewChecked: desktopPreviewEnabled } : next);
+/** A tab binding owns one popup organ instance. Rebinding creates a fresh organ;
+ *  state changes within that binding still happen only through decided signals. */
+function replacePopupStore(): void {
+  unsubscribeStore?.();
+  store = createPopupStore({
+    name: "silent",
+    lastConsumedSeq: 0,
+    reconciliationReason: "",
+    desktopPreviewChecked: desktopPreviewEnabled,
+  });
+  unsubscribeStore = store.subscribe(render);
 }
 
 const SETTINGS_FORM_FIELDS = ["configEndpoint", "aiEndpoint", "stageBase"] as const;
@@ -295,7 +300,6 @@ const SIGNAL_TONES: Readonly<Partial<Record<BrainSignal["name"], PopupLogEntry["
 function dispatchSignal(signal: BrainSignal): void {
   const before = store.getState().name;
   store.dispatch(signal);
-  seq = Math.max(seq, signal.seq);
   if (signal.name === "markings.changed") {
     contentDirty = true;
   }
@@ -340,7 +344,6 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   lastSubmissionKey = null;
   activeRunSessionId = null;
   aiResumeRequestKey = null;
-  preLockPopupState = null;
   activeSiteId = null;
   lockStatus = "";
   lockRole = "";
@@ -354,7 +357,7 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   contentReachable = true;
   contentUnreachableReported = false;
   logEvent(sameTabNavigation ? "Page navigated" : "Tab bound", context.url);
-  resetPopupState({ name: "silent", lastConsumedSeq: 0, reconciliationReason: "" });
+  replacePopupStore();
   return { changed: true, sameTabNavigation, key: nextKey };
 }
 
@@ -714,7 +717,8 @@ async function requestLockDirective(context: TargetTabContext): Promise<LockDire
 }
 
 function hasLocalUnsavedChanges(): boolean {
-  const state = preLockPopupState ?? store.getState();
+  const state = store.getState();
+  const stateName = state.name === "locked" ? state.priorState ?? "silent" : state.name;
   return [
     "pre_ai_dirty",
     "running",
@@ -722,41 +726,7 @@ function hasLocalUnsavedChanges(): boolean {
     "preview_open",
     "exit_restoring",
     "reconciling",
-  ].includes(state.name);
-}
-
-function settlePreLockAiRun(
-  localRunId: string,
-  outcome: Readonly<{ status: "completed"; selectors?: SelectorSet } | { status: "failed" }>,
-): boolean {
-  const state = preLockPopupState;
-  if (state?.name !== "running" || state.runSessionId !== localRunId) {
-    return false;
-  }
-  preLockPopupState = state.runDirtyDuringRun || outcome.status === "failed"
-    ? {
-      ...state,
-      name: state.runDirtyDuringRun ? "pre_ai_dirty" : state.priorState ?? "pre_ai_dirty",
-      reconciliationReason: "",
-      priorState: undefined,
-      runDeadlineAt: undefined,
-      runDirtyDuringRun: undefined,
-      runSessionId: undefined,
-    }
-    : {
-      ...state,
-      name: "post_ai_clean",
-      reconciliationReason: "",
-      priorState: undefined,
-      runDeadlineAt: undefined,
-      runDirtyDuringRun: undefined,
-      runSessionId: undefined,
-      selectors: outcome.selectors ?? state.selectors,
-    };
-  if (activeRunSessionId === localRunId) {
-    activeRunSessionId = null;
-  }
-  return true;
+  ].includes(stateName);
 }
 
 function unavailableLockDirective(context: TargetTabContext): LockDirectiveResponse {
@@ -772,31 +742,6 @@ function unavailableLockDirective(context: TargetTabContext): LockDirectiveRespo
   };
 }
 
-function applyLockPresentation(lock: LockDirectiveResponse, requestKey = boundTabKey): void {
-  if (lockAllowsEditing(lock)) {
-    if (store.getState().name === "locked") {
-      logEvent("Editor lock acquired", `site ${lock.siteId ?? "—"}`, "success");
-      resetPopupState(preLockPopupState ?? { name: "silent", lastConsumedSeq: store.getState().lastConsumedSeq, reconciliationReason: "" });
-    }
-    preLockPopupState = null;
-    return;
-  }
-  if (store.getState().name !== "locked" && preLockPopupState === null) {
-    preLockPopupState = store.getState();
-    logEvent("Editing blocked", lock.lockBanner.text || lock.status, lock.status === "ok" ? "warn" : "danger");
-  }
-  resetPopupState({
-    name: "locked",
-    lastConsumedSeq: store.getState().lastConsumedSeq,
-    reconciliationReason: "",
-    projectionBlockedReason: lock.lockBanner.text || lock.status,
-    lockBanner: lock.lockBanner,
-  });
-  if (requestKey !== boundTabKey) {
-    return;
-  }
-}
-
 async function refreshLockDirective(context: TargetTabContext, requestKey = boundTabKey): Promise<LockDirectiveResponse | null> {
   const lock = await requestLockDirective(context);
   if (!lock || boundTabId !== context.tabId || boundTabKey !== requestKey) {
@@ -806,7 +751,9 @@ async function refreshLockDirective(context: TargetTabContext, requestKey = boun
   lockStatus = lock.status;
   lockRole = lock.lockRole;
   configPresent = lock.configPresent;
-  applyLockPresentation(lock, requestKey);
+  // The lock runtime reported facts before replying. Pull the brain's decided
+  // edge so the popup organ enters or exits its lock overlay via the table.
+  await pullSignals(context.tabId, requestKey);
   return lock;
 }
 
@@ -1559,7 +1506,6 @@ async function runAi(): Promise<void> {
         runSessionId: localRunId,
         runFailureReason: "capture-failed",
       }, requestKey);
-      settlePreLockAiRun(localRunId, { status: "failed" });
       if (activeRunSessionId === localRunId) {
         activeRunSessionId = null;
       }
@@ -1590,7 +1536,6 @@ async function runAi(): Promise<void> {
         runSessionId: localRunId,
         runFailureReason: response.ok ? response.data.status : response.failure.code,
       }, requestKey);
-      settlePreLockAiRun(localRunId, { status: "failed" });
       if (activeRunSessionId === localRunId) {
         activeRunSessionId = null;
       }
@@ -1598,8 +1543,7 @@ async function runAi(): Promise<void> {
     render();
     return;
   }
-  if (store.getState().name !== "running" || activeRunSessionId !== localRunId) {
-    settlePreLockAiRun(localRunId, { status: "completed", selectors: response.data.selectors });
+  if (activeRunSessionId !== localRunId) {
     return;
   }
   await pullSignals(context.tabId, requestKey);
@@ -1857,7 +1801,7 @@ function render(): void {
 if (typeof window !== "undefined") {
   window.__UNFLUFFIFY_POPUP_DEBUG__ = { getViewState: getDebugViewState };
 }
-store.subscribe(render);
+unsubscribeStore = store.subscribe(render);
 render();
 void loadStoredSettings().catch((error: unknown) => {
   console.error("[Unfluffify][rewrite] Unable to load stored settings", error);

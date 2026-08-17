@@ -123,6 +123,9 @@ export function startRewriteBackground(): void {
           baseUrl: facts.baseUrl,
           pageUrl: facts.pageUrl,
           lockRole: facts.lockRole,
+          lockCanEdit: facts.canEdit,
+          lockBlockedReason: facts.blockedReason,
+          lockBanner: facts.lockBanner,
           configPresent: facts.configPresent,
         },
       });

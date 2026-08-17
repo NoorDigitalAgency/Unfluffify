@@ -69,6 +69,38 @@ describe("rewrite popup FSM", () => {
 
     expect(state.name).toBe("running");
   });
+
+  it("advances the memorized state under a property-lock overlay and returns mechanically", () => {
+    let state = transitionPopupState(
+      { name: "pre_ai_dirty", lastConsumedSeq: 1, reconciliationReason: "" },
+      signal(2, "run.started", { pageUrl: "https://example.com", sessionId: "run-1" }),
+    );
+    state = transitionPopupState(state, signal(3, "lock.blocked", {
+      pageUrl: "https://example.com",
+      blockedReason: "Locked by Dana",
+      banner: { visible: true, text: "Locked by Dana", countdownSeconds: 42 },
+    }));
+    state = transitionPopupState(state, signal(4, "run.completed", {
+      pageUrl: "https://example.com",
+      sessionId: "run-1",
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+    }));
+
+    expect(state).toMatchObject({
+      name: "locked",
+      priorState: "post_ai_clean",
+      projectionBlockedReason: "Locked by Dana",
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+    });
+
+    state = transitionPopupState(state, signal(5, "lock.acquired", { pageUrl: "https://example.com" }));
+    expect(state).toMatchObject({
+      name: "post_ai_clean",
+      priorState: undefined,
+      projectionBlockedReason: undefined,
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+    });
+  });
 });
 
 describe("markings never outlive the marking session", () => {
@@ -120,6 +152,10 @@ describe("markings never outlive the marking session", () => {
 });
 
 describe("popup store desktop preview preference", () => {
+  it("does not expose an out-of-table reset transition", () => {
+    expect(createPopupStore()).not.toHaveProperty("reset");
+  });
+
   it("projects the preference and notifies subscribers", () => {
     const store = createPopupStore({ name: "pre_ai_clean", lastConsumedSeq: 0, reconciliationReason: "" });
     const seen: boolean[] = [];

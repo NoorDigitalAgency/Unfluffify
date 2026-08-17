@@ -33,6 +33,13 @@ export const TabFactsSchema = z.object({
   discardedSeq: z.number().int().nonnegative().optional(),
   inspectionPending: z.boolean().optional(),
   lockRole: LockRoleSchema.default("unknown"),
+  lockCanEdit: z.boolean().optional(),
+  lockBlockedReason: z.string().optional(),
+  lockBanner: z.object({
+    visible: z.boolean(),
+    text: z.string(),
+    countdownSeconds: z.number().int().nonnegative().optional(),
+  }).optional(),
   configPresent: z.boolean().default(false),
   reconciliationPending: z.boolean().default(false),
   reconciliationReason: z.string().optional(),

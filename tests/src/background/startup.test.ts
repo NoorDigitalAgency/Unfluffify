@@ -330,6 +330,36 @@ describe("rewrite background startup", () => {
         blockedReason: "signed-out",
       },
     });
+
+    let signalsResponse: unknown;
+    runtimeListener({
+      kind: "uf-bus/1",
+      frameType: "request",
+      id: "lock-signals-1",
+      seq: 2,
+      name: "signals.pull",
+      source: "popup",
+      sourceInstance: "popup:test",
+      target: "background",
+      payload: { tabId: 5, afterSeq: 0 },
+    }, {}, (value: unknown) => {
+      signalsResponse = value;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(signalsResponse).toMatchObject({
+      ok: true,
+      payload: [{
+        name: "lock.blocked",
+        source: "brain",
+        payload: {
+          blockedReason: "signed-out",
+          banner: { visible: true, text: "Sign in to use the property lock" },
+        },
+      }],
+    });
   });
 
   it("serves CDP device emulation through the shipped typed bus", async () => {

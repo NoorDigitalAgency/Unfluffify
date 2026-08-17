@@ -91,7 +91,17 @@ function lockStateFromState(input: Readonly<{
 export function createPropertyLockRuntime(input: Readonly<{
   services: RewriteBackgroundServices;
   tabs?: TabsLike;
-  observeLockFacts?: (facts: Readonly<{ tabId: number; siteId: number | null; baseUrl: string; pageUrl: string; lockRole: "unknown" | "editor" | "passive"; configPresent: boolean }>) => void;
+  observeLockFacts?: (facts: Readonly<{
+    tabId: number;
+    siteId: number | null;
+    baseUrl: string;
+    pageUrl: string;
+    lockRole: "unknown" | "editor" | "passive";
+    configPresent: boolean;
+    canEdit: boolean;
+    blockedReason: string;
+    lockBanner: Readonly<{ visible: boolean; text: string; countdownSeconds?: number }>;
+  }>) => void;
 }>) {
   const clients = new Map<string, LockClient>();
   const pageUrls = new Map<string, string>();
@@ -101,6 +111,24 @@ export function createPropertyLockRuntime(input: Readonly<{
   const latestLockStates = new Map<number, ReturnType<typeof lockStateFromState>>();
   const activeKeyByTab = new Map<number, string>();
   const siteCache = new Map<string, Readonly<{ status: "ok" | "network_error" | "not_found"; siteId: number | null }>>();
+
+  const observeLockState = (
+    tabId: number,
+    pageUrl: string,
+    state: ReturnType<typeof lockStateFromState>,
+  ): void => {
+    input.observeLockFacts?.({
+      tabId,
+      siteId: state.siteId,
+      baseUrl: state.baseUrl,
+      pageUrl,
+      lockRole: state.lockRole,
+      configPresent: state.configPresent,
+      canEdit: state.canEdit,
+      blockedReason: state.blockedReason,
+      lockBanner: state.lockBanner,
+    });
+  };
 
   const publishLockState = async (tabId: number, state: ReturnType<typeof lockStateFromState>): Promise<void> => {
     if (!input.tabs) {
@@ -179,14 +207,7 @@ export function createPropertyLockRuntime(input: Readonly<{
         }
         const pageUrl = pageUrls.get(key) ?? request.pageUrl;
         const response = lockStateFromState({ pageUrl, baseUrl, siteId, state, status: "ok" });
-        input.observeLockFacts?.({
-          tabId: request.tabId,
-          siteId,
-          baseUrl,
-          pageUrl,
-          lockRole: state.role,
-          configPresent: true,
-        });
+        observeLockState(request.tabId, pageUrl, response);
         publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
       },
     });
@@ -206,6 +227,7 @@ export function createPropertyLockRuntime(input: Readonly<{
       if (!await input.services.accounts.hasToken()) {
         releaseActiveForTab(request.tabId);
         const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: null, state: null, status: "signed_out" });
+        observeLockState(request.tabId, request.pageUrl, response);
         publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
         return response;
       }
@@ -225,12 +247,14 @@ export function createPropertyLockRuntime(input: Readonly<{
       if (resolvedSite.status === "network_error") {
         activeKeyByTab.delete(request.tabId);
         const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: null, state: null, status: "unavailable" });
+        observeLockState(request.tabId, request.pageUrl, response);
         publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
         return response;
       }
       if (resolvedSite.siteId === null) {
         releaseActiveForTab(request.tabId);
         const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: null, state: null, status: "not_candidate" });
+        observeLockState(request.tabId, request.pageUrl, response);
         publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
         return response;
       }
@@ -252,15 +276,8 @@ export function createPropertyLockRuntime(input: Readonly<{
       }
       client.heartbeat();
       const state = client.state();
-      input.observeLockFacts?.({
-        tabId: request.tabId,
-        siteId: resolvedSite.siteId,
-        baseUrl,
-        pageUrl: request.pageUrl,
-        lockRole: state.role,
-        configPresent: true,
-      });
       const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: resolvedSite.siteId, state, status: "ok" });
+      observeLockState(request.tabId, request.pageUrl, response);
       publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
       return response;
     },

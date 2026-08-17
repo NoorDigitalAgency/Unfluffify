@@ -31,6 +31,13 @@ export const TabFactsPatchSchema = z.object({
   discardedSeq: z.number().int().nonnegative().optional(),
   inspectionPending: z.boolean().optional(),
   lockRole: z.enum(["unknown", "editor", "passive"]).optional(),
+  lockCanEdit: z.boolean().optional(),
+  lockBlockedReason: z.string().optional(),
+  lockBanner: z.object({
+    visible: z.boolean(),
+    text: z.string(),
+    countdownSeconds: z.number().int().nonnegative().optional(),
+  }).optional(),
   configPresent: z.boolean().optional(),
   reconciliationPending: z.boolean().optional(),
   reconciliationReason: z.string().optional(),

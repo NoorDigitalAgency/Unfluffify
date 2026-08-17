@@ -202,5 +202,8 @@ export function transitionContentState(state: ContentState, signal: BrainSignal)
         reconciliationReason: "",
         reconciliationDirty: undefined,
       };
+    case "lock.blocked":
+    case "lock.acquired":
+      return base;
   }
 }
