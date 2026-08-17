@@ -310,7 +310,7 @@ single box overlapping unmarked siblings.
 
 | ✅ | ID | Slice | Needs | Test that proves it |
 |----|----|-------|-------|---------------------|
-| ☐ | **D1** | Port the 16-class overlay grammar with legacy's exact colours/metrics, and switch to **one box per client rect** with keyed reuse. | B3 | Overlay classes and colours match the legacy catalog; a wrapped paragraph draws one box per line box. |
+| ☑ | **D1** | Port the 16-class overlay grammar with legacy's exact colours/metrics, and switch to **one box per client rect** with keyed reuse. **Landed in `0eb085eb`.** | B3 | Overlay classes and colours match the legacy catalog; a wrapped paragraph draws one box per line box. |
 | ☐ | **D2** | Fix the reveal walk: await paint between steps so scroll/IntersectionObserver handlers actually run; pass a re-measured `expandedScrollHeight`. | — | Lazy content is triggered; `lazyExpansions` can reach 1; freeze engages at the absolute bottom. |
 | ☐ | **D3** | Custom cursors (SVGs already ship, web-accessible, zero code references), 160 ms interaction-ack pulse, ghost rects, `.uf-scrolling` hide. | D1 | Cursor changes per mark mode; a click acknowledges within 160 ms. |
 | ☐ | **D4** | Real input-blocking curtain (today `pointer-events:none` makes it decorative; legacy blocked 22 event types), inspection card, freeze pill, toasts. | B5 | Page interaction is genuinely blocked during a blocking phase. |
