@@ -1078,12 +1078,19 @@ async function clearSessionEmulation(context: TargetTabContext): Promise<void> {
 }
 
 async function refineSubmissionXpaths(snapshot: AiRunPayloadSnapshot): Promise<AiRunPayloadSnapshot> {
+  // Rendered rows were derived from renderedHtml and already share its DOM.
+  // Refinement is only the static-mode translation into the separately fetched
+  // server document; matching a document to itself can mis-pick identical twins.
+  if (snapshot.renderMode !== "static") {
+    return snapshot;
+  }
   const page = snapshot.pages[0];
   if (!page) {
     return snapshot;
   }
   const response = await getPopupBus().request("offscreen.refineXpaths", {
-    html: page.rawHtml ?? page.renderedHtml,
+    renderedHtml: page.renderedHtml,
+    ...(page.rawHtml === undefined ? {} : { rawHtml: page.rawHtml }),
     rows: page.renderedXPaths,
   }, { target: "background" });
   if (!response.ok) {

@@ -809,6 +809,15 @@ describe("rewrite popup entrypoint", () => {
       target: "background",
     }));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "offscreen.refineXpaths",
+      payload: {
+        renderedHtml: "<html></html>",
+        rawHtml: "<html><body>server source</body></html>",
+        rows: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
+      },
+      target: "background",
+    }));
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "ai.run",
       payload: expect.objectContaining({
         tabId: 77,

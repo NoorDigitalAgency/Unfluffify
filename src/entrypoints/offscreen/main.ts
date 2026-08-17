@@ -9,5 +9,9 @@ const offscreenBus = createRealmBus({
   transport: createRuntimeTransport(runtimeBrowser.runtime),
 });
 offscreenBus.onCommand("offscreen.refineXpaths", (request) => ({
-  rows: [...refineXPathEntries(request.html, request.rows)],
+  rows: [...refineXPathEntries(
+    request.renderedHtml,
+    request.rawHtml ?? request.renderedHtml,
+    request.rows,
+  )],
 }));

@@ -12,7 +12,8 @@ function frame(): BusFrame {
     sourceInstance: "background:test",
     target: "offscreen",
     payload: {
-      html: "<html><body><main>Hi</main></body></html>",
+      renderedHtml: "<html><body><main>Browser render</main></body></html>",
+      rawHtml: "<html><body><main>Server source</main></body></html>",
       rows: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
     },
   };
@@ -27,6 +28,11 @@ describe("offscreen rewrite entrypoint", () => {
 
   it("serves XPath refinement over the typed offscreen bus", async () => {
     const addListener = vi.fn();
+    const refineXPathEntries = vi.fn(() => [{
+      xpath: "/html[1]/body[1]/main[1]",
+      excluded: false,
+    }]);
+    vi.doMock("../src/offscreen/xpath-refinement", () => ({ refineXPathEntries }));
     globalThis.chrome = {
       runtime: {
         sendMessage: vi.fn().mockResolvedValue(undefined),
@@ -50,5 +56,10 @@ describe("offscreen rewrite entrypoint", () => {
       ok: true,
       payload: { rows: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }] },
     });
+    expect(refineXPathEntries).toHaveBeenCalledWith(
+      "<html><body><main>Browser render</main></body></html>",
+      "<html><body><main>Server source</main></body></html>",
+      [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
+    );
   });
 });

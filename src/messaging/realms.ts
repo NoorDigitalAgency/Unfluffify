@@ -140,7 +140,8 @@ const StaticHtmlFetchResponseSchema = z.discriminatedUnion("ok", [
 ]);
 
 const OffscreenRefineXpathsRequestSchema = z.object({
-  html: z.string(),
+  renderedHtml: z.string(),
+  rawHtml: z.string().optional(),
   rows: z.array(MarkRowSchema),
 });
 
