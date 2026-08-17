@@ -141,12 +141,51 @@ describe("rewrite background startup", () => {
     });
   });
 
-  it("holds the service-worker keepalive until AI polling reaches a terminal result", async () => {
+  it("submits the authoritative multi-page corpus and holds the keepalive until AI polling finishes", async () => {
     const originalFetch = globalThis.fetch;
     let finishStatus: (() => void) | null = null;
-    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+    let aiRequestBody: unknown;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
+      if (url.endsWith("/load")) {
+        return new Response(JSON.stringify({
+          version: 2,
+          environmentKey: "stage.example.com",
+          siteId: 42,
+          baseUrl: "https://example.com",
+          propertyRevision: 4,
+          feedRevision: 2,
+          membershipFingerprint: "membership-2",
+          assignmentFingerprint: "assignment-2",
+          renderMode: "rendered",
+          renderModeUpdatedAt: "2026-08-17T10:00:00Z",
+          selectors: { inclusionSelectors: ["article"], exclusionSelectors: [".promo"] },
+          selectorsUpdatedAt: "2026-08-17T10:00:00Z",
+          submittedSelectorsFingerprint: "selectors-2",
+          pages: {
+            "/stored": {
+              timestamp: "2026-08-17T09:00:00Z",
+              pageType: "detail",
+              renderedHtml: "<html><main>Stored sibling</main></html>",
+              rows: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
+            },
+            "/page": {
+              timestamp: "2026-08-17T09:30:00Z",
+              pageType: "detail",
+              renderedHtml: "<html><main>Stale current page</main></html>",
+              rows: [{ xpath: "/html[1]/body[1]/main[2]", excluded: false }],
+            },
+          },
+          reconciliation: {
+            revision: 2,
+            feedFingerprint: "feed-2",
+            removedPageKeys: [],
+            relabelledPages: [],
+          },
+        }), { status: 200 });
+      }
       if (url.endsWith("/get_selectors")) {
+        aiRequestBody = JSON.parse(String(init?.body ?? "null"));
         return new Response(JSON.stringify({ session_id: "backend-run-1" }), { status: 200 });
       }
       if (url.endsWith("/get_selectors/status/backend-run-1")) {
@@ -208,6 +247,10 @@ describe("rewrite background startup", () => {
         configEndpoint: "https://config.example.com",
         aiEndpoint: "https://ai.example.com",
       });
+      await expect(request("config.load", { siteId: 42 })).resolves.toMatchObject({
+        ok: true,
+        payload: { status: "ok", config: { propertyRevision: 4 } },
+      });
 
       const aiReply = request("ai.run", {
         tabId: 77,
@@ -252,6 +295,20 @@ describe("rewrite background startup", () => {
           sessionId: "backend-run-1",
           selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
         },
+      });
+      expect(aiRequestBody).toMatchObject({
+        pages: [
+          {
+            url: "https://example.com/stored",
+            renderedHtml: "<html><main>Stored sibling</main></html>",
+            renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
+          },
+          {
+            url: "https://www.example.com/page",
+            renderedHtml: "<html><main>Job</main></html>",
+            renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
+          },
+        ],
       });
       expect(clearAlarm.mock.calls.filter(
         ([name]) => name === "uf-rewrite-brain-keepalive",
