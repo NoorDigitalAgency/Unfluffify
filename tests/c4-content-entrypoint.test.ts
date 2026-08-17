@@ -43,21 +43,19 @@ async function dispatchContentCommand(
   return reply.payload as { ok: boolean; data?: unknown; failure?: unknown };
 }
 
-async function applyReadyDirective(
+async function applyLockState(
   listener: (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown,
-  baseUrl?: string,
+  patch: Record<string, unknown> = {},
 ) {
-  return await dispatchContentCommand(listener, "directive.content", {
-    ...(baseUrl ? { baseUrl } : {}),
+  const banner = patch.banner && typeof patch.banner === "object" ? patch.banner : {};
+  return await dispatchContentCommand(listener, "lock.state.changed", {
+    baseUrl: "https://example.com",
     configPresent: true,
     lockRole: "editor",
-    reconciliationPending: false,
-    content: {
-      markingEditsBlocked: false,
-      blockedReason: "",
-      curtain: { visible: false, text: "" },
-      banner: { visible: false, text: "" },
-    },
+    canEdit: true,
+    blockedReason: "",
+    ...patch,
+    banner: { visible: false, text: "", ...banner },
   });
 }
 
@@ -100,7 +98,7 @@ describe("C4 rewrite content entrypoints", () => {
       sender: unknown,
       sendResponse: (value: unknown) => void
     ) => unknown;
-    await applyReadyDirective(listener);
+    await applyLockState(listener);
     const response = await dispatchContentCommand(listener, "activateContentMain");
     expect(response).toEqual({ ok: true, data: { ok: true, initialized: true, tree: "rewrite" } });
   });
@@ -180,7 +178,7 @@ describe("C4 rewrite content entrypoints", () => {
       sendResponse: (value: unknown) => void
     ) => unknown;
 
-    await applyReadyDirective(listener);
+    await applyLockState(listener);
     await dispatchContentCommand(listener, "activateContentMain");
     await dispatchContentCommand(listener, "activateContentMain");
     const status = await dispatchContentCommand(listener, "getContentMainStatus");
@@ -311,7 +309,7 @@ describe("C4 rewrite content entrypoints", () => {
     (entrypoint.default as { main: () => void }).main();
     const listener = addListener.mock.calls[0]?.[0] as (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown;
 
-    await applyReadyDirective(listener);
+    await applyLockState(listener);
     await dispatchContentCommand(listener, "activateContentMain");
     documentListeners.get("click")?.({ clientX: 1, clientY: 1, altKey: false, shiftKey: false, preventDefault: vi.fn(), stopPropagation: vi.fn() } as unknown as Event);
     const paused = await dispatchContentCommand(listener, "pauseContentMainInteractions");
@@ -319,28 +317,16 @@ describe("C4 rewrite content entrypoints", () => {
     expect(paused).toEqual({ ok: true, data: { ok: true, active: true, dirty: true, tree: "rewrite" } });
     const clean = await dispatchContentCommand(listener, "markContentMainClean");
     expect(clean).toEqual({ ok: true, data: { ok: true, active: true, dirty: false, tree: "rewrite" } });
-    await dispatchContentCommand(listener, "directive.content", {
-      content: {
-        markingEditsBlocked: true,
-        blockedReason: "post_ai",
-        blockOwner: "popup",
-        curtain: { visible: true, text: "Post AI" },
-        banner: { visible: false, text: "" },
-      },
+    await applyLockState(listener, {
+      canEdit: false,
+      blockedReason: "post_ai",
+      banner: { visible: false, text: "Post AI" },
     });
     await expect(dispatchContentCommand(listener, "resetContentMain")).resolves.toMatchObject({
       ok: true,
       data: { ok: true, initialized: true, tree: "rewrite" },
     });
-    await dispatchContentCommand(listener, "directive.content", {
-      content: {
-        markingEditsBlocked: false,
-        blockedReason: "",
-        blockOwner: "popup",
-        curtain: { visible: false, text: "" },
-        banner: { visible: false, text: "" },
-      },
-    });
+    await applyLockState(listener);
     await dispatchContentCommand(listener, "resumeContentMainInteractions");
     expect(documentListeners.has("click")).toBe(true);
   });
@@ -383,7 +369,7 @@ describe("C4 rewrite content entrypoints", () => {
       sendResponse: (value: unknown) => void
     ) => unknown;
 
-    await applyReadyDirective(listener, "https://example.com");
+    await applyLockState(listener);
     const response = await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/old" });
     expect(createMarkingEngine).not.toHaveBeenCalled();
     expect(response).toEqual({ ok: true, data: { ok: false, initialized: false, tree: "rewrite", reason: "page-url-mismatch" } });
@@ -453,7 +439,7 @@ describe("C4 rewrite content entrypoints", () => {
       source: windowObject,
       data: { kind: "uf-page-url-changed/1", toUrl: "https://example.com/b" },
     } as unknown as Event);
-    await applyReadyDirective(listener, "https://example.com");
+    await applyLockState(listener);
     await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/a" });
     locationValue.href = "https://example.com/b";
     windowListeners.get("message")?.({
@@ -485,7 +471,7 @@ describe("C4 rewrite content entrypoints", () => {
     expect(windowListeners.has("hashchange")).toBe(true);
   });
 
-  it("applies directive.content and gates data-affecting commands by baseUrl config lock and reconciliation", async () => {
+  it("consumes brain signals into local surface memory and gates commands with lock authority", async () => {
     const addListener = vi.fn();
     const elements: Array<{
       tag: string;
@@ -525,10 +511,41 @@ describe("C4 rewrite content entrypoints", () => {
       return element;
     });
     const createMarkingEngine = vi.fn();
+    let signalSeq = 0;
+    let pendingSignals: Array<Record<string, unknown>> = [];
+    const queueSignal = (name: string, payload: Record<string, unknown> = {}): void => {
+      signalSeq += 1;
+      pendingSignals.push({
+        kind: "uf-signal/1",
+        tabId: 77,
+        seq: signalSeq,
+        name,
+        source: "brain",
+        cause: "test",
+        at: signalSeq,
+        payload,
+      });
+    };
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name !== "signals.pull") {
+        return undefined;
+      }
+      const signals = pendingSignals;
+      pendingSignals = [];
+      return {
+        ...message,
+        frameType: "reply",
+        source: "background",
+        sourceInstance: "background:test",
+        target: "content",
+        ok: true,
+        payload: signals,
+      } satisfies BusFrame;
+    });
     globalThis.chrome = {
       runtime: {
         onMessage: { addListener },
-        sendMessage: vi.fn().mockResolvedValue(undefined),
+        sendMessage,
       },
     } as unknown as typeof chrome;
     Object.defineProperty(globalThis, "location", {
@@ -560,17 +577,11 @@ describe("C4 rewrite content entrypoints", () => {
     (entrypoint.default as { main: () => void }).main();
     const listener = addListener.mock.calls[0]?.[0] as (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown;
 
-    const configBlocked = await dispatchContentCommand(listener, "directive.content", {
-      baseUrl: "https://example.com",
+    const configBlocked = await applyLockState(listener, {
       configPresent: false,
-      lockRole: "editor",
-      reconciliationPending: false,
-      content: {
-        markingEditsBlocked: true,
-        blockedReason: "config-missing",
-        curtain: { visible: true, text: "Config missing" },
-        banner: { visible: true, text: "Config missing" },
-      },
+      canEdit: false,
+      blockedReason: "config-missing",
+      banner: { visible: true, text: "Config missing" },
     });
     expect(configBlocked).toMatchObject({ ok: true, data: { ok: true } });
     expect(elements.some((element) => element.attributes["data-uf-content-curtain"] === "true")).toBe(true);
@@ -580,40 +591,33 @@ describe("C4 rewrite content entrypoints", () => {
       failure: { code: "config-missing" },
     });
 
-    await dispatchContentCommand(listener, "directive.content", { configPresent: true, lockRole: "passive" });
+    await applyLockState(listener, { lockRole: "passive", canEdit: false, blockedReason: "property-lock" });
     expect(await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/page" })).toMatchObject({
       ok: false,
       failure: { code: "property-lock" },
     });
 
-    await dispatchContentCommand(listener, "directive.content", { lockRole: "editor", reconciliationPending: true });
+    queueSignal("reconciliation.started", { reason: "saving" });
+    await applyLockState(listener);
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/page" })).toMatchObject({
       ok: false,
       failure: { code: "reconciliation-pending" },
     });
 
-    await dispatchContentCommand(listener, "directive.content", {
-      reconciliationPending: false,
-      content: {
-        markingEditsBlocked: true,
-        blockedReason: "post_ai",
-        curtain: { visible: true, text: "Post AI" },
-        banner: { visible: false, text: "" },
-      },
-    });
+    queueSignal("reconciliation.ended", { reason: "saved" });
+    queueSignal("marking.enabled");
+    queueSignal("run.started", { sessionId: "run-1" });
+    await applyLockState(listener);
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/page" })).toMatchObject({
       ok: false,
       failure: { code: "post_ai" },
     });
+    expect(elements.some((element) => element.attributes["data-uf-content-curtain"] === "true" && element.textContent === "Computing selectors")).toBe(true);
 
-    await dispatchContentCommand(listener, "directive.content", {
+    await applyLockState(listener, {
       baseUrl: "https://other.example",
-      content: {
-        markingEditsBlocked: false,
-        blockedReason: "",
-        curtain: { visible: false, text: "" },
-        banner: { visible: false, text: "" },
-      },
     });
     expect(await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/page" })).toMatchObject({
       ok: false,
@@ -621,34 +625,24 @@ describe("C4 rewrite content entrypoints", () => {
     });
     expect(createMarkingEngine).not.toHaveBeenCalled();
 
-    await dispatchContentCommand(listener, "directive.content", {
-      baseUrl: "https://example.com",
-      content: {
-        markingEditsBlocked: true,
-        blockedReason: "saving",
-        blockOwner: "popup",
-        curtain: { visible: true, text: "Saving" },
-        banner: { visible: false, text: "" },
-      },
-    });
-    await dispatchContentCommand(listener, "directive.content", {
-      content: {
-        markingEditsBlocked: false,
-        blockedReason: "",
-        blockOwner: "lock",
-        curtain: { visible: false, text: "" },
-        banner: { visible: false, text: "" },
-      },
-    });
     const status = await dispatchContentCommand(listener, "getContentMainStatus");
     expect(status.data).toMatchObject({
-      directive: {
-        content: {
-          markingEditsBlocked: true,
-          blockedReason: "saving",
-          blockOwner: "popup",
-        },
+      sessionState: { name: "running", lastConsumedSeq: signalSeq },
+      presentation: {
+        markingEditsBlocked: true,
+        blockedReason: "post_ai",
       },
     });
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "signals.pull",
+      payload: expect.objectContaining({ tabId: 0 }),
+    }));
+    const startupFrame = sendMessage.mock.calls
+      .map(([frame]) => frame)
+      .find((frame) => frame.name === "fact.reported" && (frame.payload as { sensation?: { reason?: string } }).sensation?.reason === "content-started");
+    const startupFacts = (startupFrame?.payload as { sensation?: { facts?: Record<string, unknown> } }).sensation?.facts;
+    expect(startupFacts).toBeDefined();
+    expect(startupFacts).not.toHaveProperty("lockRole");
+    expect(startupFacts).not.toHaveProperty("configPresent");
   });
 });

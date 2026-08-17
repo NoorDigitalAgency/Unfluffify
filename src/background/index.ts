@@ -132,13 +132,15 @@ export function startRewriteBackground(): void {
       }
     },
   });
-  bus.onCommand("signals.pull", (request) =>
-    [...(request.organId
-      ? runtime.getBrain(request.tabId).pullForOrgan(request.organId, request.afterSeq)
-      : runtime.getBrain(request.tabId).pullSignals(request.afterSeq))]
-  );
-  bus.onCommand("signals.consume", (request) => {
-    runtime.getBrain(request.tabId).markConsumed(request.organId, request.seq);
+  bus.onCommand("signals.pull", (request, meta) => {
+    const tabId = request.tabId === 0 ? parseSenderTabId(meta.sourceInstance) ?? 0 : request.tabId;
+    return [...(request.organId
+      ? runtime.getBrain(tabId).pullForOrgan(request.organId, request.afterSeq)
+      : runtime.getBrain(tabId).pullSignals(request.afterSeq))];
+  });
+  bus.onCommand("signals.consume", (request, meta) => {
+    const tabId = request.tabId === 0 ? parseSenderTabId(meta.sourceInstance) ?? 0 : request.tabId;
+    runtime.getBrain(tabId).markConsumed(request.organId, request.seq);
     return { ok: true as const };
   });
   bus.on("fact.reported", (envelope, meta) => {
@@ -161,6 +163,10 @@ export function startRewriteBackground(): void {
     const siteId = typeof envelope.sensation.facts.siteId === "number" ? envelope.sensation.facts.siteId : snapshot?.siteId ?? null;
     if (envelope.sensation.reason === "activity-ping" && siteId !== null) {
       lockRuntime.activity(tabId, siteId);
+    }
+    if (envelope.sensation.reason === "content-started") {
+      const baseUrl = typeof envelope.sensation.facts.baseUrl === "string" ? envelope.sensation.facts.baseUrl : "";
+      lockRuntime.republish(tabId, baseUrl);
     }
   });
   bus.onCommand("lock.directive", (request) => lockRuntime.directive(request));

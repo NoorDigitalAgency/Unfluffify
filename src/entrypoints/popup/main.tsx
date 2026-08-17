@@ -683,8 +683,12 @@ async function refineSubmissionXpaths(snapshot: AiRunPayloadSnapshot): Promise<A
 
 type LockDirectiveResponse = Readonly<{
   status: "ok" | "not_configured" | "not_candidate" | "signed_out" | "unavailable";
+  baseUrl: string;
   siteId: number | null;
   lockRole: "unknown" | "editor" | "passive";
+  configPresent: boolean;
+  canEdit: boolean;
+  blockedReason: string;
   authority?: Readonly<{
     environmentKey: string;
     editorSessionId: string;
@@ -692,53 +696,11 @@ type LockDirectiveResponse = Readonly<{
     propertyRevision: number;
     feedRevision: number;
   }>;
-  directive: unknown;
   lockBanner: Readonly<{ visible: boolean; text: string; countdownSeconds?: number }>;
 }>;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function composeContentDirective(context: TargetTabContext, lock: LockDirectiveResponse): Record<string, unknown> {
-  const presentation = store.getPresentation();
-  const bannerText = presentation.lockBanner.visible ? presentation.lockBanner.text : "";
-  const baseDirective = isRecord(lock.directive) ? lock.directive : {};
-  const baseContent = isRecord(baseDirective.content) ? baseDirective.content : {};
-  const lockDirectiveBlocked = baseContent.markingEditsBlocked === true;
-  const lockBlocked = lock.lockRole !== "editor" || lockDirectiveBlocked;
-  const blockedReason = lockBlocked
-    ? lock.lockBanner.text || "property-lock"
-    : presentation.blockedReason || presentation.saveBlockedReason || presentation.runAiBlockedReason || "";
-  return {
-    type: "directive.content",
-    ...baseDirective,
-    baseUrl: baseUrlFor(context.url),
-    configPresent: lock.status === "ok" && lock.siteId !== null,
-    lockRole: lock.lockRole,
-    reconciliationPending: store.getState().name === "reconciling",
-    content: {
-      ...baseContent,
-      markingEditsBlocked: lockBlocked || presentation.temporarilyDisabledOverlay,
-      blockedReason,
-      curtain: {
-        visible: lockBlocked || presentation.curtainVisible,
-        text: lockBlocked ? lock.lockBanner.text || "Property locked" : presentation.curtainText,
-      },
-      banner: {
-        visible: lock.lockBanner.visible || presentation.lockBanner.visible,
-        text: lock.lockBanner.text || bannerText,
-      },
-      blockOwner: lockBlocked ? "lock" : presentation.temporarilyDisabledOverlay ? "popup" : undefined,
-      ...(confirmedRenderMode === null ? {} : { renderMode: confirmedRenderMode }),
-    },
-  };
-}
-
 function lockAllowsEditing(lock: LockDirectiveResponse): boolean {
-  const directive = isRecord(lock.directive) ? lock.directive : {};
-  const content = isRecord(directive.content) ? directive.content : {};
-  return lock.lockRole === "editor" && content.markingEditsBlocked !== true;
+  return lock.lockRole === "editor" && lock.canEdit;
 }
 
 async function requestLockDirective(context: TargetTabContext): Promise<LockDirectiveResponse | null> {
@@ -800,21 +762,12 @@ function settlePreLockAiRun(
 function unavailableLockDirective(context: TargetTabContext): LockDirectiveResponse {
   return {
     status: "unavailable",
+    baseUrl: baseUrlFor(context.url),
     siteId: null,
     lockRole: "unknown",
-    directive: {
-      baseUrl: baseUrlFor(context.url),
-      configPresent: false,
-      lockRole: "unknown",
-      reconciliationPending: false,
-      content: {
-        markingEditsBlocked: true,
-        blockedReason: "property-lock",
-        curtain: { visible: true, text: "Property lock unavailable" },
-        banner: { visible: true, text: "Property lock unavailable" },
-        blockOwner: "lock",
-      },
-    },
+    configPresent: false,
+    canEdit: false,
+    blockedReason: "property-lock",
     lockBanner: { visible: true, text: "Property lock unavailable" },
   };
 }
@@ -852,9 +805,8 @@ async function refreshLockDirective(context: TargetTabContext, requestKey = boun
   activeSiteId = lock.siteId;
   lockStatus = lock.status;
   lockRole = lock.lockRole;
-  configPresent = isRecord(lock.directive) && lock.directive.configPresent === true;
+  configPresent = lock.configPresent;
   applyLockPresentation(lock, requestKey);
-  await sendContentMessage(context.tabId, composeContentDirective(context, lock));
   return lock;
 }
 

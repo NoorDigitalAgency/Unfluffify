@@ -29,10 +29,14 @@ const LockDirectiveRequestSchema = z.object({
 export const LockStatusSchema = z.enum(["ok", "not_configured", "not_candidate", "signed_out", "unavailable"]);
 export type LockStatus = z.infer<typeof LockStatusSchema>;
 
-const LockDirectiveResponseSchema = z.object({
+const LockStateResponseSchema = z.object({
   status: LockStatusSchema,
+  baseUrl: z.string().url(),
   siteId: z.number().int().positive().nullable(),
   lockRole: LockRoleSchema,
+  configPresent: z.boolean(),
+  canEdit: z.boolean(),
+  blockedReason: z.string(),
   authority: z.object({
     environmentKey: z.string().min(1),
     editorSessionId: z.string().min(1),
@@ -40,7 +44,6 @@ const LockDirectiveResponseSchema = z.object({
     propertyRevision: z.number().int().nonnegative(),
     feedRevision: z.number().int().nonnegative(),
   }).optional(),
-  directive: z.unknown(),
   lockBanner: z.object({
     visible: z.boolean(),
     text: z.string(),
@@ -281,7 +284,7 @@ export const applicationContract = defineContract({
     },
     "lock.directive": {
       request: LockDirectiveRequestSchema,
-      response: LockDirectiveResponseSchema,
+      response: LockStateResponseSchema,
     },
     "emulation.apply": {
       request: EmulationApplyRequestSchema,

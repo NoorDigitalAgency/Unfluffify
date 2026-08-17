@@ -514,9 +514,10 @@ describe("rewrite background services", () => {
     expect(sockets).toEqual([]);
     // Editing stays blocked, and the content side is told which of the two
     // reasons it is, so the curtain does not blame the lock.
-    expect(signedOut.directive).toMatchObject({
+    expect(signedOut).toMatchObject({
       configPresent: false,
-      content: { markingEditsBlocked: true, blockedReason: "signed-out" },
+      canEdit: false,
+      blockedReason: "signed-out",
     });
 
     // Signing in makes it ask, on the same runtime.
@@ -595,30 +596,38 @@ describe("rewrite background services", () => {
     expect(tabMessages).toEqual(expect.arrayContaining([
       expect.objectContaining({
         payload: expect.objectContaining({
-          name: "directive.content",
+          name: "lock.state.changed",
           payload: expect.objectContaining({
-            content: expect.objectContaining({ markingEditsBlocked: true }),
+            canEdit: false,
           }),
         }),
       }),
       expect.objectContaining({
         payload: expect.objectContaining({
-          name: "directive.content",
+          name: "lock.state.changed",
           payload: expect.objectContaining({
-            content: expect.objectContaining({ markingEditsBlocked: false }),
+            canEdit: true,
           }),
         }),
       }),
     ]));
 
+    const beforeReplay = tabMessages.length;
+    runtime.republish(5, "https://example.com");
+    await Promise.resolve();
+    expect(tabMessages).toHaveLength(beforeReplay + 1);
+    runtime.republish(5, "https://different.example");
+    await Promise.resolve();
+    expect(tabMessages).toHaveLength(beforeReplay + 1);
+
     await runtime.directive({ ...request, pageUrl: "https://example.com/next", hasUnsavedChanges: true });
     const statusFrame = sockets[0].sent.map((frame) => JSON.parse(frame)).findLast((frame) => frame.type === "client_status");
     expect(statusFrame).toMatchObject({ pageUrl: "https://example.com/next", hasUnsavedChanges: true });
 
-    const tabMessageCount = tabMessages.length;
     await runtime.directive({ ...request, siteId: 777, pageUrl: "https://other.example/page", baseUrl: "https://other.example" });
     expect(sockets).toHaveLength(2);
     expect(sockets[0].sent.map((frame) => JSON.parse(frame).type)).toContain("release_lock");
+    const tabMessageCount = tabMessages.length;
     sockets[0].emit("message", JSON.stringify({ type: "lock_state", state: "locked", isEditor: true, editorName: "Old" }));
     expect(tabMessages).toHaveLength(tabMessageCount);
 

@@ -322,12 +322,12 @@ describe("rewrite background startup", () => {
       ok: true,
       payload: {
         status: "signed_out",
+        baseUrl: "https://example.com",
         siteId: null,
         lockRole: "unknown",
-        directive: expect.objectContaining({
-          lockRole: "unknown",
-          content: expect.objectContaining({ markingEditsBlocked: true, blockedReason: "signed-out" }),
-        }),
+        configPresent: false,
+        canEdit: false,
+        blockedReason: "signed-out",
       },
     });
   });

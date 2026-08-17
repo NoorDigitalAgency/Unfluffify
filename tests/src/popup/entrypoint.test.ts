@@ -210,26 +210,18 @@ function makeRuntime(handler: (frame: BusFrame) => Promise<unknown> | unknown) {
       if (frame.name === "lock.directive") {
         return replyFrame(frame, {
           status: "ok",
+          baseUrl: "https://example.com",
           siteId: 1,
           lockRole: "editor",
+          configPresent: true,
+          canEdit: true,
+          blockedReason: "",
           authority: {
             environmentKey: "example.com",
             editorSessionId: "editor-1",
             lockToken: "lock-1",
             propertyRevision: 4,
             feedRevision: 2,
-          },
-          directive: {
-            baseUrl: "https://example.com",
-            configPresent: true,
-            lockRole: "editor",
-            reconciliationPending: false,
-            content: {
-              markingEditsBlocked: false,
-              blockedReason: "",
-              curtain: { visible: false, text: "" },
-              banner: { visible: false, text: "" },
-            },
           },
           lockBanner: { visible: false, text: "" },
         });
@@ -549,26 +541,17 @@ describe("rewrite popup entrypoint", () => {
     await flushEntrypointWork();
 
     expect(query).toHaveBeenCalledWith({ active: true, currentWindow: true });
-    // Asserted by content, not by call index: choosing a render mode publishes a
-    // directive of its own and now also asks the page to be prepared, and how many
-    // of those precede activation is not part of the contract.
+    // The popup reports facts and commands actions. It never composes the content
+    // organ's surface; content consumes the brain signal stream independently.
     const sentCommandNames = tabsSendMessage.mock.calls.map(
       ([, message]) => (message as { payload?: { name?: string } }).payload?.name,
     );
     expect(sentCommandNames).toContain("getContentMainStatus");
-    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("directive.content", expect.objectContaining({
-      baseUrl: "https://example.com",
-      configPresent: true,
-      lockRole: "editor",
-    })));
+    expect(sentCommandNames).not.toContain("directive.content");
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("activateContentMain", {
       pageUrl: "https://example.com",
       realEditorActivation: true,
     }));
-    // The directive has to reach the content script before activation, or the
-    // command is gated on a stale one.
-    expect(sentCommandNames.indexOf("directive.content"))
-      .toBeLessThan(sentCommandNames.indexOf("activateContentMain"));
     expect(sentCommandNames.indexOf("activateContentMain"))
       .toBeLessThan(sentCommandNames.indexOf("resetContentMain"));
     const runtimeFrames = runtime.sendMessage.mock.calls.map(([frame]) => frame as {

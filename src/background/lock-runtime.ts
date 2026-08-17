@@ -39,7 +39,7 @@ const NO_LOCK_STATE_TEXT: Readonly<Record<LockStatus, string>> = {
   unavailable: "Property lock unavailable",
 };
 
-function directiveFromState(input: Readonly<{
+function lockStateFromState(input: Readonly<{
   pageUrl: string;
   baseUrl: string;
   siteId: number | null;
@@ -73,26 +73,17 @@ function directiveFromState(input: Readonly<{
     : undefined;
   return {
     status: input.status,
+    baseUrl: input.baseUrl,
     siteId: input.siteId,
     lockRole,
+    configPresent: input.status === "ok" && input.siteId !== null,
+    canEdit: view.canEdit,
+    blockedReason,
     ...(authority ? { authority } : {}),
     lockBanner: {
       visible: view.bannerVisible,
       text: view.text,
       ...(view.countdownSeconds === undefined ? {} : { countdownSeconds: view.countdownSeconds }),
-    },
-    directive: {
-      baseUrl: input.baseUrl,
-      configPresent: input.status === "ok" && input.siteId !== null,
-      lockRole,
-      reconciliationPending: false,
-      content: {
-        markingEditsBlocked: !view.canEdit,
-        blockedReason,
-        curtain: { visible: !view.canEdit, text: view.text || "Property locked" },
-        banner: { visible: view.bannerVisible, text: view.text },
-        blockOwner: "lock" as const,
-      },
     },
   };
 }
@@ -106,11 +97,12 @@ export function createPropertyLockRuntime(input: Readonly<{
   const pageUrls = new Map<string, string>();
   const unsavedByKey = new Map<string, boolean>();
   const claimedKeys = new Set<string>();
-  const publishedDirectives = new Map<string, string>();
+  const publishedLockStates = new Map<string, string>();
+  const latestLockStates = new Map<number, ReturnType<typeof lockStateFromState>>();
   const activeKeyByTab = new Map<number, string>();
   const siteCache = new Map<string, Readonly<{ status: "ok" | "network_error" | "not_found"; siteId: number | null }>>();
 
-  const publishDirective = async (tabId: number, directive: unknown): Promise<void> => {
+  const publishLockState = async (tabId: number, state: ReturnType<typeof lockStateFromState>): Promise<void> => {
     if (!input.tabs) {
       return;
     }
@@ -121,22 +113,30 @@ export function createPropertyLockRuntime(input: Readonly<{
     try {
       await bus.request("command.dispatch", {
         kind: "uf-command/1",
-        name: "directive.content",
+        name: "lock.state.changed",
         tabId,
-        payload: directive,
+        payload: {
+          baseUrl: state.baseUrl,
+          configPresent: state.configPresent,
+          lockRole: state.lockRole,
+          canEdit: state.canEdit,
+          blockedReason: state.blockedReason,
+          banner: state.lockBanner,
+        },
       }, { target: "content" });
     } finally {
       bus.dispose();
     }
   };
 
-  const publishDirectiveIfChanged = (key: string, tabId: number, directive: unknown): void => {
-    const serialized = JSON.stringify(directive);
-    if (publishedDirectives.get(key) === serialized) {
+  const publishLockStateIfChanged = (key: string, tabId: number, state: ReturnType<typeof lockStateFromState>): void => {
+    latestLockStates.set(tabId, state);
+    const serialized = JSON.stringify(state);
+    if (publishedLockStates.get(key) === serialized) {
       return;
     }
-    publishedDirectives.set(key, serialized);
-    void publishDirective(tabId, directive);
+    publishedLockStates.set(key, serialized);
+    void publishLockState(tabId, state);
   };
 
   const releaseKey = (key: string): void => {
@@ -145,7 +145,7 @@ export function createPropertyLockRuntime(input: Readonly<{
     pageUrls.delete(key);
     unsavedByKey.delete(key);
     claimedKeys.delete(key);
-    publishedDirectives.delete(key);
+    publishedLockStates.delete(key);
   };
 
   const releaseActiveForTab = (tabId: number, nextKey?: string): void => {
@@ -178,7 +178,7 @@ export function createPropertyLockRuntime(input: Readonly<{
           return;
         }
         const pageUrl = pageUrls.get(key) ?? request.pageUrl;
-        const response = directiveFromState({ pageUrl, baseUrl, siteId, state, status: "ok" });
+        const response = lockStateFromState({ pageUrl, baseUrl, siteId, state, status: "ok" });
         input.observeLockFacts?.({
           tabId: request.tabId,
           siteId,
@@ -187,7 +187,7 @@ export function createPropertyLockRuntime(input: Readonly<{
           lockRole: state.role,
           configPresent: true,
         });
-        publishDirectiveIfChanged(key, request.tabId, response.directive);
+        publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
       },
     });
     clients.set(key, client);
@@ -205,7 +205,9 @@ export function createPropertyLockRuntime(input: Readonly<{
       // Any lock held before signing out is released here.
       if (!await input.services.accounts.hasToken()) {
         releaseActiveForTab(request.tabId);
-        return directiveFromState({ pageUrl: request.pageUrl, baseUrl, siteId: null, state: null, status: "signed_out" });
+        const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: null, state: null, status: "signed_out" });
+        publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
+        return response;
       }
       const siteCacheKey = `${request.tabId}:${request.pageUrl}`;
       const cachedSite = siteCache.get(siteCacheKey);
@@ -222,11 +224,15 @@ export function createPropertyLockRuntime(input: Readonly<{
       }
       if (resolvedSite.status === "network_error") {
         activeKeyByTab.delete(request.tabId);
-        return directiveFromState({ pageUrl: request.pageUrl, baseUrl, siteId: null, state: null, status: "unavailable" });
+        const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: null, state: null, status: "unavailable" });
+        publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
+        return response;
       }
       if (resolvedSite.siteId === null) {
         releaseActiveForTab(request.tabId);
-        return directiveFromState({ pageUrl: request.pageUrl, baseUrl, siteId: null, state: null, status: "not_candidate" });
+        const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: null, state: null, status: "not_candidate" });
+        publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
+        return response;
       }
       const key = `${request.tabId}:${resolvedSite.siteId}`;
       releaseActiveForTab(request.tabId, key);
@@ -254,10 +260,18 @@ export function createPropertyLockRuntime(input: Readonly<{
         lockRole: state.role,
         configPresent: true,
       });
-      return directiveFromState({ pageUrl: request.pageUrl, baseUrl, siteId: resolvedSite.siteId, state, status: "ok" });
+      const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: resolvedSite.siteId, state, status: "ok" });
+      publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
+      return response;
     },
     activity(tabId: number, siteId: number): void {
       clients.get(`${tabId}:${siteId}`)?.activity();
+    },
+    republish(tabId: number, baseUrl: string): void {
+      const state = latestLockStates.get(tabId);
+      if (state?.baseUrl === baseUrl) {
+        void publishLockState(tabId, state);
+      }
     },
   };
 }

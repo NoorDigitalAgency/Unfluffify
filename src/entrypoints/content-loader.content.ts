@@ -3,19 +3,27 @@ import { defineContentScript } from "wxt/utils/define-content-script";
 import { browser, getInstalledBrowserApi } from "../common/browser";
 import { createActivationGate } from "../content/activation";
 import {
+  authorityFromLockState,
+  ContentLockStateSchema,
   createContentCommandRouter,
-  createDefaultContentDirective,
-  mergeContentDirective,
-  type ContentDirectivePatch,
-  type ContentDirectiveState,
+  createDefaultContentAuthority,
+  type ContentAuthorityState,
 } from "../content/command-router";
 import { hideConsentOverlays } from "../content/consent";
 import { createMarkingEngine } from "../content/marking";
+import {
+  INITIAL_CONTENT_STATE,
+  memoryForContent,
+  transitionContentState,
+  type ContentPresentation,
+  type ContentState,
+} from "../content/organ";
 import { createFreezeController, createRevealVisitController, createSpaGuard } from "../content/stabilization";
+import type { BrainSignal } from "../domain/schema/signals";
 import type { CommandEnvelope } from "../messaging/contracts";
 import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
-import type { RewriteSignalBus } from "../messaging/rewrite-signals";
+import { pullRewriteSignals, type RewriteSignalBus } from "../messaging/rewrite-signals";
 
 const activation = createActivationGate();
 const freezeController = createFreezeController();
@@ -39,7 +47,12 @@ let navigationWatcherInstalled = false;
 let lastKnownPageUrl = typeof location !== "undefined" ? location.href : "";
 let contentBus: RewriteSignalBus | null = null;
 let pageWorldSessionNonce = "";
-let contentDirective: ContentDirectiveState = createDefaultContentDirective(lastKnownPageUrl);
+let contentState: ContentState = INITIAL_CONTENT_STATE;
+let contentPresentation: ContentPresentation = memoryForContent(contentState);
+let contentAuthority: ContentAuthorityState = createDefaultContentAuthority(lastKnownPageUrl);
+let contentSignalQueue: Promise<unknown> = Promise.resolve();
+let contentSignalPollHandle: ReturnType<Window["setInterval"]> | null = null;
+const CONTENT_SIGNAL_POLL_MS = 500;
 /** Selectors seed a clean session once and then stop mattering; this guards the
  *  "once" across re-activations of the same session. */
 let selectorsSeeded = false;
@@ -58,7 +71,8 @@ let ritualRanForUrl = "";
 let ritualPendingForUrl = "";
 /** How long to wait for a load event before walking anyway. */
 const RITUAL_READY_TIMEOUT_MS = 8000;
-let directiveRoot: HTMLElement | null = null;
+let contentSurfaceRoot: HTMLElement | null = null;
+let lastContentSurfaceSignature = "";
 
 function isUserMarkingDirty(): boolean {
   return userToggleCount > 0;
@@ -140,6 +154,65 @@ function getContentBus(): RewriteSignalBus {
     });
   }
   return contentBus;
+}
+
+function applyContentSignal(signal: BrainSignal): boolean {
+  const nextState = transitionContentState(contentState, signal);
+  if (nextState === contentState) {
+    return false;
+  }
+  const previousPresentation = contentPresentation;
+  contentState = nextState;
+  contentPresentation = memoryForContent(nextState);
+  if (contentPresentation.markingEditsBlocked) {
+    pauseMarkingInteractions();
+  } else if (previousPresentation.markingEditsBlocked && markingInteractionsPaused) {
+    resumeMarkingInteractions();
+  }
+  renderContentSurface();
+  return true;
+}
+
+async function pullContentSignals(): Promise<number> {
+  const run = async (): Promise<number> => {
+    const response = await pullRewriteSignals(getContentBus(), {
+      // Runtime transport supplies the real sender tab to the background. A
+      // content script cannot discover its Chrome tab id itself.
+      tabId: 0,
+      afterSeq: contentState.lastConsumedSeq,
+    });
+    if (!response.ok) {
+      return 0;
+    }
+    let applied = 0;
+    for (const signal of response.data) {
+      if (applyContentSignal(signal)) {
+        applied += 1;
+      }
+    }
+    return applied;
+  };
+  const queued = contentSignalQueue.then(run, run);
+  contentSignalQueue = queued.catch(() => undefined);
+  return await queued;
+}
+
+function ensureContentSignalPolling(): void {
+  void pullContentSignals().catch((error: unknown) => {
+    console.error("[Unfluffify][rewrite] Unable to pull content signals", error);
+  });
+  if (
+    contentSignalPollHandle !== null ||
+    typeof window === "undefined" ||
+    typeof window.setInterval !== "function"
+  ) {
+    return;
+  }
+  contentSignalPollHandle = window.setInterval(() => {
+    void pullContentSignals().catch((error: unknown) => {
+      console.error("[Unfluffify][rewrite] Unable to pull content signals", error);
+    });
+  }, CONTENT_SIGNAL_POLL_MS);
 }
 
 function refreshActiveMarking(): void {
@@ -259,13 +332,22 @@ async function reportContentFact(reason: string, facts: Record<string, unknown>)
         pageUrl: currentPageUrl() || undefined,
         baseUrl: baseUrlFor(currentPageUrl()) || undefined,
         markingEnabled: markingActive,
-        lockRole: contentDirective.lockRole,
-        configPresent: contentDirective.configPresent,
-        reconciliationPending: contentDirective.reconciliationPending,
+        // Startup is a consumer handshake, not a new lock observation. Omitting
+        // authority here preserves the background's existing lock facts until
+        // the lock organ reports a genuine state.
+        ...(reason === "content-started" ? {} : {
+          lockRole: contentAuthority.lockRole,
+          configPresent: contentAuthority.configPresent,
+        }),
+        reconciliationPending: contentPresentation.reconciliationPending,
+        reconciliationReason: contentState.reconciliationReason || undefined,
         ...facts,
       },
     },
   }, { target: "background" });
+  // Pull immediately after reporting so the content organ does not have to wait
+  // for the periodic correctness poll to observe the brain's decided edge.
+  void pullContentSignals().catch(() => undefined);
 }
 
 async function pingContentActivity(_command: CommandEnvelope): Promise<void> {
@@ -281,34 +363,44 @@ async function pingContentActivity(_command: CommandEnvelope): Promise<void> {
   }
 }
 
-function ensureDirectiveRoot(): HTMLElement | null {
+function ensureContentSurfaceRoot(): HTMLElement | null {
   if (typeof document === "undefined" || !document.documentElement) {
     return null;
   }
-  if (directiveRoot?.isConnected) {
-    return directiveRoot;
+  if (contentSurfaceRoot?.isConnected) {
+    return contentSurfaceRoot;
   }
-  directiveRoot = document.createElement("div");
-  directiveRoot.setAttribute("data-uf-content-directive-root", "true");
-  directiveRoot.style.position = "fixed";
-  directiveRoot.style.inset = "0";
-  directiveRoot.style.pointerEvents = "none";
-  directiveRoot.style.zIndex = "2147483646";
-  document.documentElement.appendChild(directiveRoot);
-  return directiveRoot;
+  contentSurfaceRoot = document.createElement("div");
+  contentSurfaceRoot.setAttribute("data-uf-content-surface-root", "true");
+  contentSurfaceRoot.style.position = "fixed";
+  contentSurfaceRoot.style.inset = "0";
+  contentSurfaceRoot.style.pointerEvents = "none";
+  contentSurfaceRoot.style.zIndex = "2147483646";
+  document.documentElement.appendChild(contentSurfaceRoot);
+  lastContentSurfaceSignature = "";
+  return contentSurfaceRoot;
 }
 
-function renderDirectiveSurface(): void {
-  const root = ensureDirectiveRoot();
+function renderContentSurface(): void {
+  const lockBlocked = contentAuthority.lockBlocked;
+  const blockedReason = lockBlocked
+    ? contentAuthority.blockedReason || "property-lock"
+    : contentPresentation.blockedReason;
+  const curtain = lockBlocked
+    ? { visible: true, text: contentAuthority.banner.text || "Property locked" }
+    : contentPresentation.curtain;
+  const banner = contentAuthority.banner;
+  const signature = JSON.stringify({ blockedReason, curtain, banner });
+  const root = ensureContentSurfaceRoot();
   if (!root) {
     return;
   }
+  if (signature === lastContentSurfaceSignature) {
+    return;
+  }
+  lastContentSurfaceSignature = signature;
   root.replaceChildren();
-  const blockedReason = contentDirective.content.blockedReason;
-  const curtain = contentDirective.content.curtain;
-  const banner = contentDirective.content.banner;
-  const showCurtain = curtain.visible || contentDirective.content.markingEditsBlocked;
-  if (showCurtain) {
+  if (curtain.visible) {
     const curtainElement = document.createElement("section");
     curtainElement.setAttribute("role", "status");
     curtainElement.setAttribute("data-uf-content-curtain", "true");
@@ -514,22 +606,31 @@ function runPageVisitRitual(pageUrl: string, cause: string): void {
   setTimeout(onReady, RITUAL_READY_TIMEOUT_MS);
 }
 
-function applyContentDirective(patch: ContentDirectivePatch): ContentDirectiveState {
-  // A directive means a popup is bound, which is one of several ways to learn this
-  // is a property page — but not the earliest. The page-load probe below is.
+function applyContentLockState(payload: unknown): Record<string, unknown> {
+  const parsed = ContentLockStateSchema.safeParse(payload);
+  if (!parsed.success) {
+    return { ok: false, reason: "invalid-lock-state", tree: "rewrite" };
+  }
   void establishPageContext();
-  contentDirective = mergeContentDirective(contentDirective, patch);
-  if (contentDirective.content.markingEditsBlocked) {
+  contentAuthority = authorityFromLockState(parsed.data);
+  if (contentAuthority.lockBlocked || contentPresentation.markingEditsBlocked) {
     pauseMarkingInteractions();
   } else if (markingInteractionsPaused) {
     resumeMarkingInteractions();
   }
-  renderDirectiveSurface();
-  return contentDirective;
+  renderContentSurface();
+  void pullContentSignals().catch(() => undefined);
+  return { ok: true, state: contentAuthority, tree: "rewrite" };
 }
 
 function ensureMarkingListeners(): void {
-  if (contentDirective.content.markingEditsBlocked || markingInteractionsPaused || removeMarkingListeners || typeof document === "undefined") {
+  if (
+    contentAuthority.lockBlocked ||
+    contentPresentation.markingEditsBlocked ||
+    markingInteractionsPaused ||
+    removeMarkingListeners ||
+    typeof document === "undefined"
+  ) {
     return;
   }
   const handleClick = (event: MouseEvent): void => {
@@ -601,8 +702,6 @@ function deactivateMarking(): void {
   removeMarkingListeners?.();
   markingEngine?.dispose();
   markingEngine = null;
-  directiveRoot?.remove();
-  directiveRoot = null;
 }
 
 function pauseMarkingInteractions(): boolean {
@@ -615,7 +714,7 @@ function pauseMarkingInteractions(): boolean {
 }
 
 function resumeMarkingInteractions(): boolean {
-  if (contentDirective.content.markingEditsBlocked) {
+  if (contentAuthority.lockBlocked || contentPresentation.markingEditsBlocked) {
     return false;
   }
   markingInteractionsPaused = false;
@@ -775,7 +874,9 @@ function contentStatus(): Record<string, unknown> {
     pageUrl: currentPageUrl(),
     markedCount: userToggleCount,
     contentRows: contentRowsFromEngine(),
-    directive: contentDirective,
+    sessionState: contentState,
+    authority: contentAuthority,
+    presentation: contentPresentation,
     tree: "rewrite",
   };
 }
@@ -792,7 +893,7 @@ function captureSubmissionSnapshot(payload: unknown): Record<string, unknown> {
   const capture = payloadObject(payload);
   const pageUrl = typeof capture.pageUrl === "string" ? capture.pageUrl : currentPageUrl();
   const baseUrl = typeof capture.baseUrl === "string" ? capture.baseUrl : baseUrlFor(pageUrl);
-  const renderMode = capture.renderMode === "static" ? "static" : contentDirective.content.renderMode;
+  const renderMode = capture.renderMode === "static" ? "static" : "rendered";
   return {
     ok: true,
     snapshot: markingEngine.buildSubmission({
@@ -812,15 +913,17 @@ function createContentRouter() {
       return {
         pageUrl: currentPageUrl(),
         baseUrl: baseUrlFor(currentPageUrl()),
-        directive: contentDirective,
+        authority: contentAuthority,
+        presentation: contentPresentation,
       };
     },
     handlers: {
+      "lock.state.changed": (payload) => applyContentLockState(payload),
       activateContentMain,
       getContentMainStatus: () => contentStatus(),
       pauseContentMainInteractions: () => ({ ok: pauseMarkingInteractions(), active: markingActive, dirty: isUserMarkingDirty(), tree: "rewrite" }),
-      resumeContentMainInteractions: () => contentDirective.content.markingEditsBlocked
-        ? { ok: false, active: markingActive, dirty: isUserMarkingDirty(), tree: "rewrite", reason: "directive-blocked" }
+      resumeContentMainInteractions: () => contentAuthority.lockBlocked || contentPresentation.markingEditsBlocked
+        ? { ok: false, active: markingActive, dirty: isUserMarkingDirty(), tree: "rewrite", reason: "session-blocked" }
         : { ok: resumeMarkingInteractions(), active: markingActive, dirty: isUserMarkingDirty(), tree: "rewrite" },
       markContentMainClean: () => markContentClean(),
       captureSubmissionSnapshot,
@@ -842,7 +945,6 @@ function createContentRouter() {
         return { ok: true, prepared: ritualRanForUrl === currentPageUrl() };
       },
     },
-    applyDirective: applyContentDirective,
     pingActivity: pingContentActivity,
   });
 }
@@ -853,6 +955,13 @@ export default defineContentScript({
   main() {
     installNavigationWatcher();
     getContentBus().onCommand("command.dispatch", (command) => createContentRouter().dispatch(command));
+    ensureContentSignalPolling();
+    // A content script can be reinjected while the tab's lock state is unchanged.
+    // Announce the new consumer so background can replay its current authority
+    // once, without restoring the popup's old 500ms presentation push.
+    void reportContentFact("content-started", {}).catch((error: unknown) => {
+      console.error("[Unfluffify][rewrite] Unable to announce content consumer", error);
+    });
     // Page-load behaviours, asked for at page load rather than when a popup opens.
     void establishPageContext();
   },
