@@ -8,7 +8,7 @@ import { getComposedHitElements } from "./hit-testing";
 import { isPaintReachableAt } from "./paint-reachability";
 import { createMarkingStore } from "./store";
 import { resolveTarget, type MarkingCandidate } from "./resolve";
-import { createOverlayRenderer } from "./renderer";
+import { createOverlayRenderer, type OverlayRenderTarget } from "./renderer";
 import { buildSilentHighlights } from "./silent-highlight";
 import { buildSubmissionSnapshot } from "./submit";
 import type { RenderMode } from "../../domain/schema/property";
@@ -165,13 +165,16 @@ export function createMarkingEngine(rootElement: Element) {
     bridge = createDomBridgeView(rootElement);
     store = createMarkingStore({ root: bridge.root }, mergeDefaultExclusions(bridge.root, store.canonicalSet()));
   };
-  const byXpathElements = (): Map<string, Element> => new Map([...bridge.byXpath].map(([xpath, value]) => [xpath, value.element]));
-  const byXpathElementsForBranch = (branchRoot: EvaluationNode): Map<string, Element> => {
-    const elements = new Map<string, Element>();
+  const byXpathElements = (): Map<string, OverlayRenderTarget> => new Map([...bridge.byXpath].map(([xpath, value]) => [xpath, {
+    element: value.element,
+    visible: value.evaluationNode.visible,
+  }]));
+  const byXpathElementsForBranch = (branchRoot: EvaluationNode): Map<string, OverlayRenderTarget> => {
+    const elements = new Map<string, OverlayRenderTarget>();
     const collect = (node: EvaluationNode): void => {
       const element = bridge.byXpath.get(node.xpath)?.element;
       if (element) {
-        elements.set(node.xpath, element);
+        elements.set(node.xpath, { element, visible: node.visible });
       }
       for (const child of node.children ?? []) {
         collect(child);
@@ -182,7 +185,7 @@ export function createMarkingEngine(rootElement: Element) {
   };
   const renderSilent = (): readonly string[] => {
     const byXpath = byXpathElements();
-    const geometryByXpath = new Map([...byXpath].map(([xpath, element]) => [xpath, geometryForElement(element)]));
+    const geometryByXpath = new Map([...byXpath].map(([xpath, target]) => [xpath, geometryForElement(target.element)]));
     const xpaths = buildSilentHighlights(store.currentEvaluation(), geometryByXpath);
     renderer.renderSilentHighlights(xpaths, byXpath);
     return xpaths;
@@ -264,12 +267,40 @@ export function createMarkingEngine(rootElement: Element) {
       observer.observe(rootElement);
       cleanups.push(() => observer.disconnect());
     }
-    const scheduleGeometryRender = (): void => scheduleRender("geometry");
+    let viewportScrollHandle: ReturnType<typeof setTimeout> | null = null;
+    const finishViewportScroll = (): void => {
+      viewportScrollHandle = null;
+      renderer.setScrolling(false);
+      scheduleRender("geometry");
+    };
+    const scheduleGeometryRender = (event?: Event): void => {
+      const target = event?.target;
+      const document = rootElement.ownerDocument;
+      const viewportScroll = !target
+        || target === view
+        || target === document
+        || target === document.documentElement
+        || target === document.body;
+      if (viewportScroll) {
+        renderer.setScrolling(true);
+        if (viewportScrollHandle !== null) {
+          clearTimeout(viewportScrollHandle);
+        }
+        viewportScrollHandle = setTimeout(finishViewportScroll, 250);
+      }
+      scheduleRender("geometry");
+    };
+    const scheduleResizeRender = (): void => scheduleRender("geometry");
     view?.addEventListener?.("scroll", scheduleGeometryRender, true);
-    view?.addEventListener?.("resize", scheduleGeometryRender);
+    view?.addEventListener?.("resize", scheduleResizeRender);
     cleanups.push(() => {
+      if (viewportScrollHandle !== null) {
+        clearTimeout(viewportScrollHandle);
+        viewportScrollHandle = null;
+      }
+      renderer.setScrolling(false);
       view?.removeEventListener?.("scroll", scheduleGeometryRender, true);
-      view?.removeEventListener?.("resize", scheduleGeometryRender);
+      view?.removeEventListener?.("resize", scheduleResizeRender);
     });
     return () => cleanups.forEach((cleanup) => cleanup());
   };
@@ -340,6 +371,10 @@ export function createMarkingEngine(rootElement: Element) {
       return findEvaluationNode(bridge.root, resolved.xpath);
     },
     toggle(node: EvaluationNode, mode: Exclude<MarkMode, "disabled" | "passthrough">): void {
+      const element = bridge.byXpath.get(node.xpath)?.element;
+      if (element) {
+        renderer.acknowledge(element, node.xpath, mode);
+      }
       const toggled = store.toggle(node, mode);
       renderer.renderBranch(toggled, byXpathElementsForBranch(toggled.branchRoot));
       if (silentHighlightsArmed) {

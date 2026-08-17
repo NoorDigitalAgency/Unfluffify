@@ -125,17 +125,35 @@ describe("C4 rewrite content entrypoints", () => {
     };
     const createMarkingEngine = vi.fn(() => engine);
     const sendMessage = vi.fn().mockResolvedValue({ ok: true });
+    const cursorStyleElements: Array<{ id: string; textContent: string; setAttribute: (name: string, value: string) => void }> = [];
+    const getURL = vi.fn((path: string) => `chrome-extension://test/${path}`);
     globalThis.chrome = {
       runtime: {
         onMessage: { addListener },
         sendMessage,
+        getURL,
       },
     } as unknown as typeof chrome;
     Object.defineProperty(globalThis, "document", {
       configurable: true,
       value: {
         body: { nodeType: 1 },
-        documentElement: { nodeType: 1, tagName: "HTML", scrollHeight: 1000 },
+        documentElement: {
+          nodeType: 1,
+          tagName: "HTML",
+          scrollHeight: 1000,
+          className: "page-shell",
+          appendChild: vi.fn((element: { id: string; textContent: string; setAttribute: (name: string, value: string) => void }) => {
+            cursorStyleElements.push(element);
+            return element;
+          }),
+        },
+        createElement: vi.fn(() => ({
+          id: "",
+          textContent: "",
+          setAttribute: vi.fn(),
+        })),
+        getElementById: vi.fn((id: string) => cursorStyleElements.find((element) => element.id === id) ?? null),
         addEventListener: vi.fn((type: string, listener: EventListener) => {
           documentListeners.set(type, listener);
         }),
@@ -205,6 +223,15 @@ describe("C4 rewrite content entrypoints", () => {
     expect(createMarkingEngine).toHaveBeenCalledWith(document.documentElement);
     expect(engine.refresh).toHaveBeenCalledTimes(2);
     expect(engine.renderReadOnly).toHaveBeenCalledTimes(2);
+    expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
+    expect(getURL).toHaveBeenCalledWith("cursors/exclude.svg");
+    expect(getURL).toHaveBeenCalledWith("cursors/include.svg");
+    expect(cursorStyleElements[0]?.textContent).toContain(
+      'cursor: url("chrome-extension://test/cursors/exclude.svg") 4 3, crosshair !important',
+    );
+    expect(cursorStyleElements[0]?.textContent).toContain(
+      'cursor: url("chrome-extension://test/cursors/include.svg") 4 3, copy !important',
+    );
     expect(window.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       command: "ARM",
       sessionNonce: undefined,
@@ -220,8 +247,14 @@ describe("C4 rewrite content entrypoints", () => {
     expect(requestAnimationFrame).toHaveBeenCalledTimes(12);
     expect(scrollTo).toHaveBeenCalledWith(0, 1500);
     expect(window.scrollTo).toHaveBeenCalledWith(0, 123);
+    documentListeners.get("keydown")?.({ code: "AltLeft", key: "Alt" } as unknown as Event);
+    expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-include");
+    documentListeners.get("keyup")?.({ code: "AltLeft", key: "Alt" } as unknown as Event);
+    expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
     documentListeners.get("keydown")?.({ code: "Space" } as unknown as Event);
+    expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-passthrough");
     documentListeners.get("keyup")?.({ code: "Space" } as unknown as Event);
+    expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
     expect(engine.refresh).toHaveBeenCalledTimes(3);
     expect(engine.renderReadOnly).toHaveBeenCalledTimes(3);
     const click = {
@@ -282,6 +315,7 @@ describe("C4 rewrite content entrypoints", () => {
     }), "*");
     expect(documentListeners.has("click")).toBe(false);
     expect(windowListeners.has("blur")).toBe(false);
+    expect((document.documentElement as HTMLElement).className).toBe("page-shell");
     expect(deactivate).toEqual({ ok: true, data: { ok: true, initialized: false, tree: "rewrite" } });
   });
 
@@ -326,6 +360,7 @@ describe("C4 rewrite content entrypoints", () => {
     documentListeners.get("click")?.({ clientX: 1, clientY: 1, altKey: false, shiftKey: false, preventDefault: vi.fn(), stopPropagation: vi.fn() } as unknown as Event);
     const paused = await dispatchContentCommand(listener, "pauseContentMainInteractions");
     expect(documentListeners.has("click")).toBe(false);
+    expect((document.documentElement as HTMLElement).className).toContain("uf-cursor-disabled");
     expect(paused).toEqual({ ok: true, data: { ok: true, active: true, dirty: true, tree: "rewrite" } });
     const clean = await dispatchContentCommand(listener, "markContentMainClean");
     expect(clean).toEqual({ ok: true, data: { ok: true, active: true, dirty: false, tree: "rewrite" } });
@@ -341,6 +376,7 @@ describe("C4 rewrite content entrypoints", () => {
     await applyLockState(listener);
     await dispatchContentCommand(listener, "resumeContentMainInteractions");
     expect(documentListeners.has("click")).toBe(true);
+    expect((document.documentElement as HTMLElement).className).toContain("uf-cursor-exclude");
   });
 
   it("rejects stale activation requests whose pageUrl no longer matches the page", async () => {

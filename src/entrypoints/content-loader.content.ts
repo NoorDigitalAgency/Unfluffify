@@ -42,6 +42,7 @@ let markingActive = false;
 let userToggleCount = 0;
 let markingInteractionsPaused = false;
 let spacePassthroughActive = false;
+let altIncludeActive = false;
 let removeMarkingListeners: (() => void) | null = null;
 let navigationWatcherInstalled = false;
 let lastKnownPageUrl = typeof location !== "undefined" ? location.href : "";
@@ -53,6 +54,14 @@ let contentAuthority: ContentAuthorityState = createDefaultContentAuthority(last
 let contentSignalQueue: Promise<unknown> = Promise.resolve();
 let contentSignalPollHandle: ReturnType<Window["setInterval"]> | null = null;
 const CONTENT_SIGNAL_POLL_MS = 500;
+const MARKING_CURSOR_STYLE_ID = "unfluffify-marking-cursor-style";
+const MARKING_CURSOR_CLASSES = [
+  "uf-cursor-exclude",
+  "uf-cursor-include",
+  "uf-cursor-passthrough",
+  "uf-cursor-disabled",
+] as const;
+type MarkingCursorMode = "exclude" | "include" | "passthrough" | "disabled";
 /** Selectors seed a clean session once and then stop mattering; this guards the
  *  "once" across re-activations of the same session. */
 let selectorsSeeded = false;
@@ -144,6 +153,86 @@ function contentRowsFromEngine(): Array<{ xpath: string; classification: "includ
 
 function getRuntimeBrowser() {
   return getInstalledBrowserApi() ?? browser;
+}
+
+function markingCursorAssetUrl(path: "cursors/exclude.svg" | "cursors/include.svg"): string {
+  try {
+    const runtime = getRuntimeBrowser().runtime as typeof browser.runtime & {
+      getURL?: (relativePath: string) => string;
+    };
+    return typeof runtime.getURL === "function" ? runtime.getURL(path) : path;
+  } catch {
+    return path;
+  }
+}
+
+function ensureMarkingCursorStyles(): void {
+  if (typeof document === "undefined" || !document.documentElement) {
+    return;
+  }
+  const documentWithOptionalDom = document as Document & {
+    createElement?: (tagName: string) => HTMLElement;
+    getElementById?: (id: string) => HTMLElement | null;
+  };
+  if (documentWithOptionalDom.getElementById?.(MARKING_CURSOR_STYLE_ID) || typeof documentWithOptionalDom.createElement !== "function") {
+    return;
+  }
+  const excludeUrl = markingCursorAssetUrl("cursors/exclude.svg");
+  const includeUrl = markingCursorAssetUrl("cursors/include.svg");
+  const style = documentWithOptionalDom.createElement("style");
+  style.id = MARKING_CURSOR_STYLE_ID;
+  style.setAttribute("data-uf-extension-ui", "true");
+  style.textContent = `
+html.uf-cursor-exclude,
+html.uf-cursor-exclude * { cursor: url(${JSON.stringify(excludeUrl)}) 4 3, crosshair !important; }
+html.uf-cursor-include,
+html.uf-cursor-include * { cursor: url(${JSON.stringify(includeUrl)}) 4 3, copy !important; }
+html.uf-cursor-passthrough { cursor: unset !important; }
+html.uf-cursor-disabled,
+html.uf-cursor-disabled * { cursor: progress !important; }
+`;
+  document.documentElement.appendChild(style);
+
+  const ImageConstructor = (globalThis as typeof globalThis & { Image?: typeof Image }).Image;
+  if (typeof ImageConstructor === "function") {
+    for (const url of [excludeUrl, includeUrl]) {
+      const image = new ImageConstructor();
+      image.src = url;
+      void image.decode?.().catch(() => undefined);
+    }
+  }
+}
+
+function currentMarkingCursorMode(): MarkingCursorMode | null {
+  if (!markingActive) {
+    return null;
+  }
+  if (markingInteractionsPaused || contentAuthority.lockBlocked || contentPresentation.markingEditsBlocked) {
+    return "disabled";
+  }
+  if (spacePassthroughActive) {
+    return "passthrough";
+  }
+  return altIncludeActive ? "include" : "exclude";
+}
+
+function syncMarkingCursor(): void {
+  if (typeof document === "undefined" || !document.documentElement) {
+    return;
+  }
+  const mode = currentMarkingCursorMode();
+  if (mode) {
+    ensureMarkingCursorStyles();
+  }
+  const root = document.documentElement as HTMLElement;
+  const classes = new Set(String(root.className ?? "").split(/\s+/).filter(Boolean));
+  for (const className of MARKING_CURSOR_CLASSES) {
+    classes.delete(className);
+  }
+  if (mode) {
+    classes.add(`uf-cursor-${mode}`);
+  }
+  root.className = [...classes].join(" ");
 }
 
 function getContentBus(): RewriteSignalBus {
@@ -332,10 +421,19 @@ function setSpacePassthrough(event: KeyboardEvent, active: boolean): void {
   if (event.code === "Space" || event.key === " ") {
     const wasActive = spacePassthroughActive;
     spacePassthroughActive = active;
+    syncMarkingCursor();
     if (wasActive && !active) {
       refreshActiveMarking();
     }
   }
+}
+
+function setAltInclude(event: Pick<KeyboardEvent, "code" | "key">, active: boolean): void {
+  if (event.key !== "Alt" && event.code !== "AltLeft" && event.code !== "AltRight") {
+    return;
+  }
+  altIncludeActive = active;
+  syncMarkingCursor();
 }
 
 function markModeForClick(event: MouseEvent): "passthrough" | "include" | "exclude" {
@@ -690,6 +788,8 @@ function ensureMarkingListeners(): void {
     if (!markingActive || !markingEngine) {
       return;
     }
+    altIncludeActive = event.altKey;
+    syncMarkingCursor();
     const mode = markModeForClick(event);
     if (mode === "passthrough") {
       return;
@@ -708,15 +808,27 @@ function ensureMarkingListeners(): void {
     if (!markingActive || !markingEngine) {
       return;
     }
+    if (altIncludeActive !== event.altKey) {
+      altIncludeActive = event.altKey;
+      syncMarkingCursor();
+    }
     markingEngine.hoverAtPoint(event.clientX, event.clientY);
   };
   const handleMouseLeave = (): void => markingEngine?.clearHover();
-  const handleKeyDown = (event: KeyboardEvent): void => setSpacePassthrough(event, true);
-  const handleKeyUp = (event: KeyboardEvent): void => setSpacePassthrough(event, false);
-  const resetPassthrough = (): void => {
-    const wasActive = spacePassthroughActive;
+  const handleKeyDown = (event: KeyboardEvent): void => {
+    setAltInclude(event, true);
+    setSpacePassthrough(event, true);
+  };
+  const handleKeyUp = (event: KeyboardEvent): void => {
+    setAltInclude(event, false);
+    setSpacePassthrough(event, false);
+  };
+  const resetModifiers = (): void => {
+    const refreshNeeded = spacePassthroughActive;
     spacePassthroughActive = false;
-    if (wasActive) {
+    altIncludeActive = false;
+    syncMarkingCursor();
+    if (refreshNeeded) {
       refreshActiveMarking();
     }
   };
@@ -726,9 +838,10 @@ function ensureMarkingListeners(): void {
   document.addEventListener("keydown", handleKeyDown, true);
   document.addEventListener("keyup", handleKeyUp, true);
   if (typeof window !== "undefined") {
-    window.addEventListener("blur", resetPassthrough);
+    window.addEventListener("blur", resetModifiers);
   }
-  document.addEventListener("visibilitychange", resetPassthrough, true);
+  document.addEventListener("visibilitychange", resetModifiers, true);
+  syncMarkingCursor();
   removeMarkingListeners = () => {
     document.removeEventListener("click", handleClick, true);
     document.removeEventListener("mousemove", handleMouseMove, true);
@@ -736,11 +849,13 @@ function ensureMarkingListeners(): void {
     document.removeEventListener("keydown", handleKeyDown, true);
     document.removeEventListener("keyup", handleKeyUp, true);
     if (typeof window !== "undefined") {
-      window.removeEventListener("blur", resetPassthrough);
+      window.removeEventListener("blur", resetModifiers);
     }
-    document.removeEventListener("visibilitychange", resetPassthrough, true);
+    document.removeEventListener("visibilitychange", resetModifiers, true);
     removeMarkingListeners = null;
     spacePassthroughActive = false;
+    altIncludeActive = false;
+    syncMarkingCursor();
   };
 }
 
@@ -755,14 +870,17 @@ function deactivateMarking(): void {
   removeMarkingListeners?.();
   markingEngine?.dispose();
   markingEngine = null;
+  syncMarkingCursor();
 }
 
 function pauseMarkingInteractions(): boolean {
   markingInteractionsPaused = true;
   if (!markingActive) {
+    syncMarkingCursor();
     return false;
   }
   removeMarkingListeners?.();
+  syncMarkingCursor();
   return true;
 }
 

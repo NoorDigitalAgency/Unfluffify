@@ -12,6 +12,11 @@ export type OverlayRendererOptions = Readonly<{
   root?: HTMLElement;
 }>;
 
+export type OverlayRenderTarget = Readonly<{
+  element: Element;
+  visible: boolean;
+}>;
+
 type RectLike = Readonly<{
   left: number;
   top: number;
@@ -130,6 +135,24 @@ function clientRectsFor(element: Element, document: Document): RectLike[] {
     : [];
 }
 
+/** Raw geometry is deliberately separate from paint-reachable geometry. It is
+ *  used only for retained explicit marks: a visible include must survive a
+ *  transient cover, while a genuinely hidden include becomes a ghost. */
+function rawClientRectsFor(element: Element): RectLike[] {
+  const getClientRects = (element as Element & {
+    getClientRects?: () => ArrayLike<RectLike>;
+  }).getClientRects;
+  const clientRects = typeof getClientRects === "function"
+    ? Array.from(getClientRects.call(element))
+    : [];
+  const measurable = clientRects.filter((rect) => rect.width > 0 && rect.height > 0);
+  if (measurable.length > 0) {
+    return measurable;
+  }
+  const boundingRect = element.getBoundingClientRect();
+  return boundingRect.width > 0 && boundingRect.height > 0 ? [boundingRect] : [];
+}
+
 function placeOverlay(overlay: HTMLElement, rect: RectLike): void {
   overlay.style.left = `${rect.left}px`;
   overlay.style.top = `${rect.top}px`;
@@ -137,8 +160,8 @@ function placeOverlay(overlay: HTMLElement, rect: RectLike): void {
   overlay.style.height = `${rect.height}px`;
 }
 
-function classificationKey(xpath: string, classification: Classification, index: number): string {
-  return `${xpath}\u0000${classification}\u0000${index}`;
+function classificationKey(xpath: string, classification: Classification, presentation: string, index: number): string {
+  return `${xpath}\u0000${classification}\u0000${presentation}\u0000${index}`;
 }
 
 function silentKey(xpath: string, index: number): string {
@@ -155,6 +178,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   const hoverBoxes = new Map<string, HTMLElement>();
   let hoverElement: Element | null = null;
   let hoverXpath = "";
+  let acknowledgementClearHandle: ReturnType<typeof setTimeout> | null = null;
 
   root.setAttribute("data-uf-extension-ui", "true");
   root.className = "uf-marking-layer-root";
@@ -191,19 +215,35 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   const drawClassification = (
     xpath: string,
     classification: Classification,
-    element: Element | undefined,
+    target: OverlayRenderTarget | undefined,
     used: Set<string>,
   ): void => {
-    if (!element) {
+    if (!target) {
       return;
     }
-    const layer = layers.get(LAYER_BY_CLASSIFICATION[classification]);
+    let layerKey = LAYER_BY_CLASSIFICATION[classification];
+    let presentation = overlayClassFor(classification);
+    let rects = clientRectsFor(target.element, options.document);
+    if (rects.length === 0 && classification === "explicit-include") {
+      rects = rawClientRectsFor(target.element);
+      if (!target.visible) {
+        presentation = "uf-explicit-include-ghost";
+      }
+    } else if (rects.length === 0 && !target.visible && classification === "exception") {
+      // Legacy defines an exclude-ghost class but never emits it. Hidden stored
+      // excludes are immutable interaction surfaces instead.
+      rects = rawClientRectsFor(target.element);
+      layerKey = "hard";
+      presentation = "uf-hard-locked";
+    } else if (rects.length === 0 && (classification === "immutable" || classification === "closed-shadow")) {
+      rects = rawClientRectsFor(target.element);
+    }
+    const layer = layers.get(layerKey);
     if (!layer) {
       return;
     }
-    const rects = clientRectsFor(element, options.document);
     for (let index = 0; index < rects.length; index += 1) {
-      const key = classificationKey(xpath, classification, index);
+      const key = classificationKey(xpath, classification, presentation, index);
       let record = classificationBoxes.get(key);
       if (!record) {
         const overlay = options.document.createElement("div");
@@ -211,7 +251,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         overlay.setAttribute("data-uf-overlay-xpath", xpath);
         overlay.setAttribute("data-uf-overlay-classification", classification);
         overlay.setAttribute("data-uf-overlay-rect", String(index));
-        overlay.className = `uf-rect ${overlayClassFor(classification)}`;
+        overlay.className = `uf-rect ${presentation}`;
         record = { overlay, xpath, classification };
         classificationBoxes.set(key, record);
         layer.appendChild(overlay);
@@ -230,7 +270,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     }
   };
 
-  const drawCurrentClassifications = (byXpath: ReadonlyMap<string, Element>): void => {
+  const drawCurrentClassifications = (byXpath: ReadonlyMap<string, OverlayRenderTarget>): void => {
     const used = new Set<string>();
     for (const [xpath, classification] of classificationByXpath) {
       drawClassification(xpath, classification, byXpath.get(xpath), used);
@@ -238,18 +278,18 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     finalizeClassification(used);
   };
 
-  const drawSilent = (byXpath: ReadonlyMap<string, Element>): void => {
+  const drawSilent = (byXpath: ReadonlyMap<string, OverlayRenderTarget>): void => {
     const used = new Set<string>();
     const layer = layers.get("silent");
     if (!layer) {
       return;
     }
     for (const xpath of silentXpaths) {
-      const element = byXpath.get(xpath);
-      if (!element) {
+      const target = byXpath.get(xpath);
+      if (!target) {
         continue;
       }
-      const rects = clientRectsFor(element, options.document);
+      const rects = clientRectsFor(target.element, options.document);
       for (let index = 0; index < rects.length; index += 1) {
         const key = silentKey(xpath, index);
         let record = silentBoxes.get(key);
@@ -304,7 +344,26 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     }
   };
 
+  const clearAcknowledgement = (): void => {
+    if (acknowledgementClearHandle !== null) {
+      clearTimeout(acknowledgementClearHandle);
+      acknowledgementClearHandle = null;
+    }
+    layers.get("interaction")?.replaceChildren();
+  };
+
+  const setRootState = (className: "uf-scrolling", active: boolean): void => {
+    const classes = new Set(root.className.split(/\s+/).filter(Boolean));
+    if (active) {
+      classes.add(className);
+    } else {
+      classes.delete(className);
+    }
+    root.className = [...classes].join(" ");
+  };
+
   const clearBoxes = (): void => {
+    clearAcknowledgement();
     for (const layer of layers.values()) {
       layer.replaceChildren();
     }
@@ -320,28 +379,28 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   mountLayers();
   return {
     root,
-    render(evaluation: EvaluationResult, byXpath: ReadonlyMap<string, Element>): void {
+    render(evaluation: EvaluationResult, byXpath: ReadonlyMap<string, OverlayRenderTarget>): void {
       classificationByXpath.clear();
       for (const [xpath, classification] of evaluation.overlay) {
         classificationByXpath.set(xpath, classification);
       }
       drawCurrentClassifications(byXpath);
     },
-    renderBranch(evaluation: EvaluationResult, byXpath: ReadonlyMap<string, Element>): void {
+    renderBranch(evaluation: EvaluationResult, byXpath: ReadonlyMap<string, OverlayRenderTarget>): void {
       const affected = new Set(byXpath.keys());
       const used = new Set<string>();
-      for (const [xpath, element] of byXpath) {
+      for (const [xpath, target] of byXpath) {
         const classification = evaluation.overlay.get(xpath);
         if (!classification) {
           classificationByXpath.delete(xpath);
           continue;
         }
         classificationByXpath.set(xpath, classification);
-        drawClassification(xpath, classification, element, used);
+        drawClassification(xpath, classification, target, used);
       }
       finalizeClassification(used, affected);
     },
-    reposition(byXpath: ReadonlyMap<string, Element>): void {
+    reposition(byXpath: ReadonlyMap<string, OverlayRenderTarget>): void {
       drawCurrentClassifications(byXpath);
       drawSilent(byXpath);
       drawHover();
@@ -351,12 +410,36 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       hoverXpath = element ? xpath : "";
       drawHover();
     },
-    renderSilentHighlights(xpaths: readonly string[], byXpath: ReadonlyMap<string, Element>): void {
+    renderSilentHighlights(xpaths: readonly string[], byXpath: ReadonlyMap<string, OverlayRenderTarget>): void {
       silentXpaths.clear();
       for (const xpath of xpaths) {
         silentXpaths.add(xpath);
       }
       drawSilent(byXpath);
+    },
+    acknowledge(element: Element, xpath: string, mode: "include" | "exclude"): void {
+      clearAcknowledgement();
+      const layer = layers.get("interaction");
+      if (!layer) {
+        return;
+      }
+      const rects = clientRectsFor(element, options.document);
+      const presentation = mode === "include" ? "uf-explicit-include" : "uf-explicit-exclude";
+      for (let index = 0; index < rects.length; index += 1) {
+        const overlay = options.document.createElement("div");
+        overlay.setAttribute("data-uf-extension-ui", "true");
+        overlay.setAttribute("data-uf-interaction-ack", xpath);
+        overlay.setAttribute("data-uf-overlay-rect", String(index));
+        overlay.className = `uf-rect ${presentation} uf-interaction-ack`;
+        placeOverlay(overlay, rects[index]!);
+        layer.appendChild(overlay);
+      }
+      if (rects.length > 0) {
+        acknowledgementClearHandle = setTimeout(clearAcknowledgement, 180);
+      }
+    },
+    setScrolling(active: boolean): void {
+      setRootState("uf-scrolling", active);
     },
     clear(): void {
       clearBoxes();

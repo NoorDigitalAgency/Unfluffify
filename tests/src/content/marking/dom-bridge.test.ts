@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   createDomBridgeView,
@@ -410,6 +410,42 @@ describe("P6 DOM bridge", () => {
     expect(renderer.root.children.every((layer) => layer.children.length === 0)).toBe(true);
   });
 
+  it("draws an immediate mode-coloured acknowledgement and clears it after the pulse", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+      const paragraph = new FakeElement("P", rect(10, 12, 120, 20), "Content");
+      root.ownerDocument = doc;
+      paragraph.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      root.appendChild(paragraph);
+      doc.hits = [paragraph, root];
+      const engine = createMarkingEngine(root as unknown as Element);
+      const target = engine.resolveAtPoint(20, 18, "exclude");
+
+      engine.toggle(target!, "include");
+
+      const interactionLayer = engine.overlayRoot().children.find((layer) =>
+        layer.getAttribute("data-layer") === "interaction"
+      );
+      const acknowledgement = interactionLayer?.children[0];
+      expect(acknowledgement?.getAttribute("data-uf-interaction-ack")).toBe("/main[1]/p[1]");
+      expect(acknowledgement?.className).toBe("uf-rect uf-explicit-include uf-interaction-ack");
+      expect(acknowledgement?.style.left).toBe("10px");
+      expect(acknowledgement?.style.top).toBe("12px");
+
+      vi.advanceTimersByTime(179);
+      expect(interactionLayer?.children).toHaveLength(1);
+      vi.advanceTimersByTime(1);
+      expect(interactionLayer?.children).toHaveLength(0);
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("draws one keyed, reusable box per client rect", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
@@ -449,6 +485,37 @@ describe("P6 DOM bridge", () => {
     expect(boxes()).toEqual([firstBoxes[0]]);
     expect(firstBoxes[0]?.style.left).toBe("12px");
     expect(firstBoxes[1]?.parentElement).toBeNull();
+  });
+
+  it("keeps visible explicit includes through transient covers and ghosts hidden retained includes", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const paragraph = new FakeElement("P", rect(10, 10, 120, 20), "Retained content");
+    root.ownerDocument = doc;
+    paragraph.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(paragraph);
+    doc.hits = [paragraph, root];
+    const engine = createMarkingEngine(root as unknown as Element);
+    const target = engine.resolveAtPoint(20, 15, "exclude");
+    engine.toggle(target!, "include");
+    const overlays = (): FakeElement[] => engine.overlayRoot().children
+      .flatMap((layer) => layer.children)
+      .filter((overlay) => overlay.getAttribute("data-uf-overlay-xpath") === "/main[1]/p[1]");
+
+    doc.hits = [root];
+    engine.renderReadOnly();
+    expect(overlays().map((overlay) => overlay.className)).toEqual(["uf-rect uf-explicit-include"]);
+
+    paragraph.style.visibility = "hidden";
+    engine.refresh();
+    engine.renderReadOnly();
+    expect(overlays().map((overlay) => overlay.className)).toEqual(["uf-rect uf-explicit-include-ghost"]);
+    expect(engine.overlayRoot().children.flatMap((layer) => layer.children).some((overlay) =>
+      overlay.className.includes("uf-explicit-exclude-ghost")
+    )).toBe(false);
+    engine.dispose();
   });
 
   it("rebuilds for page mutations but not extension chrome mutations", () => {
@@ -555,6 +622,55 @@ describe("P6 DOM bridge", () => {
     animationFrames[0]?.();
     expect(second.rectReadCount).toBe(0);
     expect(engine.rows()).not.toContainEqual({ xpath: "/main[1]/p[2]", excluded: false });
+    engine.dispose();
+  });
+
+  it("hides layers only for viewport scroll and redraws after the 250 ms debounce", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const animationFrames: Array<() => void> = [];
+      const listeners = new Map<string, (event?: Event) => void>();
+      Object.assign(doc.defaultView, {
+        requestAnimationFrame(callback: () => void) {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+        addEventListener(type: string, listener: (event?: Event) => void) {
+          listeners.set(type, listener);
+        },
+        removeEventListener(type: string) {
+          listeners.delete(type);
+        },
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+      const paragraph = new FakeElement("P", rect(0, 0, 120, 20), "First");
+      root.ownerDocument = doc;
+      paragraph.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      root.appendChild(paragraph);
+      doc.hits = [paragraph, root];
+      const engine = createMarkingEngine(root as unknown as Element);
+      engine.renderReadOnly();
+
+      listeners.get("scroll")?.({ target: paragraph } as unknown as Event);
+      expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
+      animationFrames.shift()?.();
+
+      listeners.get("scroll")?.({ target: doc } as unknown as Event);
+      expect(engine.overlayRoot().className).toContain("uf-scrolling");
+      animationFrames.shift()?.();
+      vi.advanceTimersByTime(249);
+      expect(engine.overlayRoot().className).toContain("uf-scrolling");
+      vi.advanceTimersByTime(1);
+      expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
+      expect(animationFrames).toHaveLength(1);
+      animationFrames.shift()?.();
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("re-renders only the toggled branch", () => {
@@ -602,7 +718,8 @@ describe("P6 DOM bridge", () => {
 
     expect(overlays()).toEqual(rightOverlaysBefore);
     expect(rightOverlaysBefore.length).toBeGreaterThan(20);
-    expect(doc.createElementCount - createdBefore).toBe(1);
+    // One interaction acknowledgement plus one new branch classification box.
+    expect(doc.createElementCount - createdBefore).toBe(2);
   });
 
   it("matches the legacy 052c Shift-widening golden fixture", () => {
