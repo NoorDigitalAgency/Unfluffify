@@ -14,6 +14,8 @@ type TabContext = {
   generation: number;
   observedUrl: string;
   environmentKey: string | null | undefined;
+  credentialPresent?: boolean;
+  latest?: PageContextResolution;
   inFlight?: Readonly<{
     generation: number;
     promise: Promise<PageContextResolution>;
@@ -187,7 +189,7 @@ export function createPageContextRuntime(input: Readonly<{
   };
 
   return {
-    async resolve(request: Readonly<{ tabId: number; pageUrl: string }>): Promise<PageContextResolution> {
+    async resolve(request: Readonly<{ tabId: number; pageUrl: string; refresh?: boolean }>): Promise<PageContextResolution> {
       let tab = tabs.get(request.tabId);
       if (!tab) {
         tab = { generation: 1, observedUrl: request.pageUrl, environmentKey: undefined };
@@ -196,7 +198,9 @@ export function createPageContextRuntime(input: Readonly<{
         tab.generation += 1;
         tab.observedUrl = request.pageUrl;
         tab.environmentKey = undefined;
+        tab.credentialPresent = undefined;
         tab.inFlight = undefined;
+        tab.latest = undefined;
         tab.suspendedCandidate = undefined;
       }
       let generation = tab.generation;
@@ -208,10 +212,26 @@ export function createPageContextRuntime(input: Readonly<{
       if (tab.environmentKey !== undefined && tab.environmentKey !== environmentKey) {
         tab.generation += 1;
         tab.inFlight = undefined;
+        tab.latest = undefined;
         tab.suspendedCandidate = undefined;
       }
       tab.environmentKey = environmentKey;
       generation = tab.generation;
+      const credentialPresent = environmentKey ? await input.hasToken() : false;
+      if (!isCurrent(request.tabId, generation, request.pageUrl)) {
+        return stale(generation, request.pageUrl);
+      }
+      if (tab.credentialPresent !== undefined && tab.credentialPresent !== credentialPresent) {
+        tab.generation += 1;
+        tab.inFlight = undefined;
+        tab.latest = undefined;
+        tab.suspendedCandidate = undefined;
+      }
+      tab.credentialPresent = credentialPresent;
+      generation = tab.generation;
+      if (!request.refresh && tab.latest) {
+        return tab.latest;
+      }
       if (tab.inFlight?.generation === generation) {
         return tab.inFlight.promise;
       }
@@ -231,7 +251,7 @@ export function createPageContextRuntime(input: Readonly<{
             conflicts: [],
             upstreamCode: null,
           };
-        } else if (!await input.hasToken()) {
+        } else if (!credentialPresent) {
           context = {
             status: "authentication_required",
             environmentKey,
@@ -250,7 +270,19 @@ export function createPageContextRuntime(input: Readonly<{
         if (!isCurrent(request.tabId, generation, request.pageUrl)) {
           return stale(generation, request.pageUrl);
         }
-        return project(tabs.get(request.tabId)!, generation, request.pageUrl, context);
+        const projected = project(tabs.get(request.tabId)!, generation, request.pageUrl, context);
+        const currentTab = tabs.get(request.tabId)!;
+        if (
+          currentTab.latest !== undefined ||
+          projected.status === "managed_candidate" ||
+          projected.status === "managed_non_candidate" ||
+          projected.status === "suspended_candidate_removed" ||
+          projected.status === "suspended_candidate_feed_conflict" ||
+          projected.status === "unmanaged"
+        ) {
+          currentTab.latest = projected;
+        }
+        return projected;
       })();
       tab.inFlight = { generation, promise: run };
       try {

@@ -10,6 +10,8 @@ import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
 import { parseSenderTabId } from "../messaging/rewrite-signals";
 import { canonicalPageKey, PropertySnapshotIntegrityError } from "../storage/property-snapshot-authority";
+import { projectTodoCoverage } from "../domain/todo";
+import type { ConfigSnapshot } from "../storage/config";
 
 export { createRewriteBrain } from "./rewrite-brain";
 
@@ -194,11 +196,20 @@ export function startRewriteBackground(): void {
   const renderModeByProperty = new Map<string, boolean>();
   bus.onCommand("page.context", async (request, meta) => {
     const tabId = request.tabId ?? parseSenderTabId(meta.sourceInstance) ?? 0;
-    const context = await pageContextRuntime.resolve({ tabId, pageUrl: request.pageUrl });
+    const context = await pageContextRuntime.resolve({
+      tabId,
+      pageUrl: request.pageUrl,
+      refresh: request.refresh,
+    });
     const propertyKey = context.environmentKey && context.siteId !== null
       ? `${context.environmentKey}\u0000${context.siteId}`
       : null;
     let renderModeSet = propertyKey ? renderModeByProperty.get(propertyKey) ?? false : false;
+    let authoritativeConfig: ConfigSnapshot | null = null;
+    if (context.environmentKey && context.siteId !== null) {
+      const stored = await services.repos.configRepo.load(context.environmentKey, context.siteId);
+      authoritativeConfig = stored.ok && stored.value ? stored.value : null;
+    }
     if (
       propertyKey &&
       context.environmentKey &&
@@ -219,9 +230,16 @@ export function startRewriteBackground(): void {
       renderModeSet = authority.renderMode !== undefined;
       if (loaded.status === "ok" || loaded.status === "not_found") {
         renderModeByProperty.set(propertyKey, renderModeSet);
+        const stored = await services.repos.configRepo.load(context.environmentKey, context.siteId);
+        authoritativeConfig = stored.ok && stored.value ? stored.value : null;
       }
     }
-    return { ...context, renderModeSet };
+    const todo = projectTodoCoverage(
+      context.pageTypes,
+      context.pageKey,
+      new Set(Object.keys(authoritativeConfig?.pages ?? {})),
+    );
+    return { ...context, renderModeSet, todo };
   });
   bus.onCommand("renderMode.inspect", (request) => renderEmulation.inspect(request));
   bus.onCommand("offscreen.refineXpaths", async (request) => {

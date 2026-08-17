@@ -102,6 +102,30 @@ describe("rewrite popup FSM", () => {
       selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
     });
   });
+
+  it("returns a candidate-suspended post-AI draft to ready-to-save without writing it", () => {
+    let state = transitionPopupState(
+      {
+        name: "post_ai_clean",
+        lastConsumedSeq: 1,
+        reconciliationReason: "",
+        selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+      },
+      signal(2, "lock.blocked", {
+        pageUrl: "https://example.com/detail",
+        blockedReason: "candidate-removed",
+        banner: { visible: true, reason: "candidate-removed" },
+      }),
+    );
+
+    expect(state).toMatchObject({ name: "locked", priorState: "post_ai_clean" });
+    state = transitionPopupState(state, signal(3, "lock.acquired", { pageUrl: "https://example.com/detail" }));
+    expect(state).toMatchObject({
+      name: "post_ai_clean",
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+    });
+    expect(state.lastConsumedSeq).toBe(3);
+  });
 });
 
 describe("markings never outlive the marking session", () => {

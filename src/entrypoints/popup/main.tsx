@@ -39,6 +39,9 @@ import { createSignalCursor } from "../../popup/signal-cursor";
 import { createEventLog } from "../../popup/event-log";
 import type { LockBannerVocabulary, LockReason } from "../../domain/schema/facts";
 import { resolvePopupLockCopy } from "../../popup/copy";
+import type { TodoCoverage } from "../../domain/schema/todo";
+import type { PageContextResolution } from "../../domain/schema/context";
+import { todoRefreshDue } from "../../popup/todo-recovery";
 
 Object.assign(document.documentElement.dataset, { theme: "nordic", themeMode: "system" });
 document.documentElement.style.colorScheme = "light dark";
@@ -133,6 +136,10 @@ let contentDirty = false;
  *  otherwise, and only one of them is fixed by reloading the page. */
 let contentReachable = true;
 let contentUnreachableReported = false;
+const EMPTY_TODO_COVERAGE: TodoCoverage = { covered: 0, actionable: 0, pageTypes: [] };
+let todoStatus: PageContextResolution["status"] | "unresolved" = "unresolved";
+let todoCoverage: TodoCoverage = EMPTY_TODO_COVERAGE;
+let todoRefreshedAt = 0;
 const eventLog = createEventLog();
 
 function logEvent(label: string, detail = "", tone: PopupLogEntry["tone"] = "info"): void {
@@ -247,6 +254,8 @@ function buildDiagnostics(): PopupDiagnostics {
     renderModeView,
     renderModeDetail,
     renderModeBusy,
+    todoStatus,
+    todo: todoCoverage,
     log: eventLog.entries(),
   };
 }
@@ -361,6 +370,9 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   contentDirty = false;
   contentReachable = true;
   contentUnreachableReported = false;
+  todoStatus = "unresolved";
+  todoCoverage = EMPTY_TODO_COVERAGE;
+  todoRefreshedAt = 0;
   logEvent(sameTabNavigation ? "Page navigated" : "Tab bound", context.url);
   replacePopupStore();
   return { changed: true, sameTabNavigation, key: nextKey };
@@ -444,6 +456,33 @@ function ensureSignalPolling(context: TargetTabContext): void {
   }, 500);
 }
 
+async function refreshTodoContext(
+  context: TargetTabContext,
+  requestKey = boundTabKey,
+  options: Readonly<{ force?: boolean }> = {},
+): Promise<void> {
+  const now = Date.now();
+  const due = todoRefreshDue(todoStatus, todoRefreshedAt, now);
+  if (todoStatus !== "unresolved" && !options.force && !due) {
+    return;
+  }
+  const response = await getPopupBus().request("page.context", {
+    tabId: context.tabId,
+    pageUrl: context.url,
+    refresh: options.force === true || due,
+  }, { target: "background" });
+  if (boundTabId !== context.tabId || boundTabKey !== requestKey) {
+    return;
+  }
+  todoRefreshedAt = Date.now();
+  if (!response.ok) {
+    todoStatus = "unavailable";
+    return;
+  }
+  todoStatus = response.data.status;
+  todoCoverage = response.data.todo;
+}
+
 async function pollCurrentTabSignals(): Promise<void> {
   const context = await resolveTargetTabContext();
   if (context === null) {
@@ -452,6 +491,7 @@ async function pollCurrentTabSignals(): Promise<void> {
   const requestKey = await handleBoundContext(context);
   await pullSignals(context.tabId, requestKey);
   await refreshLockDirective(context, requestKey);
+  await refreshTodoContext(context, requestKey);
   if (storedSettingsForm === null) {
     await loadStoredSettings();
   }
@@ -1148,6 +1188,7 @@ async function refreshPopup(): Promise<void> {
   const requestKey = await handleBoundContext(context);
   await pullSignals(context.tabId, requestKey);
   const lock = await refreshLockDirective(context, requestKey);
+  await refreshTodoContext(context, requestKey, { force: true });
   await reconcileContentStatus(context, requestKey);
   await adoptAuthStatus();
   // An explicit refresh is the retry for a config read that failed.
@@ -1684,6 +1725,7 @@ async function saveSession(): Promise<void> {
       markingEnabled: false,
       previewActive: false,
     }, requestKey);
+    await refreshTodoContext(context, requestKey, { force: true });
   } else {
     logEvent("Save failed", response.ok ? response.data.status : response.failure.code, "danger");
     await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });

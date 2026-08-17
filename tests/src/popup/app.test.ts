@@ -739,6 +739,98 @@ describe("popup App surface", () => {
   it("reports an empty activity log rather than an empty panel", () => {
     expect(renderApp(SILENT)).toContain("No activity recorded yet.");
   });
+
+  it("renders covered/actionable progress and uncapped per-type marked counts", () => {
+    const todo = {
+      covered: 4,
+      actionable: 6,
+      pageTypes: [
+        {
+          pageType: "missing",
+          markedCount: 0,
+          current: false,
+          candidates: [{ pageKey: "/missing", wordsCount: 40, marked: false, current: false }],
+        },
+        {
+          pageType: "single",
+          markedCount: 1,
+          current: false,
+          candidates: [{ pageKey: "/single", wordsCount: 80, marked: true, current: false }],
+        },
+        {
+          pageType: "many",
+          markedCount: 3,
+          current: true,
+          candidates: [
+            { pageKey: "/many/a", wordsCount: 100, marked: true, current: false },
+            { pageKey: "/many/b", wordsCount: 120, marked: true, current: true },
+            { pageKey: "/many/c", wordsCount: null, marked: true, current: false },
+          ],
+        },
+      ],
+    };
+    const pending = renderApp(SILENT, {
+      ...SIGNED_IN,
+      siteId: 42,
+      renderMode: "rendered",
+      todoStatus: "managed_candidate",
+      todo,
+    });
+    const done = renderApp(SILENT, {
+      ...SIGNED_IN,
+      siteId: 42,
+      renderMode: "rendered",
+      todoStatus: "managed_candidate",
+      todo: { ...todo, covered: 6 },
+    });
+
+    expect(pending).toContain('aria-label="Todo List"');
+    expect(pending).toMatch(/todo-status-line--pending[^>]*data-todo-summary="4\/6"/);
+    expect(done).toMatch(/todo-status-line--done[^>]*data-todo-summary="6\/6"/);
+    expect(pending).toContain('data-marked-count="0/1"');
+    expect(pending).toContain('data-marked-count="1/1"');
+    expect(pending).toContain('data-marked-count="3/1"');
+    expect(pending).toContain("Current");
+    expect(pending).toContain("Marked");
+    expect(pending).toContain('data-todo-candidate="/many/b"');
+  });
+
+  it("distinguishes a neutral empty candidate feed from a refresh error", () => {
+    const baseline = { ...SIGNED_IN, siteId: 42, renderMode: "rendered" as const };
+    const empty = renderApp(SILENT, {
+      ...baseline,
+      todoStatus: "managed_candidate",
+      todo: { covered: 0, actionable: 0, pageTypes: [] },
+    });
+    const error = renderApp(SILENT, {
+      ...baseline,
+      todoStatus: "unavailable",
+      todo: { covered: 0, actionable: 0, pageTypes: [] },
+    });
+
+    expect(empty).toContain('data-todo-state="empty"');
+    expect(empty).toContain("Live Pages are not prepared for this site yet");
+    expect(empty).not.toContain('data-todo-state="error"');
+    expect(error).toContain('data-todo-state="error"');
+    expect(error).toContain("Candidate coverage could not be refreshed");
+    expect(error).not.toContain("Live Pages are not prepared for this site yet");
+  });
+
+  it("surfaces candidate removal and assignment conflict as preserving 15-second suspensions", () => {
+    const baseline = {
+      ...SIGNED_IN,
+      siteId: 42,
+      renderMode: "rendered" as const,
+      todo: { covered: 1, actionable: 1, pageTypes: [] },
+    };
+    const removed = renderApp(SILENT, { ...baseline, todoStatus: "suspended_candidate_removed" });
+    const conflict = renderApp(SILENT, { ...baseline, todoStatus: "suspended_candidate_feed_conflict" });
+
+    expect(removed).toContain("This page is no longer a candidate");
+    expect(removed).toContain("Your draft is preserved; checking again every 15 seconds.");
+    expect(conflict).toContain("Candidate feed assignments conflict");
+    expect(conflict).toContain("Your draft is preserved; checking again every 15 seconds.");
+  });
 });
 
 describe("resolvePopupCurtainKind", () => {

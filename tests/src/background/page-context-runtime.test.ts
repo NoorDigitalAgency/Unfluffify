@@ -91,12 +91,12 @@ describe("page context runtime", () => {
       siteId: 101,
       draftDisposition: "preserve",
     });
-    await expect(runtime.resolve(request)).resolves.toMatchObject({
+    await expect(runtime.resolve({ ...request, refresh: true })).resolves.toMatchObject({
       status: "managed_candidate",
       siteId: 202,
       draftDisposition: "terminate",
     });
-    await expect(runtime.resolve(request)).resolves.toMatchObject({
+    await expect(runtime.resolve({ ...request, refresh: true })).resolves.toMatchObject({
       status: "unavailable",
       siteId: 202,
       pageKey: "/canonical-page",
@@ -130,14 +130,29 @@ describe("page context runtime", () => {
     const request = { tabId: 4, pageUrl: "https://observed.example/page" };
 
     await runtime.resolve(request);
-    await expect(runtime.resolve(request)).resolves.toMatchObject({
+    await expect(runtime.resolve({ ...request, refresh: true })).resolves.toMatchObject({
       status: "suspended_candidate_removed",
       draftDisposition: "preserve",
     });
-    await expect(runtime.resolve(request)).resolves.toMatchObject({
+    await expect(runtime.resolve({ ...request, refresh: true })).resolves.toMatchObject({
       status: "suspended_candidate_feed_conflict",
       draftDisposition: "preserve",
       conflicts: [{ pageKey: "/canonical-page" }],
     });
+  });
+
+  it("reuses a settled canonical context until an explicit refresh", async () => {
+    let requests = 0;
+    const runtime = createPageContextRuntime({
+      currentEnvironmentKey: async () => "stage.example.com",
+      hasToken: async () => true,
+      resolve: async () => managed(++requests, "/canonical-page"),
+    });
+    const request = { tabId: 8, pageUrl: "https://observed.example/page" };
+
+    await expect(runtime.resolve(request)).resolves.toMatchObject({ siteId: 1 });
+    await expect(runtime.resolve(request)).resolves.toMatchObject({ siteId: 1 });
+    await expect(runtime.resolve({ ...request, refresh: true })).resolves.toMatchObject({ siteId: 2 });
+    expect(requests).toBe(2);
   });
 });

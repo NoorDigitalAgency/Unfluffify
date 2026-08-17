@@ -619,7 +619,7 @@ describe("rewrite background services", () => {
     expect(sentTypes.filter((type) => type === "take_lock")).toHaveLength(1);
     expect(sentTypes.filter((type) => type === "client_status")).toHaveLength(1);
     expect(sentTypes.filter((type) => type === "heartbeat")).toHaveLength(1);
-    expect(contextRequests).toHaveLength(2);
+    expect(contextRequests).toHaveLength(1);
 
     sockets[0].emit("message", JSON.stringify({ type: "lock_state", state: "locked", isEditor: false, editorName: "Other" }));
     sockets[0].emit("message", JSON.stringify({ type: "lock_state", state: "locked", isEditor: true, editorName: "Me" }));

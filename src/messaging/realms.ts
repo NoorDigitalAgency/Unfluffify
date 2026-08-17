@@ -20,6 +20,7 @@ import { ConfigSnapshotSchema, PageKeySchema, PropertySaveRequestSchema, Selecto
 import { MarkRowSchema } from "../domain/schema/marking";
 import { ConnectionSettingsSchema } from "../storage/settings";
 import { PageContextResolutionSchema } from "../domain/schema/context";
+import { TodoCoverageSchema } from "../domain/schema/todo";
 
 const LockDirectiveRequestSchema = z.object({
   tabId: z.number().int().nonnegative(),
@@ -98,6 +99,7 @@ const RenderModeInspectResponseSchema = z.object({
 const PageContextRequestSchema = z.object({
   tabId: z.number().int().nonnegative().optional(),
   pageUrl: z.string(),
+  refresh: z.boolean().optional(),
 });
 
 const PageContextResponseSchema = PageContextResolutionSchema.extend({
@@ -105,6 +107,7 @@ const PageContextResponseSchema = PageContextResolutionSchema.extend({
    *  unestablished one describe a page nobody has looked at, and the ritual is part
    *  of preparing the page to be marked. */
   renderModeSet: z.boolean(),
+  todo: TodoCoverageSchema,
 });
 
 const OffscreenRefineXpathsRequestSchema = z.object({

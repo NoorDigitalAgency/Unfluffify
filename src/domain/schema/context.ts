@@ -24,6 +24,8 @@ export const PropertyContextPageTypeSchema = z.object({
   pages: z.array(PropertyContextPageSchema),
 });
 
+export type PropertyContextPageType = z.infer<typeof PropertyContextPageTypeSchema>;
+
 export const PropertyContextConflictSchema = z.object({
   pageKey: z.string().min(1),
   pageTypes: z.array(z.string()),

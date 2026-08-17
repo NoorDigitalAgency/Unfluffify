@@ -3,6 +3,8 @@ import React from "react";
 import type { RenderMode } from "../domain/schema/property";
 import { DEFAULT_POPUP_VIEW, type PopupView } from "./view";
 import type { PopupPresentation } from "./organ/memory";
+import type { TodoCoverage } from "../domain/schema/todo";
+import type { PageContextResolution } from "../domain/schema/context";
 
 export type PopupActionAvailability = Readonly<{
   runAi?: boolean;
@@ -98,6 +100,8 @@ export type PopupDiagnostics = Readonly<{
   renderModeView: RenderModeView;
   renderModeDetail: string;
   renderModeBusy: boolean;
+  todoStatus: PageContextResolution["status"] | "unresolved";
+  todo: TodoCoverage;
   log: readonly PopupLogEntry[];
 }>;
 
@@ -129,6 +133,8 @@ export const EMPTY_POPUP_DIAGNOSTICS: PopupDiagnostics = {
   renderModeView: "unknown",
   renderModeDetail: "",
   renderModeBusy: false,
+  todoStatus: "unresolved",
+  todo: { covered: 0, actionable: 0, pageTypes: [] },
   log: [],
 };
 
@@ -414,6 +420,20 @@ export function App({
   /** Both session views carry the enable toggle — it is the way into one and out
    *  of the other — and legacy showed it on exactly the same condition. */
   const sessionView = markingView || silentView;
+  const todoVisible = sessionView && diagnostics.siteId !== null && renderModeSet;
+  const todoComplete = diagnostics.todo.actionable > 0 && diagnostics.todo.covered >= diagnostics.todo.actionable;
+  const todoSuspension = diagnostics.todoStatus === "suspended_candidate_removed"
+    ? "This page is no longer a candidate. Your draft is preserved; checking again every 15 seconds."
+    : diagnostics.todoStatus === "suspended_candidate_feed_conflict"
+      ? "Candidate feed assignments conflict. Your draft is preserved; checking again every 15 seconds."
+      : null;
+  const todoUnavailable = [
+    "authentication_required",
+    "access_denied",
+    "environment_not_registered",
+    "unavailable",
+    "stale",
+  ].includes(diagnostics.todoStatus);
   /** What the radios show: the unconfirmed pick if there is one, otherwise the
    *  mode in force. Null means nothing is selected and there is nothing to set. */
   const selectedRenderMode = diagnostics.renderModePending ?? diagnostics.renderMode;
@@ -688,6 +708,109 @@ export function App({
           <p className="hint" data-blocked-reason={presentation.blockedReason}>
             Blocked: {presentation.blockedReason}
           </p>
+        ) : null}
+      </section>
+      ) : null}
+
+      {todoVisible ? (
+      <section className="card todo-section" aria-label="Todo List" data-todo-status={diagnostics.todoStatus}>
+        <div className="section-header">
+          <div className="todo-header" aria-expanded="true">
+            <span className="todo-header-title section-title">
+              <i className="mdi mdi-format-list-checks btn-icon" aria-hidden="true" />
+              <span>Todo List</span>
+            </span>
+            <span
+              className={`todo-status-line ${todoComplete ? "todo-status-line--done" : "todo-status-line--pending"}`}
+              data-todo-summary={`${diagnostics.todo.covered}/${diagnostics.todo.actionable}`}
+            >
+              <i
+                className={`mdi ${todoComplete ? "mdi-check-circle" : "mdi-circle-outline"} todo-indicator ${todoComplete ? "todo-indicator--done" : "todo-indicator--pending"}`}
+                aria-hidden="true"
+              />
+              {diagnostics.todo.covered}/{diagnostics.todo.actionable}
+            </span>
+          </div>
+        </div>
+
+        {todoSuspension ? (
+          <div className="u-alert u-alert-warn" role="status" data-todo-state="suspended">
+            {todoSuspension}
+          </div>
+        ) : todoUnavailable ? (
+          <div className="u-alert u-alert-danger" role="status" data-todo-state="error">
+            Candidate coverage could not be refreshed. The last valid Todo is preserved.
+          </div>
+        ) : diagnostics.todoStatus === "unresolved" ? (
+          <div className="u-alert u-alert-warn" role="status" data-todo-state="loading">
+            Loading candidate coverage…
+          </div>
+        ) : null}
+
+        {diagnostics.todo.actionable === 0 && !todoSuspension && !todoUnavailable && diagnostics.todoStatus !== "unresolved" ? (
+          <p className="page-types__empty" data-todo-state="empty">
+            Live Pages are not prepared for this site yet. Prepare them in Lynx before marking pages here.
+          </p>
+        ) : null}
+
+        {diagnostics.todo.pageTypes.length > 0 ? (
+          <div className="todo-body">
+            {diagnostics.todo.pageTypes.map((pageType) => {
+              const complete = pageType.markedCount >= 1;
+              return (
+                <section
+                  key={pageType.pageType}
+                  className={`todo-subsection ${complete ? "" : "todo-subsection--missing"} ${pageType.current ? "todo-subsection--current" : ""}`}
+                  data-todo-page-type={pageType.pageType}
+                >
+                  <div className="todo-subsection-header" aria-expanded="true">
+                    <span className="todo-subsection-title">{pageType.pageType}</span>
+                    {pageType.current ? (
+                      <span className="todo-candidate-badge todo-candidate-badge--current todo-subsection-current-badge">
+                        Current
+                      </span>
+                    ) : null}
+                    <span
+                      className={`todo-subsection-count ${complete ? "todo-subsection-count--done" : "todo-subsection-count--pending"}`}
+                      data-marked-count={`${pageType.markedCount}/1`}
+                    >
+                      <i
+                        className={`mdi ${complete ? "mdi-check-circle" : "mdi-circle-outline"} todo-indicator ${complete ? "todo-indicator--done" : "todo-indicator--pending"}`}
+                        aria-hidden="true"
+                      />
+                      {pageType.markedCount}/1
+                    </span>
+                  </div>
+                  <div className="todo-subsection-body">
+                    {pageType.candidates.map((candidate) => (
+                      <div
+                        key={candidate.pageKey}
+                        className={`todo-candidate ${candidate.current ? "todo-candidate--current" : ""}`}
+                        data-todo-candidate={candidate.pageKey}
+                      >
+                        <i
+                          className={`mdi ${candidate.marked ? "mdi-checkbox-marked-circle" : "mdi-checkbox-blank-circle-outline"} ${candidate.marked ? "u-color-success" : "u-color-muted"}`}
+                          aria-hidden="true"
+                        />
+                        <span className="todo-candidate-copy">
+                          <span className="todo-candidate-link" title={candidate.pageKey}>{candidate.pageKey}</span>
+                          <span className="todo-candidate-words">
+                            {candidate.wordsCount === null ? "Word count unavailable" : `${candidate.wordsCount} words`}
+                          </span>
+                          {candidate.current ? (
+                            <span className="todo-candidate-badge todo-candidate-badge--current">Current</span>
+                          ) : null}
+                          {candidate.marked ? (
+                            <span className="todo-candidate-badge todo-candidate-badge--marked">Marked</span>
+                          ) : null}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
         ) : null}
       </section>
       ) : null}

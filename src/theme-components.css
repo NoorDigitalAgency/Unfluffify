@@ -1792,6 +1792,11 @@ span.todo-candidate-link {
   color: var(--accent-dark);
 }
 
+.todo-candidate-badge--marked {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
+}
+
 .config-extras {
   gap: 6px;
 }

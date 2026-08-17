@@ -121,4 +121,37 @@ describe("corrective messaging application contracts", () => {
       selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
     }).success).toBe(true);
   });
+
+  it("carries canonical Todo coverage and explicit feed refresh over page.context", () => {
+    const context = applicationContract.commands["page.context"];
+
+    expect(context.request.parse({ tabId: 7, pageUrl: "https://example.com/detail", refresh: true }))
+      .toEqual({ tabId: 7, pageUrl: "https://example.com/detail", refresh: true });
+    expect(context.response.safeParse({
+      status: "managed_candidate",
+      generation: 2,
+      observedUrl: "https://example.com/detail",
+      draftDisposition: "preserve",
+      environmentKey: "stage.example.com",
+      siteId: 42,
+      baseUrl: "https://example.com",
+      pageKey: "/detail",
+      pageTypes: [{ pageType: "detail", pages: [{ pageKey: "/detail", wordsCount: 100 }] }],
+      membershipFingerprint: "membership",
+      assignmentFingerprint: "assignment",
+      conflicts: [],
+      upstreamCode: null,
+      renderModeSet: true,
+      todo: {
+        covered: 1,
+        actionable: 1,
+        pageTypes: [{
+          pageType: "detail",
+          markedCount: 3,
+          current: true,
+          candidates: [{ pageKey: "/detail", wordsCount: 100, marked: true, current: true }],
+        }],
+      },
+    }).success).toBe(true);
+  });
 });
