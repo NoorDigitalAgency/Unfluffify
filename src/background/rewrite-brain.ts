@@ -4,7 +4,6 @@ import { decideSignals } from "./brain/decide";
 import { fold, type BrainSensation } from "./brain/fold";
 import { projectBrainState } from "./brain/project";
 import { createSignalLog } from "./brain/signals";
-import type { EmitSignalInput } from "./brain/signals";
 
 export function createRewriteBrain(tabId: number, initialFacts: TabFacts | null = null) {
   let facts: TabFacts | null = initialFacts;
@@ -19,20 +18,6 @@ export function createRewriteBrain(tabId: number, initialFacts: TabFacts | null 
         ...facts,
         lastSignalSeq: signalLog.head(),
       };
-      return emitted;
-    },
-    emitSourceSignal(input: EmitSignalInput): BrainSignal {
-      const emitted = signalLog.append(input);
-      facts = facts
-        ? { ...facts, lastSignalSeq: signalLog.head() }
-        : {
-          tabId,
-          markingEnabled: false,
-          lockRole: "unknown",
-          configPresent: false,
-          reconciliationPending: false,
-          lastSignalSeq: signalLog.head(),
-        };
       return emitted;
     },
     snapshot(): TabFacts | null {

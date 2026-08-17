@@ -4,7 +4,6 @@ import {
   CommandReplySchema,
   FactEnvelopeSchema,
   SignalConsumeRequestSchema,
-  SignalEmitRequestSchema,
   SignalFrameSchema,
   SignalPullRequestSchema,
 } from "./contracts";
@@ -124,10 +123,6 @@ export const applicationContract = defineContract({
     },
     "signals.pull": {
       request: SignalPullRequestSchema,
-      response: SignalFrameSchema.array(),
-    },
-    "signals.emit": {
-      request: SignalEmitRequestSchema,
       response: SignalFrameSchema.array(),
     },
     "signals.consume": {
@@ -311,7 +306,6 @@ export const applicationContract = defineContract({
   },
   events: {
     "fact.reported": FactEnvelopeSchema,
-    "signal.emitted": SignalFrameSchema,
   },
 });
 

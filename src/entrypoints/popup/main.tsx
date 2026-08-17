@@ -28,7 +28,7 @@ import { browser, getInstalledBrowserApi } from "../../common/browser";
 import { createRealmBus } from "../../messaging/realms";
 import { createTabTransport } from "../../messaging/transports/tabs";
 import { createRuntimeTransport } from "../../messaging/transports/runtime";
-import { emitRewriteSignal, pullRewriteSignals, type RewriteSignalBus } from "../../messaging/rewrite-signals";
+import { pullRewriteSignals, type RewriteSignalBus } from "../../messaging/rewrite-signals";
 import type { ConfigSnapshot, PropertySaveRequest, SelectorSet } from "../../storage/config";
 import { canonicalPageKey } from "../../storage/property-snapshot-authority";
 import type { ConnectionSettings } from "../../storage/settings";
@@ -52,6 +52,7 @@ const rootElement = document.getElementById("app") ?? document.getElementById("r
 const store = createPopupStore({ name: "silent", lastConsumedSeq: 0, reconciliationReason: "" });
 const root = createRoot(rootElement);
 let seq = 0;
+let popupFactSequence = 0;
 let boundTabId: number | null = null;
 let boundTabKey: string | null = null;
 let signalPollHandle: ReturnType<Window["setInterval"]> | null = null;
@@ -259,20 +260,6 @@ function getPopupBus(): RewriteSignalBus {
   return popupBus;
 }
 
-function nextSignal(tabId: number, name: BrainSignal["name"], payload: BrainSignal["payload"] = {}): BrainSignal {
-  seq += 1;
-  return {
-    kind: "uf-signal/1",
-    tabId,
-    seq,
-    name,
-    source: "brain",
-    cause: "popup-entrypoint",
-    at: Date.now(),
-    payload,
-  };
-}
-
 function getDebugTabId(): number | null {
   const value = new URL(location.href).searchParams.get("debugTabId") ?? "";
   const parsed = Number.parseInt(value, 10);
@@ -416,49 +403,6 @@ async function pullSignals(tabId: number, requestKey = boundTabKey): Promise<num
   });
 }
 
-async function emitPopupSignalAndPullTail(tabId: number, name: BrainSignal["name"], payload: BrainSignal["payload"], requestKey = boundTabKey): Promise<void> {
-  const response = await emitRewriteSignal(getPopupBus(), tabId, {
-    name,
-    source: "popup",
-    cause: "popup-entrypoint",
-    payload,
-  });
-  if (!response.ok || boundTabId !== tabId || boundTabKey !== requestKey) {
-    return;
-  }
-  const applied = await pullSignals(tabId, requestKey);
-  if (applied === 0) {
-    // The pull found nothing, so this emit's own decisions are still unconsumed —
-    // unless the pull that ran ahead of it in the queue took them, which the
-    // cursor check settles.
-    for (const signal of response.data) {
-      consumeSignal(signal, tabId, requestKey);
-    }
-  }
-}
-
-async function emitPopupSignal(tabId: number, name: BrainSignal["name"], payload: BrainSignal["payload"] = {}, requestKey = boundTabKey): Promise<void> {
-  const response = await emitRewriteSignal(getPopupBus(), tabId, {
-    name,
-    source: "popup",
-    cause: "popup-entrypoint",
-    payload,
-  });
-  if (boundTabId !== tabId || boundTabKey !== requestKey) {
-    return;
-  }
-  if (response.ok) {
-    for (const signal of response.data) {
-      consumeSignal(signal, tabId, requestKey);
-    }
-    return;
-  }
-  if (boundTabId !== tabId || boundTabKey !== requestKey) {
-    return;
-  }
-  dispatchSignal(nextSignal(tabId, name, payload));
-}
-
 async function handleBoundContext(context: TargetTabContext): Promise<string> {
   const binding = bindToTab(context);
   // The standing posture applies from the moment the extension is active on the
@@ -565,19 +509,19 @@ async function maybeResumeAiRun(context: TargetTabContext, requestKey = boundTab
         `${response.data.selectors.inclusionSelectors.length} include · ${response.data.selectors.exclusionSelectors.length} exclude`,
         "success",
       );
-      await emitPopupSignalAndPullTail(context.tabId, "run.completed", {
-        pageUrl: context.url,
-        sessionId: response.data.clientRunId,
-        aiSessionId: response.data.sessionId,
-        selectors: response.data.selectors,
+      await reportPopupFactAndPull(context, "ai-run-restored", {
+        runPhase: "completed",
+        runSessionId: response.data.clientRunId,
+        runAiSessionId: response.data.sessionId,
+        runSelectors: response.data.selectors,
       }, requestKey);
       return;
     }
     if (response.data.status === "failed" || response.data.status === "stale") {
-      await emitPopupSignalAndPullTail(context.tabId, "run.failed", {
-        pageUrl: context.url,
-        sessionId: response.data.clientRunId,
-        reason: response.data.error ?? response.data.status,
+      await reportPopupFactAndPull(context, "ai-run-resume-failed", {
+        runPhase: "failed",
+        runSessionId: response.data.clientRunId,
+        runFailureReason: response.data.error ?? response.data.status,
       }, requestKey);
     }
   } finally {
@@ -1129,6 +1073,23 @@ async function reportPopupFact(
   }
 }
 
+function nextPopupFactSequence(): number {
+  popupFactSequence = Math.max(popupFactSequence + 1, Date.now() * 1_000);
+  return popupFactSequence;
+}
+
+async function reportPopupFactAndPull(
+  context: TargetTabContext,
+  reason: string,
+  facts: Record<string, unknown>,
+  requestKey = boundTabKey,
+): Promise<void> {
+  await reportPopupFact(context, reason, facts, requestKey);
+  if (boundTabId === context.tabId && boundTabKey === requestKey) {
+    await pullSignals(context.tabId, requestKey);
+  }
+}
+
 /** Pulls the engine's current rows into the projection for display only. Used
  *  after activation, where the rows come from the selector seed rather than from
  *  an operator edit and so must not mark the session dirty. */
@@ -1632,16 +1593,20 @@ async function runAi(): Promise<void> {
   activeRunSessionId = localRunId;
   const startedAt = Date.now();
   logEvent("Run AI started", localRunId);
-  await emitPopupSignal(context.tabId, "run.started", {
-    pageUrl: context.url,
-    sessionId: localRunId,
-    deadlineAt: startedAt + 480_000,
+  await reportPopupFactAndPull(context, "ai-run-started", {
+    runPhase: "running",
+    runSessionId: localRunId,
+    runDeadlineAt: startedAt + 480_000,
   }, requestKey);
   const snapshot = await captureSubmission(context);
   if (!snapshot) {
     if (activeRunSessionId === localRunId) {
       logEvent("Run AI failed", "page snapshot capture failed", "danger");
-      await emitPopupSignalAndPullTail(context.tabId, "run.failed", { pageUrl: context.url, sessionId: localRunId, reason: "capture-failed" }, requestKey);
+      await reportPopupFactAndPull(context, "ai-run-capture-failed", {
+        runPhase: "failed",
+        runSessionId: localRunId,
+        runFailureReason: "capture-failed",
+      }, requestKey);
       settlePreLockAiRun(localRunId, { status: "failed" });
       if (activeRunSessionId === localRunId) {
         activeRunSessionId = null;
@@ -1668,10 +1633,10 @@ async function runAi(): Promise<void> {
   if (!response.ok || response.data.status !== "ok") {
     if (activeRunSessionId === localRunId) {
       logEvent("Run AI failed", response.ok ? response.data.status : response.failure.code, "danger");
-      await emitPopupSignalAndPullTail(context.tabId, "run.failed", {
-        pageUrl: context.url,
-        sessionId: localRunId,
-        reason: response.ok ? response.data.status : response.failure.code,
+      await reportPopupFactAndPull(context, "ai-run-request-failed", {
+        runPhase: "failed",
+        runSessionId: localRunId,
+        runFailureReason: response.ok ? response.data.status : response.failure.code,
       }, requestKey);
       settlePreLockAiRun(localRunId, { status: "failed" });
       if (activeRunSessionId === localRunId) {
@@ -1694,11 +1659,11 @@ async function runAi(): Promise<void> {
       `${response.data.selectors.inclusionSelectors.length} include · ${response.data.selectors.exclusionSelectors.length} exclude`,
       "success",
     );
-    await emitPopupSignalAndPullTail(context.tabId, "run.completed", {
-      pageUrl: context.url,
-      sessionId: localRunId,
-      aiSessionId: response.data.sessionId ?? "",
-      selectors: response.data.selectors,
+    await reportPopupFactAndPull(context, "ai-run-completed", {
+      runPhase: "completed",
+      runSessionId: localRunId,
+      runAiSessionId: response.data.sessionId ?? "",
+      runSelectors: response.data.selectors,
     }, requestKey);
   }
   if (activeRunSessionId === localRunId) {
@@ -1752,7 +1717,10 @@ async function saveSession(): Promise<void> {
     render();
     return;
   }
-  await emitPopupSignalAndPullTail(context.tabId, "reconciliation.started", { pageUrl: context.url, reason: "saving" }, requestKey);
+  await reportPopupFactAndPull(context, "save-reconciliation-started", {
+    reconciliationPending: true,
+    reconciliationReason: "saving",
+  }, requestKey);
   const reconciliationState = store.getState();
   if (
     reconciliationState.name !== "reconciling" ||
@@ -1760,7 +1728,10 @@ async function saveSession(): Promise<void> {
     reconciliationState.reconciliationDirty
   ) {
     await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
-    await emitPopupSignalAndPullTail(context.tabId, "reconciliation.ended", { pageUrl: context.url, reason: "dirty-before-save" }, requestKey);
+    await reportPopupFactAndPull(context, "save-reconciliation-ended", {
+      reconciliationPending: false,
+      reconciliationReason: "dirty-before-save",
+    }, requestKey);
     render();
     return;
   }
@@ -1768,9 +1739,9 @@ async function saveSession(): Promise<void> {
   if (!saveRequest) {
     logEvent("Save blocked", "authoritative lock or candidate page type is unavailable", "danger");
     await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
-    await emitPopupSignalAndPullTail(context.tabId, "reconciliation.ended", {
-      pageUrl: context.url,
-      reason: "save-authority-unavailable",
+    await reportPopupFactAndPull(context, "save-reconciliation-ended", {
+      reconciliationPending: false,
+      reconciliationReason: "save-authority-unavailable",
     }, requestKey);
     render();
     return;
@@ -1779,7 +1750,10 @@ async function saveSession(): Promise<void> {
   await pullSignals(context.tabId, requestKey);
   if (store.getState().name === "reconciling" && store.getState().reconciliationDirty) {
     await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
-    await emitPopupSignalAndPullTail(context.tabId, "reconciliation.ended", { pageUrl: context.url, reason: "dirty-during-save" }, requestKey);
+    await reportPopupFactAndPull(context, "save-reconciliation-ended", {
+      reconciliationPending: false,
+      reconciliationReason: "dirty-during-save",
+    }, requestKey);
     render();
     return;
   }
@@ -1798,12 +1772,19 @@ async function saveSession(): Promise<void> {
     renderModeSource = "backend";
     configStatus = "ok";
     logEvent("Session saved", snapshot.baseUrl, "success");
-    await emitPopupSignalAndPullTail(context.tabId, "session.saved", { pageUrl: context.url, baseUrl: snapshot.baseUrl }, requestKey);
+    await reportPopupFactAndPull(context, "session-saved", {
+      savedSeq: nextPopupFactSequence(),
+      markingEnabled: false,
+      previewActive: false,
+    }, requestKey);
   } else {
     logEvent("Save failed", response.ok ? response.data.status : response.failure.code, "danger");
     await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
   }
-  await emitPopupSignalAndPullTail(context.tabId, "reconciliation.ended", { pageUrl: context.url, reason: response.ok ? response.data.status : response.failure.code }, requestKey);
+  await reportPopupFactAndPull(context, "save-reconciliation-ended", {
+    reconciliationPending: false,
+    reconciliationReason: response.ok ? response.data.status : response.failure.code,
+  }, requestKey);
   render();
 }
 
@@ -1831,7 +1812,10 @@ async function showPreview(): Promise<void> {
     return;
   }
   const origin = store.getState().name === "silent" ? "silent" : "post_ai";
-  await emitPopupSignalAndPullTail(context.tabId, "preview.opened", { pageUrl: context.url, origin }, requestKey);
+  await reportPopupFactAndPull(context, "preview-opened", {
+    previewActive: true,
+    previewOrigin: origin,
+  }, requestKey);
   render();
 }
 
@@ -1851,8 +1835,10 @@ async function discardMarkings(): Promise<void> {
   contentDirty = false;
   await ensureSessionEmulation(context);
   logEvent("Markings discarded", context.url);
-  await emitPopupSignal(context.tabId, "session.discarded", { baseUrl: "", pageUrl: context.url }, requestKey);
-  await pullSignals(context.tabId, requestKey);
+  await reportPopupFactAndPull(context, "session-discarded", {
+    discardedSeq: nextPopupFactSequence(),
+    previewActive: false,
+  }, requestKey);
   render();
 }
 

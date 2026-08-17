@@ -1,10 +1,10 @@
-import type { BrainSignalName } from "../../domain/schema/signals";
+import type { BrainSignal, BrainSignalName } from "../../domain/schema/signals";
 import type { TabFacts } from "../../domain/schema/facts";
 
 export type SignalDecision = Readonly<{
   name: BrainSignalName;
   cause: string;
-  payload: Readonly<Record<string, string | number | boolean>>;
+  payload: BrainSignal["payload"];
 }>;
 
 export function decideSignals(prev: TabFacts | null, next: TabFacts): readonly SignalDecision[] {
@@ -48,28 +48,41 @@ export function decideSignals(prev: TabFacts | null, next: TabFacts): readonly S
     decisions.push({
       name: "run.started",
       cause: "ai-run",
-      payload: { sessionId: next.runSessionId ?? "", pageUrl },
+      payload: {
+        sessionId: next.runSessionId ?? "",
+        pageUrl,
+        ...(next.runDeadlineAt === undefined ? {} : { deadlineAt: next.runDeadlineAt }),
+      },
     });
   }
   if (prev?.runPhase === "running" && next.runPhase === "completed") {
     decisions.push({
       name: "run.completed",
       cause: "ai-run",
-      payload: { sessionId: next.runSessionId ?? "", pageUrl },
+      payload: {
+        sessionId: next.runSessionId ?? "",
+        pageUrl,
+        ...(next.runAiSessionId === undefined ? {} : { aiSessionId: next.runAiSessionId }),
+        ...(next.runSelectors === undefined ? {} : { selectors: next.runSelectors }),
+      },
     });
   }
   if (prev?.runPhase === "running" && next.runPhase === "failed") {
     decisions.push({
       name: "run.failed",
       cause: "ai-run",
-      payload: { sessionId: next.runSessionId ?? "", pageUrl },
+      payload: {
+        sessionId: next.runSessionId ?? "",
+        pageUrl,
+        ...(next.runFailureReason === undefined ? {} : { reason: next.runFailureReason }),
+      },
     });
   }
   if (prev?.previewActive !== true && next.previewActive === true) {
     decisions.push({
       name: "preview.opened",
       cause: "preview",
-      payload: { pageUrl, origin: "marking" },
+      payload: { pageUrl, origin: next.previewOrigin ?? "marking" },
     });
   }
   if (prev?.previewExitRequested !== true && next.previewExitRequested === true) {
@@ -118,14 +131,14 @@ export function decideSignals(prev: TabFacts | null, next: TabFacts): readonly S
     decisions.push({
       name: "reconciliation.started",
       cause: "save-lifecycle",
-      payload: { reason: "pending" },
+      payload: { pageUrl, reason: next.reconciliationReason ?? "pending" },
     });
   }
   if (prev?.reconciliationPending === true && !next.reconciliationPending) {
     decisions.push({
       name: "reconciliation.ended",
       cause: "save-lifecycle",
-      payload: { reason: "settled" },
+      payload: { pageUrl, reason: next.reconciliationReason ?? "settled" },
     });
   }
   return decisions;

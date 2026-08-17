@@ -7,11 +7,10 @@ export type SignalLogOptions = Readonly<{
   maxEntries?: number;
 }>;
 
-export type EmitSignalInput = Readonly<{
+export type AppendSignalInput = Readonly<{
   name: BrainSignalName;
   cause: string;
   payload?: BrainSignal["payload"];
-  source?: "brain" | "content" | "popup";
 }>;
 
 export function createSignalLog(options: SignalLogOptions) {
@@ -21,14 +20,14 @@ export function createSignalLog(options: SignalLogOptions) {
   const consumedByOrgan = new Map<string, number>();
   let seq = options.startSeq ?? 0;
 
-  const append = (input: EmitSignalInput): BrainSignal => {
+  const append = (input: AppendSignalInput): BrainSignal => {
     seq += 1;
     const signal = BrainSignalSchema.parse({
       kind: "uf-signal/1",
       tabId: options.tabId,
       seq,
       name: input.name,
-      source: input.source ?? "brain",
+      source: "brain",
       cause: input.cause,
       at: now(),
       payload: input.payload ?? {},

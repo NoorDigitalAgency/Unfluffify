@@ -4,6 +4,11 @@ import { RenderModeSchema, SiteIdSchema } from "./property";
 
 export const LockRoleSchema = z.enum(["unknown", "editor", "passive"]);
 
+const RunSelectorsSchema = z.object({
+  exclusionSelectors: z.array(z.string()),
+  inclusionSelectors: z.array(z.string()),
+});
+
 export const TabFactsSchema = z.object({
   tabId: z.number().int().nonnegative(),
   siteId: SiteIdSchema.nullable().optional(),
@@ -17,7 +22,12 @@ export const TabFactsSchema = z.object({
   markingToggleSeq: z.number().int().nonnegative().optional(),
   runPhase: z.enum(["idle", "running", "completed", "failed"]).optional(),
   runSessionId: z.string().optional(),
+  runDeadlineAt: z.number().int().nonnegative().optional(),
+  runAiSessionId: z.string().optional(),
+  runSelectors: RunSelectorsSchema.optional(),
+  runFailureReason: z.string().optional(),
   previewActive: z.boolean().optional(),
+  previewOrigin: z.enum(["silent", "post_ai", "marking"]).optional(),
   previewExitRequested: z.boolean().optional(),
   savedSeq: z.number().int().nonnegative().optional(),
   discardedSeq: z.number().int().nonnegative().optional(),
@@ -25,6 +35,7 @@ export const TabFactsSchema = z.object({
   lockRole: LockRoleSchema.default("unknown"),
   configPresent: z.boolean().default(false),
   reconciliationPending: z.boolean().default(false),
+  reconciliationReason: z.string().optional(),
   lastSignalSeq: z.number().int().nonnegative().default(0),
 });
 

@@ -11,13 +11,3 @@ const offscreenBus = createRealmBus({
 offscreenBus.onCommand("offscreen.refineXpaths", (request) => ({
   rows: [...refineXPathEntries(request.html, request.rows)],
 }));
-void offscreenBus.emit("signal.emitted", {
-  kind: "uf-signal/1",
-  tabId: 0,
-  seq: 1,
-  name: "inspection.ended",
-  source: "popup",
-  cause: "offscreen-ready",
-  at: 0,
-  payload: {},
-}, { target: "offscreen" });

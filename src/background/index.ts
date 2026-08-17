@@ -137,21 +137,6 @@ export function startRewriteBackground(): void {
       ? runtime.getBrain(request.tabId).pullForOrgan(request.organId, request.afterSeq)
       : runtime.getBrain(request.tabId).pullSignals(request.afterSeq))]
   );
-  bus.onCommand("signals.emit", (request, meta) => {
-    const release = runtime.keepAlive.acquire("emit");
-    try {
-      const tabId = request.tabId === 0 ? parseSenderTabId(meta.sourceInstance) ?? request.tabId : request.tabId;
-      const brain = runtime.getBrain(tabId);
-      const emitted = brain.emitSourceSignal(request.signal);
-      const snapshot = brain.snapshot();
-      if (snapshot) {
-        void services.persistence.persistDurableFacts(snapshot);
-      }
-      return [emitted];
-    } finally {
-      release();
-    }
-  });
   bus.onCommand("signals.consume", (request) => {
     runtime.getBrain(request.tabId).markConsumed(request.organId, request.seq);
     return { ok: true as const };

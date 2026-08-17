@@ -83,24 +83,45 @@ describe("rewrite background startup", () => {
     const { startRewriteBackground } = await import("../../../src/background/index");
     startRewriteBackground();
     const runtimeListener = addMessageListener.mock.calls[0]?.[0] as (message: unknown, sender: unknown) => unknown;
+    runtimeListener({
+      kind: "uf-bus/1",
+      frameType: "event",
+      id: "event-1",
+      seq: 1,
+      name: "fact.reported",
+      source: "content",
+      sourceInstance: "content:tab:5:test",
+      target: "background",
+      payload: {
+        kind: "uf-fact/1",
+        sensation: {
+          tabId: 5,
+          source: "content",
+          reason: "marking-toggle",
+          facts: {
+            tabId: 5,
+            pageUrl: "https://example.com",
+            markingToggleSeq: 1,
+          },
+        },
+      },
+    }, {}, () => undefined);
+    await Promise.resolve();
+    await Promise.resolve();
+
     let response: unknown;
     const keepOpen = runtimeListener({
       kind: "uf-bus/1",
       frameType: "request",
       id: "req-1",
-      seq: 1,
-      name: "signals.emit",
+      seq: 2,
+      name: "signals.pull",
       source: "content",
       sourceInstance: "content:test",
       target: "background",
       payload: {
         tabId: 5,
-        signal: {
-        name: "markings.changed",
-        source: "content",
-        cause: "test",
-        payload: { pageUrl: "https://example.com", markedCount: 1 },
-      },
+        afterSeq: 0,
       },
     }, {}, (value: unknown) => {
       response = value;
@@ -115,7 +136,7 @@ describe("rewrite background startup", () => {
       kind: "uf-bus/1",
       frameType: "reply",
       ok: true,
-      payload: [{ name: "markings.changed" }],
+      payload: [{ name: "markings.changed", source: "brain" }],
     });
   });
 

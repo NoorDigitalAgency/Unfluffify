@@ -17,7 +17,15 @@ export const TabFactsPatchSchema = z.object({
   markingToggleSeq: z.number().int().nonnegative().optional(),
   runPhase: z.enum(["idle", "running", "completed", "failed"]).optional(),
   runSessionId: z.string().optional(),
+  runDeadlineAt: z.number().int().nonnegative().optional(),
+  runAiSessionId: z.string().optional(),
+  runSelectors: z.object({
+    exclusionSelectors: z.array(z.string()),
+    inclusionSelectors: z.array(z.string()),
+  }).optional(),
+  runFailureReason: z.string().optional(),
   previewActive: z.boolean().optional(),
+  previewOrigin: z.enum(["silent", "post_ai", "marking"]).optional(),
   previewExitRequested: z.boolean().optional(),
   savedSeq: z.number().int().nonnegative().optional(),
   discardedSeq: z.number().int().nonnegative().optional(),
@@ -25,6 +33,7 @@ export const TabFactsPatchSchema = z.object({
   lockRole: z.enum(["unknown", "editor", "passive"]).optional(),
   configPresent: z.boolean().optional(),
   reconciliationPending: z.boolean().optional(),
+  reconciliationReason: z.string().optional(),
 });
 
 export const BrainSensationSchema = z.object({
@@ -55,6 +64,14 @@ export function fold(prevFacts: TabFacts | null, sensation: BrainSensation): Tab
     ...parsed.facts,
     tabId: parsed.tabId,
     markingEnabled: pageUrlChanged ? false : parsed.facts.markingEnabled ?? prev.markingEnabled,
+    markingToggleSeq: pageUrlChanged
+      ? parsed.facts.markingToggleSeq ?? 0
+      : parsed.facts.markingToggleSeq ?? prev.markingToggleSeq,
+    runPhase: pageUrlChanged ? parsed.facts.runPhase ?? "idle" : parsed.facts.runPhase ?? prev.runPhase,
+    previewActive: pageUrlChanged ? false : parsed.facts.previewActive ?? prev.previewActive,
+    previewExitRequested: pageUrlChanged
+      ? false
+      : parsed.facts.previewExitRequested ?? prev.previewExitRequested,
     reconciliationPending: pageUrlChanged
       ? false
       : parsed.facts.reconciliationPending ?? prev.reconciliationPending,

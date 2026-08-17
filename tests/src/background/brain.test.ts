@@ -37,7 +37,14 @@ describe("P3 background brain", () => {
     });
 
     expect(next.markingEnabled).toBe(false);
-    expect(next.reconciliationPending).toBe(false);
+    expect(next).toMatchObject({
+      markingEnabled: false,
+      markingToggleSeq: 0,
+      runPhase: "idle",
+      previewActive: false,
+      previewExitRequested: false,
+      reconciliationPending: false,
+    });
   });
 
   it("preserves omitted fields on partial fact patches", () => {
@@ -394,45 +401,69 @@ describe("P3 background brain", () => {
     expect((third.signals ?? []).map((signal: { name?: string }) => signal.name)).not.toContain("markings.changed");
   });
 
-  it("emits born-at-source signals through the runtime", () => {
+  it("derives popup outcomes as brain-sourced signals with their decision payloads", () => {
+    const brain = createRewriteBrain(2);
+    const observe = (reason: string, facts: Record<string, unknown>) => brain.observe({
+      tabId: 2,
+      source: "popup",
+      reason,
+      facts: { tabId: 2, pageUrl: "https://example.com/page", ...facts },
+    });
+
+    expect(observe("ai-run-started", {
+      runPhase: "running",
+      runSessionId: "client-1",
+      runDeadlineAt: 480_000,
+    })).toMatchObject([{
+      name: "run.started",
+      source: "brain",
+      payload: { sessionId: "client-1", deadlineAt: 480_000 },
+    }]);
+    expect(observe("ai-run-completed", {
+      runPhase: "completed",
+      runSessionId: "client-1",
+      runAiSessionId: "backend-1",
+      runSelectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+    })).toMatchObject([{
+      name: "run.completed",
+      source: "brain",
+      payload: {
+        sessionId: "client-1",
+        aiSessionId: "backend-1",
+        selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+      },
+    }]);
+    expect(observe("preview-opened", { previewActive: true, previewOrigin: "silent" })).toMatchObject([{
+      name: "preview.opened",
+      source: "brain",
+      payload: { origin: "silent" },
+    }]);
+    expect(observe("save-started", {
+      reconciliationPending: true,
+      reconciliationReason: "saving",
+    })).toMatchObject([{
+      name: "reconciliation.started",
+      source: "brain",
+      payload: { reason: "saving" },
+    }]);
+    expect(observe("session-saved", { savedSeq: 1 })).toMatchObject([{
+      name: "session.saved",
+      source: "brain",
+    }]);
+    expect(brain.pullSignals(0).every((signal) => signal.source === "brain")).toBe(true);
+  });
+
+  it("rejects the retired raw signal-emission runtime message", () => {
     const runtime = createRewriteBrainRuntime({ addMessageListener() {} });
-    const result = runtime.handle({
+    expect(runtime.handle({
       type: "uf.rewriteBrain.emit",
       tabId: 2,
       signal: {
-        name: "markings.changed",
-        source: "content",
-        cause: "user-marking-edit",
-        payload: { pageUrl: "https://example.com", markedCount: 1 },
+        name: "session.saved",
+        source: "popup",
+        cause: "bypass",
+        payload: {},
       },
-    });
-
-    expect(result).toMatchObject({
-      ok: true,
-      signals: [{ name: "markings.changed", source: "content", cause: "user-marking-edit" }],
-    });
-  });
-
-  it("attributes content-born tab-zero signal envelopes to the sender tab", () => {
-    const runtime = createRewriteBrainRuntime({ addMessageListener() {} });
-    const result = runtime.handle({
-      type: "uf.rewriteBrain.emit",
-      tabId: 0,
-      signal: {
-        name: "markings.changed",
-        source: "content",
-        cause: "content-click",
-        payload: { pageUrl: "https://example.com", markedCount: 1 },
-      },
-    }, { tab: { id: 42 } });
-
-    expect(result).toMatchObject({
-      ok: true,
-      signals: [{ tabId: 42, name: "markings.changed" }],
-    });
-    expect(runtime.handle({ type: "uf.rewriteBrain.pull", tabId: 42, afterSeq: 0 })).toMatchObject({
-      ok: true,
-      signals: [{ tabId: 42, name: "markings.changed" }],
-    });
+    })).toBeUndefined();
   });
 });

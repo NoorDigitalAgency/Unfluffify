@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createRewriteBrain } from "../../../src/background/rewrite-brain";
 import type { BusFrame } from "../../../src/messaging/contract";
+import type { BrainSensation } from "../../../src/background/brain/fold";
 import type { ConfigSnapshot } from "../../../src/storage/config";
 
 function backendConfig(): ConfigSnapshot {
@@ -141,9 +143,70 @@ function makeTabsSendMessage(
 }
 
 function makeRuntime(handler: (frame: BusFrame) => Promise<unknown> | unknown) {
+  const factBrain = createRewriteBrain(77);
+  const factSignals: Array<ReturnType<typeof factBrain.observe>[number]> = [];
+  let deliveredSignalSeq = 0;
+
+  const b2SignalNames = new Set([
+    "run.started",
+    "run.completed",
+    "run.failed",
+    "preview.opened",
+    "preview.exit.requested",
+    "preview.exited",
+    "session.saved",
+    "session.discarded",
+    "reconciliation.started",
+    "reconciliation.ended",
+  ]);
+
+  const adoptScriptedB2State = (signal: Record<string, unknown>): void => {
+    const payload = signal.payload as Record<string, unknown> | undefined;
+    const common = {
+      tabId: 77,
+      source: "popup" as const,
+      reason: "scripted-test-state",
+    };
+    if (signal.name === "run.started") {
+      factBrain.observe({ ...common, facts: {
+        tabId: 77,
+        runPhase: "running",
+        runSessionId: typeof payload?.sessionId === "string" ? payload.sessionId : undefined,
+        runDeadlineAt: typeof payload?.deadlineAt === "number" ? payload.deadlineAt : undefined,
+      } });
+    } else if (signal.name === "run.completed" || signal.name === "run.failed") {
+      factBrain.observe({ ...common, facts: {
+        tabId: 77,
+        runPhase: signal.name === "run.completed" ? "completed" : "failed",
+        runSessionId: typeof payload?.sessionId === "string" ? payload.sessionId : undefined,
+      } });
+    }
+  };
+
   return {
-    sendMessage: vi.fn((message: unknown) => {
+    sendMessage: vi.fn(async (message: unknown) => {
       const frame = message as BusFrame;
+      if (frame.name === "fact.reported") {
+        const sensation = (frame.payload as { sensation?: BrainSensation }).sensation;
+        if (sensation) {
+          factSignals.push(...factBrain.observe(sensation).filter((signal) => b2SignalNames.has(signal.name)));
+        }
+        return await handler(frame);
+      }
+      if (frame.name === "signals.pull") {
+        const handled = await handler(frame) as BusFrame;
+        const scripted = handled?.ok === true && Array.isArray(handled.payload) ? handled.payload : [];
+        scripted.forEach((signal) => adoptScriptedB2State(signal as Record<string, unknown>));
+        const queued = factSignals.splice(0);
+        const afterSeq = Number((frame.payload as { afterSeq?: number }).afterSeq ?? 0);
+        deliveredSignalSeq = Math.max(deliveredSignalSeq, afterSeq);
+        const signals = [...scripted, ...queued].map((signal) => ({
+          ...(signal as Record<string, unknown>),
+          seq: ++deliveredSignalSeq,
+          source: (signal as { source?: string }).source ?? "brain",
+        }));
+        return replyFrame(frame, signals);
+      }
       if (frame.name === "lock.directive") {
         return replyFrame(frame, {
           status: "ok",
@@ -195,7 +258,7 @@ function makeRuntime(handler: (frame: BusFrame) => Promise<unknown> | unknown) {
           renderModeSource: "backend",
         });
       }
-      return handler(frame);
+      return await handler(frame);
     }),
     onMessage: {
       addListener: vi.fn(),
@@ -519,16 +582,13 @@ describe("rewrite popup entrypoint", () => {
       .not.toEqual(expect.arrayContaining(["marking.enabled", "marking.disabled"]));
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("resetContentMain", {}));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
-      name: "signals.emit",
-      payload: {
-        tabId: 77,
-        signal: {
-        name: "session.discarded",
-        source: "popup",
-        cause: "popup-entrypoint",
-        payload: { baseUrl: "", pageUrl: "https://example.com" },
-      },
-      },
+      name: "fact.reported",
+      payload: expect.objectContaining({
+        sensation: expect.objectContaining({
+          reason: "session-discarded",
+          facts: expect.objectContaining({ discardedSeq: expect.any(Number) }),
+        }),
+      }),
       target: "background",
     }));
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("deactivateContentMain", {}));
@@ -1287,11 +1347,11 @@ describe("rewrite popup entrypoint", () => {
     await flushEntrypointWork();
 
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
-      name: "signals.emit",
+      name: "fact.reported",
       payload: expect.objectContaining({
-        signal: expect.objectContaining({
-          name: "preview.opened",
-          payload: { pageUrl: "https://example.com/page", origin: "silent" },
+        sensation: expect.objectContaining({
+          reason: "preview-opened",
+          facts: expect.objectContaining({ previewActive: true, previewOrigin: "silent" }),
         }),
       }),
     }));

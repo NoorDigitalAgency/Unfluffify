@@ -91,6 +91,8 @@ describe("corrective messaging application contracts", () => {
   });
 
   it("allows initial signal cursor pulls from afterSeq zero", () => {
+    expect("signals.emit" in applicationContract.commands).toBe(false);
+    expect("signal.emitted" in applicationContract.events).toBe(false);
     expect(applicationContract.commands["signals.pull"].request.parse({
       tabId: 1,
       afterSeq: 0,
