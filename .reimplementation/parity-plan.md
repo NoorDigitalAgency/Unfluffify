@@ -338,7 +338,7 @@ single box overlapping unmarked siblings.
 
 | ✅ | ID | Slice | Needs | Test that proves it |
 |----|----|-------|-------|---------------------|
-| ☐ | **G1** | Googlebot-smartphone parity (D12): UA + client hints + touch/pointer media over 412×960. | — | Emulated identity matches the target profile; posture re-asserts after navigation. |
+| ☑ | **G1** | Googlebot-smartphone parity (D12): UA + client hints + touch/pointer media over 412×960. **Landed in `308ac70e`.** | — | Emulated identity matches the target profile; posture re-asserts after navigation. |
 | ☐ | **G2** | **Contract parity matrix** — the critic's gap 1: 70 of 112 locked `C-*` contracts have **no verdict in any report**, including all 3 `C-SHDW`, 12 of 17 `C-MARK`, 6 of 7 `C-SAVE`. Produce one PASS/PARTIAL/FAIL row per contract with `file:line` on both sides. Two regressions (A1, A3) were already found in this gap, so it is not bookkeeping. | Phase A | The matrix exists and every FAIL has a slice. |
 | ☐ | **G3** | **Regression net** — the critic's gap 3: legacy has 203 test files, the rewrite 64. Identify which legacy tests encode *behavior* (not the 77 that regex production source) and port them as the parity net. | G2 | Named legacy behavioral tests pass against the rewrite. |
 | ☐ | **G4** | Live-round validation on a throwaway environment/site id — **never against a production property** (see `study/` and the live-QA findings). | G3, H5 | Full fenced lifecycle and Lynx publication pass end to end. |
