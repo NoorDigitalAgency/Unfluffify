@@ -334,6 +334,64 @@ describe("P6 content marking engine", () => {
     expect(store.rows()).toEqual([{ xpath: footer.xpath, excluded: false }]);
   });
 
+  it("unmarks only the boundary, preserving descendant excludes and clearing dependent include punches", () => {
+    const excludedChild = leaf("excluded-child", "/html[1]/body[1]/footer[1]/p[1]");
+    const includedChild = leaf("included-child", "/html[1]/body[1]/footer[1]/p[2]");
+    const footer: EvaluationNode = {
+      key: "footer",
+      tagName: "FOOTER",
+      xpath: "/html[1]/body[1]/footer[1]",
+      visible: true,
+      structuralBoundary: true,
+      children: [excludedChild, includedChild],
+    };
+    const store = createMarkingStore({ root: footer }, {
+      rows: [
+        { xpath: footer.xpath, excluded: true },
+        { xpath: excludedChild.xpath, excluded: true, explicit: true },
+        { xpath: includedChild.xpath, excluded: false, explicit: true },
+      ],
+    });
+
+    store.toggle(footer, "exclude");
+
+    expect(store.canonicalSet().rows).toEqual([
+      { xpath: excludedChild.xpath, excluded: true, explicit: true },
+      { xpath: footer.xpath, excluded: false },
+    ]);
+  });
+
+  it("keeps an unexcluded textual leaf visible but lets a descendant-text boundary step aside", () => {
+    const paragraph = leaf("paragraph", "/html[1]/body[1]/footer[1]/p[1]");
+    const footer: EvaluationNode = {
+      key: "footer",
+      tagName: "FOOTER",
+      xpath: "/html[1]/body[1]/footer[1]",
+      visible: true,
+      structuralBoundary: true,
+      children: [paragraph],
+    };
+    const footerStore = createMarkingStore({ root: footer }, {
+      rows: [{ xpath: footer.xpath, excluded: false }],
+    });
+    const button: EvaluationNode = {
+      key: "button",
+      tagName: "BUTTON",
+      xpath: "/html[1]/body[1]/button[1]",
+      visible: true,
+      ownsDirectText: true,
+      structuralBoundary: true,
+    };
+    const buttonStore = createMarkingStore({ root: button }, {
+      rows: [{ xpath: button.xpath, excluded: false }],
+    });
+
+    expect(footerStore.currentEvaluation().overlay.has(footer.xpath)).toBe(false);
+    expect(footerStore.currentEvaluation().overlay.get(paragraph.xpath)).toBe("implicit-include");
+    expect(buttonStore.currentEvaluation().overlay.get(button.xpath)).toBe("implicit-include");
+    expect(buttonStore.rows()).toEqual([{ xpath: button.xpath, excluded: false }]);
+  });
+
   it("removes explicit include boundaries instead of converting them into exclusions", () => {
     const child = leaf("child", "/html[1]/body[1]/section[1]/p[1]");
     const section: EvaluationNode = {

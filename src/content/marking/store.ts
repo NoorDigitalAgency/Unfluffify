@@ -16,7 +16,10 @@ export function applyToggle(
     };
   }
   if (mode === "exclude" && existing?.excluded) {
-    const rows = markSet.rows.filter((row) => row.xpath !== xpath && !isXPathInSubtree(row.xpath, xpath));
+    const rows = markSet.rows.filter((row) =>
+      row.xpath !== xpath &&
+      !(isXPathInSubtree(row.xpath, xpath) && !row.excluded && row.explicit === true)
+    );
     rows.push({ xpath, excluded: false });
     return { rows };
   }

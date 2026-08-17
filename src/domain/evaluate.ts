@@ -44,7 +44,11 @@ function createMarkMap(markSet: CanonicalMarkSet): ReadonlyMap<string, MarkRow> 
   return new Map(markSet.rows.map((row) => [rowKey(row), row]));
 }
 
-function classifyNode(node: EvaluationNode, nearestMark: MarkRow | undefined): Classification | null {
+function classifyNode(
+  node: EvaluationNode,
+  nearestMark: MarkRow | undefined,
+  ownMark: MarkRow | undefined,
+): Classification | null {
   if (node.closedShadow) {
     return "closed-shadow";
   }
@@ -56,6 +60,12 @@ function classifyNode(node: EvaluationNode, nearestMark: MarkRow | undefined): C
   }
   if (nearestMark?.excluded) {
     return "exception";
+  }
+  // A non-explicit include row is an exact-boundary unmark, never a subtree
+  // include. Keep a textual leaf visible so it can be re-excluded, but let a
+  // container whose text lives in descendants step aside for those descendants.
+  if (ownMark && !ownMark.excluded && ownMark.explicit !== true) {
+    return node.visible && node.ownsDirectText ? "implicit-include" : null;
   }
   if (nearestMark && !nearestMark.excluded) {
     return nearestMark.explicit ? "explicit-include" : "implicit-include";
@@ -94,7 +104,7 @@ function walk(
   }
   const ownMark = marks.get(node.xpath);
   const nearestMark = ownMark ?? inheritedNearestMark;
-  const classification = classifyNode(node, nearestMark);
+  const classification = classifyNode(node, nearestMark, ownMark);
   if (classification) {
     overlay.set(node.xpath, classification);
   }

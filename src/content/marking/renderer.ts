@@ -168,6 +168,20 @@ function silentKey(xpath: string, index: number): string {
   return `${xpath}\u0000${index}`;
 }
 
+function hasProjectedExceptionAncestor(
+  xpath: string,
+  classifications: ReadonlyMap<string, Classification>,
+): boolean {
+  let cursor = xpath;
+  while (cursor.lastIndexOf("/") > 0) {
+    cursor = cursor.slice(0, cursor.lastIndexOf("/"));
+    if (classifications.get(cursor) === "exception") {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function createOverlayRenderer(options: OverlayRendererOptions) {
   const releaseStyles = retainOverlayStyles(options.document);
   const root = options.root ?? options.document.createElement("div");
@@ -273,6 +287,9 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   const drawCurrentClassifications = (byXpath: ReadonlyMap<string, OverlayRenderTarget>): void => {
     const used = new Set<string>();
     for (const [xpath, classification] of classificationByXpath) {
+      if (classification === "exception" && hasProjectedExceptionAncestor(xpath, classificationByXpath)) {
+        continue;
+      }
       drawClassification(xpath, classification, byXpath.get(xpath), used);
     }
     finalizeClassification(used);
@@ -389,13 +406,22 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     renderBranch(evaluation: EvaluationResult, byXpath: ReadonlyMap<string, OverlayRenderTarget>): void {
       const affected = new Set(byXpath.keys());
       const used = new Set<string>();
-      for (const [xpath, target] of byXpath) {
+      for (const xpath of byXpath.keys()) {
         const classification = evaluation.overlay.get(xpath);
         if (!classification) {
           classificationByXpath.delete(xpath);
           continue;
         }
         classificationByXpath.set(xpath, classification);
+      }
+      for (const [xpath, target] of byXpath) {
+        const classification = classificationByXpath.get(xpath);
+        if (!classification || (
+          classification === "exception" &&
+          hasProjectedExceptionAncestor(xpath, classificationByXpath)
+        )) {
+          continue;
+        }
         drawClassification(xpath, classification, target, used);
       }
       finalizeClassification(used, affected);

@@ -410,6 +410,30 @@ describe("P6 DOM bridge", () => {
     expect(renderer.root.children.every((layer) => layer.children.length === 0)).toBe(true);
   });
 
+  it("projects one exclusion boundary instead of stacking boxes for every descendant", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const footer = new FakeElement("FOOTER", rect(0, 100, 300, 100));
+    const paragraph = new FakeElement("P", rect(10, 120, 200, 20), "Footer copy");
+    root.ownerDocument = doc;
+    footer.ownerDocument = doc;
+    paragraph.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(footer);
+    footer.appendChild(paragraph);
+    doc.hits = [paragraph, footer, root];
+    const engine = createMarkingEngine(root as unknown as Element);
+
+    engine.renderReadOnly();
+
+    const excludedBoxes = engine.overlayRoot().children
+      .flatMap((layer) => layer.children)
+      .filter((overlay) => overlay.getAttribute("data-uf-overlay-classification") === "exception");
+    expect(excludedBoxes.map((overlay) => overlay.getAttribute("data-uf-overlay-xpath")))
+      .toEqual(["/main[1]/footer[1]"]);
+  });
+
   it("draws an immediate mode-coloured acknowledgement and clears it after the pulse", () => {
     vi.useFakeTimers();
     try {
