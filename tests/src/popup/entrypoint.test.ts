@@ -1863,6 +1863,95 @@ describe("rewrite popup entrypoint", () => {
     }));
   });
 
+  it("retries a publication-unknown outcome with the exact same fenced Hub operation", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = vi.fn();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
+    const publishRequests: Array<Record<string, unknown>> = [];
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "page.context") {
+        return replyFrame(message, {
+          status: "managed_candidate",
+          generation: 1,
+          observedUrl: "https://example.com",
+          draftDisposition: "preserve",
+          environmentKey: "example.com",
+          siteId: 1,
+          baseUrl: "https://example.com",
+          pageKey: "/",
+          pageTypes: [{ pageType: "detail", pages: [{ pageKey: "/", wordsCount: 100 }] }],
+          membershipFingerprint: "membership",
+          assignmentFingerprint: "assignment",
+          conflicts: [],
+          upstreamCode: null,
+          renderModeSet: true,
+          todo: {
+            covered: 1,
+            actionable: 1,
+            pageTypes: [{
+              pageType: "detail",
+              markedCount: 1,
+              current: true,
+              candidates: [{ pageKey: "/", wordsCount: 100, marked: true, current: true }],
+            }],
+          },
+        });
+      }
+      if (message.name === "config.publish") {
+        publishRequests.push(message.payload as Record<string, unknown>);
+        if (publishRequests.length === 1) {
+          return replyFrame(message, {
+            status: "publication_unknown",
+            httpStatus: 409,
+            reason: "mutation response lost",
+          });
+        }
+        const expectedFingerprint = String(publishRequests[0].expectedSelectorsFingerprint);
+        return replyFrame(message, {
+          status: "published",
+          httpStatus: 200,
+          config: {
+            ...backendConfig(),
+            submittedSelectorsFingerprint: expectedFingerprint,
+            operation: { operationId: String(publishRequests[0].operationId), status: "published" },
+          },
+        });
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage, update: vi.fn() },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    props().onOpenLynxChecklist();
+    await waitFor(() => props().lynxChecklist.phase === "ready", "publication checklist readiness");
+
+    props().onSendToLynx();
+    await waitFor(() => props().lynxChecklist.phase === "unknown", "unknown publication outcome");
+    expect(props().lynxChecklist.message).toContain("Retry uses the same operation");
+    expect(publishRequests).toHaveLength(1);
+    expect(publishRequests[0]).toMatchObject({
+      environmentKey: "example.com",
+      siteId: 1,
+      editorSessionId: "editor-1",
+      lockToken: "lock-1",
+      expectedPropertyRevision: 4,
+      expectedFeedRevision: 2,
+      expectedSelectorsFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+
+    props().onSendToLynx();
+    await waitFor(() => props().lynxChecklist.phase === "published", "definitive publication outcome");
+    expect(publishRequests).toHaveLength(2);
+    expect(publishRequests[1]).toEqual(publishRequests[0]);
+    expect(props().lynxChecklist.message).toContain("confirmed by Hub");
+  });
+
   it("keeps debugTabId as an explicit live-browser override", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html?debugTabId=123");
     const render = vi.fn();

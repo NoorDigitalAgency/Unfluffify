@@ -359,6 +359,37 @@ export function startRewriteBackground(): void {
       ? { status: result.status, httpStatus: result.httpStatus, ...(result.data ? { config: result.data } : {}) }
       : { status: result.status, httpStatus: result.httpStatus };
   });
+  bus.onCommand("config.publish", async (request) => {
+    const environmentKey = await services.lynx.currentEnvironmentKey();
+    if (!environmentKey || environmentKey !== request.environmentKey) {
+      return { status: "environment_unconfigured" as const };
+    }
+    const result = await services.lynx.publishConfigSnapshot(request);
+    if ("data" in result) {
+      try {
+        const config = await services.property.applyBackendSave(
+          request.environmentKey,
+          request.siteId,
+          result.data,
+        );
+        return {
+          status: result.status,
+          httpStatus: result.httpStatus,
+          config,
+        };
+      } catch (error) {
+        if (error instanceof PropertySnapshotIntegrityError) {
+          return { status: "integrity_shrink" as const };
+        }
+        throw error;
+      }
+    }
+    return {
+      status: result.status,
+      httpStatus: result.httpStatus,
+      ...(result.reason ? { reason: result.reason } : {}),
+    };
+  });
   bus.onCommand("settings.load", async () => {
     const stored = await services.settings.load();
     return {

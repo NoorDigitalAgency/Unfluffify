@@ -5,6 +5,7 @@ import { DEFAULT_POPUP_VIEW, type PopupView } from "./view";
 import type { PopupPresentation } from "./organ/memory";
 import type { TodoCoverage } from "../domain/schema/todo";
 import type { PageContextResolution } from "../domain/schema/context";
+import type { PublicationChecklistGate } from "../domain/publication";
 
 export type PopupActionAvailability = Readonly<{
   runAi?: boolean;
@@ -104,6 +105,22 @@ export type PopupDiagnostics = Readonly<{
   todo: TodoCoverage;
   log: readonly PopupLogEntry[];
 }>;
+
+export type LynxChecklistState = Readonly<{
+  open: boolean;
+  phase: "idle" | "checking" | "ready" | "publishing" | "unknown" | "error" | "published";
+  gate: PublicationChecklistGate;
+  message: string;
+  operationId: string;
+}>;
+
+export const EMPTY_LYNX_CHECKLIST_STATE: LynxChecklistState = {
+  open: false,
+  phase: "idle",
+  gate: { status: "context_unavailable" },
+  message: "",
+  operationId: "",
+};
 
 export const EMPTY_POPUP_DIAGNOSTICS: PopupDiagnostics = {
   stateName: "",
@@ -334,6 +351,7 @@ export function App({
   diagnostics = EMPTY_POPUP_DIAGNOSTICS,
   settings = EMPTY_POPUP_SETTINGS_FORM,
   credentials = EMPTY_POPUP_CREDENTIALS_FORM,
+  lynxChecklist = EMPTY_LYNX_CHECKLIST_STATE,
   onEnableChange,
   onDesktopPreviewChange,
   onRunAi,
@@ -354,12 +372,17 @@ export function App({
   onOpenConfiguration,
   onConfigurationContinue,
   onOpenRenderMode,
+  onOpenLynxChecklist,
+  onCloseLynxChecklist,
+  onSendToLynx,
+  onChecklistCandidateNavigate,
 }: Readonly<{
   presentation: PopupPresentation;
   view?: PopupView;
   diagnostics?: PopupDiagnostics;
   settings?: PopupSettingsForm;
   credentials?: PopupCredentialsForm;
+  lynxChecklist?: LynxChecklistState;
   onEnableChange?: (enabled: boolean) => void;
   onDesktopPreviewChange?: (enabled: boolean) => void;
   onRunAi?: () => void;
@@ -381,6 +404,10 @@ export function App({
   onOpenConfiguration?: () => void;
   onConfigurationContinue?: () => void;
   onOpenRenderMode?: () => void;
+  onOpenLynxChecklist?: () => void;
+  onCloseLynxChecklist?: () => void;
+  onSendToLynx?: () => void;
+  onChecklistCandidateNavigate?: (pageKey: string) => void;
 }>) {
   const buttons = resolvePopupActionButtons(presentation, {
     runAi: Boolean(onRunAi),
@@ -434,6 +461,28 @@ export function App({
     "unavailable",
     "stale",
   ].includes(diagnostics.todoStatus);
+  const publicationBusy = lynxChecklist.phase === "checking" || lynxChecklist.phase === "publishing";
+  const publicationCanSend = lynxChecklist.gate.status === "ready" &&
+    (lynxChecklist.phase === "ready" || lynxChecklist.phase === "unknown");
+  const checklistGateMessage = lynxChecklist.message || (() => {
+    switch (lynxChecklist.gate.status) {
+      case "no_actionable_page_types":
+        return "Live Pages are not prepared for this site yet. Prepare them before sending to Lynx.";
+      case "missing_page_types":
+        return `Mark at least one page for: ${lynxChecklist.gate.pageTypes.join(", ")}.`;
+      case "no_selectors":
+        return "No saved selectors are available to publish.";
+      case "authority_unavailable":
+      case "revision_mismatch":
+        return "Current lock authority could not be verified. Close and reopen this checklist to retry.";
+      case "config_unavailable":
+        return "The authoritative saved configuration is unavailable.";
+      case "context_unavailable":
+        return "Candidate coverage could not be verified. Close and reopen this checklist to retry.";
+      case "ready":
+        return "Hub will verify the current Lynx selector status before publishing.";
+    }
+  })();
   /** What the radios show: the unconfirmed pick if there is one, otherwise the
    *  mode in force. Null means nothing is selected and there is nothing to set. */
   const selectedRenderMode = diagnostics.renderModePending ?? diagnostics.renderMode;
@@ -690,9 +739,22 @@ export function App({
         ) : null}
 
         {silentView ? (
-          <p className="hint u-color-muted" data-silent-mode="active">
-            The stored selectors are applied to the page. Enable marking to make changes.
-          </p>
+          <>
+            <p className="hint u-color-muted" data-silent-mode="active">
+              The stored selectors are applied to the page. Enable marking to make changes.
+            </p>
+            <div className="button-row">
+              <button
+                id="save-excludes"
+                type="button"
+                disabled={!onOpenLynxChecklist || diagnostics.siteId === null || !renderModeSet}
+                onClick={onOpenLynxChecklist}
+              >
+                <i className="mdi mdi-cloud-upload-outline btn-icon" aria-hidden="true" />
+                Send to Lynx
+              </button>
+            </div>
+          </>
         ) : null}
 
         {/* Unreachable while the resolver picks the view — it sends an unset mode
@@ -1284,6 +1346,98 @@ export function App({
           )}
         </ul>
       </div>
+
+      {lynxChecklist.open ? (
+        <div className="warning-popover lynx-checklist-popover" role="dialog" aria-modal="true" aria-labelledby="lynx-checklist-title">
+          <section className="warning-popover__card lynx-checklist-popover__card">
+            <h2 id="lynx-checklist-title" className="warning-popover__title">Final check before sending to Lynx:</h2>
+            <div className="warning-popover__body lynx-checklist-popover__section">
+              <p className="lynx-checklist-popover__question">Current Live Page coverage:</p>
+              <div className="lynx-checklist-popover__page-types">
+                {diagnostics.todo.pageTypes.map((pageType) => {
+                  const ready = pageType.markedCount >= 1;
+                  return (
+                    <div
+                      key={pageType.pageType}
+                      className={`lynx-checklist-popover__page-type ${ready ? "" : "lynx-checklist-popover__page-type--missing"}`}
+                      data-checklist-page-type={pageType.pageType}
+                    >
+                      <div className="lynx-checklist-popover__page-type-title-row">
+                        <span className="lynx-checklist-popover__page-type-title">{pageType.pageType}</span>
+                        <span className={`lynx-checklist-popover__page-type-status ${ready ? "lynx-checklist-popover__page-type-status--ready" : "lynx-checklist-popover__page-type-status--missing"}`}>
+                          {ready ? "Ready" : "Missing"}
+                        </span>
+                      </div>
+                      <span className="lynx-checklist-popover__page-type-subtitle">{pageType.markedCount}/1 saved</span>
+                      {!ready && pageType.candidates.length > 0 ? (
+                        <div className="lynx-checklist-popover__candidate-hints">
+                          <span className="lynx-checklist-popover__candidate-hints-label">Candidates:</span>
+                          {pageType.candidates.slice(0, 3).map((candidate) => (
+                            <button
+                              key={candidate.pageKey}
+                              type="button"
+                              className="lynx-checklist-popover__candidate-hint"
+                              disabled={!onChecklistCandidateNavigate}
+                              onClick={() => onChecklistCandidateNavigate?.(candidate.pageKey)}
+                            >
+                              {candidate.pageKey}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {publicationBusy ? (
+              <div className="lynx-checklist-popover__checking" role="status" data-publication-phase={lynxChecklist.phase}>
+                <span className="lynx-checklist-popover__spinner" aria-hidden="true" />
+                {lynxChecklist.phase === "publishing"
+                  ? "Checking Lynx selector status..."
+                  : "Checking publication authority..."}
+              </div>
+            ) : (
+              <p
+                className={`u-alert ${lynxChecklist.phase === "published" ? "u-alert-success" : lynxChecklist.phase === "unknown" || lynxChecklist.phase === "error" || lynxChecklist.gate.status !== "ready" ? "u-alert-warn" : "u-alert-success"}`}
+                role="status"
+                data-publication-phase={lynxChecklist.phase}
+              >
+                {checklistGateMessage}
+              </p>
+            )}
+
+            {lynxChecklist.operationId ? (
+              <p className="hint u-font-mono" data-publication-operation={lynxChecklist.operationId}>
+                Operation {lynxChecklist.operationId}
+              </p>
+            ) : null}
+
+            <div className="button-row lynx-checklist-popover__actions">
+              <button
+                id="lynx-checklist-cancel"
+                type="button"
+                className="u-btn-secondary"
+                disabled={!onCloseLynxChecklist || publicationBusy}
+                onClick={onCloseLynxChecklist}
+              >
+                <i className="mdi mdi-arrow-left btn-icon" aria-hidden="true" />
+                Cancel
+              </button>
+              <button
+                id="lynx-checklist-send"
+                type="button"
+                disabled={!onSendToLynx || !publicationCanSend || publicationBusy}
+                onClick={onSendToLynx}
+              >
+                <i className="mdi mdi-send btn-icon" aria-hidden="true" />
+                {lynxChecklist.phase === "unknown" ? "Retry Send to Lynx" : "Send to Lynx"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {curtainKind === "busy" ? (
         <div className="ui-curtain" role="status">

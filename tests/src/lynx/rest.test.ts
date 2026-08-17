@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { ConfigSnapshot, PropertySaveRequest } from "../../../src/storage";
-import { buildOrdinaryConfigSyncBody, loadConfigSnapshot, saveConfigSnapshot } from "../../../src/lynx/rest";
+import type { ConfigSnapshot, PropertyPublishRequest, PropertySaveRequest } from "../../../src/storage";
+import { buildOrdinaryConfigSyncBody, loadConfigSnapshot, publishConfigSnapshot, saveConfigSnapshot } from "../../../src/lynx/rest";
 import { okJson, type JsonRequest } from "../../../src/lynx/transport";
 
 function snapshot(): ConfigSnapshot {
@@ -49,6 +49,19 @@ function saveRequest(): PropertySaveRequest {
   };
 }
 
+function publishRequest(): PropertyPublishRequest {
+  return {
+    operationId: "publish-1",
+    environmentKey: "a.example.com",
+    siteId: 123,
+    editorSessionId: "editor-1",
+    lockToken: "lock-1",
+    expectedPropertyRevision: 4,
+    expectedFeedRevision: 2,
+    expectedSelectorsFingerprint: "a".repeat(64),
+  };
+}
+
 describe("P4 REST config client", () => {
   it("loads and saves the owned target unified snapshot", async () => {
     const calls: JsonRequest[] = [];
@@ -78,5 +91,59 @@ describe("P4 REST config client", () => {
     await expect(loadConfigSnapshot(async () => okJson({}, 404), "a.example.com", 123)).resolves.toEqual({ status: "not_found", httpStatus: 404 });
     await expect(loadConfigSnapshot(async () => okJson({}, 200), "a.example.com", 123)).resolves.toEqual({ status: "invalid", httpStatus: 200 });
     await expect(saveConfigSnapshot(async () => okJson(null), saveRequest())).resolves.toEqual({ status: "empty", httpStatus: 200 });
+  });
+
+  it("publishes only through Hub and accepts only definitive authoritative success", async () => {
+    const calls: JsonRequest[] = [];
+    const published = {
+      ...snapshot(),
+      submittedSelectorsFingerprint: "a".repeat(64),
+      operation: { operationId: "publish-1", status: "published" },
+    };
+    const result = await publishConfigSnapshot(async (request) => {
+      calls.push(request);
+      return okJson(published);
+    }, publishRequest());
+
+    expect(result).toEqual({ status: "published", data: published, httpStatus: 200 });
+    expect(calls).toEqual([{ method: "POST", path: "/publish", body: publishRequest() }]);
+  });
+
+  it("adopts reconciliation snapshots but never calls an ambiguous response success", async () => {
+    const reconciled = {
+      ...snapshot(),
+      propertyRevision: 5,
+      operation: { operationId: "publish-1", status: "reconciliation_required" },
+    };
+    await expect(publishConfigSnapshot(async () => okJson(reconciled, 409), publishRequest()))
+      .resolves.toEqual({ status: "reconciliation_required", data: reconciled, httpStatus: 409 });
+    await expect(publishConfigSnapshot(async () => okJson({ ok: true }, 200), publishRequest()))
+      .resolves.toEqual({ status: "publication_unknown", httpStatus: 200 });
+    await expect(publishConfigSnapshot(async () => {
+      throw new Error("response lost");
+    }, publishRequest())).resolves.toEqual({ status: "publication_unknown", httpStatus: 0 });
+  });
+
+  it("preserves Hub publication-unknown revisions and reason for exact-operation retry", async () => {
+    const unacknowledged = {
+      ...snapshot(),
+      submittedSelectorsFingerprint: "a".repeat(64),
+      operation: { operationId: "publish-1", status: "published" },
+    };
+    await expect(publishConfigSnapshot(async () => okJson({
+      status: "publication_unknown",
+      // Even a stray value on an unknown envelope is not adoptable authority.
+      value: unacknowledged,
+      propertyRevision: 4,
+      feedRevision: 2,
+      duplicateOperation: false,
+      reason: "mutation response lost",
+    }, 409), publishRequest())).resolves.toEqual({
+      status: "publication_unknown",
+      httpStatus: 409,
+      propertyRevision: 4,
+      feedRevision: 2,
+      reason: "mutation response lost",
+    });
   });
 });

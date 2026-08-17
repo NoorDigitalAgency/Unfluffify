@@ -95,12 +95,19 @@ export const PropertySaveRequestSchema = PropertyMutationEnvelopeSchema.extend({
   renderMode: RenderModeSchema,
 }).strict();
 
+export const SelectorFingerprintSchema = z.string().regex(/^[a-f0-9]{64}$/);
+
+export const PropertyPublishRequestSchema = PropertyMutationEnvelopeSchema.extend({
+  expectedSelectorsFingerprint: SelectorFingerprintSchema,
+}).strict();
+
 export type SelectorSet = z.infer<typeof SelectorSetSchema>;
 export type PageMarkingSnapshot = z.infer<typeof PageMarkingSnapshotSchema>;
 export type ConfigSnapshot = z.infer<typeof ConfigSnapshotSchema>;
 export type PropertyMutationEnvelope = z.infer<typeof PropertyMutationEnvelopeSchema>;
 export type PropertySavePage = z.infer<typeof PropertySavePageSchema>;
 export type PropertySaveRequest = z.infer<typeof PropertySaveRequestSchema>;
+export type PropertyPublishRequest = z.infer<typeof PropertyPublishRequestSchema>;
 
 export function parseConfigSnapshot(value: unknown): ConfigSnapshot {
   return ConfigSnapshotSchema.parse(value);

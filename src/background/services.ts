@@ -24,8 +24,7 @@ import { getAiRunResult, getAiRunStatus, startAiRun } from "../lynx/ai";
 import { resolvePropertyContext } from "../lynx/context";
 import { withTokenRotation } from "../lynx/token-rotation";
 import { pollAiJob } from "../lynx/ai-job";
-import { buildCssInfoRequest, buildUpdateScrapingConditionsRequest } from "../lynx/graphql";
-import { loadConfigSnapshot, saveConfigSnapshot } from "../lynx/rest";
+import { loadConfigSnapshot, publishConfigSnapshot, saveConfigSnapshot } from "../lynx/rest";
 import { persistDurableFacts, rehydrateDurableFacts, reDeriveVolatile } from "./persistence";
 import {
   adoptAuthoritativeSnapshot,
@@ -271,6 +270,7 @@ export function createRewriteBackgroundServices(input: Readonly<{
       currentEnvironmentKey,
       loadConfigSnapshot: (environmentKey: string, siteId: number) => loadConfigSnapshot(transport, environmentKey, siteId),
       saveConfigSnapshot: (request: Parameters<typeof saveConfigSnapshot>[1]) => saveConfigSnapshot(transport, request),
+      publishConfigSnapshot: (request: Parameters<typeof publishConfigSnapshot>[1]) => publishConfigSnapshot(transport, request),
       startAiRun: (snapshot: Parameters<typeof startAiRun>[1]) => startAiRun(transport, snapshot),
       getAiRunStatus: (sessionId: string) => getAiRunStatus(transport, sessionId),
       getAiRunResult: (sessionId: string) => getAiRunResult(transport, sessionId),
@@ -366,8 +366,6 @@ export function createRewriteBackgroundServices(input: Readonly<{
           error: record.error,
         };
       },
-      buildCssInfoRequest,
-      buildUpdateScrapingConditionsRequest,
     },
     accounts: {
       /** Whether a token is stored at all. Answered from the settings store

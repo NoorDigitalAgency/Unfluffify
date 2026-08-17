@@ -9,6 +9,7 @@ import { createRoot } from "react-dom/client";
 
 import {
   App,
+  EMPTY_LYNX_CHECKLIST_STATE,
   EMPTY_POPUP_CREDENTIALS_FORM,
   EMPTY_POPUP_SETTINGS_FORM,
   resolvePopupActionButtons,
@@ -20,6 +21,7 @@ import {
   type PopupSettingsField,
   type PopupSettingsForm,
   type RenderModeView,
+  type LynxChecklistState,
 } from "../../popup/App";
 import { createPopupStore } from "../../popup/store";
 import type { BrainSignal } from "../../domain/schema/signals";
@@ -29,7 +31,7 @@ import { createRealmBus } from "../../messaging/realms";
 import { createTabTransport } from "../../messaging/transports/tabs";
 import { createRuntimeTransport } from "../../messaging/transports/runtime";
 import { pullRewriteSignals, type RewriteSignalBus } from "../../messaging/rewrite-signals";
-import type { ConfigSnapshot, PropertySaveRequest, SelectorSet } from "../../storage/config";
+import type { ConfigSnapshot, PropertyPublishRequest, PropertySaveRequest, SelectorSet } from "../../storage/config";
 import { canonicalPageKey } from "../../storage/property-snapshot-authority";
 import type { ConnectionSettings } from "../../storage/settings";
 import type { RenderMode } from "../../domain/schema/property";
@@ -42,6 +44,11 @@ import { resolvePopupLockCopy } from "../../popup/copy";
 import type { TodoCoverage } from "../../domain/schema/todo";
 import type { PageContextResolution } from "../../domain/schema/context";
 import { todoRefreshDue } from "../../popup/todo-recovery";
+import {
+  evaluatePublicationChecklist,
+  savedSelectorsFingerprint,
+  type PublicationAuthority,
+} from "../../domain/publication";
 
 Object.assign(document.documentElement.dataset, { theme: "nordic", themeMode: "system" });
 document.documentElement.style.colorScheme = "light dark";
@@ -140,6 +147,8 @@ const EMPTY_TODO_COVERAGE: TodoCoverage = { covered: 0, actionable: 0, pageTypes
 let todoStatus: PageContextResolution["status"] | "unresolved" = "unresolved";
 let todoCoverage: TodoCoverage = EMPTY_TODO_COVERAGE;
 let todoRefreshedAt = 0;
+let lynxChecklist: LynxChecklistState = EMPTY_LYNX_CHECKLIST_STATE;
+let pendingPublicationRequest: PropertyPublishRequest | null = null;
 const eventLog = createEventLog();
 
 function logEvent(label: string, detail = "", tone: PopupLogEntry["tone"] = "info"): void {
@@ -373,6 +382,8 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   todoStatus = "unresolved";
   todoCoverage = EMPTY_TODO_COVERAGE;
   todoRefreshedAt = 0;
+  lynxChecklist = EMPTY_LYNX_CHECKLIST_STATE;
+  pendingPublicationRequest = null;
   logEvent(sameTabNavigation ? "Page navigated" : "Tab bound", context.url);
   replacePopupStore();
   return { changed: true, sameTabNavigation, key: nextKey };
@@ -481,6 +492,259 @@ async function refreshTodoContext(
   }
   todoStatus = response.data.status;
   todoCoverage = response.data.todo;
+}
+
+function publicationAuthorityOf(lock: LockDirectiveResponse | null): PublicationAuthority | null {
+  if (!lock || !lockAllowsEditing(lock) || !lock.authority || lock.siteId === null) {
+    return null;
+  }
+  return {
+    environmentKey: lock.authority.environmentKey,
+    siteId: lock.siteId,
+    propertyRevision: lock.authority.propertyRevision,
+    feedRevision: lock.authority.feedRevision,
+  };
+}
+
+async function refreshPublicationInputs(): Promise<Readonly<{
+  context: TargetTabContext;
+  requestKey: string;
+  lock: LockDirectiveResponse | null;
+}> | null> {
+  const context = await resolveTargetTabContext();
+  if (!context) {
+    return null;
+  }
+  const requestKey = await handleBoundContext(context);
+  await refreshTodoContext(context, requestKey, { force: true });
+  const lock = await refreshLockDirective(context, requestKey);
+  configLoadAttemptedSiteId = null;
+  await maybeLoadPropertyConfig();
+  if (boundTabId !== context.tabId || boundTabKey !== requestKey) {
+    return null;
+  }
+  return { context, requestKey, lock };
+}
+
+async function openLynxChecklist(): Promise<void> {
+  if (pendingPublicationRequest && lynxChecklist.phase === "unknown") {
+    lynxChecklist = { ...lynxChecklist, open: true };
+    render();
+    return;
+  }
+  lynxChecklist = {
+    open: true,
+    phase: "checking",
+    gate: { status: "context_unavailable" },
+    message: "",
+    operationId: "",
+  };
+  pendingPublicationRequest = null;
+  render();
+  const inputs = await refreshPublicationInputs();
+  if (!lynxChecklist.open) {
+    return;
+  }
+  if (!inputs) {
+    lynxChecklist = {
+      ...lynxChecklist,
+      phase: "error",
+      gate: { status: "context_unavailable" },
+      message: "Candidate coverage and publication authority could not be refreshed.",
+    };
+    render();
+    return;
+  }
+  const gate = evaluatePublicationChecklist({
+    contextStatus: todoStatus,
+    todo: todoCoverage,
+    config: loadedConfig,
+    authority: publicationAuthorityOf(inputs.lock),
+  });
+  lynxChecklist = {
+    open: true,
+    phase: gate.status === "ready" ? "ready" : "error",
+    gate,
+    message: "",
+    operationId: "",
+  };
+  render();
+}
+
+function closeLynxChecklist(): void {
+  lynxChecklist = { ...lynxChecklist, open: false };
+  render();
+}
+
+async function navigateFromLynxChecklist(pageKey: string): Promise<void> {
+  const context = await resolveTargetTabContext();
+  if (!context) {
+    return;
+  }
+  let url: string;
+  try {
+    url = new URL(pageKey, loadedConfig?.baseUrl ?? context.url).toString();
+  } catch {
+    return;
+  }
+  closeLynxChecklist();
+  await getRuntimeBrowser().tabs.update(context.tabId, { url });
+}
+
+function publicationFailureMessage(status: string, reason?: string): string {
+  if (status === "publication_unknown" || status === "operation_pending") {
+    return "Publication outcome is unknown. Retry uses the same operation and verifies Lynx before resending.";
+  }
+  if (status === "todo_incomplete") {
+    return "Saved Live Page coverage is incomplete. Refresh the checklist after marking the missing type.";
+  }
+  if (status === "no_actionable_page_types") {
+    return "Live Pages are not prepared for this site yet. Prepare them before sending to Lynx.";
+  }
+  if (status === "no_selectors") {
+    return "No saved selectors are available to publish.";
+  }
+  if (status === "selector_fingerprint_mismatch" || status === "revision_conflict" || status === "stale_fence") {
+    return "Publication authority changed. Close and reopen this checklist to refresh it.";
+  }
+  return reason ? `Send to Lynx failed: ${reason}` : `Send to Lynx failed: ${status}`;
+}
+
+async function sendToLynx(): Promise<void> {
+  let request = pendingPublicationRequest;
+  let requestKey = boundTabKey;
+  let context: TargetTabContext | null = null;
+  if (!request) {
+    const inputs = await refreshPublicationInputs();
+    if (!inputs) {
+      lynxChecklist = {
+        ...lynxChecklist,
+        phase: "error",
+        gate: { status: "context_unavailable" },
+        message: "Candidate coverage and publication authority could not be refreshed.",
+      };
+      render();
+      return;
+    }
+    context = inputs.context;
+    requestKey = inputs.requestKey;
+    const authority = publicationAuthorityOf(inputs.lock);
+    const gate = evaluatePublicationChecklist({
+      contextStatus: todoStatus,
+      todo: todoCoverage,
+      config: loadedConfig,
+      authority,
+    });
+    if (gate.status !== "ready" || !authority || !loadedConfig || boundTabKey !== requestKey) {
+      lynxChecklist = { ...lynxChecklist, phase: "error", gate, message: "" };
+      render();
+      return;
+    }
+    let expectedSelectorsFingerprint: string;
+    try {
+      expectedSelectorsFingerprint = await savedSelectorsFingerprint(loadedConfig.selectors);
+    } catch {
+      lynxChecklist = {
+        ...lynxChecklist,
+        phase: "error",
+        gate: { status: "config_unavailable" },
+        message: "The saved selector fingerprint could not be computed.",
+      };
+      render();
+      return;
+    }
+    request = {
+      operationId: globalThis.crypto.randomUUID(),
+      environmentKey: authority.environmentKey,
+      siteId: authority.siteId,
+      editorSessionId: inputs.lock!.authority!.editorSessionId,
+      lockToken: inputs.lock!.authority!.lockToken,
+      expectedPropertyRevision: authority.propertyRevision,
+      expectedFeedRevision: authority.feedRevision,
+      expectedSelectorsFingerprint,
+    };
+    pendingPublicationRequest = request;
+  }
+
+  lynxChecklist = {
+    ...lynxChecklist,
+    open: true,
+    phase: "publishing",
+    message: "",
+    operationId: request.operationId,
+  };
+  render();
+  const response = await getPopupBus().request("config.publish", request, { target: "background" });
+  if (requestKey !== boundTabKey) {
+    return;
+  }
+  if (!response.ok) {
+    lynxChecklist = {
+      ...lynxChecklist,
+      phase: "unknown",
+      message: publicationFailureMessage("publication_unknown"),
+    };
+    logEvent("Publication unknown", request.operationId, "warn");
+    render();
+    return;
+  }
+
+  const result = response.data;
+  if (result.config) {
+    loadedConfig = result.config;
+    loadedSelectors = result.config.selectors;
+    silentSelectorsAppliedKey = null;
+    renderModeSource = "backend";
+    configStatus = "ok";
+  }
+  if (result.status === "published" || result.status === "already_published") {
+    pendingPublicationRequest = null;
+    lynxChecklist = {
+      ...lynxChecklist,
+      phase: "published",
+      gate: { status: "ready" },
+      message: result.status === "already_published"
+        ? "Lynx already has these selectors. The authoritative publication is confirmed."
+        : "Selectors were published to Lynx and confirmed by Hub.",
+    };
+    logEvent("Published to Lynx", request.operationId, "success");
+    render();
+    return;
+  }
+  if (result.status === "publication_unknown" || result.status === "operation_pending") {
+    lynxChecklist = {
+      ...lynxChecklist,
+      phase: "unknown",
+      message: publicationFailureMessage(result.status, result.reason),
+    };
+    logEvent("Publication unknown", request.operationId, "warn");
+    render();
+    return;
+  }
+
+  pendingPublicationRequest = null;
+  if (context === null) {
+    context = await resolveTargetTabContext();
+  }
+  if (context) {
+    await refreshTodoContext(context, boundTabKey, { force: true });
+  }
+  const gate = evaluatePublicationChecklist({
+    contextStatus: todoStatus,
+    todo: todoCoverage,
+    config: loadedConfig,
+    authority: null,
+  });
+  lynxChecklist = {
+    ...lynxChecklist,
+    phase: "error",
+    gate,
+    message: result.status === "reconciliation_required"
+      ? "The candidate feed changed and Hub reconciled the saved snapshot. Close and reopen to publish with fresh authority."
+      : publicationFailureMessage(result.status, result.reason),
+  };
+  logEvent("Send to Lynx blocked", result.status, "warn");
+  render();
 }
 
 async function pollCurrentTabSignals(): Promise<void> {
@@ -1827,6 +2091,7 @@ function render(): void {
       diagnostics={buildDiagnostics()}
       settings={settingsForm}
       credentials={credentialsForm}
+      lynxChecklist={lynxChecklist}
       onEnableChange={(enabled) => { void setMarkingEnabled(enabled); }}
       onDesktopPreviewChange={(enabled) => { void setDesktopPreviewEnabled(enabled); }}
       onRunAi={() => { void runAi(); }}
@@ -1847,6 +2112,10 @@ function render(): void {
       onRenderModePick={pickRenderMode}
       onRenderModeCommit={commitRenderMode}
       onRenderModeCancel={cancelRenderMode}
+      onOpenLynxChecklist={() => { void openLynxChecklist(); }}
+      onCloseLynxChecklist={closeLynxChecklist}
+      onSendToLynx={() => { void sendToLynx(); }}
+      onChecklistCandidateNavigate={(pageKey) => { void navigateFromLynxChecklist(pageKey); }}
     />,
   );
 }

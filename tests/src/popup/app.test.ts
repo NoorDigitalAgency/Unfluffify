@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   App,
+  EMPTY_LYNX_CHECKLIST_STATE,
   EMPTY_POPUP_CREDENTIALS_FORM,
   EMPTY_POPUP_DIAGNOSTICS,
   EMPTY_POPUP_SETTINGS_FORM,
@@ -11,6 +12,7 @@ import {
   type PopupCredentialsForm,
   type PopupDiagnostics,
   type PopupSettingsForm,
+  type LynxChecklistState,
 } from "../../../src/popup/App";
 import type { PopupView } from "../../../src/popup/view";
 import { memoryFor } from "../../../src/popup/organ/memory";
@@ -39,6 +41,10 @@ const FULL_HANDLERS = {
   onOpenConfiguration: NOOP,
   onConfigurationContinue: NOOP,
   onOpenRenderMode: NOOP,
+  onOpenLynxChecklist: NOOP,
+  onCloseLynxChecklist: NOOP,
+  onSendToLynx: NOOP,
+  onChecklistCandidateNavigate: NOOP,
 };
 
 function renderApp(
@@ -48,6 +54,7 @@ function renderApp(
   handlers: Record<string, unknown> = FULL_HANDLERS,
   credentials: PopupCredentialsForm = EMPTY_POPUP_CREDENTIALS_FORM,
   view: PopupView = "marking",
+  lynxChecklist: LynxChecklistState = EMPTY_LYNX_CHECKLIST_STATE,
 ): string {
   return renderToStaticMarkup(createElement(App, {
     presentation: memoryFor(state),
@@ -55,6 +62,7 @@ function renderApp(
     diagnostics: { ...EMPTY_POPUP_DIAGNOSTICS, ...diagnostics },
     settings,
     credentials,
+    lynxChecklist,
     ...handlers,
   }));
 }
@@ -830,6 +838,111 @@ describe("popup App surface", () => {
     expect(removed).toContain("Your draft is preserved; checking again every 15 seconds.");
     expect(conflict).toContain("Candidate feed assignments conflict");
     expect(conflict).toContain("Your draft is preserved; checking again every 15 seconds.");
+  });
+
+  it("opens a fail-closed Lynx checklist over canonical saved coverage", () => {
+    const todo = {
+      covered: 1,
+      actionable: 2,
+      pageTypes: [
+        {
+          pageType: "article",
+          markedCount: 1,
+          current: false,
+          candidates: [{ pageKey: "/article", wordsCount: 100, marked: true, current: false }],
+        },
+        {
+          pageType: "detail",
+          markedCount: 0,
+          current: true,
+          candidates: [
+            { pageKey: "/d/1", wordsCount: 100, marked: false, current: true },
+            { pageKey: "/d/2", wordsCount: 120, marked: false, current: false },
+            { pageKey: "/d/3", wordsCount: 140, marked: false, current: false },
+            { pageKey: "/d/4", wordsCount: 160, marked: false, current: false },
+          ],
+        },
+      ],
+    };
+    const markup = renderApp(
+      SILENT,
+      { ...SIGNED_IN, siteId: 42, renderMode: "rendered", todoStatus: "managed_candidate", todo },
+      EMPTY_POPUP_SETTINGS_FORM,
+      FULL_HANDLERS,
+      EMPTY_POPUP_CREDENTIALS_FORM,
+      "silent",
+      {
+        open: true,
+        phase: "error",
+        gate: { status: "missing_page_types", pageTypes: ["detail"] },
+        message: "",
+        operationId: "",
+      },
+    );
+
+    expect(markup).toContain('id="save-excludes"');
+    expect(markup).toContain('role="dialog"');
+    expect(markup).toContain("Final check before sending to Lynx:");
+    expect(markup).toContain("Current Live Page coverage:");
+    expect(markup).toContain("Mark at least one page for: detail.");
+    expect(markup).toContain('id="lynx-checklist-cancel"');
+    expect(markup).toMatch(/id="lynx-checklist-send"[^>]*disabled/);
+    expect(markup).toContain("/d/1");
+    expect(markup).toContain("/d/3");
+    expect(markup.match(/\/d\/3/g)?.length).toBe((markup.match(/\/d\/4/g)?.length ?? 0) + 1);
+  });
+
+  it("shows publication unknown as an exact-operation retry, never as success", () => {
+    const markup = renderApp(
+      SILENT,
+      {
+        ...SIGNED_IN,
+        siteId: 42,
+        renderMode: "rendered",
+        todoStatus: "managed_candidate",
+        todo: { covered: 1, actionable: 1, pageTypes: [] },
+      },
+      EMPTY_POPUP_SETTINGS_FORM,
+      FULL_HANDLERS,
+      EMPTY_POPUP_CREDENTIALS_FORM,
+      "silent",
+      {
+        open: true,
+        phase: "unknown",
+        gate: { status: "ready" },
+        message: "Publication outcome is unknown. Retry uses the same operation and verifies Lynx before resending.",
+        operationId: "publish-unknown-1",
+      },
+    );
+
+    expect(markup).toContain('data-publication-phase="unknown"');
+    expect(markup).toContain("Publication outcome is unknown");
+    expect(markup).toContain("Retry Send to Lynx");
+    expect(markup).toContain('data-publication-operation="publish-unknown-1"');
+    expect(markup).not.toContain("Selectors were published to Lynx");
+    expect(markup).not.toMatch(/id="lynx-checklist-send"[^>]*disabled/);
+  });
+
+  it("disables Send while Hub performs the cssInfo and mutation gate", () => {
+    const markup = renderApp(
+      SILENT,
+      { ...SIGNED_IN, siteId: 42, renderMode: "rendered" },
+      EMPTY_POPUP_SETTINGS_FORM,
+      FULL_HANDLERS,
+      EMPTY_POPUP_CREDENTIALS_FORM,
+      "silent",
+      {
+        open: true,
+        phase: "publishing",
+        gate: { status: "ready" },
+        message: "",
+        operationId: "publish-1",
+      },
+    );
+
+    expect(markup).toContain("Checking Lynx selector status...");
+    expect(markup).toMatch(/id="lynx-checklist-send"[^>]*disabled/);
+    expect(markup).toMatch(/id="lynx-checklist-cancel"[^>]*disabled/);
   });
 });
 

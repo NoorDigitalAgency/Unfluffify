@@ -428,6 +428,31 @@ describe("rewrite background services", () => {
     });
   });
 
+  it("exposes Hub publication without exposing direct cssInfo or GraphQL mutation calls", async () => {
+    const requests: JsonRequest[] = [];
+    const services = createRewriteBackgroundServices({
+      transport: async (request) => {
+        requests.push(request);
+        return { status: 503, body: null };
+      },
+    });
+
+    await expect(services.lynx.publishConfigSnapshot({
+      operationId: "publish-1",
+      environmentKey: "stage.example.com",
+      siteId: 42,
+      editorSessionId: "editor-1",
+      lockToken: "lock-1",
+      expectedPropertyRevision: 4,
+      expectedFeedRevision: 2,
+      expectedSelectorsFingerprint: "a".repeat(64),
+    })).resolves.toEqual({ status: "publication_unknown", httpStatus: 503 });
+
+    expect(requests).toEqual([expect.objectContaining({ method: "POST", path: "/publish" })]);
+    expect(services.lynx).not.toHaveProperty("buildCssInfoRequest");
+    expect(services.lynx).not.toHaveProperty("buildUpdateScrapingConditionsRequest");
+  });
+
   it("resolves authoritative property context through Hub", async () => {
     const requests: JsonRequest[] = [];
     const transport = async (request: JsonRequest): Promise<JsonResponse> => {

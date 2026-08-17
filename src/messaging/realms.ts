@@ -16,11 +16,12 @@ import {
   LockRoleSchema,
 } from "../domain/schema/facts";
 import { RenderModeSchema } from "../domain/schema/property";
-import { ConfigSnapshotSchema, PageKeySchema, PropertySaveRequestSchema, SelectorSetSchema } from "../storage/config";
+import { ConfigSnapshotSchema, PageKeySchema, PropertyPublishRequestSchema, PropertySaveRequestSchema, SelectorSetSchema } from "../storage/config";
 import { MarkRowSchema } from "../domain/schema/marking";
 import { ConnectionSettingsSchema } from "../storage/settings";
 import { PageContextResolutionSchema } from "../domain/schema/context";
 import { TodoCoverageSchema } from "../domain/schema/todo";
+import { PublicationCommandStatusSchema, PublicationSnapshotStatusSchema } from "../domain/schema/publication";
 
 const LockDirectiveRequestSchema = z.object({
   tabId: z.number().int().nonnegative(),
@@ -230,6 +231,19 @@ export const applicationContract = defineContract({
           config: ConfigSnapshotSchema.optional(),
         }),
       ]),
+    },
+    "config.publish": {
+      request: PropertyPublishRequestSchema,
+      response: z.object({
+        status: PublicationCommandStatusSchema,
+        httpStatus: z.number().optional(),
+        reason: z.string().optional(),
+        config: ConfigSnapshotSchema.optional(),
+      }).superRefine((value, context) => {
+        if (PublicationSnapshotStatusSchema.safeParse(value.status).success && !value.config) {
+          context.addIssue({ code: "custom", message: "authoritative publication outcomes require config" });
+        }
+      }),
     },
     /* The JWT never crosses this boundary: the popup reads and writes only the
        endpoint fields, and learns about the credential as a boolean. */

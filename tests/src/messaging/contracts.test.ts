@@ -154,4 +154,27 @@ describe("corrective messaging application contracts", () => {
       },
     }).success).toBe(true);
   });
+
+  it("requires fenced Hub publication and an authoritative snapshot for definitive outcomes", () => {
+    const publish = applicationContract.commands["config.publish"];
+    const request = {
+      operationId: "publish-1",
+      environmentKey: "stage.example.com",
+      siteId: 42,
+      editorSessionId: "editor-1",
+      lockToken: "lock-1",
+      expectedPropertyRevision: 4,
+      expectedFeedRevision: 2,
+      expectedSelectorsFingerprint: "a".repeat(64),
+    };
+
+    expect(publish.request.parse(request)).toEqual(request);
+    expect(publish.request.safeParse({ ...request, expectedSelectorsFingerprint: "not-a-hash" }).success).toBe(false);
+    expect(publish.response.safeParse({ status: "published" }).success).toBe(false);
+    expect(publish.response.safeParse({
+      status: "publication_unknown",
+      httpStatus: 409,
+      reason: "response lost",
+    }).success).toBe(true);
+  });
 });
