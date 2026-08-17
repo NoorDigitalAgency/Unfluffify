@@ -505,11 +505,27 @@ describe("P6 DOM bridge", () => {
 
     const view = createDomBridgeView(root as unknown as Element);
     const engine = createMarkingEngine(root as unknown as Element);
+    engine.renderReadOnly();
+    const submission = engine.buildSubmission({
+      baseUrl: "https://example.com",
+      renderMode: "rendered",
+      pageUrl: "https://example.com/page",
+    });
+    const closedOverlay = engine.overlayRoot().children.flatMap((layer) => layer.children).find((child) =>
+      child.getAttribute("data-uf-overlay-xpath")?.includes("__closed-shadow")
+    );
 
     expect([...view.byXpath.keys()]).toContain("/section[1]/div[1]");
     expect([...view.byXpath.keys()].some((xpath) => xpath.includes("__closed-shadow"))).toBe(true);
     expect(engine.resolveAtPoint(10, 10, "exclude")).toBeNull();
     expect(engine.captureRenderedHtml()).toBe("<section><div>Content</div></section>");
+    expect(closedOverlay?.className).toBe("uf-overlay-closed-shadow");
+    expect(submission.pages[0]?.renderedXPaths).toEqual([
+      { xpath: "/section[1]/div[1]", excluded: false },
+    ]);
+    expect(submission.pages[0]?.renderedXPaths.every((row) =>
+      /^\/(?:[A-Za-z][A-Za-z0-9:_-]*\[[1-9]\d*\])(?:\/[A-Za-z][A-Za-z0-9:_-]*\[[1-9]\d*\])*$/.test(row.xpath)
+    )).toBe(true);
   });
 
   it("captures flattened open shadow HTML while skipping extension and closed-shadow hosts", () => {
