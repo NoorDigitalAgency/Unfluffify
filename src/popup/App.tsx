@@ -6,6 +6,15 @@ import type { PopupPresentation } from "./organ/memory";
 import type { TodoCoverage } from "../domain/schema/todo";
 import type { PageContextResolution } from "../domain/schema/context";
 import type { PublicationChecklistGate } from "../domain/publication";
+import {
+  DEFAULT_POPUP_APPEARANCE,
+  THEME_OPTIONS,
+  cycleTheme,
+  themeLabel,
+  type PopupAppearance,
+  type ThemeId,
+  type ThemeMode,
+} from "./theme";
 
 export type PopupActionAvailability = Readonly<{
   runAi?: boolean;
@@ -352,6 +361,7 @@ export function App({
   settings = EMPTY_POPUP_SETTINGS_FORM,
   credentials = EMPTY_POPUP_CREDENTIALS_FORM,
   lynxChecklist = EMPTY_LYNX_CHECKLIST_STATE,
+  appearance = DEFAULT_POPUP_APPEARANCE,
   onEnableChange,
   onDesktopPreviewChange,
   onRunAi,
@@ -377,6 +387,8 @@ export function App({
   onCloseLynxChecklist,
   onSendToLynx,
   onChecklistCandidateNavigate,
+  onThemeChange,
+  onThemeModeChange,
 }: Readonly<{
   presentation: PopupPresentation;
   view?: PopupView;
@@ -384,6 +396,7 @@ export function App({
   settings?: PopupSettingsForm;
   credentials?: PopupCredentialsForm;
   lynxChecklist?: LynxChecklistState;
+  appearance?: PopupAppearance;
   onEnableChange?: (enabled: boolean) => void;
   onDesktopPreviewChange?: (enabled: boolean) => void;
   onRunAi?: () => void;
@@ -410,7 +423,10 @@ export function App({
   onCloseLynxChecklist?: () => void;
   onSendToLynx?: () => void;
   onChecklistCandidateNavigate?: (pageKey: string) => void;
+  onThemeChange?: (theme: ThemeId) => void;
+  onThemeModeChange?: (mode: ThemeMode) => void;
 }>) {
+  const [themeMenuOpen, setThemeMenuOpen] = React.useState(false);
   const buttons = resolvePopupActionButtons(presentation, {
     runAi: Boolean(onRunAi),
     save: Boolean(onSave),
@@ -1411,6 +1427,121 @@ export function App({
       </details>
       ) : null}
 
+      {configurationView ? (
+      <details className="collapsible config-appearance-collapsible" open data-appearance-panel="true">
+        <summary>
+          <i className="mdi mdi-palette-outline btn-icon" aria-hidden="true" />
+          Appearance
+          <span className="hint u-ms-auto">{themeLabel(appearance.theme)} · {appearance.mode}</span>
+        </summary>
+        <div className="collapsible-body config-appearance-body">
+          <div className="config-appearance-row">
+            <div className="config-appearance-control">
+              <span id="theme-field-label" className="config-appearance-label control-label">Theme</span>
+              <div className="theme-control-row">
+                <button
+                  id="theme-previous"
+                  type="button"
+                  className="theme-nav-button"
+                  title="Previous theme"
+                  aria-label="Previous theme"
+                  disabled={!onThemeChange}
+                  onClick={() => onThemeChange?.(cycleTheme(appearance.theme, -1))}
+                >
+                  <i className="mdi mdi-chevron-left btn-icon" aria-hidden="true" />
+                </button>
+                <div className="theme-dropdown">
+                  <button
+                    id="theme-dropdown-toggle"
+                    type="button"
+                    className="theme-dropdown__toggle"
+                    aria-haspopup="listbox"
+                    aria-expanded={themeMenuOpen}
+                    disabled={!onThemeChange}
+                    onClick={() => setThemeMenuOpen((open) => !open)}
+                    onKeyDown={(event) => {
+                      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                        event.preventDefault();
+                        onThemeChange?.(cycleTheme(appearance.theme, event.key === "ArrowDown" ? 1 : -1));
+                      } else if (event.key === "Escape") {
+                        setThemeMenuOpen(false);
+                      }
+                    }}
+                  >
+                    <span className="theme-dropdown__label">{themeLabel(appearance.theme)}</span>
+                    <ThemePalette theme={appearance.theme} />
+                    <i
+                      className={`mdi mdi-chevron-down btn-icon theme-dropdown__caret ${themeMenuOpen ? "theme-dropdown__caret--open" : ""}`}
+                      aria-hidden="true"
+                    />
+                  </button>
+                  {themeMenuOpen ? (
+                    <div className="section-menu theme-dropdown__menu" role="listbox" aria-label="Theme">
+                      {THEME_OPTIONS.map((option) => {
+                        const selected = option.id === appearance.theme;
+                        return (
+                          <button
+                            key={option.id}
+                            type="button"
+                            role="option"
+                            aria-selected={selected}
+                            className={selected ? "is-selected" : ""}
+                            onClick={() => {
+                              onThemeChange?.(option.id);
+                              setThemeMenuOpen(false);
+                            }}
+                          >
+                            <span className="theme-dropdown__label">{option.label}</span>
+                            <ThemePalette theme={option.id} />
+                            <i className={`mdi ${selected ? "mdi-check" : ""} btn-icon`} aria-hidden="true" />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+                <button
+                  id="theme-next"
+                  type="button"
+                  className="theme-nav-button"
+                  title="Next theme"
+                  aria-label="Next theme"
+                  disabled={!onThemeChange}
+                  onClick={() => onThemeChange?.(cycleTheme(appearance.theme, 1))}
+                >
+                  <i className="mdi mdi-chevron-right btn-icon" aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+
+            <div className="config-appearance-control config-appearance-control--mode">
+              <span id="theme-mode-field-label" className="config-appearance-label control-label">Mode</span>
+              <div className="theme-mode-buttons" role="group" aria-label="Theme mode">
+                {([
+                  { mode: "system", label: "System", icon: "mdi-theme-light-dark" },
+                  { mode: "light", label: "Light", icon: "mdi-white-balance-sunny" },
+                  { mode: "dark", label: "Dark", icon: "mdi-weather-night" },
+                ] as const).map((option) => (
+                  <button
+                    id={`theme-mode-${option.mode}`}
+                    key={option.mode}
+                    type="button"
+                    className={`theme-mode-button ${appearance.mode === option.mode ? "theme-mode-button--active" : ""}`}
+                    aria-pressed={appearance.mode === option.mode}
+                    disabled={!onThemeModeChange}
+                    onClick={() => onThemeModeChange?.(option.mode)}
+                  >
+                    <i className={`mdi ${option.icon} btn-icon`} aria-hidden="true" />
+                    <span>{option.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </details>
+      ) : null}
+
       <div className="trace-events-panel" data-event-log="true">
         <div className="trace-events-panel__header">
           <i className="mdi mdi-history trace-events-panel__icon" aria-hidden="true" />
@@ -1543,5 +1674,16 @@ export function App({
 
       <output data-silent-mode={presentation.silentModeActive} data-temp-disabled={presentation.temporarilyDisabledOverlay} />
     </main>
+  );
+}
+
+function ThemePalette({ theme }: Readonly<{ theme: ThemeId }>) {
+  return (
+    <span className="theme-palette" data-theme={theme} aria-hidden="true">
+      <span className="theme-palette__swatch theme-palette__swatch--1" />
+      <span className="theme-palette__swatch theme-palette__swatch--2" />
+      <span className="theme-palette__swatch theme-palette__swatch--3" />
+      <span className="theme-palette__swatch theme-palette__swatch--4" />
+    </span>
   );
 }

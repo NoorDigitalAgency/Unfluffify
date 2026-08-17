@@ -46,6 +46,8 @@ const FULL_HANDLERS = {
   onCloseLynxChecklist: NOOP,
   onSendToLynx: NOOP,
   onChecklistCandidateNavigate: NOOP,
+  onThemeChange: NOOP,
+  onThemeModeChange: NOOP,
 };
 
 function renderApp(
@@ -173,6 +175,20 @@ describe("popup App surface", () => {
     }
     // And a way back, once the setup is complete enough to leave.
     expect(configuration).toContain('id="config-header-back"');
+  });
+
+  it("exposes the 16-theme appearance controls on Configuration", () => {
+    const markup = renderConfigurationView(SIGNED_IN);
+
+    expect(markup).toContain('data-appearance-panel="true"');
+    expect(markup).toContain('id="theme-dropdown-toggle"');
+    expect(markup).toContain("Nordic");
+    expect(markup).toContain('id="theme-previous"');
+    expect(markup).toContain('id="theme-next"');
+    expect(markup).toContain('id="theme-mode-system"');
+    expect(markup).toContain('id="theme-mode-light"');
+    expect(markup).toContain('id="theme-mode-dark"');
+    expect(markup).toMatch(/id="theme-mode-system"[^>]*aria-pressed="true"/);
   });
 
   it("gives the render mode, the marking session and silent mode a view each", () => {

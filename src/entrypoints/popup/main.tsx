@@ -26,7 +26,12 @@ import {
 import { createPopupStore } from "../../popup/store";
 import type { BrainSignal } from "../../domain/schema/signals";
 import type { AiRunPayloadSnapshot } from "../../domain/schema/submission";
-import { browser, getInstalledBrowserApi } from "../../common/browser";
+import {
+  browser,
+  callBrowserApi,
+  callBrowserApiVoid,
+  getInstalledBrowserApi,
+} from "../../common/browser";
 import { createRealmBus } from "../../messaging/realms";
 import { createTabTransport } from "../../messaging/transports/tabs";
 import { createRuntimeTransport } from "../../messaging/transports/runtime";
@@ -49,6 +54,18 @@ import {
   savedSelectorsFingerprint,
   type PublicationAuthority,
 } from "../../domain/publication";
+import {
+  DEFAULT_POPUP_APPEARANCE,
+  GLOBAL_THEME_KEY,
+  GLOBAL_THEME_MODE_KEY,
+  applyPopupAppearance,
+  isThemeId,
+  isThemeMode,
+  parsePopupAppearance,
+  type PopupAppearance,
+  type ThemeId,
+  type ThemeMode,
+} from "../../popup/theme";
 
 Object.assign(document.documentElement.dataset, { theme: "nordic", themeMode: "system" });
 document.documentElement.style.colorScheme = "light dark";
@@ -94,6 +111,7 @@ let hasStoredToken = false;
 let authState: PopupAuthState = "unknown";
 let authBusy = false;
 let authMessage = "";
+let appearance: PopupAppearance = DEFAULT_POPUP_APPEARANCE;
 /** Kept outside the store so the preference survives a tab rebind. */
 let desktopPreviewEnabled = false;
 /** What the tab is currently emulating, so the standing posture can be re-asserted
@@ -276,6 +294,88 @@ type TargetTabContext = Readonly<{
 
 function getRuntimeBrowser() {
   return getInstalledBrowserApi() ?? browser;
+}
+
+function appearanceStorageAvailable(): boolean {
+  return Boolean(getRuntimeBrowser().storage?.sync);
+}
+
+function adoptAppearance(next: PopupAppearance): void {
+  if (appearance.theme === next.theme && appearance.mode === next.mode) {
+    return;
+  }
+  appearance = next;
+  applyPopupAppearance(document.documentElement, appearance);
+  render();
+}
+
+async function loadAppearance(): Promise<void> {
+  if (!appearanceStorageAvailable()) {
+    return;
+  }
+  const stored = await callBrowserApi<Record<string, unknown>>(
+    (api, callback) => api.storage.sync.get([GLOBAL_THEME_KEY, GLOBAL_THEME_MODE_KEY], callback),
+    async (api) => await api.storage.sync.get([GLOBAL_THEME_KEY, GLOBAL_THEME_MODE_KEY]),
+  );
+  adoptAppearance(parsePopupAppearance(stored));
+}
+
+async function persistAppearance(next: PopupAppearance): Promise<void> {
+  if (!appearanceStorageAvailable()) {
+    return;
+  }
+  const stored = {
+    [GLOBAL_THEME_KEY]: next.theme,
+    [GLOBAL_THEME_MODE_KEY]: next.mode,
+  };
+  await callBrowserApiVoid(
+    (api, callback) => api.storage.sync.set(stored, callback),
+    async (api) => await api.storage.sync.set(stored),
+  );
+}
+
+function updateTheme(theme: ThemeId): void {
+  if (!isThemeId(theme)) {
+    return;
+  }
+  const next = { ...appearance, theme };
+  adoptAppearance(next);
+  void persistAppearance(next).catch((error: unknown) => {
+    logEvent("Theme not saved", error instanceof Error ? error.message : String(error), "warn");
+    render();
+  });
+}
+
+function updateThemeMode(mode: ThemeMode): void {
+  if (!isThemeMode(mode)) {
+    return;
+  }
+  const next = { ...appearance, mode };
+  adoptAppearance(next);
+  void persistAppearance(next).catch((error: unknown) => {
+    logEvent("Theme mode not saved", error instanceof Error ? error.message : String(error), "warn");
+    render();
+  });
+}
+
+function installAppearanceStorageListener(): void {
+  const onChanged = getRuntimeBrowser().storage?.onChanged;
+  if (!onChanged) {
+    return;
+  }
+  onChanged.addListener((changes, areaName) => {
+    if (areaName !== "sync" || (!changes[GLOBAL_THEME_KEY] && !changes[GLOBAL_THEME_MODE_KEY])) {
+      return;
+    }
+    adoptAppearance(parsePopupAppearance({
+      [GLOBAL_THEME_KEY]: changes[GLOBAL_THEME_KEY]
+        ? changes[GLOBAL_THEME_KEY].newValue
+        : appearance.theme,
+      [GLOBAL_THEME_MODE_KEY]: changes[GLOBAL_THEME_MODE_KEY]
+        ? changes[GLOBAL_THEME_MODE_KEY].newValue
+        : appearance.mode,
+    }));
+  });
 }
 
 function getPopupBus(): RewriteSignalBus {
@@ -2126,6 +2226,7 @@ function render(): void {
       settings={settingsForm}
       credentials={credentialsForm}
       lynxChecklist={lynxChecklist}
+      appearance={appearance}
       onEnableChange={(enabled) => { void setMarkingEnabled(enabled); }}
       onDesktopPreviewChange={(enabled) => { void setDesktopPreviewEnabled(enabled); }}
       onRunAi={() => { void runAi(); }}
@@ -2151,6 +2252,8 @@ function render(): void {
       onCloseLynxChecklist={closeLynxChecklist}
       onSendToLynx={() => { void sendToLynx(); }}
       onChecklistCandidateNavigate={(pageKey) => { void navigateFromLynxChecklist(pageKey); }}
+      onThemeChange={updateTheme}
+      onThemeModeChange={updateThemeMode}
     />,
   );
 }
@@ -2160,6 +2263,10 @@ if (typeof window !== "undefined") {
 }
 unsubscribeStore = store.subscribe(render);
 render();
+installAppearanceStorageListener();
+void loadAppearance().catch((error: unknown) => {
+  console.error("[Unfluffify][rewrite] Unable to load appearance", error);
+});
 void loadStoredSettings().catch((error: unknown) => {
   console.error("[Unfluffify][rewrite] Unable to load stored settings", error);
 });

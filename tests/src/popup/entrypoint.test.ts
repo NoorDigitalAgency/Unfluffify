@@ -340,6 +340,60 @@ describe("rewrite popup entrypoint", () => {
     ].map((expected) => expect.objectContaining(expected)));
   });
 
+  it("loads, applies, persists, and live-syncs the global appearance", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = vi.fn();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const runtime = makeRuntime(async (message) => replyFrame(message, []));
+    let storageListener: ((
+      changes: Record<string, { newValue?: unknown }>,
+      areaName: string,
+    ) => void) | null = null;
+    const storageGet = vi.fn((_keys: string[], callback: (value: Record<string, unknown>) => void) => {
+      callback({ globalTheme: "plum", globalThemeMode: "dark" });
+    });
+    const storageSet = vi.fn((_value: Record<string, unknown>, callback: () => void) => callback());
+    const storageAddListener = vi.fn((listener) => {
+      storageListener = listener;
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: makeTabsSendMessage(() => ({ ok: true, active: false })) },
+      storage: {
+        sync: { get: storageGet, set: storageSet },
+        onChanged: { addListener: storageAddListener },
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await waitFor(
+      () => document.documentElement.dataset.theme === "plum",
+      "stored appearance",
+    );
+    expect(document.documentElement.dataset).toMatchObject({ theme: "plum", themeMode: "dark" });
+    expect(document.documentElement.style.colorScheme).toBe("dark");
+    expect(render.mock.calls.at(-1)?.[0].props.appearance).toEqual({ theme: "plum", mode: "dark" });
+
+    render.mock.calls.at(-1)?.[0].props.onThemeChange("ocean");
+    await flushEntrypointWork();
+    expect(document.documentElement.dataset.theme).toBe("ocean");
+    expect(storageSet).toHaveBeenCalledWith({ globalTheme: "ocean", globalThemeMode: "dark" }, expect.any(Function));
+
+    render.mock.calls.at(-1)?.[0].props.onThemeModeChange("light");
+    await flushEntrypointWork();
+    expect(document.documentElement.dataset.themeMode).toBe("light");
+    expect(document.documentElement.style.colorScheme).toBe("light");
+    expect(storageSet).toHaveBeenCalledWith({ globalTheme: "ocean", globalThemeMode: "light" }, expect.any(Function));
+
+    storageListener?.({
+      globalTheme: { newValue: "neutral" },
+      globalThemeMode: { newValue: "system" },
+    }, "sync");
+    expect(document.documentElement.dataset).toMatchObject({ theme: "neutral", themeMode: "system" });
+    expect(document.documentElement.style.colorScheme).toBe("light dark");
+  });
+
   it("returns the tab to mobile when marking ends rather than releasing it", async () => {
     // Leaving marking does not end the extension's presence on the tab, so the
     // posture holds. Releasing emulation there left the page at desktop width while
