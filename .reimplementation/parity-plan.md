@@ -332,7 +332,7 @@ single box overlapping unmarked siblings.
 |----|----|-------|-------|---------------------|
 | ☑ | **F1** | Background static-HTML fetcher (`fetchStaticPageHtml` equivalent). **Landed in `c115cb41`.** | — | A static property's snapshot carries `rawHtml`. |
 | ☑ | **F2** | Offscreen DOMParser XPath refinement for static mode. **Landed in `5d785813`.** | F1 | Static-mode rows align with the raw HTML. |
-| ☐ | **F3** | Corpus assembly at run time (D3): merge all stored pages with the current page's live markings. | A2, F2 | The AI payload contains every stored page plus the current one. |
+| ☑ | **F3** | Corpus assembly at run time (D3): merge all stored pages with the current page's live markings. **Landed in `62d943c5`.** | A2, F2 | The AI payload contains every stored page plus the current one. |
 
 ### Phase G — emulation, cutover, release
 
