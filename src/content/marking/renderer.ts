@@ -51,6 +51,9 @@ function applyOverlayStyle(overlay: HTMLElement, classification: Classification)
 export function createOverlayRenderer(options: OverlayRendererOptions) {
   const root = options.root ?? options.document.createElement("div");
   let hoverOverlay: HTMLElement | null = null;
+  let hoverElement: Element | null = null;
+  const overlaysByXpath = new Map<string, HTMLElement>();
+  const silentOverlaysByXpath = new Map<string, HTMLElement>();
   root.setAttribute("data-uf-extension-ui", "true");
   root.className = "uf-marking-layer-root";
   root.style.position = "fixed";
@@ -78,6 +81,9 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       root.appendChild(layer);
     }
     hoverOverlay = null;
+    hoverElement = null;
+    overlaysByXpath.clear();
+    silentOverlaysByXpath.clear();
   };
   const placeOverlay = (overlay: HTMLElement, rect: DOMRect | { left: number; top: number; width: number; height: number }): void => {
     overlay.style.left = `${rect.left}px`;
@@ -85,30 +91,68 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     overlay.style.width = `${rect.width}px`;
     overlay.style.height = `${rect.height}px`;
   };
+  const positionOverlay = (overlay: HTMLElement, element: Element | undefined): boolean => {
+    if (!element || !isPaintReachable(element, options.document)) {
+      overlay.style.display = "none";
+      return false;
+    }
+    overlay.style.display = "";
+    placeOverlay(overlay, element.getBoundingClientRect());
+    return true;
+  };
+  const createClassificationOverlay = (xpath: string, classification: Classification, element: Element): void => {
+    if (!isPaintReachable(element, options.document)) {
+      return;
+    }
+    const overlay = options.document.createElement("div");
+    overlay.setAttribute("data-uf-extension-ui", "true");
+    overlay.className = overlayClassFor(classification);
+    overlay.setAttribute("data-uf-overlay-xpath", xpath);
+    overlay.style.position = "absolute";
+    overlay.style.pointerEvents = "none";
+    applyOverlayStyle(overlay, classification);
+    placeOverlay(overlay, element.getBoundingClientRect());
+    overlaysByXpath.set(xpath, overlay);
+    layers[LAYER_BY_CLASSIFICATION[classification]]?.appendChild(overlay);
+  };
+  mountLayers();
   return {
     root,
     render(evaluation: EvaluationResult, byXpath: ReadonlyMap<string, Element>): void {
       mountLayers();
       for (const [xpath, classification] of evaluation.overlay) {
         const element = byXpath.get(xpath);
-        if (!element || !isPaintReachable(element, options.document)) {
+        if (!element) {
           continue;
         }
-        const rect = element.getBoundingClientRect();
-        const overlay = options.document.createElement("div");
-        overlay.setAttribute("data-uf-extension-ui", "true");
-        overlay.className = overlayClassFor(classification);
-        overlay.setAttribute("data-uf-overlay-xpath", xpath);
-        overlay.style.position = "absolute";
-        overlay.style.pointerEvents = "none";
-        applyOverlayStyle(overlay, classification);
-        placeOverlay(overlay, rect);
-        layers[LAYER_BY_CLASSIFICATION[classification]]?.appendChild(overlay);
+        createClassificationOverlay(xpath, classification, element);
+      }
+    },
+    renderBranch(evaluation: EvaluationResult, byXpath: ReadonlyMap<string, Element>): void {
+      for (const [xpath, element] of byXpath) {
+        overlaysByXpath.get(xpath)?.remove();
+        overlaysByXpath.delete(xpath);
+        const classification = evaluation.overlay.get(xpath);
+        if (classification) {
+          createClassificationOverlay(xpath, classification, element);
+        }
+      }
+    },
+    reposition(byXpath: ReadonlyMap<string, Element>): void {
+      for (const [xpath, overlay] of overlaysByXpath) {
+        positionOverlay(overlay, byXpath.get(xpath));
+      }
+      for (const [xpath, overlay] of silentOverlaysByXpath) {
+        positionOverlay(overlay, byXpath.get(xpath));
+      }
+      if (hoverOverlay) {
+        positionOverlay(hoverOverlay, hoverElement ?? undefined);
       }
     },
     setHover(element: Element | null, xpath = ""): void {
       hoverOverlay?.remove();
       hoverOverlay = null;
+      hoverElement = null;
       if (!element || !isPaintReachable(element, options.document)) {
         return;
       }
@@ -123,9 +167,14 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       overlay.style.boxSizing = "border-box";
       placeOverlay(overlay, element.getBoundingClientRect());
       hoverOverlay = overlay;
+      hoverElement = element;
       layers[10]?.appendChild(overlay);
     },
     renderSilentHighlights(xpaths: readonly string[], byXpath: ReadonlyMap<string, Element>): void {
+      for (const overlay of silentOverlaysByXpath.values()) {
+        overlay.remove();
+      }
+      silentOverlaysByXpath.clear();
       for (const xpath of xpaths) {
         const element = byXpath.get(xpath);
         if (!element || !isPaintReachable(element, options.document)) {
@@ -142,6 +191,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         overlay.style.border = "1px solid rgba(59, 130, 246, 0.8)";
         overlay.style.backgroundColor = "rgba(59, 130, 246, 0.12)";
         placeOverlay(overlay, rect);
+        silentOverlaysByXpath.set(xpath, overlay);
         layers[7]?.appendChild(overlay);
       }
     },

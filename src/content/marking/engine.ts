@@ -158,6 +158,7 @@ export function createMarkingEngine(rootElement: Element) {
   const renderer = createOverlayRenderer({ document: rootElement.ownerDocument });
   let observerCleanup: (() => void) | null = null;
   let renderScheduled = false;
+  let scheduledWork: "geometry" | "structural" | null = null;
   let silentHighlightsArmed = false;
 
   const refreshBridge = (): void => {
@@ -165,6 +166,20 @@ export function createMarkingEngine(rootElement: Element) {
     store = createMarkingStore({ root: bridge.root }, mergeDefaultExclusions(bridge.root, store.canonicalSet()));
   };
   const byXpathElements = (): Map<string, Element> => new Map([...bridge.byXpath].map(([xpath, value]) => [xpath, value.element]));
+  const byXpathElementsForBranch = (branchRoot: EvaluationNode): Map<string, Element> => {
+    const elements = new Map<string, Element>();
+    const collect = (node: EvaluationNode): void => {
+      const element = bridge.byXpath.get(node.xpath)?.element;
+      if (element) {
+        elements.set(node.xpath, element);
+      }
+      for (const child of node.children ?? []) {
+        collect(child);
+      }
+    };
+    collect(branchRoot);
+    return elements;
+  };
   const renderSilent = (): readonly string[] => {
     const byXpath = byXpathElements();
     const geometryByXpath = new Map([...byXpath].map(([xpath, element]) => [xpath, geometryForElement(element)]));
@@ -178,7 +193,10 @@ export function createMarkingEngine(rootElement: Element) {
       renderSilent();
     }
   };
-  const scheduleRender = (): void => {
+  const scheduleRender = (work: "geometry" | "structural"): void => {
+    if (work === "structural" || scheduledWork === null) {
+      scheduledWork = work;
+    }
     if (renderScheduled) {
       return;
     }
@@ -186,8 +204,18 @@ export function createMarkingEngine(rootElement: Element) {
     const view = rootElement.ownerDocument.defaultView;
     const run = (): void => {
       renderScheduled = false;
-      refreshBridge();
-      renderCurrent();
+      const nextWork = scheduledWork;
+      scheduledWork = null;
+      if (nextWork === "structural") {
+        refreshBridge();
+        renderCurrent();
+        return;
+      }
+      const byXpath = byXpathElements();
+      renderer.reposition(byXpath);
+      if (silentHighlightsArmed) {
+        renderSilent();
+      }
     };
     if (view?.requestAnimationFrame) {
       view.requestAnimationFrame(run);
@@ -221,26 +249,27 @@ export function createMarkingEngine(rootElement: Element) {
         if (records.every(isExtensionOnlyMutation)) {
           return;
         }
-        scheduleRender();
+        scheduleRender("structural");
       });
       observer.observe(rootElement, { childList: true, subtree: true, attributes: true, characterData: true });
       cleanups.push(() => observer.disconnect());
     }
     if (view?.ResizeObserver) {
-      const observer = new view.ResizeObserver(scheduleRender);
+      const observer = new view.ResizeObserver(() => scheduleRender("geometry"));
       observer.observe(rootElement);
       cleanups.push(() => observer.disconnect());
     }
     if (view?.IntersectionObserver) {
-      const observer = new view.IntersectionObserver(scheduleRender);
+      const observer = new view.IntersectionObserver(() => scheduleRender("geometry"));
       observer.observe(rootElement);
       cleanups.push(() => observer.disconnect());
     }
-    view?.addEventListener?.("scroll", scheduleRender, true);
-    view?.addEventListener?.("resize", scheduleRender);
+    const scheduleGeometryRender = (): void => scheduleRender("geometry");
+    view?.addEventListener?.("scroll", scheduleGeometryRender, true);
+    view?.addEventListener?.("resize", scheduleGeometryRender);
     cleanups.push(() => {
-      view?.removeEventListener?.("scroll", scheduleRender, true);
-      view?.removeEventListener?.("resize", scheduleRender);
+      view?.removeEventListener?.("scroll", scheduleGeometryRender, true);
+      view?.removeEventListener?.("resize", scheduleGeometryRender);
     });
     return () => cleanups.forEach((cleanup) => cleanup());
   };
@@ -311,8 +340,11 @@ export function createMarkingEngine(rootElement: Element) {
       return findEvaluationNode(bridge.root, resolved.xpath);
     },
     toggle(node: EvaluationNode, mode: Exclude<MarkMode, "disabled" | "passthrough">): void {
-      store.toggle(node, mode);
-      renderCurrent();
+      const toggled = store.toggle(node, mode);
+      renderer.renderBranch(toggled, byXpathElementsForBranch(toggled.branchRoot));
+      if (silentHighlightsArmed) {
+        renderSilent();
+      }
     },
     renderReadOnly(): void {
       renderCurrent();

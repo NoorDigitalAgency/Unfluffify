@@ -71,10 +71,19 @@ export function createMarkingStore(domView: DomView, initialMarks: CanonicalMark
     currentEvaluation(): EvaluationResult {
       return result;
     },
-    toggle(branchRoot: EvaluationNode, mode: Exclude<MarkMode, "disabled" | "passthrough">): EvaluationResult {
-      const removesExcludedAncestor = mode === "exclude" && marks.rows.some((row) =>
-        row.excluded && row.xpath !== branchRoot.xpath && isXPathInSubtree(branchRoot.xpath, row.xpath)
-      );
+    toggle(
+      branchRoot: EvaluationNode,
+      mode: Exclude<MarkMode, "disabled" | "passthrough">,
+    ): EvaluationResult & Readonly<{ branchRoot: EvaluationNode }> {
+      const excludedAncestorRows = mode === "exclude"
+        ? marks.rows
+          .filter((row) => row.excluded && row.xpath !== branchRoot.xpath && isXPathInSubtree(branchRoot.xpath, row.xpath))
+          .sort((left, right) => left.xpath.length - right.xpath.length)
+        : [];
+      const outermostExcludedAncestor = excludedAncestorRows[0]
+        ? findNodeByXpath(domView.root, excludedAncestorRows[0].xpath)
+        : null;
+      const evaluationRoot = outermostExcludedAncestor ?? branchRoot;
       const unexcludeAncestorXpaths = mode === "exclude"
         ? new Set(
           marks.rows
@@ -87,19 +96,15 @@ export function createMarkingStore(domView: DomView, initialMarks: CanonicalMark
         )
         : new Set<string>();
       marks = applyToggle(marks, branchRoot.xpath, mode, { unexcludeAncestorXpaths });
-      if (removesExcludedAncestor) {
-        result = evaluate(marks, domView);
-        return result;
-      }
-      const inheritedAncestorMark = nearestAncestorMark(marks, branchRoot.xpath);
-      const inheritedExcludedAncestor = nearestExcludedAncestorMark(marks, branchRoot.xpath);
+      const inheritedAncestorMark = nearestAncestorMark(marks, evaluationRoot.xpath);
+      const inheritedExcludedAncestor = nearestExcludedAncestorMark(marks, evaluationRoot.xpath);
       result = evaluateBranch(result, {
-        root: branchRoot,
+        root: evaluationRoot,
         canonicalMarks: marks,
         inheritedAncestorMark,
         inheritedSubmittedExcludedAncestor: inheritedExcludedAncestor?.xpath,
       });
-      return result;
+      return { ...result, branchRoot: evaluationRoot };
     },
     rows(): readonly MarkRow[] {
       return result.rows;

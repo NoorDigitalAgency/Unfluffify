@@ -16,6 +16,17 @@ export type DomBridgeView = Readonly<{
   byXpath: ReadonlyMap<string, DomBridgeNode>;
 }>;
 
+type DomBridgePass = Readonly<{
+  childrenByElement: WeakMap<Element, Element[]>;
+  geometryByElement: WeakMap<Element, VisibilityGeometry>;
+  landmarkCountByElement: WeakMap<Element, number>;
+  styleByElement: WeakMap<Element, CSSStyleDeclaration>;
+  styleHiddenByElement: WeakMap<Element, boolean>;
+  ariaHiddenByElement: WeakMap<Element, boolean>;
+  srOnlyByElement: WeakMap<Element, boolean>;
+  interactionGatedByElement: WeakMap<Element, boolean>;
+}>;
+
 function ownsDirectText(element: Element): boolean {
   return flattenedChildNodes(element).some((node) =>
     node.nodeType === 3 && (node.textContent ?? "").trim().length > 0
@@ -33,7 +44,11 @@ function depthFromBody(xpath: string): number {
   return Math.max(0, xpath.split("/").length - 3);
 }
 
-function landmarkCount(element: Element): number {
+function landmarkCount(element: Element, pass: DomBridgePass): number {
+  const cached = pass.landmarkCountByElement.get(element);
+  if (cached !== undefined) {
+    return cached;
+  }
   const tag = element.tagName.toUpperCase();
   const role = element.getAttribute("role");
   const own = ["HEADER", "MAIN", "FOOTER", "NAV"].includes(tag) ||
@@ -43,9 +58,11 @@ function landmarkCount(element: Element): number {
     role === "navigation"
     ? 1
     : 0;
-  return own + elementChildren(element)
+  const count = own + elementChildren(element, pass)
     .filter((child) => !isExtensionUi(child) && !isClosedShadowHost(child))
-    .reduce((count, child) => count + landmarkCount(child), 0);
+    .reduce((total, child) => total + landmarkCount(child, pass), 0);
+  pass.landmarkCountByElement.set(element, count);
+  return count;
 }
 
 function structuralRoleFor(element: Element): "section" | "article" | "card-group" | "list" | "table" | "generic" {
@@ -57,23 +74,44 @@ function structuralRoleFor(element: Element): "section" | "article" | "card-grou
   return "generic";
 }
 
-function isStructuralBoundary(element: Element, xpath: string): boolean {
+function isStructuralBoundary(
+  element: Element,
+  xpath: string,
+  landmarks: number,
+  structuralRole: ReturnType<typeof structuralRoleFor>,
+): boolean {
   const tag = element.tagName.toUpperCase();
   return isDomainStructuralBoundary({
     key: xpath,
     tagName: tag,
     depthFromBody: depthFromBody(xpath),
     visible: true,
-    structuralRole: structuralRoleFor(element),
-    landmarkCount: landmarkCount(element),
-    pageShell: tag === "HTML" || tag === "BODY" || tag === "MAIN" || landmarkCount(element) >= 2,
+    structuralRole,
+    landmarkCount: landmarks,
+    pageShell: tag === "HTML" || tag === "BODY" || tag === "MAIN" || landmarks >= 2,
   });
 }
 
-function geometryFor(element: Element): VisibilityGeometry {
-  const rect = element.getBoundingClientRect();
+function styleFor(element: Element, pass: DomBridgePass): CSSStyleDeclaration | undefined {
+  const cached = pass.styleByElement.get(element);
+  if (cached) {
+    return cached;
+  }
   const style = element.ownerDocument.defaultView?.getComputedStyle(element);
-  return {
+  if (style) {
+    pass.styleByElement.set(element, style);
+  }
+  return style;
+}
+
+function geometryFor(element: Element, pass: DomBridgePass): VisibilityGeometry {
+  const cached = pass.geometryByElement.get(element);
+  if (cached) {
+    return cached;
+  }
+  const rect = element.getBoundingClientRect();
+  const style = styleFor(element, pass);
+  const geometry: VisibilityGeometry = {
     rect: {
       left: rect.left,
       top: rect.top,
@@ -87,10 +125,10 @@ function geometryFor(element: Element): VisibilityGeometry {
         display: style.display,
         visibility: style.visibility,
         opacity: Number(style.opacity),
-        hidden: hasStyleHiddenAncestor(element),
-        ariaHidden: hasHiddenAncestor(element, "aria-hidden", "true"),
-        srOnly: hasClassInAncestors(element, /\b(?:sr-only|visually-hidden)\b/),
-        interactionGated: hasHiddenAncestor(element, "aria-expanded", "false"),
+        hidden: hasStyleHiddenAncestor(element, pass),
+        ariaHidden: hasHiddenAncestor(element, "aria-hidden", "true", pass.ariaHiddenByElement),
+        srOnly: hasClassInAncestors(element, /\b(?:sr-only|visually-hidden)\b/, pass.srOnlyByElement),
+        interactionGated: hasHiddenAncestor(element, "aria-expanded", "false", pass.interactionGatedByElement),
         overflowY: style.overflowY,
         clientHeight: (element as HTMLElement).clientHeight,
         scrollHeight: (element as HTMLElement).scrollHeight,
@@ -98,6 +136,8 @@ function geometryFor(element: Element): VisibilityGeometry {
       }
       : undefined,
   };
+  pass.geometryByElement.set(element, geometry);
+  return geometry;
 }
 
 function composedParent(element: Element): Element | null {
@@ -108,44 +148,53 @@ function composedParent(element: Element): Element | null {
   return root && "host" in root ? root.host as Element : null;
 }
 
-function hasHiddenAncestor(element: Element, attribute: string, value: string): boolean {
-  let cursor: Element | null = element;
-  while (cursor) {
-    if (cursor.getAttribute(attribute) === value) {
-      return true;
-    }
-    cursor = composedParent(cursor);
+function hasHiddenAncestor(
+  element: Element,
+  attribute: string,
+  value: string,
+  cache: WeakMap<Element, boolean>,
+): boolean {
+  const cached = cache.get(element);
+  if (cached !== undefined) {
+    return cached;
   }
-  return false;
+  const hidden = element.getAttribute(attribute) === value || Boolean(
+    composedParent(element) && hasHiddenAncestor(composedParent(element)!, attribute, value, cache),
+  );
+  cache.set(element, hidden);
+  return hidden;
 }
 
-function hasClassInAncestors(element: Element, pattern: RegExp): boolean {
-  let cursor: Element | null = element;
-  while (cursor) {
-    if (pattern.test(cursor.className)) {
-      return true;
-    }
-    cursor = composedParent(cursor);
+function hasClassInAncestors(
+  element: Element,
+  pattern: RegExp,
+  cache: WeakMap<Element, boolean>,
+): boolean {
+  const cached = cache.get(element);
+  if (cached !== undefined) {
+    return cached;
   }
-  return false;
+  const parent = composedParent(element);
+  const matched = pattern.test(element.className) || Boolean(parent && hasClassInAncestors(parent, pattern, cache));
+  cache.set(element, matched);
+  return matched;
 }
 
-function hasStyleHiddenAncestor(element: Element): boolean {
-  let cursor: Element | null = element;
-  while (cursor) {
-    const style = cursor.ownerDocument.defaultView?.getComputedStyle(cursor);
-    if (
-      Boolean((cursor as HTMLElement).hidden) ||
-      style?.display === "none" ||
-      style?.visibility === "hidden" ||
-      style?.visibility === "collapse" ||
-      Number(style?.opacity ?? 1) === 0
-    ) {
-      return true;
-    }
-    cursor = composedParent(cursor);
+function hasStyleHiddenAncestor(element: Element, pass: DomBridgePass): boolean {
+  const cached = pass.styleHiddenByElement.get(element);
+  if (cached !== undefined) {
+    return cached;
   }
-  return false;
+  const style = styleFor(element, pass);
+  const parent = composedParent(element);
+  const hidden = Boolean((element as HTMLElement).hidden) ||
+    style?.display === "none" ||
+    style?.visibility === "hidden" ||
+    style?.visibility === "collapse" ||
+    Number(style?.opacity ?? 1) === 0 ||
+    Boolean(parent && hasStyleHiddenAncestor(parent, pass));
+  pass.styleHiddenByElement.set(element, hidden);
+  return hidden;
 }
 
 function isExtensionUi(element: Element): boolean {
@@ -156,9 +205,15 @@ function isExtensionUi(element: Element): boolean {
     element.id.startsWith("unfluffify-");
 }
 
-function elementChildren(element: Element): Element[] {
+function elementChildren(element: Element, pass?: DomBridgePass): Element[] {
+  const cached = pass?.childrenByElement.get(element);
+  if (cached) {
+    return cached;
+  }
   const shadowRoot = (element as Element & { shadowRoot?: ShadowRoot | null }).shadowRoot;
-  return [...Array.from(shadowRoot?.children ?? []), ...Array.from(element.children)];
+  const children = [...Array.from(shadowRoot?.children ?? []), ...Array.from(element.children)];
+  pass?.childrenByElement.set(element, children);
+  return children;
 }
 
 function xpathTag(element: Element): string {
@@ -175,6 +230,7 @@ function buildNode(
   xpath: string,
   byElement: Map<Element, DomBridgeNode>,
   byXpath: Map<string, DomBridgeNode>,
+  pass: DomBridgePass,
 ): DomBridgeNode | null {
   if (isExtensionUi(element)) {
     return null;
@@ -192,13 +248,13 @@ function buildNode(
   if (!closedShadow && !immutable) {
     const seenTags = new Map<string, number>();
     let closedShadowIndex = 0;
-    for (const child of elementChildren(element)) {
+    for (const child of elementChildren(element, pass)) {
       if (isExtensionUi(child)) {
         continue;
       }
       if (isClosedShadowHost(child)) {
         closedShadowIndex += 1;
-        const built = buildNode(child, xpathNode, `${xpath}/__closed-shadow[${closedShadowIndex}]`, byElement, byXpath);
+        const built = buildNode(child, xpathNode, `${xpath}/__closed-shadow[${closedShadowIndex}]`, byElement, byXpath, pass);
         if (built) {
           childEvaluations.push(built.evaluationNode);
         }
@@ -207,7 +263,7 @@ function buildNode(
       const tag = xpathTag(child);
       const nextIndex = (seenTags.get(tag) ?? 0) + 1;
       seenTags.set(tag, nextIndex);
-      const built = buildNode(child, xpathNode, `${xpath}/${tag}[${nextIndex}]`, byElement, byXpath);
+      const built = buildNode(child, xpathNode, `${xpath}/${tag}[${nextIndex}]`, byElement, byXpath, pass);
       if (built) {
         childNodes.push(built.xpathNode);
         childEvaluations.push(built.evaluationNode);
@@ -215,16 +271,18 @@ function buildNode(
     }
   }
   xpathNode.children = childNodes;
+  const landmarks = landmarkCount(element, pass);
+  const structuralRole = structuralRoleFor(element);
   const evaluationNode: EvaluationNode = {
     key: xpath,
     tagName,
     xpath,
-    visible: isUserVisible(element, geometryFor(element)),
+    visible: isUserVisible(element, geometryFor(element, pass)),
     ownsDirectText: ownsDirectText(element),
-    structuralBoundary: isStructuralBoundary(element, xpath),
-    structuralRole: structuralRoleFor(element),
-    pageShell: tagName === "HTML" || tagName === "BODY" || tagName === "MAIN" || landmarkCount(element) >= 2,
-    landmarkCount: landmarkCount(element),
+    structuralBoundary: isStructuralBoundary(element, xpath, landmarks, structuralRole),
+    structuralRole,
+    pageShell: tagName === "HTML" || tagName === "BODY" || tagName === "MAIN" || landmarks >= 2,
+    landmarkCount: landmarks,
     chrome: isExtensionUi(element),
     immutable,
     closedShadow,
@@ -239,7 +297,17 @@ function buildNode(
 export function createDomBridgeView(rootElement: Element): DomBridgeView {
   const byElement = new Map<Element, DomBridgeNode>();
   const byXpath = new Map<string, DomBridgeNode>();
-  const root = buildNode(rootElement, null, `/${xpathTag(rootElement)}[1]`, byElement, byXpath);
+  const pass: DomBridgePass = {
+    childrenByElement: new WeakMap(),
+    geometryByElement: new WeakMap(),
+    landmarkCountByElement: new WeakMap(),
+    styleByElement: new WeakMap(),
+    styleHiddenByElement: new WeakMap(),
+    ariaHiddenByElement: new WeakMap(),
+    srOnlyByElement: new WeakMap(),
+    interactionGatedByElement: new WeakMap(),
+  };
+  const root = buildNode(rootElement, null, `/${xpathTag(rootElement)}[1]`, byElement, byXpath, pass);
   if (!root) {
     throw new Error("Unable to build marking DOM bridge view for root element");
   }

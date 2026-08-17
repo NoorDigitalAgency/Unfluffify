@@ -26,6 +26,8 @@ class FakeElement {
   className = "";
   id = "";
   hidden = false;
+  rectReadCount = 0;
+  roleReadCount = 0;
 
   constructor(readonly tagName: string, readonly rect: Rect, text = "") {
     if (text) {
@@ -50,7 +52,31 @@ class FakeElement {
   }
 
   replaceChildren(): void {
+    for (const child of this.children) {
+      child.parentElement = null;
+    }
     this.children.splice(0);
+    for (let index = this.childNodes.length - 1; index >= 0; index -= 1) {
+      if (this.childNodes[index] instanceof FakeElement) {
+        this.childNodes.splice(index, 1);
+      }
+    }
+  }
+
+  remove(): void {
+    const parent = this.parentElement;
+    if (!parent) {
+      return;
+    }
+    const childIndex = parent.children.indexOf(this);
+    if (childIndex >= 0) {
+      parent.children.splice(childIndex, 1);
+    }
+    const nodeIndex = parent.childNodes.indexOf(this);
+    if (nodeIndex >= 0) {
+      parent.childNodes.splice(nodeIndex, 1);
+    }
+    this.parentElement = null;
   }
 
   setAttribute(name: string, value: string): void {
@@ -58,6 +84,9 @@ class FakeElement {
   }
 
   getAttribute(name: string): string | null {
+    if (name === "role") {
+      this.roleReadCount += 1;
+    }
     return this.attributes.get(name) ?? null;
   }
 
@@ -81,6 +110,7 @@ class FakeElement {
   }
 
   getBoundingClientRect(): Rect {
+    this.rectReadCount += 1;
     return this.rect;
   }
 }
@@ -99,12 +129,14 @@ class FakeDocument {
   };
   hits: FakeElement[] = [];
   pointHits: ((x: number, y: number) => FakeElement[]) | null = null;
+  createElementCount = 0;
 
   constructor() {
     this.documentElement = this.createElement("html");
   }
 
   createElement(tagName: string): FakeElement {
+    this.createElementCount += 1;
     const element = new FakeElement(tagName.toUpperCase(), {
       left: 0,
       top: 0,
@@ -299,6 +331,25 @@ describe("P6 DOM bridge", () => {
     expect(view.root.structuralBoundary).toBe(false);
   });
 
+  it("memoizes landmark and geometry reads for one bridge pass", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("SECTION", rect(0, 0, 300, 800), "Root");
+    root.ownerDocument = doc;
+    const elements = [root];
+    let parent = root;
+    for (let index = 0; index < 40; index += 1) {
+      const child = new FakeElement("DIV", rect(0, index * 20, 280, 20), `Level ${index}`);
+      parent.appendChild(child);
+      elements.push(child);
+      parent = child;
+    }
+
+    createDomBridgeView(root as unknown as Element);
+
+    expect(elements.reduce((total, element) => total + element.rectReadCount, 0)).toBe(elements.length);
+    expect(elements.reduce((total, element) => total + element.roleReadCount, 0)).toBeLessThanOrEqual(elements.length * 2);
+  });
+
   it("ignores stripped automation landmarks when computing page-shell metadata", () => {
     const doc = new FakeDocument();
     const wrapper = new FakeElement("SECTION", rect(0, 0, 200, 200), "Content wrapper");
@@ -416,6 +467,94 @@ describe("P6 DOM bridge", () => {
     expect(animationFrames).toHaveLength(1);
     animationFrames[0]?.();
     expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[2]", excluded: false });
+  });
+
+  it("coalesces a scroll storm into geometry-only work", () => {
+    const doc = new FakeDocument();
+    const animationFrames: Array<() => void> = [];
+    const listeners = new Map<string, () => void>();
+    Object.assign(doc.defaultView, {
+      requestAnimationFrame(callback: () => void) {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      },
+      addEventListener(type: string, listener: () => void) {
+        listeners.set(type, listener);
+      },
+      removeEventListener(type: string) {
+        listeners.delete(type);
+      },
+    });
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const first = new FakeElement("P", rect(0, 0, 120, 20), "First");
+    root.ownerDocument = doc;
+    first.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(first);
+    doc.hits = [first, root];
+    const engine = createMarkingEngine(root as unknown as Element);
+    engine.renderReadOnly();
+
+    const second = new FakeElement("P", rect(0, 30, 120, 20), "Second");
+    second.ownerDocument = doc;
+    root.appendChild(second);
+    for (let index = 0; index < 100; index += 1) {
+      listeners.get("scroll")?.();
+    }
+
+    expect(animationFrames).toHaveLength(1);
+    animationFrames[0]?.();
+    expect(second.rectReadCount).toBe(0);
+    expect(engine.rows()).not.toContainEqual({ xpath: "/main[1]/p[2]", excluded: false });
+  });
+
+  it("re-renders only the toggled branch", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 600, 1000));
+    const left = new FakeElement("ARTICLE", rect(0, 0, 280, 100));
+    const leftText = new FakeElement("P", rect(10, 10, 240, 20), "Left");
+    const right = new FakeElement("ARTICLE", rect(300, 0, 280, 1000));
+    const rightTexts: FakeElement[] = [];
+    for (const element of [root, left, leftText, right]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    left.appendChild(leftText);
+    root.appendChild(left);
+    root.appendChild(right);
+    for (let index = 0; index < 40; index += 1) {
+      const paragraph = new FakeElement("P", rect(310, index * 22, 240, 20), `Right ${index}`);
+      paragraph.ownerDocument = doc;
+      right.appendChild(paragraph);
+      rightTexts.push(paragraph);
+    }
+    doc.pointHits = (x, y) => {
+      if (x < 300) {
+        return [leftText, left, root];
+      }
+      const paragraph = rightTexts.find((element) =>
+        y >= element.rect.top && y <= element.rect.bottom
+      );
+      return paragraph ? [paragraph, right, root] : [right, root];
+    };
+    const engine = createMarkingEngine(root as unknown as Element);
+    engine.renderReadOnly();
+    const rightOverlayXpath = "/main[1]/article[2]";
+    const overlays = (): FakeElement[] => engine.overlayRoot().children
+      .flatMap((layer) => layer.children)
+      .filter((overlay) => overlay.getAttribute("data-uf-overlay-xpath")?.startsWith(rightOverlayXpath));
+    const rightOverlaysBefore = overlays();
+    const createdBefore = doc.createElementCount;
+
+    const target = engine.resolveAtPoint(20, 15, "exclude");
+    expect(target?.xpath).toBe("/main[1]/article[1]/p[1]");
+    engine.toggle(target!, "exclude");
+
+    expect(overlays()).toEqual(rightOverlaysBefore);
+    expect(rightOverlaysBefore.length).toBeGreaterThan(20);
+    expect(doc.createElementCount - createdBefore).toBe(1);
   });
 
   it("matches the legacy 052c Shift-widening golden fixture", () => {
