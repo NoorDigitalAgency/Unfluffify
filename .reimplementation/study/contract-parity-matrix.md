@@ -55,7 +55,7 @@ slice below.
 | C-SUB-4 | PASS | `study/legacy-locked-contracts.md:270` | Positional schema plus capture alignment guard: `src/domain/schema/marking.ts:5`, `tests/src/content/marking/marking.test.ts:459`. |
 | C-SUB-5 | PASS | `study/legacy-locked-contracts.md:272` | Full authoritative corpus overlay, static raw HTML, and raw-DOM refinement: `src/storage/property-snapshot-authority.ts:81`, `src/offscreen/xpath-refinement.ts:114`, `tests/src/background/startup.test.ts:144`. |
 | C-SUB-6 | PASS | `study/legacy-locked-contracts.md:278` | `ai-run-started` is reported before capture/refinement (`src/entrypoints/popup/main.tsx:1934`); polling remains 5s (`src/lynx/ai-job.ts:106`). |
-| C-SUB-7 | FAIL | `study/legacy-locked-contracts.md:284` | Exported constants (`src/lynx/ai.ts:7`) are bypassed by hard-coded `480_000`/`5_000` in popup, service, and poller (`src/entrypoints/popup/main.tsx:1937`, `src/background/services.ts:308`, `src/lynx/ai-job.ts:105`). Remediation: **G2c**. |
+| C-SUB-7 | PASS | `study/legacy-locked-contracts.md:284` | The exported timing authority (`src/lynx/ai.ts:7`) drives popup deadline, durable run deadline, and poller defaults (`src/entrypoints/popup/main.tsx:1938`, `src/background/services.ts:308`, `src/lynx/ai-job.ts:107`); `tests/src/lynx/ai-timing-authority.test.ts:14` rejects numeric duplicates. Landed in `cdc7b40a`. |
 | C-PERF-1 | PASS | `study/legacy-locked-contracts.md:290` | One activation path reveals/freezes before first overlay and blocks through content memory: `src/entrypoints/content-loader.content.ts:1350`, `tests/src/content/organ.test.ts:72`. |
 | C-PERF-2 | PASS | `study/legacy-locked-contracts.md:294` | Toggle evaluates/renders only its branch; structural mutations use the full path: `src/content/marking/engine.ts:373`, `src/content/marking/engine.ts:250`, `tests/src/content/marking/dom-bridge.test.ts:676`. |
 | C-PERF-3 | PASS | `study/legacy-locked-contracts.md:301` | Per-pass weak caches and geometry-only scroll work: `src/content/marking/dom-view.ts:19`, `src/content/marking/engine.ts:199`, `tests/src/content/marking/dom-bridge.test.ts:340`, `tests/src/content/marking/dom-bridge.test.ts:587`. |
@@ -134,7 +134,7 @@ slice below.
 |---|---|---|
 | **G2a — exact boundary truth and collapsed projection** | C-MARK-8, C-MARK-10 | **Landed in `9e95b1e2`.** Unmark now changes only the exact boundary, preserves descendant excludes, cleans dependent include punches, retains textual leaf boundaries, and collapses ordinary descendant projection below an excluded boundary. |
 | **G2b — generated whitespace and accessibility reality** | C-MARK-12, C-TGT-8 | **Landed in `2c73af7b`.** Silent-whitespace rows now live only in evaluation/submission, disappear on refresh when stale, and stay out of overlays/targeting; ambiguous a11y metadata is resolved by composed paint reachability. |
-| **G2c — AI timing authority** | C-SUB-7 | Import one timeout/poll definition into popup deadline, run-record deadline, and poll defaults; add a guard that rejects numeric duplicates. |
+| **G2c — AI timing authority** | C-SUB-7 | **Landed in `cdc7b40a`.** One exported timeout/poll definition now drives popup deadline, durable run deadline, and poll defaults; a source guard rejects numeric duplicates. |
 
 ## Fail-open / fail-closed API audit
 
@@ -155,7 +155,7 @@ fail-closed.
 
 ## Totals
 
-- PASS: 100
+- PASS: 101
 - PARTIAL: 11
-- FAIL: 1
+- FAIL: 0
 - Inventory: 112 / 112
