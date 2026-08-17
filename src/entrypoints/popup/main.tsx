@@ -49,6 +49,7 @@ import { resolvePopupLockCopy } from "../../popup/copy";
 import type { TodoCoverage } from "../../domain/schema/todo";
 import type { PageContextResolution } from "../../domain/schema/context";
 import { todoRefreshDue } from "../../popup/todo-recovery";
+import { AI_RUN_TIMEOUT_MS } from "../../lynx/ai";
 import {
   evaluatePublicationChecklist,
   savedSelectorsFingerprint,
@@ -1934,7 +1935,7 @@ async function runAi(): Promise<void> {
   await reportPopupFactAndPull(context, "ai-run-started", {
     runPhase: "running",
     runSessionId: localRunId,
-    runDeadlineAt: startedAt + 480_000,
+    runDeadlineAt: startedAt + AI_RUN_TIMEOUT_MS,
   }, requestKey);
   const snapshot = await captureSubmission(context);
   if (!snapshot) {

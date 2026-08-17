@@ -28,7 +28,7 @@ import {
   requestAuthLogin,
   validateAuthToken,
 } from "../lynx/accounts";
-import { getAiRunResult, getAiRunStatus, startAiRun } from "../lynx/ai";
+import { AI_RUN_TIMEOUT_MS, getAiRunResult, getAiRunStatus, startAiRun } from "../lynx/ai";
 import { resolvePropertyContext } from "../lynx/context";
 import { withTokenRotation } from "../lynx/token-rotation";
 import { pollAiJob } from "../lynx/ai-job";
@@ -305,7 +305,7 @@ export function createRewriteBackgroundServices(input: Readonly<{
           ...recordScope,
           phase: "running",
           updatedAt: startedAt,
-          deadlineAt: startedAt + 480_000,
+          deadlineAt: startedAt + AI_RUN_TIMEOUT_MS,
         }, { makeLatest: true });
         const polled = await pollAiJob(started.sessionId, {
           now: Date.now,

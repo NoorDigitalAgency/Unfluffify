@@ -1,3 +1,5 @@
+import { AI_RUN_POLL_INTERVAL_MS, AI_RUN_TIMEOUT_MS } from "./ai";
+
 export type AiJobPhase = "idle" | "running" | "fresh" | "stale-on-edit" | "failed";
 
 export type AiJobState = Readonly<{
@@ -102,8 +104,8 @@ export async function pollAiJob(
   deps: AiJobPollDeps,
   options: Readonly<{ timeoutMs?: number; pollIntervalMs?: number }> = {},
 ): Promise<AiJobPollResult> {
-  const timeoutMs = options.timeoutMs ?? 480_000;
-  const pollIntervalMs = options.pollIntervalMs ?? 5_000;
+  const timeoutMs = options.timeoutMs ?? AI_RUN_TIMEOUT_MS;
+  const pollIntervalMs = options.pollIntervalMs ?? AI_RUN_POLL_INTERVAL_MS;
   const deadlineAt = deps.now() + timeoutMs;
   const release = await deps.acquireComputeLock();
   let polls = 0;
