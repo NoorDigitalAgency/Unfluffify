@@ -313,7 +313,7 @@ single box overlapping unmarked siblings.
 | ☑ | **D1** | Port the 16-class overlay grammar with legacy's exact colours/metrics, and switch to **one box per client rect** with keyed reuse. **Landed in `0eb085eb`.** | B3 | Overlay classes and colours match the legacy catalog; a wrapped paragraph draws one box per line box. |
 | ☑ | **D2** | Fix the reveal walk: await paint between steps so scroll/IntersectionObserver handlers actually run; pass a re-measured `expandedScrollHeight`. **Landed in `08bc3847`.** | — | Lazy content is triggered; `lazyExpansions` can reach 1; freeze engages at the absolute bottom. |
 | ☑ | **D3** | Custom cursors (SVGs already ship, web-accessible, zero code references), 160 ms interaction-ack pulse, ghost rects, `.uf-scrolling` hide. **Landed in `1c8fbd5f`.** | D1 | Cursor changes per mark mode; a click acknowledges within 160 ms. |
-| ☐ | **D4** | Real input-blocking curtain (today `pointer-events:none` makes it decorative; legacy blocked 22 event types), inspection card, freeze pill, toasts. | B5 | Page interaction is genuinely blocked during a blocking phase. |
+| ☑ | **D4** | Real input-blocking curtain (today `pointer-events:none` makes it decorative; legacy blocked 22 event types), inspection card, freeze pill, toasts. **Landed in `4b891903`.** | B5 | Page interaction is genuinely blocked during a blocking phase. |
 | ☐ | **D5** | Property-lock in-page banner + all lock UI states. | E1 | Banner reflects lock state transitions. |
 
 ### Phase E — property lock to contract (D4 + D7)
