@@ -125,6 +125,20 @@ const PageContextResponseSchema = PageContextResolutionSchema.extend({
   todo: TodoCoverageSchema,
 });
 
+const StaticHtmlFetchResponseSchema = z.discriminatedUnion("ok", [
+  z.object({
+    ok: z.literal(true),
+    status: z.number().int().nonnegative(),
+    url: z.string().url(),
+    html: z.string(),
+  }),
+  z.object({
+    ok: z.literal(false),
+    status: z.number().int().nonnegative().optional(),
+    error: z.string().min(1),
+  }),
+]);
+
 const OffscreenRefineXpathsRequestSchema = z.object({
   html: z.string(),
   rows: z.array(MarkRowSchema),
@@ -330,6 +344,10 @@ export const applicationContract = defineContract({
     "page.context": {
       request: PageContextRequestSchema,
       response: PageContextResponseSchema,
+    },
+    "staticHtml.fetch": {
+      request: z.object({ url: z.string() }),
+      response: StaticHtmlFetchResponseSchema,
     },
     "renderMode.inspect": {
       request: RenderModeInspectRequestSchema,

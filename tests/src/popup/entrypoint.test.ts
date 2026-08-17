@@ -182,7 +182,10 @@ function makeTabsSendMessage(
   });
 }
 
-function makeRuntime(handler: (frame: BusFrame) => Promise<unknown> | unknown) {
+function makeRuntime(
+  handler: (frame: BusFrame) => Promise<unknown> | unknown,
+  renderMode: "rendered" | "static" = "rendered",
+) {
   const factBrain = createRewriteBrain(77);
   const factSignals: Array<ReturnType<typeof factBrain.observe>[number]> = [];
   let deliveredSignalSeq = 0;
@@ -285,8 +288,8 @@ function makeRuntime(handler: (frame: BusFrame) => Promise<unknown> | unknown) {
       if (frame.name === "config.load") {
         return replyFrame(frame, {
           status: "ok",
-          config: backendConfig(),
-          renderMode: "rendered",
+          config: { ...backendConfig(), renderMode },
+          renderMode,
           renderModeSource: "backend",
         });
       }
@@ -709,7 +712,7 @@ describe("rewrite popup entrypoint", () => {
         .lastIndexOf("deactivateContentMain"));
   });
 
-  it("runs AI, opens preview, and saves through typed commands", async () => {
+  it("fetches static source HTML before running AI, previewing, and saving", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     const render = vi.fn();
     vi.doMock("react-dom/client", () => ({
@@ -718,9 +721,14 @@ describe("rewrite popup entrypoint", () => {
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
     const snapshot = {
       baseUrl: "https://example.com",
-      renderMode: "rendered",
+      renderMode: "static",
       defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"],
-      pages: [{ url: "https://example.com/page", renderedHtml: "<html></html>", renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }] }],
+      pages: [{
+        url: "https://example.com/page",
+        renderedHtml: "<html></html>",
+        rawHtml: "<html><body>server source</body></html>",
+        renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
+      }],
     };
     const tabsSendMessage = makeTabsSendMessage(async (_tabId: number, message) => {
       if (message.type === "captureSubmissionSnapshot") {
@@ -759,11 +767,19 @@ describe("rewrite popup entrypoint", () => {
           selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
         });
       }
+      if (message.name === "staticHtml.fetch") {
+        return replyFrame(message, {
+          ok: true,
+          status: 200,
+          url: "https://example.com/page",
+          html: "<html><body>server source</body></html>",
+        });
+      }
       if (message.name === "config.save") {
         return replyFrame(message, { status: "ok", config: backendConfig() });
       }
       return replyFrame(message, []);
-    });
+    }, "static");
     globalThis.chrome = {
       runtime: {
         ...runtime,
@@ -775,7 +791,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    confirmRenderMode(render);
+    confirmRenderMode(render, "static");
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -783,8 +799,14 @@ describe("rewrite popup entrypoint", () => {
 
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("captureSubmissionSnapshot", {
       baseUrl: "https://example.com",
-      renderMode: "rendered",
+      renderMode: "static",
       pageUrl: "https://example.com/page",
+      rawHtml: "<html><body>server source</body></html>",
+    }));
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "staticHtml.fetch",
+      payload: { url: "https://example.com/page" },
+      target: "background",
     }));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "ai.run",

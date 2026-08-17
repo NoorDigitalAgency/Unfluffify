@@ -16,6 +16,7 @@ import { parseSenderTabId } from "../messaging/rewrite-signals";
 import { canonicalPageKey, PropertySnapshotIntegrityError } from "../storage/property-snapshot-authority";
 import { projectTodoCoverage } from "../domain/todo";
 import type { ConfigSnapshot } from "../storage/config";
+import { fetchStaticPageHtml } from "./static-html";
 
 export { createRewriteBrain } from "./rewrite-brain";
 
@@ -273,6 +274,7 @@ export function startRewriteBackground(): void {
     await awaitTabTermination(tabId);
     return lockRuntime.action({ ...request, tabId });
   });
+  bus.onCommand("staticHtml.fetch", (request) => fetchStaticPageHtml(request.url));
   bus.onCommand("emulation.apply", (request) => renderEmulation.apply(request.tabId, request.mode, request.scale, request.allowReload === true));
   bus.onCommand("emulation.clear", async (request) => {
     await renderEmulation.clear(request.tabId);

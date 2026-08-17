@@ -63,4 +63,27 @@ describe("P10 golden AI snapshot", () => {
       }],
     });
   });
+
+  it("carries background-fetched source HTML for static properties", () => {
+    const root: EvaluationNode = {
+      key: "body",
+      tagName: "BODY",
+      xpath: "/html[1]/body[1]",
+      visible: true,
+      ownsDirectText: true,
+    };
+
+    expect(buildSubmissionSnapshot({
+      baseUrl: "https://example.com",
+      renderMode: "static",
+      pageUrl: "https://example.com/page",
+      renderedHtml: "<html><body>browser render</body></html>",
+      rawHtml: "<html><body>server source</body></html>",
+      evaluation: createMarkingStore({ root }).currentEvaluation(),
+    }).pages[0]).toMatchObject({
+      url: "https://example.com/page",
+      renderedHtml: "<html><body>browser render</body></html>",
+      rawHtml: "<html><body>server source</body></html>",
+    });
+  });
 });

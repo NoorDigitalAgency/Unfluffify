@@ -1177,11 +1177,27 @@ async function captureSubmission(context: TargetTabContext): Promise<AiRunPayloa
   if (!await applySessionEmulation(context)) {
     return null;
   }
+  let rawHtml: string | undefined;
+  if (confirmedRenderMode === "static") {
+    const staticResponse = await getPopupBus().request("staticHtml.fetch", {
+      url: context.url,
+    }, { target: "background" });
+    if (!staticResponse.ok) {
+      logEvent("Static capture failed", staticResponse.failure.code, "danger");
+      return null;
+    }
+    if (!staticResponse.data.ok) {
+      logEvent("Static capture failed", staticResponse.data.error, "danger");
+      return null;
+    }
+    rawHtml = staticResponse.data.html;
+  }
   const response = await requestContentMessage(context.tabId, {
     type: "captureSubmissionSnapshot",
     baseUrl: baseUrlFor(context.url),
     renderMode: confirmedRenderMode,
     pageUrl: context.url,
+    ...(rawHtml === undefined ? {} : { rawHtml }),
   });
   if (!response || typeof response !== "object" || !("ok" in response) || response.ok !== true || !("snapshot" in response)) {
     return null;
