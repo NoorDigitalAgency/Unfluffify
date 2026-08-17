@@ -60,7 +60,6 @@ function toWidenNode(node: EvaluationNode, parent?: WidenNode | null): WidenNode
     structuralRole: node.structuralBoundary ? "card-group" as const : "generic" as const,
     pageShell: node.pageShell,
     landmarkCount: node.landmarkCount,
-    broadViewportFootprint: node.broadViewportFootprint,
     textualMarkableContentCount: node.ownsDirectText ? 1 : undefined,
     parent,
     children: [] as WidenNode[],
@@ -99,11 +98,9 @@ function collectDefaultExclusionRows(node: EvaluationNode, rows: MarkRow[] = [])
   if (
     isToggleableDefaultTag(node.tagName) &&
     node.visible &&
-    !node.pageShell &&
     !node.chrome &&
     !node.immutable &&
-    !node.closedShadow &&
-    (node.ownsDirectText || node.structuralBoundary)
+    !node.closedShadow
   ) {
     rows.push({ xpath: node.xpath, excluded: true });
   }

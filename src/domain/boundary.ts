@@ -18,7 +18,6 @@ export type BoundaryNode = Readonly<{
   structuralRole?: StructuralRole;
   landmarkCount?: number;
   pageShell?: boolean;
-  broadViewportFootprint?: boolean;
 }>;
 
 export type BoundaryContext = Readonly<{
@@ -36,9 +35,6 @@ export function isPageShell(node: BoundaryNode): boolean {
     return true;
   }
   if ((node.landmarkCount ?? 0) >= 2) {
-    return true;
-  }
-  if (node.broadViewportFootprint) {
     return true;
   }
   return node.structuralRole === "generic" && node.depthFromBody <= 2;

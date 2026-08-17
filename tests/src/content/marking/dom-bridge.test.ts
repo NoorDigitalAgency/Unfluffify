@@ -258,6 +258,17 @@ describe("P6 DOM bridge", () => {
     expect(view.root.pageShell).toBe(true);
   });
 
+  it("does not infer page-shell status from viewport width", () => {
+    const doc = new FakeDocument();
+    const section = new FakeElement("SECTION", rect(0, 0, 412, 200), "Full-width content");
+    section.ownerDocument = doc;
+
+    const view = createDomBridgeView(section as unknown as Element);
+
+    expect(view.root.pageShell).toBe(false);
+    expect(view.root.structuralBoundary).toBe(true);
+  });
+
   it("detects nested and role landmarks as page-shell metadata", () => {
     const doc = new FakeDocument();
     const wrapper = new FakeElement("SECTION", rect(0, 0, 400, 400), "Wrapper");
@@ -351,6 +362,38 @@ describe("P6 DOM bridge", () => {
 
     expect(engine.rows()).toContainEqual({ xpath: "/main[1]/footer[1]", excluded: true });
     expect(footerOverlay?.className).toBe("uf-overlay-exception");
+  });
+
+  it("seeds a landmark-bearing full-width footer and suppresses descendant includes", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 412, 300));
+    const footer = new FakeElement("FOOTER", rect(0, 220, 412, 80));
+    const header = new FakeElement("HEADER", rect(0, 220, 412, 40));
+    const headerText = new FakeElement("SPAN", rect(16, 230, 160, 20), "Footer heading");
+    const nav = new FakeElement("NAV", rect(0, 260, 412, 40));
+    const navText = new FakeElement("A", rect(16, 270, 120, 20), "Footer link");
+    for (const element of [root, footer, header, headerText, nav, navText]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    header.appendChild(headerText);
+    nav.appendChild(navText);
+    footer.appendChild(header);
+    footer.appendChild(nav);
+    root.appendChild(footer);
+
+    const engine = createMarkingEngine(root as unknown as Element);
+    const submission = engine.buildSubmission({
+      baseUrl: "https://example.com",
+      renderMode: "rendered",
+      pageUrl: "https://example.com/jobs",
+    });
+
+    expect(engine.rows()).toContainEqual({ xpath: "/main[1]/footer[1]", excluded: true });
+    expect(submission.pages[0]?.renderedXPaths).toEqual([
+      { xpath: "/main[1]/footer[1]", excluded: true },
+    ]);
   });
 
   it("resolves through current mark state and composed shadow containment", () => {

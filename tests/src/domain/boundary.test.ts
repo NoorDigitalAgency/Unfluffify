@@ -35,9 +35,6 @@ describe("P0 boundary predicates (INV-3.5..INV-3.6)", () => {
     expect(isStructuralBoundary(node({ structuralRole: "section", landmarkCount: 2 }))).toBe(
       false,
     );
-    expect(
-      isStructuralBoundary(node({ structuralRole: "section", broadViewportFootprint: true })),
-    ).toBe(false);
     expect(isSelfMarkable(node({ structuralRole: "section", pageShell: true }))).toBe(false);
   });
 });

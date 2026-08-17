@@ -67,7 +67,6 @@ function isStructuralBoundary(element: Element, xpath: string): boolean {
     structuralRole: structuralRoleFor(element),
     landmarkCount: landmarkCount(element),
     pageShell: tag === "HTML" || tag === "BODY" || tag === "MAIN" || landmarkCount(element) >= 2,
-    broadViewportFootprint: geometryFor(element).rect.width >= (element.ownerDocument.defaultView?.innerWidth ?? Number.POSITIVE_INFINITY) * 0.9,
   });
 }
 
@@ -225,7 +224,6 @@ function buildNode(
     structuralBoundary: isStructuralBoundary(element, xpath),
     pageShell: tagName === "HTML" || tagName === "BODY" || tagName === "MAIN" || landmarkCount(element) >= 2,
     landmarkCount: landmarkCount(element),
-    broadViewportFootprint: geometryFor(element).rect.width >= (element.ownerDocument.defaultView?.innerWidth ?? Number.POSITIVE_INFINITY) * 0.9,
     chrome: isExtensionUi(element),
     immutable,
     closedShadow,
