@@ -273,7 +273,7 @@ versioned fixtures, but live acceptance waits for the corresponding H slice.
 | ☑ | **A3** | Implement C-TGT-4's four-step widening ladder in `chooseWidenTarget`. **Landed in `def61c32`.** | — | Golden fixture: Shift+Click on a known page selects the same element as legacy's ladder, not the outermost ancestor. |
 | ☑ | **A4** | Verify `/__closed-shadow[n]`: it is a render-only key; closed-shadow evaluation terminates before row creation and positional schema validation is a second wire guard. **Locked by `10b3e89b`.** | — | No submitted XPath contains a non-`/tag[index]` segment; closed-shadow host renders its distinct overlay category. |
 | ☑ | **A5** | Persist AI selectors in `runRecordRepo` at `run.completed` (background-side), not popup memory; add the resume path. **Landed in `9894dab3`.** | — | Panel closed mid-run: the completed run's selectors are readable on next open. |
-| ☐ | **A6** | Acquire a keepalive around `ai.run` polling. | A5 | A simulated SW suspension mid-run does not lose the run. |
+| ☑ | **A6** | Acquire a keepalive around `ai.run` polling. **Landed in `561b62b4`.** | A5 | A simulated SW suspension mid-run does not lose the run. |
 
 ### Phase B — doctrine correction (D1) — *no feature work until this lands*
 
