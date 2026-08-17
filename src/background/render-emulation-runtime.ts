@@ -1,5 +1,5 @@
 import { getBrowserRuntimeLastError } from "../common/browser";
-import { applyEmulationViaCdp, clearEmulationViaCdp, deriveMobileUserAgent, loadPageWithJavascript, restoreJavascriptViaCdp, type EmulationMode } from "../content/stabilization";
+import { applyEmulationViaCdp, clearEmulationViaCdp, deriveGooglebotSmartphoneUserAgent, loadPageWithJavascript, restoreJavascriptViaCdp, type EmulationMode } from "../content/stabilization";
 
 type Debuggee = Readonly<{ tabId?: number }>;
 type DebuggerApi = Readonly<{
@@ -11,6 +11,10 @@ type DebuggerApi = Readonly<{
 type TabsApi = Readonly<{
   reload(tabId: number, options?: Record<string, unknown>, callback?: () => void): Promise<void> | void;
   sendMessage(tabId: number, message: unknown): Promise<unknown> | unknown;
+  onUpdated?: Readonly<{
+    addListener(listener: (tabId: number, changeInfo: Readonly<{ status?: string }>) => void): void;
+  }>;
+  onRemoved?: Readonly<{ addListener(listener: (tabId: number) => void): void }>;
 }>;
 
 function isPromiseLike<T>(value: unknown): value is PromiseLike<T> {
@@ -174,6 +178,20 @@ export function createRenderEmulationRuntime(input: Readonly<{
       heldPostures.delete(tabId);
     }
   };
+  input.tabs?.onUpdated?.addListener((tabId, changeInfo) => {
+    if (changeInfo.status !== "loading") {
+      return;
+    }
+    const held = heldPostures.get(tabId);
+    if (held) {
+      void reassertPosture(tabId, held);
+    }
+  });
+  input.tabs?.onRemoved?.addListener((tabId) => {
+    attachedTabs.delete(tabId);
+    realUserAgents.delete(tabId);
+    heldPostures.delete(tabId);
+  });
 
   return {
     async apply(tabId: number, mode: EmulationMode, scale: number, allowReload = false) {
@@ -190,7 +208,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       // serves by user agent gave it the desktop page. Forcing the posture means
       // reloading once so the document itself is the mobile one. Self-terminating:
       // after the reload the document's own UA matches, so nothing asks again.
-      const intended = mode === "mobile" ? deriveMobileUserAgent(realUserAgent) : realUserAgent;
+      const intended = mode === "mobile" ? deriveGooglebotSmartphoneUserAgent(realUserAgent) : realUserAgent;
       const identityStale = Boolean(intended) && await documentUserAgent(tabId) !== intended;
       if (identityStale && allowReload && input.tabs) {
         await callbackToPromise<void>((callback) => input.tabs?.reload(tabId, {}, callback)).catch(() => undefined);

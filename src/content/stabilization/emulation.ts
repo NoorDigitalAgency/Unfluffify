@@ -32,14 +32,22 @@ export function clearEmulation(state: EmulationState): EmulationState {
   return { ...state, active: false };
 }
 
-/** The device the mobile viewport corresponds to. 412x960 is a Pixel-class
- *  viewport, so the spoofed identity says the same thing the metrics do — a site
- *  that reads both must not find them contradicting each other. */
-const MOBILE_DEVICE = {
+/** Google's documented smartphone crawler identity. The Chrome build is filled
+ *  from the browser doing the rendering so the claimed engine and actual engine
+ *  never drift apart. */
+const GOOGLEBOT_SMARTPHONE = {
   platform: "Android",
-  platformVersion: "13",
-  model: "Pixel 7",
+  platformVersion: "6.0.1",
+  model: "Nexus 5X",
+  build: "MMB29P",
 } as const;
+
+const GOOGLEBOT_SMARTPHONE_MEDIA_FEATURES = [
+  { name: "pointer", value: "coarse" },
+  { name: "hover", value: "none" },
+  { name: "any-pointer", value: "coarse" },
+  { name: "any-hover", value: "none" },
+] as const;
 
 /** Chrome's real user agent, rewritten into the Android form of the SAME build.
  *
@@ -48,19 +56,21 @@ const MOBILE_DEVICE = {
  *  cross-checks it against client hints or TLS behaviour, and it would rot with
  *  every Chrome release. Returns "" when the real UA carries no Chrome token —
  *  better to leave the UA alone than to assert a version we did not read. */
-export function deriveMobileUserAgent(realUserAgent: string): string {
+export function deriveGooglebotSmartphoneUserAgent(realUserAgent: string): string {
   const version = /Chrome\/([\d.]+)/.exec(realUserAgent)?.[1];
   if (!version) {
     return "";
   }
-  return `Mozilla/5.0 (Linux; ${MOBILE_DEVICE.platform} ${MOBILE_DEVICE.platformVersion}; ${MOBILE_DEVICE.model}) `
-    + `AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${version} Mobile Safari/537.36`;
+  return `Mozilla/5.0 (Linux; ${GOOGLEBOT_SMARTPHONE.platform} ${GOOGLEBOT_SMARTPHONE.platformVersion}; `
+    + `${GOOGLEBOT_SMARTPHONE.model} Build/${GOOGLEBOT_SMARTPHONE.build}) AppleWebKit/537.36 `
+    + `(KHTML, like Gecko) Chrome/${version} Mobile Safari/537.36 `
+    + `(compatible; Googlebot/2.1; +http://www.google.com/bot.html)`;
 }
 
 /** The client-hint half of the same claim. Sites increasingly read
  *  `navigator.userAgentData.mobile` instead of parsing the UA string, and one of
  *  the two saying "desktop" defeats the point of spoofing the other. */
-export function deriveMobileUserAgentMetadata(realUserAgent: string): Record<string, unknown> | null {
+export function deriveGooglebotSmartphoneUserAgentMetadata(realUserAgent: string): Record<string, unknown> | null {
   const fullVersion = /Chrome\/([\d.]+)/.exec(realUserAgent)?.[1];
   if (!fullVersion) {
     return null;
@@ -75,10 +85,10 @@ export function deriveMobileUserAgentMetadata(realUserAgent: string): Record<str
     brands,
     fullVersionList: brands.map((entry) => ({ brand: entry.brand, version: fullVersion })),
     fullVersion,
-    platform: MOBILE_DEVICE.platform,
-    platformVersion: MOBILE_DEVICE.platformVersion,
+    platform: GOOGLEBOT_SMARTPHONE.platform,
+    platformVersion: GOOGLEBOT_SMARTPHONE.platformVersion,
     architecture: "",
-    model: MOBILE_DEVICE.model,
+    model: GOOGLEBOT_SMARTPHONE.model,
     mobile: true,
   };
 }
@@ -101,6 +111,13 @@ export async function applyEmulationViaCdp(
     mobile: mode === "mobile",
     scale: state.scale,
   });
+  await client.send("Emulation.setTouchEmulationEnabled", mode === "mobile"
+    ? { enabled: true, maxTouchPoints: 1 }
+    : { enabled: false });
+  await client.send("Emulation.setEmulatedMedia", {
+    media: "",
+    features: mode === "mobile" ? [...GOOGLEBOT_SMARTPHONE_MEDIA_FEATURES] : [],
+  });
   // The viewport alone does not convince a site that sniffs identity rather than
   // measuring the window, and those sites serve a different page — which is the
   // page the crawler gets. Desktop restores the browser's own UA rather than
@@ -114,20 +131,22 @@ export async function applyEmulationViaCdp(
     await client.send("Emulation.setUserAgentOverride", { userAgent: realUserAgent });
     return state;
   }
-  const userAgent = deriveMobileUserAgent(realUserAgent);
+  const userAgent = deriveGooglebotSmartphoneUserAgent(realUserAgent);
   if (!userAgent) {
     return state;
   }
-  const userAgentMetadata = deriveMobileUserAgentMetadata(realUserAgent);
+  const userAgentMetadata = deriveGooglebotSmartphoneUserAgentMetadata(realUserAgent);
   await client.send("Emulation.setUserAgentOverride", {
     userAgent,
-    platform: MOBILE_DEVICE.platform,
+    platform: GOOGLEBOT_SMARTPHONE.platform,
     ...(userAgentMetadata ? { userAgentMetadata } : {}),
   });
   return state;
 }
 
 export async function clearEmulationViaCdp(client: CdpClient, state: EmulationState): Promise<EmulationState> {
+  await client.send("Emulation.setTouchEmulationEnabled", { enabled: false });
+  await client.send("Emulation.setEmulatedMedia", { media: "", features: [] });
   await client.send("Emulation.clearDeviceMetricsOverride");
   return clearEmulation(state);
 }

@@ -114,6 +114,42 @@ describe("render emulation runtime", () => {
     expect(debuggerApi.sent).toEqual([]);
   });
 
+  it("re-asserts the complete Googlebot posture when navigation begins", async () => {
+    const debuggerApi = fakeDebugger();
+    let onUpdated: ((tabId: number, changeInfo: { status?: string }) => void) | undefined;
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: {
+        reload: vi.fn((_t, _o, cb) => cb?.()),
+        sendMessage: vi.fn(),
+        onUpdated: { addListener(listener) { onUpdated = listener; } },
+      },
+    });
+    await runtime.apply(7, "mobile", 0.85);
+    debuggerApi.sent.length = 0;
+
+    onUpdated?.(7, { status: "loading" });
+    await flush();
+
+    expect(debuggerApi.sent.map((call) => call.method)).toEqual([
+      "Emulation.setDeviceMetricsOverride",
+      "Emulation.setTouchEmulationEnabled",
+      "Emulation.setEmulatedMedia",
+      "Emulation.setUserAgentOverride",
+    ]);
+    expect(debuggerApi.sent[1]?.params).toEqual({ enabled: true, maxTouchPoints: 1 });
+    expect(debuggerApi.sent[2]?.params).toMatchObject({
+      features: expect.arrayContaining([
+        { name: "pointer", value: "coarse" },
+        { name: "hover", value: "none" },
+      ]),
+    });
+    expect(debuggerApi.sent[3]?.params).toMatchObject({
+      userAgent: expect.stringContaining("Googlebot/2.1"),
+      userAgentMetadata: expect.objectContaining({ mobile: true, model: "Nexus 5X" }),
+    });
+  });
+
   it("reloads only when asked, and only when the document's identity is stale", async () => {
     // Chrome fixes navigator.userAgent per document, so the override governs the
     // next load. The reload is what makes it real — and it is the popup's call,
