@@ -32,6 +32,16 @@ import {
   overlayLivePageOnAuthoritativeCorpus,
 } from "../storage/property-snapshot-authority";
 
+export type AiRunContext = Readonly<{
+  tabId: number;
+  clientRunId: string;
+  environmentKey: string;
+  siteId: number;
+  pageKey: string;
+}>;
+
+export type AiRunScope = Readonly<Pick<AiRunContext, "tabId" | "environmentKey" | "siteId" | "pageKey">>;
+
 /** The subset createFetchJsonTransport needs to resolve a base URL and auth. */
 type EndpointSettings = Readonly<{
   configEndpoint?: string;
@@ -292,30 +302,36 @@ export function createRewriteBackgroundServices(input: Readonly<{
           ? { status: "network_error" as const, siteId: null }
           : { status: "not_found" as const, siteId: null };
       },
-      async runAiJob(snapshot: Parameters<typeof startAiRun>[1]) {
+      async runAiJob(snapshot: Parameters<typeof startAiRun>[1], context: AiRunContext) {
         const started = await startAiRun(transport, snapshot);
         if (started.status !== "ok") {
           return started;
         }
         const startedAt = Date.now();
-        await runRecordRepo.save({
+        const recordScope = {
           sessionId: started.sessionId,
-          tabId: 0,
-          phase: "running",
+          tabId: context.tabId,
+          clientRunId: context.clientRunId,
+          environmentKey: context.environmentKey,
+          siteId: context.siteId,
+          pageKey: context.pageKey,
           startedAt,
+        };
+        await runRecordRepo.save({
+          ...recordScope,
+          phase: "running",
           updatedAt: startedAt,
           deadlineAt: startedAt + 480_000,
-        });
+        }, { makeLatest: true });
         const polled = await pollAiJob(started.sessionId, {
           now: Date.now,
           sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
           getStatus: (sessionId) => getAiRunStatus(transport, sessionId),
           getResult: (sessionId) => getAiRunResult(transport, sessionId),
           heartbeat: (state) => runRecordRepo.save({
+            ...recordScope,
             sessionId: state.sessionId,
-            tabId: 0,
             phase: state.phase,
-            startedAt,
             updatedAt: state.updatedAt,
             deadlineAt: state.deadlineAt,
           }),
@@ -324,23 +340,57 @@ export function createRewriteBackgroundServices(input: Readonly<{
         if (polled.status === "fresh") {
           const selectors = SelectorSetSchema.parse(polled.selectors);
           await runRecordRepo.save({
-            sessionId: started.sessionId,
-            tabId: 0,
+            ...recordScope,
             phase: "fresh",
-            startedAt,
             updatedAt: Date.now(),
+            selectors,
           });
           return { status: "ok" as const, sessionId: started.sessionId, selectors };
         }
         await runRecordRepo.save({
-          sessionId: started.sessionId,
-          tabId: 0,
+          ...recordScope,
           phase: "failed",
-          startedAt,
           updatedAt: Date.now(),
           error: polled.status,
         });
         return { status: polled.status, sessionId: started.sessionId };
+      },
+      /** Returns only the newest run for the exact property/page scope. The
+       * environment and site id are authoritative; the URL origin never
+       * participates in identity. */
+      async resumeAiJob(scope: AiRunScope) {
+        const loaded = await runRecordRepo.loadLatestForTab(scope.tabId);
+        if (!loaded.ok) {
+          return { status: "invalid" as const };
+        }
+        const record = loaded.value;
+        if (
+          !record ||
+          record.environmentKey !== scope.environmentKey ||
+          record.siteId !== scope.siteId ||
+          record.pageKey !== scope.pageKey ||
+          !record.clientRunId
+        ) {
+          return { status: "not_found" as const };
+        }
+        const common = {
+          sessionId: record.sessionId,
+          clientRunId: record.clientRunId,
+          deadlineAt: record.deadlineAt,
+        };
+        if (record.phase === "fresh") {
+          return record.selectors
+            ? { status: "fresh" as const, ...common, selectors: record.selectors }
+            : { status: "invalid" as const };
+        }
+        if (record.phase === "running") {
+          return { status: "running" as const, ...common };
+        }
+        return {
+          status: record.phase === "failed" ? "failed" as const : "stale" as const,
+          ...common,
+          error: record.error,
+        };
       },
       buildUrlSearchInfoRequest,
       buildCssInfoRequest,

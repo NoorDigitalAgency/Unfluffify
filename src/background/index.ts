@@ -287,15 +287,36 @@ export function startRewriteBackground(): void {
     if (!environmentKey) {
       return { status: "environment_unconfigured" };
     }
+    if (!request.snapshot.pages.some((page) => canonicalPageKey(page.url) === request.pageKey)) {
+      return { status: "invalid_page_scope" };
+    }
     const snapshot = await services.property.overlayAiCorpus(
       environmentKey,
       request.siteId,
       request.snapshot,
     );
-    const result = await services.lynx.runAiJob(snapshot);
+    const result = await services.lynx.runAiJob(snapshot, {
+      tabId: request.tabId,
+      clientRunId: request.clientRunId,
+      environmentKey,
+      siteId: request.siteId,
+      pageKey: request.pageKey,
+    });
     return result.status === "ok"
       ? { status: result.status, sessionId: result.sessionId, selectors: result.selectors }
       : { status: result.status, httpStatus: "httpStatus" in result ? result.httpStatus : undefined };
+  });
+  bus.onCommand("ai.resume", async (request) => {
+    const environmentKey = await services.lynx.currentEnvironmentKey();
+    if (!environmentKey) {
+      return { status: "environment_unconfigured" as const };
+    }
+    return await services.lynx.resumeAiJob({
+      tabId: request.tabId,
+      environmentKey,
+      siteId: request.siteId,
+      pageKey: request.pageKey,
+    });
   });
   bus.onCommand("config.load", async (request) => {
     const environmentKey = await services.lynx.currentEnvironmentKey();

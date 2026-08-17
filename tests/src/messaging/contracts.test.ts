@@ -101,4 +101,22 @@ describe("corrective messaging application contracts", () => {
       organId: "popup",
     });
   });
+
+  it("scopes AI resume to environment-authoritative site identity and a relative page key", () => {
+    const resume = applicationContract.commands["ai.resume"];
+
+    expect(resume.request.parse({ tabId: 7, siteId: 42, pageKey: "/jobs/123?lang=sv" }))
+      .toEqual({ tabId: 7, siteId: 42, pageKey: "/jobs/123?lang=sv" });
+    expect(resume.request.safeParse({
+      tabId: 7,
+      siteId: 42,
+      pageKey: "https://www.example.com/jobs/123",
+    }).success).toBe(false);
+    expect(resume.response.safeParse({
+      status: "fresh",
+      sessionId: "backend-run-1",
+      clientRunId: "popup-run-1",
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+    }).success).toBe(true);
+  });
 });

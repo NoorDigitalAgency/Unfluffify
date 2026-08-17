@@ -62,7 +62,7 @@ let popupBus: RewriteSignalBus | null = null;
 let lastSubmissionSnapshot: AiRunPayloadSnapshot | null = null;
 let lastSubmissionKey: string | null = null;
 let activeRunSessionId: string | null = null;
-let nextRunId = 0;
+let aiResumeRequestKey: string | null = null;
 let preLockPopupState: ReturnType<typeof store.getState> | null = null;
 let activeSiteId: number | null = null;
 let settingsForm: PopupSettingsForm = EMPTY_POPUP_SETTINGS_FORM;
@@ -352,6 +352,7 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   lastSubmissionSnapshot = null;
   lastSubmissionKey = null;
   activeRunSessionId = null;
+  aiResumeRequestKey = null;
   preLockPopupState = null;
   activeSiteId = null;
   lockStatus = "";
@@ -510,8 +511,79 @@ async function pollCurrentTabSignals(): Promise<void> {
   // Guarded by the attempted-site id, so this is one request per property once
   // the site resolves — not one per tick.
   await maybeLoadPropertyConfig();
+  await maybeResumeAiRun(context, requestKey);
   await refreshSilentSelectorPreview(context, requestKey);
   render();
+}
+
+/** A side panel is disposable UI. The background owns the long-running job and
+ * its result; a newly opened panel only projects the durable terminal record
+ * back into the already-running brain session. Selector preview remains an
+ * explicit operator action. */
+async function maybeResumeAiRun(context: TargetTabContext, requestKey = boundTabKey): Promise<void> {
+  const state = store.getState();
+  const pageKey = canonicalPageKey(context.url);
+  if (
+    activeRunSessionId !== null ||
+    state.name !== "running" ||
+    !state.runSessionId ||
+    activeSiteId === null ||
+    !pageKey
+  ) {
+    return;
+  }
+  const resumeKey = `${requestKey ?? ""}|${activeSiteId}|${pageKey}|${state.runSessionId}`;
+  if (aiResumeRequestKey === resumeKey) {
+    return;
+  }
+  aiResumeRequestKey = resumeKey;
+  try {
+    const response = await getPopupBus().request("ai.resume", {
+      tabId: context.tabId,
+      siteId: activeSiteId,
+      pageKey,
+    }, { target: "background" });
+    if (
+      !response.ok ||
+      boundTabId !== context.tabId ||
+      boundTabKey !== requestKey ||
+      !["fresh", "failed", "stale"].includes(response.data.status) ||
+      !("clientRunId" in response.data) ||
+      response.data.clientRunId !== store.getState().runSessionId
+    ) {
+      return;
+    }
+    if (response.data.status === "fresh") {
+      const dirtyDuringRun = store.getState().runDirtyDuringRun === true;
+      if (!dirtyDuringRun) {
+        await sendContentMessage(context.tabId, { type: "markContentMainClean" });
+        contentDirty = false;
+      }
+      logEvent(
+        "AI result restored",
+        `${response.data.selectors.inclusionSelectors.length} include · ${response.data.selectors.exclusionSelectors.length} exclude`,
+        "success",
+      );
+      await emitPopupSignalAndPullTail(context.tabId, "run.completed", {
+        pageUrl: context.url,
+        sessionId: response.data.clientRunId,
+        aiSessionId: response.data.sessionId,
+        selectors: response.data.selectors,
+      }, requestKey);
+      return;
+    }
+    if (response.data.status === "failed" || response.data.status === "stale") {
+      await emitPopupSignalAndPullTail(context.tabId, "run.failed", {
+        pageUrl: context.url,
+        sessionId: response.data.clientRunId,
+        reason: response.data.error ?? response.data.status,
+      }, requestKey);
+    }
+  } finally {
+    if (aiResumeRequestKey === resumeKey) {
+      aiResumeRequestKey = null;
+    }
+  }
 }
 
 /** The latest loaded selectors show as silent highlights with no AI run needed.
@@ -1210,6 +1282,7 @@ async function refreshPopup(): Promise<void> {
   // An explicit refresh is the retry for a config read that failed.
   configLoadAttemptedSiteId = null;
   await maybeLoadPropertyConfig();
+  await maybeResumeAiRun(context, requestKey);
   logEvent("Refreshed", lock ? `lock ${lock.status} · role ${lock.lockRole}` : "lock unavailable", lock ? "info" : "warn");
   render();
 }
@@ -1534,6 +1607,12 @@ async function runAi(): Promise<void> {
   if (context === null) {
     return;
   }
+  const runPageKey = canonicalPageKey(context.url);
+  if (!runPageKey) {
+    logEvent("Run AI refused", "the current page URL has no valid path scope", "warn");
+    render();
+    return;
+  }
   const requestKey = await handleBoundContext(context);
   if (store.getState().name === "running") {
     return;
@@ -1549,8 +1628,7 @@ async function runAi(): Promise<void> {
     return;
   }
   await pullSignals(context.tabId, requestKey);
-  nextRunId += 1;
-  const localRunId = `local-run-${nextRunId}`;
+  const localRunId = `local-run-${globalThis.crypto.randomUUID()}`;
   activeRunSessionId = localRunId;
   const startedAt = Date.now();
   logEvent("Run AI started", localRunId);
@@ -1581,7 +1659,10 @@ async function runAi(): Promise<void> {
     return;
   }
   const response = await getPopupBus().request("ai.run", {
+    tabId: context.tabId,
     siteId: activeSiteId,
+    pageKey: runPageKey,
+    clientRunId: localRunId,
     snapshot,
   }, { target: "background" });
   if (!response.ok || response.data.status !== "ok") {

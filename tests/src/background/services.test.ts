@@ -348,7 +348,14 @@ describe("rewrite background services", () => {
       return { status: 500, body: null };
     };
 
-    await expect(createRewriteBackgroundServices({ transport }).lynx.runAiJob(snapshot)).resolves.toEqual({
+    const services = createRewriteBackgroundServices({ transport });
+    await expect(services.lynx.runAiJob(snapshot, {
+      tabId: 77,
+      clientRunId: "popup-run-1",
+      environmentKey: "stage.example.com",
+      siteId: 42,
+      pageKey: "/page",
+    })).resolves.toEqual({
       status: "ok",
       sessionId: "session-1",
       selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
@@ -358,6 +365,29 @@ describe("rewrite background services", () => {
       "/get_selectors/status/session-1",
       "/get_selectors/result/session-1",
     ]);
+    await expect(services.repos.runRecordRepo.loadLatestForTab(77)).resolves.toEqual({
+      ok: true,
+      value: expect.objectContaining({
+        sessionId: "session-1",
+        clientRunId: "popup-run-1",
+        environmentKey: "stage.example.com",
+        siteId: 42,
+        pageKey: "/page",
+        phase: "fresh",
+        selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+      }),
+    });
+    await expect(services.lynx.resumeAiJob({
+      tabId: 77,
+      environmentKey: "stage.example.com",
+      siteId: 42,
+      pageKey: "/page",
+    })).resolves.toMatchObject({
+      status: "fresh",
+      sessionId: "session-1",
+      clientRunId: "popup-run-1",
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+    });
   });
 
   it("resolves backend siteId through urlSearchInfo GraphQL", async () => {

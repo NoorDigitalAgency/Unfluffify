@@ -123,6 +123,63 @@ describe("P2 storage repositories", () => {
     }
   });
 
+  it("indexes the newest AI run per tab without letting an older completion steal the pointer", async () => {
+    const repo = createRunRecordRepo(createMemoryStore());
+    const scope = {
+      tabId: 7,
+      clientRunId: "popup-old",
+      environmentKey: "stage.example.com",
+      siteId: 42,
+      pageKey: "/page",
+    };
+    await repo.save({
+      ...scope,
+      sessionId: "backend-old",
+      phase: "running",
+      startedAt: 10,
+      updatedAt: 10,
+    }, { makeLatest: true });
+    await repo.save({
+      ...scope,
+      clientRunId: "popup-new",
+      sessionId: "backend-new",
+      phase: "running",
+      startedAt: 20,
+      updatedAt: 20,
+    }, { makeLatest: true });
+    await repo.save({
+      ...scope,
+      sessionId: "backend-old",
+      phase: "fresh",
+      startedAt: 10,
+      updatedAt: 30,
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+    });
+
+    await expect(repo.loadLatestForTab(7)).resolves.toMatchObject({
+      ok: true,
+      value: { sessionId: "backend-new", clientRunId: "popup-new", phase: "running" },
+    });
+
+    await repo.save({
+      ...scope,
+      clientRunId: "popup-new",
+      sessionId: "backend-new",
+      phase: "fresh",
+      startedAt: 20,
+      updatedAt: 40,
+      selectors: { inclusionSelectors: ["article"], exclusionSelectors: [] },
+    });
+    await expect(repo.loadLatestForTab(7)).resolves.toMatchObject({
+      ok: true,
+      value: {
+        sessionId: "backend-new",
+        phase: "fresh",
+        selectors: { inclusionSelectors: ["article"], exclusionSelectors: [] },
+      },
+    });
+  });
+
   it("rejects valid blobs stored under the wrong repository key", async () => {
     const tabRepo = createTabStateRepo(createMemoryStore({
       "tabState:7": {

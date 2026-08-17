@@ -586,7 +586,13 @@ describe("rewrite popup entrypoint", () => {
     }));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "ai.run",
-      payload: { siteId: 1, snapshot },
+      payload: expect.objectContaining({
+        tabId: 77,
+        siteId: 1,
+        pageKey: "/page",
+        clientRunId: expect.any(String),
+        snapshot,
+      }),
       target: "background",
     }));
     expect(render.mock.calls.at(-1)?.[0].props.presentation.saveDisabled).toBe(false);
@@ -617,6 +623,98 @@ describe("rewrite popup entrypoint", () => {
         selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
       }),
     }));
+  });
+
+  it("surfaces a background-completed AI run when the side panel opens again", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = vi.fn();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const tabsSendMessage = makeTabsSendMessage((_tabId, message) => {
+      if (message.type === "getContentMainStatus") {
+        return {
+          ok: true,
+          active: true,
+          dirty: true,
+          markedCount: 0,
+          pageUrl: "https://example.com/page",
+          contentRows: [],
+        };
+      }
+      return { ok: true, initialized: true, tree: "rewrite" };
+    });
+    let deliveredStarted = false;
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "signals.pull" && !deliveredStarted) {
+        deliveredStarted = true;
+        return replyFrame(message, [{
+          kind: "uf-signal/1",
+          tabId: 77,
+          seq: 1,
+          name: "run.started",
+          source: "brain",
+          cause: "popup-closed-mid-run",
+          at: 1,
+          payload: {
+            pageUrl: "https://example.com/page",
+            sessionId: "popup-run-1",
+            deadlineAt: 480_000,
+          },
+        }]);
+      }
+      if (message.name === "signals.emit") {
+        const signal = (message.payload as { signal: { name: string; payload: unknown } }).signal;
+        return replyFrame(message, [{
+          kind: "uf-signal/1",
+          tabId: 77,
+          seq: 2,
+          name: signal.name,
+          source: "brain",
+          cause: "resumed-run",
+          at: 2,
+          payload: signal.payload,
+        }]);
+      }
+      if (message.name === "ai.resume") {
+        return replyFrame(message, {
+          status: "fresh",
+          sessionId: "backend-run-1",
+          clientRunId: "popup-run-1",
+          selectors: { inclusionSelectors: ["article"], exclusionSelectors: [".sponsor"] },
+        });
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await waitFor(
+      () => globalThis.window.__UNFLUFFIFY_POPUP_DEBUG__?.getViewState().stateName === "running",
+      "the reopened panel to recover the running brain state",
+    );
+    render.mock.calls.at(-1)?.[0].props.onRefresh();
+    await waitFor(
+      () => globalThis.window.__UNFLUFFIFY_POPUP_DEBUG__?.getViewState().stateName === "post_ai_clean",
+      "the reopened panel to surface the durable AI result",
+    );
+
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "ai.resume",
+      target: "background",
+      payload: { tabId: 77, siteId: 1, pageKey: "/page" },
+    }));
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.selectors).toEqual({
+      inclusionSelectors: ["article"],
+      exclusionSelectors: [".sponsor"],
+    });
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("markContentMainClean", {}));
+    const contentCommands = tabsSendMessage.mock.calls.map(
+      ([, frame]) => (frame as { payload?: { name?: string } }).payload?.name,
+    );
+    expect(contentCommands).not.toContain("applySilentSelectors");
   });
 
   it("does not reuse a captured AI snapshot after rebinding to another page", async () => {

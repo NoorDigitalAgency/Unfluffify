@@ -13,7 +13,7 @@ import { z } from "zod";
 import { AiRunPayloadSnapshotSchema } from "../domain/schema/submission";
 import { LockRoleSchema } from "../domain/schema/facts";
 import { RenderModeSchema } from "../domain/schema/property";
-import { ConfigSnapshotSchema, PropertySaveRequestSchema, SelectorSetSchema } from "../storage/config";
+import { ConfigSnapshotSchema, PageKeySchema, PropertySaveRequestSchema, SelectorSetSchema } from "../storage/config";
 import { MarkRowSchema } from "../domain/schema/marking";
 import { ConnectionSettingsSchema } from "../storage/settings";
 
@@ -136,7 +136,10 @@ export const applicationContract = defineContract({
     },
     "ai.run": {
       request: z.object({
+        tabId: z.number().int().positive(),
         siteId: z.number().int().positive(),
+        pageKey: PageKeySchema,
+        clientRunId: z.string().min(1),
         snapshot: AiRunPayloadSnapshotSchema,
       }),
       response: z.object({
@@ -145,6 +148,36 @@ export const applicationContract = defineContract({
         httpStatus: z.number().optional(),
         selectors: SelectorSetSchema.optional(),
       }),
+    },
+    "ai.resume": {
+      request: z.object({
+        tabId: z.number().int().positive(),
+        siteId: z.number().int().positive(),
+        pageKey: PageKeySchema,
+      }),
+      response: z.discriminatedUnion("status", [
+        z.object({
+          status: z.literal("fresh"),
+          sessionId: z.string().min(1),
+          clientRunId: z.string().min(1),
+          deadlineAt: z.number().int().nonnegative().optional(),
+          selectors: SelectorSetSchema,
+        }),
+        z.object({
+          status: z.literal("running"),
+          sessionId: z.string().min(1),
+          clientRunId: z.string().min(1),
+          deadlineAt: z.number().int().nonnegative().optional(),
+        }),
+        z.object({
+          status: z.enum(["failed", "stale"]),
+          sessionId: z.string().min(1),
+          clientRunId: z.string().min(1),
+          deadlineAt: z.number().int().nonnegative().optional(),
+          error: z.string().optional(),
+        }),
+        z.object({ status: z.enum(["not_found", "invalid", "environment_unconfigured"]) }),
+      ]),
     },
     /* Reads a property's stored settings back, so a render mode decided in an
        earlier session is not re-asked on every popup open. */
