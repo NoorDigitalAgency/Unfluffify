@@ -299,7 +299,6 @@ describe("rewrite background startup", () => {
         tabId: 5,
         pageUrl: "https://example.com/page",
         baseUrl: "https://example.com",
-        siteId: 5542,
         hasUnsavedChanges: false,
       },
     }, {}, (value: unknown) => {
@@ -310,8 +309,8 @@ describe("rewrite background startup", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(keepOpen).toBe(true);
-    // This background was just started with an empty store, so it holds no
-    // token — and the lock socket cannot authenticate without one. The point
+    // This background was just started with an empty store, so no registered
+    // environment can be sent to Hub. The point
     // being made here is the wiring: the request reaches the lock runtime and a
     // well-formed reply comes back over the shipped bus. That an authenticated
     // request goes on to resolve a site and hold a lock is covered where the
@@ -321,17 +320,17 @@ describe("rewrite background startup", () => {
       frameType: "reply",
       ok: true,
       payload: {
-        status: "signed_out",
+        status: "not_configured",
         baseUrl: "https://example.com",
         siteId: null,
         lockRole: "unknown",
         configPresent: false,
         canEdit: false,
-        blockedReason: "signed-out",
+        blockedReason: "not-configured",
       },
     });
     const lockResponse = (response as { payload?: { lockBanner?: unknown } }).payload;
-    expect(lockResponse?.lockBanner).toEqual({ visible: true, reason: "signed-out" });
+    expect(lockResponse?.lockBanner).toEqual({ visible: true, reason: "not-configured" });
     expect(lockResponse?.lockBanner).not.toHaveProperty("text");
 
     let signalsResponse: unknown;
@@ -358,8 +357,8 @@ describe("rewrite background startup", () => {
         name: "lock.blocked",
         source: "brain",
         payload: {
-          blockedReason: "signed-out",
-          banner: { visible: true, reason: "signed-out" },
+            blockedReason: "not-configured",
+            banner: { visible: true, reason: "not-configured" },
         },
       }],
     });

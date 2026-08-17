@@ -33,6 +33,44 @@ const snapshot = {
   }],
 };
 
+function hubContext(
+  request: JsonRequest,
+  options: Readonly<{
+    status?: "managed_candidate" | "managed_non_candidate" | "property_not_found" | "authentication_required";
+    siteId?: number | null;
+  }> = {},
+): JsonResponse {
+  const body = request.body as { environmentKey?: string; url?: string } | undefined;
+  const observedUrl = body?.url ?? "https://example.com/page";
+  const pageKey = (() => {
+    try {
+      const parsed = new URL(observedUrl);
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    } catch {
+      return null;
+    }
+  })();
+  const status = options.status ?? "managed_candidate";
+  const siteId = options.siteId === undefined ? 5542 : options.siteId;
+  return {
+    status: status === "property_not_found" ? 404 : status === "authentication_required" ? 401 : 200,
+    body: {
+      status,
+      environmentKey: body?.environmentKey ?? "stage.example.com",
+      siteId: status === "property_not_found" || status === "authentication_required" ? null : siteId,
+      baseUrl: status === "property_not_found" || status === "authentication_required" ? null : "https://example.com",
+      pageKey,
+      pageTypes: status === "managed_candidate" && pageKey
+        ? [{ pageType: "detail", pages: [{ pageKey, wordsCount: 100 }] }]
+        : [],
+      membershipFingerprint: status === "managed_candidate" ? "membership" : null,
+      assignmentFingerprint: status === "managed_candidate" ? "assignment" : null,
+      conflicts: [],
+      upstreamCode: null,
+    },
+  };
+}
+
 describe("rewrite background services", () => {
   it("routes fetch transport requests to configured config and AI endpoints", async () => {
     const calls: Array<{ url: string; init: RequestInit }> = [];
@@ -155,7 +193,7 @@ describe("rewrite background services", () => {
       });
       await services.repos.settingsStore.save({ stageBase: "a.example.com", token: "original-jwt" });
 
-      await services.lynx.getSiteIdForUrl("https://example.com/page");
+      await services.lynx.resolvePropertyContext("a.example.com", "https://example.com/page");
 
       const stored = await services.settings.load();
       expect(stored).toEqual({ stageBase: "a.example.com", token: "rotated-jwt" });
@@ -175,7 +213,7 @@ describe("rewrite background services", () => {
       await services.repos.settingsStore.save({ stageBase: "a.example.com", token: "original-jwt" });
 
       for (headers of [{}, { "x-update-token": "" }, { "x-update-token": "original-jwt" }]) {
-        await services.lynx.getSiteIdForUrl("https://example.com/page");
+        await services.lynx.resolvePropertyContext("a.example.com", "https://example.com/page");
         await expect(services.settings.load()).resolves.toEqual({
           stageBase: "a.example.com",
           token: "original-jwt",
@@ -226,7 +264,7 @@ describe("rewrite background services", () => {
       await services.repos.settingsStore.save({ stageBase: "a.example.com", token: "original-jwt" });
 
       await Promise.all([
-        services.lynx.getSiteIdForUrl("https://example.com/page"),
+        services.lynx.resolvePropertyContext("a.example.com", "https://example.com/page"),
         services.settings.update((current) => ({ ...current, aiEndpoint: "https://ai.example.com" })),
       ]);
 
@@ -262,7 +300,7 @@ describe("rewrite background services", () => {
       // its token in the connect query string, so it picks up a rotation only
       // by reading settings again on the next connect.
       await services.createLockClient({ tabId: 1, siteId: 42, pageUrl: "https://example.com/a" });
-      await services.lynx.getSiteIdForUrl("https://example.com/a");
+      await services.lynx.resolvePropertyContext("a.example.com", "https://example.com/a");
       await services.createLockClient({ tabId: 2, siteId: 42, pageUrl: "https://example.com/b" });
 
       expect(urls).toEqual([
@@ -390,41 +428,39 @@ describe("rewrite background services", () => {
     });
   });
 
-  it("resolves backend siteId through urlSearchInfo GraphQL", async () => {
+  it("resolves authoritative property context through Hub", async () => {
     const requests: JsonRequest[] = [];
     const transport = async (request: JsonRequest): Promise<JsonResponse> => {
       requests.push(request);
-      return { status: 200, body: { data: { urlSearchInfo: { domainId: 5542 } } } };
+      return hubContext(request);
     };
 
-    await expect(createRewriteBackgroundServices({ transport }).lynx.getSiteIdForUrl("https://example.com/page")).resolves.toEqual({
-      status: "ok",
+    await expect(createRewriteBackgroundServices({ transport }).lynx.resolvePropertyContext(
+      "stage.example.com",
+      "https://example.com/page",
+    )).resolves.toMatchObject({
+      status: "managed_candidate",
       siteId: 5542,
+      pageKey: "/page",
     });
     expect(requests).toMatchObject([{
       method: "POST",
-      path: "/graphql",
-      body: { variables: { url: "https://example.com/page", includePageInfo: false } },
+      path: "/context",
+      body: { environmentKey: "stage.example.com", url: "https://example.com/page" },
     }]);
   });
 
   it("does not call a rejected token an unmanaged property", async () => {
-    // GraphQL answers an expired token with HTTP 200 plus an errors envelope and
-    // no urlSearchInfo. Before, that read as `ok` with a null site id, which the
-    // lock runtime then announced as not_candidate — the operator was told the
-    // page was out of scope when the real problem was their token.
     const services = createRewriteBackgroundServices({
-      transport: async () => ({
-        status: 200,
-        body: { errors: [{ extensions: { code: "UNAUTHENTICATED" }, message: "Token expired" }] },
-      }),
+      transport: async (request) => {
+        const response = hubContext(request, { status: "authentication_required" });
+        return { ...response, status: 500 };
+      },
     });
-    // A rejected token is still a stored token: this is the expired case, not
-    // the signed-out one, and the runtime must get as far as asking.
-    await services.settings.update((current) => ({ ...current, token: "expired" }));
+    await services.settings.update((current) => ({ ...current, stageBase: "stage.example.com", token: "expired" }));
 
-    await expect(services.lynx.getSiteIdForUrl("https://managed.example.com/page"))
-      .resolves.toEqual({ status: "network_error", siteId: null });
+    await expect(services.lynx.resolvePropertyContext("stage.example.com", "https://managed.example.com/page"))
+      .resolves.toMatchObject({ status: "authentication_required", siteId: null });
 
     const directive = await createPropertyLockRuntime({ services }).directive({
       tabId: 9,
@@ -432,24 +468,18 @@ describe("rewrite background services", () => {
       baseUrl: "https://managed.example.com",
     });
     expect(directive).toMatchObject({
-      status: "unavailable",
-      lockBanner: { reason: "unavailable" },
+      status: "signed_out",
+      lockBanner: { reason: "signed-out" },
     });
   });
 
   it("still reports a genuine miss as not found", async () => {
-    const explicitCode = createRewriteBackgroundServices({
-      transport: async () => ({ status: 200, body: { errors: [{ extensions: { code: "NotFound" } }] } }),
-    });
-    const nullDomain = createRewriteBackgroundServices({
-      transport: async () => ({ status: 200, body: { data: { urlSearchInfo: null } } }),
+    const services = createRewriteBackgroundServices({
+      transport: async (request) => hubContext(request, { status: "property_not_found" }),
     });
 
-    await expect(explicitCode.lynx.getSiteIdForUrl("https://nope.example.com/a"))
-      .resolves.toEqual({ status: "not_found", siteId: null });
-    // No error envelope at all: the backend answered and simply has no domain.
-    await expect(nullDomain.lynx.getSiteIdForUrl("https://nope.example.com/a"))
-      .resolves.toEqual({ status: "not_found", siteId: null });
+    await expect(services.lynx.resolvePropertyContext("stage.example.com", "https://nope.example.com/a"))
+      .resolves.toMatchObject({ status: "property_not_found", siteId: null, pageKey: "/a" });
   });
 
   it("names why there is no lock instead of blaming the connection", async () => {
@@ -457,15 +487,15 @@ describe("rewrite background services", () => {
     // looking for a connection fault on a page that is simply out of scope has
     // been misdirected.
     const notCandidate = createRewriteBackgroundServices({
-      transport: async () => ({ status: 200, body: { data: { urlSearchInfo: null } } }),
+      transport: async (request) => hubContext(request, { status: "property_not_found" }),
     });
     const unavailable = createRewriteBackgroundServices({
       transport: async () => { throw new Error("network down"); },
     });
     const request = { tabId: 7, pageUrl: "https://out-of-scope.example.com/page", baseUrl: "https://out-of-scope.example.com" };
     // Both cases are about what the backend said, so both need to get that far.
-    await notCandidate.settings.update((current) => ({ ...current, token: "live" }));
-    await unavailable.settings.update((current) => ({ ...current, token: "live" }));
+    await notCandidate.settings.update((current) => ({ ...current, stageBase: "stage.example.com", token: "live" }));
+    await unavailable.settings.update((current) => ({ ...current, stageBase: "stage.example.com", token: "live" }));
 
     const outOfScope = await createPropertyLockRuntime({ services: notCandidate }).directive(request);
     expect(outOfScope).toMatchObject({
@@ -491,7 +521,7 @@ describe("rewrite background services", () => {
     const services = createRewriteBackgroundServices({
       transport: async (request) => {
         requests.push(request);
-        return { status: 200, body: { data: { urlSearchInfo: { domainId: 5542 } } } };
+        return hubContext(request);
       },
       socketFactory() {
         const ws = fakeSocket();
@@ -501,6 +531,7 @@ describe("rewrite background services", () => {
     });
     const runtime = createPropertyLockRuntime({ services });
     const request = { tabId: 4, pageUrl: "https://managed.example.com/page", baseUrl: "https://managed.example.com" };
+    await services.settings.update((current) => ({ ...current, stageBase: "stage.example.com" }));
 
     const signedOut = await runtime.directive(request);
     expect(signedOut).toMatchObject({
@@ -526,12 +557,10 @@ describe("rewrite background services", () => {
     expect(requests).toHaveLength(1);
   });
 
-  it("releases a held lock when the token goes away", async () => {
-    // Signing out must not leave the tab holding an editor lock nobody can see,
-    // blocking the next operator until the backend times it out.
+  it("blocks but preserves a held lock client through a recoverable auth failure", async () => {
     const sockets: ReturnType<typeof fakeSocket>[] = [];
     const services = createRewriteBackgroundServices({
-      transport: async () => ({ status: 200, body: { data: { urlSearchInfo: { domainId: 5542 } } } }),
+      transport: async (request) => hubContext(request),
       socketFactory() {
         const ws = fakeSocket();
         sockets.push(ws);
@@ -540,7 +569,7 @@ describe("rewrite background services", () => {
     });
     const runtime = createPropertyLockRuntime({ services });
     const request = { tabId: 6, pageUrl: "https://managed.example.com/page", baseUrl: "https://managed.example.com" };
-    await services.settings.update((current) => ({ ...current, token: "live" }));
+    await services.settings.update((current) => ({ ...current, stageBase: "stage.example.com", token: "live" }));
 
     await runtime.directive(request);
     sockets[0].emit("open");
@@ -549,16 +578,17 @@ describe("rewrite background services", () => {
 
     await services.accounts.logout();
     await expect(runtime.directive(request)).resolves.toMatchObject({ status: "signed_out" });
-    expect(sockets[0].sent.map((frame) => JSON.parse(frame).type)).toContain("release_lock");
+    expect(sockets[0].sent.map((frame) => JSON.parse(frame).type)).not.toContain("release_lock");
   });
 
   it("keeps lock.directive idempotent and recreates clients after socket close", async () => {
     const sockets: ReturnType<typeof fakeSocket>[] = [];
     const tabMessages: unknown[] = [];
-    const graphQlRequests: JsonRequest[] = [];
+    const contextRequests: JsonRequest[] = [];
     const transport = async (request: JsonRequest): Promise<JsonResponse> => {
-      graphQlRequests.push(request);
-      return { status: 200, body: { data: { urlSearchInfo: { domainId: 5542 } } } };
+      contextRequests.push(request);
+      const url = (request.body as { url?: string } | undefined)?.url ?? "";
+      return hubContext(request, { siteId: url.includes("other.example") ? 777 : 5542 });
     };
     const services = createRewriteBackgroundServices({
       transport,
@@ -578,7 +608,7 @@ describe("rewrite background services", () => {
       },
     });
     const request = { tabId: 5, pageUrl: "https://example.com/page", baseUrl: "https://example.com", hasUnsavedChanges: false };
-    await services.settings.update((current) => ({ ...current, token: "live" }));
+    await services.settings.update((current) => ({ ...current, stageBase: "stage.example.com", token: "live" }));
 
     await runtime.directive(request);
     sockets[0].emit("open");
@@ -589,7 +619,7 @@ describe("rewrite background services", () => {
     expect(sentTypes.filter((type) => type === "take_lock")).toHaveLength(1);
     expect(sentTypes.filter((type) => type === "client_status")).toHaveLength(1);
     expect(sentTypes.filter((type) => type === "heartbeat")).toHaveLength(1);
-    expect(graphQlRequests).toHaveLength(1);
+    expect(contextRequests).toHaveLength(2);
 
     sockets[0].emit("message", JSON.stringify({ type: "lock_state", state: "locked", isEditor: false, editorName: "Other" }));
     sockets[0].emit("message", JSON.stringify({ type: "lock_state", state: "locked", isEditor: true, editorName: "Me" }));
@@ -624,7 +654,7 @@ describe("rewrite background services", () => {
     const statusFrame = sockets[0].sent.map((frame) => JSON.parse(frame)).findLast((frame) => frame.type === "client_status");
     expect(statusFrame).toMatchObject({ pageUrl: "https://example.com/next", hasUnsavedChanges: true });
 
-    await runtime.directive({ ...request, siteId: 777, pageUrl: "https://other.example/page", baseUrl: "https://other.example" });
+    await runtime.directive({ ...request, pageUrl: "https://other.example/page", baseUrl: "https://other.example" });
     expect(sockets).toHaveLength(2);
     expect(sockets[0].sent.map((frame) => JSON.parse(frame).type)).toContain("release_lock");
     const tabMessageCount = tabMessages.length;
@@ -636,14 +666,14 @@ describe("rewrite background services", () => {
     expect(sockets).toHaveLength(3);
   });
 
-  it("does not permanently cache transient site lookup failures", async () => {
+  it("does not permanently cache transient context failures", async () => {
     const sockets: ReturnType<typeof fakeSocket>[] = [];
     const requests: JsonRequest[] = [];
     const transport = async (request: JsonRequest): Promise<JsonResponse> => {
       requests.push(request);
       return requests.length === 1
         ? { status: 503, body: null }
-        : { status: 200, body: { data: { urlSearchInfo: { domainId: 5542 } } } };
+        : hubContext(request);
     };
     const services = createRewriteBackgroundServices({
       transport,
@@ -655,7 +685,7 @@ describe("rewrite background services", () => {
     });
     const runtime = createPropertyLockRuntime({ services });
     const request = { tabId: 5, pageUrl: "https://example.com/page", baseUrl: "https://example.com", hasUnsavedChanges: false };
-    await services.settings.update((current) => ({ ...current, token: "live" }));
+    await services.settings.update((current) => ({ ...current, stageBase: "stage.example.com", token: "live" }));
 
     await expect(runtime.directive(request)).resolves.toMatchObject({ status: "unavailable" });
     await expect(runtime.directive(request)).resolves.toMatchObject({ status: "ok", siteId: 5542 });
@@ -663,15 +693,15 @@ describe("rewrite background services", () => {
     expect(sockets).toHaveLength(1);
   });
 
-  it("normalizes site lookup transport exceptions to network_error", async () => {
+  it("normalizes context transport exceptions to upstream_unavailable", async () => {
     const services = createRewriteBackgroundServices({
       async transport() {
         throw new Error("network down");
       },
     });
 
-    await expect(services.lynx.getSiteIdForUrl("https://example.com/page")).resolves.toEqual({
-      status: "network_error",
+    await expect(services.lynx.resolvePropertyContext("stage.example.com", "https://example.com/page")).resolves.toMatchObject({
+      status: "upstream_unavailable",
       siteId: null,
     });
   });

@@ -690,7 +690,9 @@ async function refineSubmissionXpaths(snapshot: AiRunPayloadSnapshot): Promise<A
 }
 
 type LockDirectiveResponse = Readonly<{
-  status: "ok" | "not_configured" | "not_candidate" | "signed_out" | "unavailable";
+  status: "ok" | "not_configured" | "not_candidate" |
+    "suspended_candidate_removed" | "suspended_candidate_feed_conflict" |
+    "signed_out" | "unavailable";
   baseUrl: string;
   siteId: number | null;
   lockRole: "unknown" | "editor" | "passive";

@@ -3,12 +3,12 @@ import type { LockBannerVocabulary, LockReason } from "../domain/schema/facts";
 import type { RewriteBackgroundServices } from "./services";
 import { createRealmBus, type LockStatus } from "../messaging/realms";
 import { createTabTransport } from "../messaging/transports/tabs";
+import { createPageContextRuntime } from "./page-context-runtime";
 
 export type LockDirectiveRequest = Readonly<{
   tabId: number;
   pageUrl: string;
   baseUrl?: string;
-  siteId?: number | null;
   hasUnsavedChanges?: boolean;
 }>;
 
@@ -36,6 +36,8 @@ const NO_LOCK_STATE_REASON: Readonly<Record<LockStatus, LockReason>> = {
   ok: "connecting",
   not_configured: "not-configured",
   not_candidate: "not-candidate",
+  suspended_candidate_removed: "candidate-removed",
+  suspended_candidate_feed_conflict: "candidate-feed-conflict",
   signed_out: "signed-out",
   unavailable: "unavailable",
 };
@@ -88,6 +90,7 @@ function lockStateFromState(input: Readonly<{
 
 export function createPropertyLockRuntime(input: Readonly<{
   services: RewriteBackgroundServices;
+  context?: Pick<ReturnType<typeof createPageContextRuntime>, "resolve">;
   tabs?: TabsLike;
   observeLockFacts?: (facts: Readonly<{
     tabId: number;
@@ -108,7 +111,11 @@ export function createPropertyLockRuntime(input: Readonly<{
   const publishedLockStates = new Map<string, string>();
   const latestLockStates = new Map<number, ReturnType<typeof lockStateFromState>>();
   const activeKeyByTab = new Map<number, string>();
-  const siteCache = new Map<string, Readonly<{ status: "ok" | "network_error" | "not_found"; siteId: number | null }>>();
+  const contextRuntime = input.context ?? createPageContextRuntime({
+    currentEnvironmentKey: input.services.lynx.currentEnvironmentKey,
+    hasToken: input.services.accounts.hasToken,
+    resolve: input.services.lynx.resolvePropertyContext,
+  });
 
   const observeLockState = (
     tabId: number,
@@ -224,50 +231,44 @@ export function createPropertyLockRuntime(input: Readonly<{
 
   return {
     async directive(request: LockDirectiveRequest) {
-      const baseUrl = request.baseUrl ?? baseUrlFor(request.pageUrl);
-      // Resolving a site id needs an authenticated call, and the lock socket
-      // authenticates with the same token. With none stored there is nothing to
-      // ask, so asking anyway would spend a request per page activation to be
-      // told what is already known — and would surface as a connection fault.
-      // Any lock held before signing out is released here.
-      if (!await input.services.accounts.hasToken()) {
-        releaseActiveForTab(request.tabId);
-        const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: null, state: null, status: "signed_out" });
+      const context = await contextRuntime.resolve({ tabId: request.tabId, pageUrl: request.pageUrl });
+      const baseUrl = context.baseUrl ?? request.baseUrl ?? baseUrlFor(request.pageUrl);
+      const blockedStatus: LockStatus | null = context.status === "authentication_required"
+        ? "signed_out"
+        : context.status === "environment_not_registered"
+          ? "not_configured"
+          : context.status === "suspended_candidate_removed"
+            ? "suspended_candidate_removed"
+            : context.status === "suspended_candidate_feed_conflict"
+              ? "suspended_candidate_feed_conflict"
+              : context.status === "access_denied" || context.status === "unavailable" || context.status === "stale"
+                ? "unavailable"
+                : null;
+      if (blockedStatus) {
+        // Auth, transport, settings and candidate-feed suspension are retryable.
+        // Keep any current client/draft alive but project a blocked directive.
+        const response = lockStateFromState({
+          pageUrl: request.pageUrl,
+          baseUrl,
+          siteId: context.siteId,
+          state: null,
+          status: blockedStatus,
+        });
         await observeLockState(request.tabId, request.pageUrl, response);
         publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
         return response;
       }
-      const siteCacheKey = `${request.tabId}:${request.pageUrl}`;
-      const cachedSite = siteCache.get(siteCacheKey);
-      const resolvedSite = request.siteId === undefined
-        ? cachedSite ?? await input.services.lynx.getSiteIdForUrl(request.pageUrl)
-        : { status: "ok" as const, siteId: request.siteId };
-      if (!cachedSite && request.siteId === undefined && resolvedSite.status !== "network_error") {
-        for (const key of siteCache.keys()) {
-          if (key.startsWith(`${request.tabId}:`) && key !== siteCacheKey) {
-            siteCache.delete(key);
-          }
-        }
-        siteCache.set(siteCacheKey, resolvedSite);
-      }
-      if (resolvedSite.status === "network_error") {
-        activeKeyByTab.delete(request.tabId);
-        const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: null, state: null, status: "unavailable" });
-        await observeLockState(request.tabId, request.pageUrl, response);
-        publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
-        return response;
-      }
-      if (resolvedSite.siteId === null) {
+      if (context.status === "unmanaged" || context.status === "managed_non_candidate" || context.siteId === null) {
         releaseActiveForTab(request.tabId);
         const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: null, state: null, status: "not_candidate" });
         await observeLockState(request.tabId, request.pageUrl, response);
         publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
         return response;
       }
-      const key = `${request.tabId}:${resolvedSite.siteId}`;
+      const key = `${request.tabId}:${context.siteId}`;
       releaseActiveForTab(request.tabId, key);
       activeKeyByTab.set(request.tabId, key);
-      const client = await getOrCreateClient(request, resolvedSite.siteId, baseUrl);
+      const client = await getOrCreateClient(request, context.siteId, baseUrl);
       const previousPageUrl = pageUrls.get(key);
       const previousUnsaved = unsavedByKey.get(key);
       unsavedByKey.set(key, request.hasUnsavedChanges === true);
@@ -282,7 +283,7 @@ export function createPropertyLockRuntime(input: Readonly<{
       }
       client.heartbeat();
       const state = client.state();
-      const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: resolvedSite.siteId, state, status: "ok" });
+      const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: context.siteId, state, status: "ok" });
       await observeLockState(request.tabId, request.pageUrl, response);
       publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
       return response;

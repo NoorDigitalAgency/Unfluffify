@@ -18,6 +18,8 @@ const CONTENT_LOCK_COPY = {
   locked: (lock) => lock.editorName ? `Locked by ${lock.editorName}` : "Property locked",
   "not-configured": () => "Property lock not configured",
   "not-candidate": () => "Not a managed property",
+  "candidate-removed": () => "This page is no longer a candidate",
+  "candidate-feed-conflict": () => "Candidate feed assignments conflict",
   "signed-out": () => "Sign in to use the property lock",
   unavailable: () => "Property lock unavailable",
 } satisfies Readonly<Record<LockReason, LockCopyResolver>>;

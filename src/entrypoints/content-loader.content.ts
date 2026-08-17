@@ -509,7 +509,9 @@ async function establishPageContext(options: Readonly<{ ritualRequiresCandidate?
     // Navigated while asking; the answer describes a page that is gone.
     return;
   }
-  if (!response.data.property) {
+  // A transient answer may carry the last valid canonical context for this exact
+  // page. A null site id means there is no trustworthy property fact to act on.
+  if (response.data.siteId === null) {
     return;
   }
   sweepConsentOverlays();
@@ -518,8 +520,20 @@ async function establishPageContext(options: Readonly<{ ritualRequiresCandidate?
   // way to say which pages matter, and requiring a record of it would mean such a
   // property is never prepared on any load, which is the same trap as demanding one
   // the moment a render mode is first established.
-  const wanted = response.data.candidatePage || !response.data.hasPageRecords;
-  if (response.data.renderModeSet && wanted) {
+  const hasPageRecords = response.data.pageTypes.some((pageType) => pageType.pages.length > 0);
+  const preservedCandidate = response.data.pageKey !== null && response.data.pageTypes.some(
+    (pageType) => pageType.pages.some((page) => page.pageKey === response.data.pageKey),
+  );
+  const candidate = response.data.status === "managed_candidate" || (
+    (response.data.status === "authentication_required" ||
+      response.data.status === "access_denied" ||
+      response.data.status === "unavailable") &&
+    preservedCandidate
+  );
+  const wanted = candidate || !hasPageRecords;
+  const suspended = response.data.status === "suspended_candidate_removed" ||
+    response.data.status === "suspended_candidate_feed_conflict";
+  if (response.data.renderModeSet && wanted && !suspended) {
     runPageVisitRitual(pageUrl, requireCandidate ? "page-load" : "render-mode-established");
   }
 }

@@ -19,18 +19,26 @@ import { RenderModeSchema } from "../domain/schema/property";
 import { ConfigSnapshotSchema, PageKeySchema, PropertySaveRequestSchema, SelectorSetSchema } from "../storage/config";
 import { MarkRowSchema } from "../domain/schema/marking";
 import { ConnectionSettingsSchema } from "../storage/settings";
+import { PageContextResolutionSchema } from "../domain/schema/context";
 
 const LockDirectiveRequestSchema = z.object({
   tabId: z.number().int().nonnegative(),
   pageUrl: z.string(),
   baseUrl: z.string().optional(),
-  siteId: z.number().int().positive().nullable().optional(),
   hasUnsavedChanges: z.boolean().optional(),
 });
 
 /** Why there is or is not a lock. Declared once here so the runtime that
  *  produces these and the surfaces that read them cannot drift apart. */
-export const LockStatusSchema = z.enum(["ok", "not_configured", "not_candidate", "signed_out", "unavailable"]);
+export const LockStatusSchema = z.enum([
+  "ok",
+  "not_configured",
+  "not_candidate",
+  "suspended_candidate_removed",
+  "suspended_candidate_feed_conflict",
+  "signed_out",
+  "unavailable",
+]);
 export type LockStatus = z.infer<typeof LockStatusSchema>;
 
 const LockStateResponseSchema = z.object({
@@ -92,25 +100,11 @@ const PageContextRequestSchema = z.object({
   pageUrl: z.string(),
 });
 
-const PageContextResponseSchema = z.object({
-  /** Whether this URL belongs to a managed property at all. The only gate on
-   *  consent hiding — not candidacy, not the render mode. */
-  property: z.boolean(),
-  baseUrl: z.string(),
-  siteId: z.number().int().positive().nullable(),
+const PageContextResponseSchema = PageContextResolutionSchema.extend({
   /** Whether the property has an established render mode. Marks taken under an
    *  unestablished one describe a page nobody has looked at, and the ritual is part
    *  of preparing the page to be marked. */
   renderModeSet: z.boolean(),
-  /** Whether this exact page carries a stored marking record — legacy's candidate
-   *  page. The ritual prepares pages the crawler actually wants. */
-  candidatePage: z.boolean(),
-  /** Whether the property has any page records at all. A property with none has no
-   *  way to say which pages matter, so candidacy cannot be required of it — and
-   *  requiring it anyway means such a property is never prepared, on any load. */
-  hasPageRecords: z.boolean(),
-  /** Why the answer is what it is, for the operator-facing log. */
-  reason: z.string(),
 });
 
 const OffscreenRefineXpathsRequestSchema = z.object({

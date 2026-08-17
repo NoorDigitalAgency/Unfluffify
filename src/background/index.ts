@@ -3,6 +3,7 @@ import { createPropertyLockRuntime } from "./lock-runtime";
 import { createRenderEmulationRuntime } from "./render-emulation-runtime";
 import { createRewriteBackgroundServices } from "./services";
 import { createAuthTokenMonitor } from "./auth-token-monitor";
+import { createPageContextRuntime } from "./page-context-runtime";
 import { connectionSettingsOf } from "../storage/settings";
 import { getInstalledBrowserApi } from "../common/browser";
 import { createRealmBus } from "../messaging/realms";
@@ -109,8 +110,14 @@ export function startRewriteBackground(): void {
     debuggerApi: api.debugger,
     tabs: api.tabs,
   });
+  const pageContextRuntime = createPageContextRuntime({
+    currentEnvironmentKey: services.lynx.currentEnvironmentKey,
+    hasToken: services.accounts.hasToken,
+    resolve: services.lynx.resolvePropertyContext,
+  });
   const lockRuntime = createPropertyLockRuntime({
     services,
+    context: pageContextRuntime,
     tabs: api.tabs,
     async observeLockFacts(facts) {
       const brain = await runtime.getBrain(facts.tabId);
@@ -181,97 +188,40 @@ export function startRewriteBackground(): void {
     await renderEmulation.clear(request.tabId);
     return { status: "ok" as const };
   });
-  /** What a freshly loaded page is, answered without the popup being open.
-   *
-   *  Consent hiding and the reveal/freeze ritual are page-load behaviours, and
-   *  legacy made that explicit: consent runs on every property page regardless of
-   *  candidacy or render mode, and the ritual runs once per visit for a page the
-   *  crawler actually wants. Both need this answer before an operator does anything.
-   *
-   *  Cached per origin. Resolving a site id is a backend round-trip, and a page load
-   *  is not a reason to make one per page — but it is a reason to make one per
-   *  property per worker lifetime. */
-  const pageContextCache = new Map<string, Readonly<{
-    property: boolean;
-    siteId: number | null;
-    renderModeSet: boolean;
-    pageMarkings: readonly string[];
-    reason: string;
-  }>>();
-  bus.onCommand("page.context", async (request) => {
-    const baseUrl = (() => {
-      try {
-        return request.pageUrl ? new URL(request.pageUrl).origin : "";
-      } catch {
-        return "";
+  /** Render-mode knowledge is presentation data, not property classification.
+   * Keep its last settled value by authoritative identity so a transient context
+   * retry does not make a configured property appear unconfigured. */
+  const renderModeByProperty = new Map<string, boolean>();
+  bus.onCommand("page.context", async (request, meta) => {
+    const tabId = request.tabId ?? parseSenderTabId(meta.sourceInstance) ?? 0;
+    const context = await pageContextRuntime.resolve({ tabId, pageUrl: request.pageUrl });
+    const propertyKey = context.environmentKey && context.siteId !== null
+      ? `${context.environmentKey}\u0000${context.siteId}`
+      : null;
+    let renderModeSet = propertyKey ? renderModeByProperty.get(propertyKey) ?? false : false;
+    if (
+      propertyKey &&
+      context.environmentKey &&
+      context.siteId !== null &&
+      (context.status === "managed_candidate" ||
+        context.status === "managed_non_candidate" ||
+        context.status === "suspended_candidate_removed" ||
+        context.status === "suspended_candidate_feed_conflict")
+    ) {
+      const loaded = await services.lynx.loadConfigSnapshot(context.environmentKey, context.siteId);
+      const authority = await services.property.applyBackendLoad(
+        context.environmentKey,
+        context.siteId,
+        loaded.status === "ok"
+          ? { status: loaded.status, config: loaded.data }
+          : { status: loaded.status },
+      );
+      renderModeSet = authority.renderMode !== undefined;
+      if (loaded.status === "ok" || loaded.status === "not_found") {
+        renderModeByProperty.set(propertyKey, renderModeSet);
       }
-    })();
-    const empty = { property: false, baseUrl, siteId: null, renderModeSet: false, candidatePage: false, hasPageRecords: false };
-    if (!baseUrl) {
-      return { ...empty, reason: "unparseable-url" };
     }
-    const cached = pageContextCache.get(baseUrl);
-    if (cached) {
-      const currentPageKey = canonicalPageKey(request.pageUrl);
-      return {
-        property: cached.property,
-        baseUrl,
-        siteId: cached.siteId,
-        renderModeSet: cached.renderModeSet,
-        candidatePage: currentPageKey !== null && cached.pageMarkings.includes(currentPageKey),
-        hasPageRecords: cached.pageMarkings.length > 0,
-        reason: cached.reason,
-      };
-    }
-    // Signed out there is nothing to ask and no property to confirm, and the
-    // answer must not be cached — signing in changes it.
-    if (!await services.accounts.hasToken()) {
-      return { ...empty, reason: "signed-out" };
-    }
-    const site = await services.lynx.getSiteIdForUrl(request.pageUrl);
-    if (site.siteId === null) {
-      // A genuine miss is worth remembering; a network fault says nothing about
-      // whether this is a property, so it is not cached.
-      const reason = site.status === "not_found" ? "not-a-property" : "lookup-unavailable";
-      if (site.status === "not_found") {
-        pageContextCache.set(baseUrl, { property: false, siteId: null, renderModeSet: false, pageMarkings: [], reason });
-      }
-      return { ...empty, reason };
-    }
-    const environmentKey = await services.lynx.currentEnvironmentKey();
-    if (!environmentKey) {
-      return { ...empty, property: true, siteId: site.siteId, reason: "environment-unconfigured" };
-    }
-    const loaded = await services.lynx.loadConfigSnapshot(environmentKey, site.siteId);
-    // Same adaptation as config.load: the authority rule takes {status, config}.
-    const authority = await services.property.applyBackendLoad(environmentKey, site.siteId, loaded.status === "ok"
-      ? { status: loaded.status, config: loaded.data }
-      : { status: loaded.status });
-    const pageMarkings = loaded.status === "ok" ? Object.keys(loaded.data.pages) : [];
-    const currentPageKey = canonicalPageKey(request.pageUrl);
-    const entry = {
-      property: true,
-      siteId: site.siteId,
-      // The effective mode after the authority rule, so a locally-held choice for a
-      // property with no backend configuration counts as set.
-      renderModeSet: authority.renderMode !== undefined,
-      pageMarkings,
-      reason: loaded.status === "ok" ? "configured" : `config-${loaded.status}`,
-    };
-    // Only a settled answer is cached: a failed config read would otherwise freeze
-    // "no render mode, no candidate pages" in for the worker's lifetime.
-    if (loaded.status === "ok" || loaded.status === "not_found") {
-      pageContextCache.set(baseUrl, entry);
-    }
-    return {
-      property: true,
-      baseUrl,
-      siteId: entry.siteId,
-      renderModeSet: entry.renderModeSet,
-      candidatePage: currentPageKey !== null && entry.pageMarkings.includes(currentPageKey),
-      hasPageRecords: entry.pageMarkings.length > 0,
-      reason: entry.reason,
-    };
+    return { ...context, renderModeSet };
   });
   bus.onCommand("renderMode.inspect", (request) => renderEmulation.inspect(request));
   bus.onCommand("offscreen.refineXpaths", async (request) => {
