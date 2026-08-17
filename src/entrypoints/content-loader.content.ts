@@ -82,6 +82,36 @@ let ritualPendingForUrl = "";
 const RITUAL_READY_TIMEOUT_MS = 8000;
 let contentSurfaceRoot: HTMLElement | null = null;
 let lastContentSurfaceSignature = "";
+let pageInspectionActive = false;
+let contentToastText = "";
+let contentToastClearHandle: ReturnType<typeof setTimeout> | null = null;
+let contentInputBlockedReason = "";
+let removeContentInputBlocker: (() => void) | null = null;
+const CONTENT_SURFACE_STYLE_ID = "unfluffify-content-surface-style";
+const CONTENT_INPUT_EVENTS = [
+  "click",
+  "auxclick",
+  "dblclick",
+  "contextmenu",
+  "mousedown",
+  "mouseup",
+  "pointerdown",
+  "pointerup",
+  "pointermove",
+  "keydown",
+  "keyup",
+  "keypress",
+  "beforeinput",
+  "input",
+  "wheel",
+  "touchstart",
+  "touchmove",
+  "touchend",
+  "dragstart",
+  "dragover",
+  "drop",
+  "submit",
+] as const;
 
 function isUserMarkingDirty(): boolean {
   return userToggleCount > 0;
@@ -155,7 +185,7 @@ function getRuntimeBrowser() {
   return getInstalledBrowserApi() ?? browser;
 }
 
-function markingCursorAssetUrl(path: "cursors/exclude.svg" | "cursors/include.svg"): string {
+function extensionAssetUrl(path: string): string {
   try {
     const runtime = getRuntimeBrowser().runtime as typeof browser.runtime & {
       getURL?: (relativePath: string) => string;
@@ -177,8 +207,8 @@ function ensureMarkingCursorStyles(): void {
   if (documentWithOptionalDom.getElementById?.(MARKING_CURSOR_STYLE_ID) || typeof documentWithOptionalDom.createElement !== "function") {
     return;
   }
-  const excludeUrl = markingCursorAssetUrl("cursors/exclude.svg");
-  const includeUrl = markingCursorAssetUrl("cursors/include.svg");
+  const excludeUrl = extensionAssetUrl("cursors/exclude.svg");
+  const includeUrl = extensionAssetUrl("cursors/include.svg");
   const style = documentWithOptionalDom.createElement("style");
   style.id = MARKING_CURSOR_STYLE_ID;
   style.setAttribute("data-uf-extension-ui", "true");
@@ -328,6 +358,9 @@ function refreshActiveMarking(): void {
 async function runActivationStabilization(pageUrl: string): Promise<{ skipped: boolean } | null> {
   spaGuard.arm(pageUrl);
   destroyPageWorldSession();
+  pageInspectionActive = true;
+  lastContentSurfaceSignature = "";
+  renderContentSurface();
   const sessionNonce = `rewrite-stabilization-${Date.now()}`;
   pageWorldSessionNonce = sessionNonce;
   const initialScrollY = typeof window !== "undefined" ? window.scrollY : 0;
@@ -367,42 +400,55 @@ async function runActivationStabilization(pageUrl: string): Promise<{ skipped: b
     window.requestAnimationFrame(() => window.requestAnimationFrame(finish));
   });
   postPageCommand("ARM", {});
-  return await revealController.run({
-    hasVerticalScrollRoom: typeof document !== "undefined" && typeof window !== "undefined"
-      ? document.documentElement.scrollHeight > window.innerHeight
-      : false,
-    activationStale: pageUrl !== (typeof location !== "undefined" ? location.href : pageUrl),
-    initialScrollHeight: typeof document !== "undefined" ? document.documentElement.scrollHeight : 0,
-    measureExpandedScrollHeight: () => typeof document !== "undefined"
-      ? document.documentElement.scrollHeight
-      : 0,
-    scrollTo(position, measuredScrollHeight) {
-      if (typeof window === "undefined") {
-        return;
-      }
-      if (position === "top") window.scrollTo(0, 0);
-      if (position === "half") window.scrollTo(0, Math.floor(measuredScrollHeight / 2));
-      if (position === "bottom") window.scrollTo(0, measuredScrollHeight);
-      if (position === "restore") window.scrollTo(0, initialScrollY);
-    },
-    waitForPaint,
-    suppressLazyLoading() {
-      postPageCommand("SET_LAZY_LOADING_SUPPRESSED", { suppressed: true });
-    },
-    freezeAtBottom() {
-      freezeController.pause("page-visit");
-      postPageCommand("SET_MOTION_PAUSED", { paused: true });
-    },
-  }).catch((error: unknown) => {
+  try {
+    return await revealController.run({
+      hasVerticalScrollRoom: typeof document !== "undefined" && typeof window !== "undefined"
+        ? document.documentElement.scrollHeight > window.innerHeight
+        : false,
+      activationStale: pageUrl !== (typeof location !== "undefined" ? location.href : pageUrl),
+      initialScrollHeight: typeof document !== "undefined" ? document.documentElement.scrollHeight : 0,
+      measureExpandedScrollHeight: () => typeof document !== "undefined"
+        ? document.documentElement.scrollHeight
+        : 0,
+      scrollTo(position, measuredScrollHeight) {
+        if (typeof window === "undefined") {
+          return;
+        }
+        if (position === "top") window.scrollTo(0, 0);
+        if (position === "half") window.scrollTo(0, Math.floor(measuredScrollHeight / 2));
+        if (position === "bottom") window.scrollTo(0, measuredScrollHeight);
+        if (position === "restore") window.scrollTo(0, initialScrollY);
+      },
+      waitForPaint,
+      suppressLazyLoading() {
+        postPageCommand("SET_LAZY_LOADING_SUPPRESSED", { suppressed: true });
+      },
+      freezeAtBottom() {
+        freezeController.pause("page-visit");
+        lastContentSurfaceSignature = "";
+        renderContentSurface();
+        postPageCommand("SET_MOTION_PAUSED", { paused: true });
+      },
+    });
+  } catch (error) {
     console.error("[Unfluffify][rewrite] Page stabilization failed", error);
     return null;
-  });
+  } finally {
+    pageInspectionActive = false;
+    lastContentSurfaceSignature = "";
+    renderContentSurface();
+  }
 }
 
 function destroyPageWorldSession(): void {
+  const wasPaused = freezeController.isPaused();
   if (!pageWorldSessionNonce || typeof window === "undefined") {
     freezeController.lift();
     pageWorldSessionNonce = "";
+    if (wasPaused) {
+      lastContentSurfaceSignature = "";
+      renderContentSurface();
+    }
     return;
   }
   window.postMessage?.({
@@ -415,6 +461,10 @@ function destroyPageWorldSession(): void {
   }, "*");
   freezeController.lift();
   pageWorldSessionNonce = "";
+  if (wasPaused) {
+    lastContentSurfaceSignature = "";
+    renderContentSurface();
+  }
 }
 
 function setSpacePassthrough(event: KeyboardEvent, active: boolean): void {
@@ -422,6 +472,9 @@ function setSpacePassthrough(event: KeyboardEvent, active: boolean): void {
     const wasActive = spacePassthroughActive;
     spacePassthroughActive = active;
     syncMarkingCursor();
+    if (!wasActive && active) {
+      showContentToast("Page interaction mode");
+    }
     if (wasActive && !active) {
       refreshActiveMarking();
     }
@@ -499,13 +552,196 @@ async function pingContentActivity(_command: CommandEnvelope): Promise<void> {
   }
 }
 
+function ensureContentSurfaceStyles(): void {
+  if (
+    typeof document === "undefined"
+    || !document.documentElement
+    || typeof document.createElement !== "function"
+  ) {
+    return;
+  }
+  if (document.getElementById?.(CONTENT_SURFACE_STYLE_ID)) {
+    return;
+  }
+  const style = document.createElement("style");
+  style.id = CONTENT_SURFACE_STYLE_ID;
+  style.setAttribute("data-uf-extension-ui", "true");
+  style.textContent = `
+@font-face {
+  font-family: "Unfluffify Material Design Icons";
+  src: url(${JSON.stringify(extensionAssetUrl("assets/materialdesignicons-webfont.woff2"))}) format("woff2");
+  font-display: block;
+}
+@keyframes uf-content-surface-spin { to { transform: rotate(360deg); } }
+@keyframes uf-content-toast-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+[data-uf-content-curtain="true"] {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+  cursor: progress;
+  background: rgba(16, 20, 28, 0.2);
+}
+[data-uf-content-curtain-card="true"] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(460px, calc(100vw - 32px));
+  padding: 14px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 12px;
+  background: rgba(22, 26, 34, 0.96);
+  color: white;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.28);
+  font: 650 14px/1.35 Inter, system-ui, sans-serif;
+}
+[data-uf-content-curtain-spinner="true"] {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  box-sizing: border-box;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-top-color: white;
+  border-radius: 999px;
+  animation: uf-content-surface-spin 0.8s linear infinite;
+}
+[data-uf-motion-pause-indicator="true"] {
+  position: fixed;
+  top: max(10px, calc(env(safe-area-inset-top) + 10px));
+  right: max(10px, calc(env(safe-area-inset-right) + 10px));
+  display: flex;
+  width: 48px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 7px;
+  background: rgba(17, 24, 39, 0.78);
+  color: white;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.22);
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+  font: 18px/1 "Unfluffify Material Design Icons";
+}
+[data-uf-content-toast="true"] {
+  position: fixed;
+  left: 50%;
+  bottom: max(14px, calc(env(safe-area-inset-bottom) + 14px));
+  max-width: min(560px, calc(100vw - 28px));
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(47, 42, 36, 0.9);
+  color: #fdf6ed;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  font: 500 12px/1.4 Inter, system-ui, sans-serif;
+  animation: uf-content-toast-in 0.2s ease both;
+}
+[data-uf-marking-paused-notice="true"] {
+  position: fixed;
+  top: max(14px, calc(env(safe-area-inset-top) + 14px));
+  left: 50%;
+  max-width: min(420px, calc(100vw - 28px));
+  padding: 9px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 8px;
+  background: rgba(35, 39, 47, 0.94);
+  color: white;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+  pointer-events: none;
+  transform: translateX(-50%);
+  font: 650 13px/1.35 Inter, system-ui, sans-serif;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-uf-content-curtain-spinner="true"],
+  [data-uf-content-toast="true"] { animation: none; }
+}
+`;
+  document.documentElement.appendChild(style);
+}
+
+function pausedNoticeCopy(reason: string): string {
+  if (reason === "saving") {
+    return "Saving page... marking paused";
+  }
+  if (reason === "syncing" || reason === "sync_pending") {
+    return "Save sync pending... marking paused";
+  }
+  return "Marking temporarily paused";
+}
+
+function blockedToastCopy(reason: string): string {
+  return reason === "saving" || reason === "syncing" || reason === "sync_pending"
+    ? "Finish server sync before editing"
+    : "Marking temporarily paused";
+}
+
+function showContentToast(text: string): void {
+  if (!text) {
+    return;
+  }
+  contentToastText = text;
+  if (contentToastClearHandle !== null) {
+    clearTimeout(contentToastClearHandle);
+  }
+  lastContentSurfaceSignature = "";
+  renderContentSurface();
+  contentToastClearHandle = setTimeout(() => {
+    contentToastClearHandle = null;
+    contentToastText = "";
+    lastContentSurfaceSignature = "";
+    renderContentSurface();
+  }, 1800);
+}
+
+function setContentInputBlocked(blocked: boolean, reason: string): void {
+  contentInputBlockedReason = blocked ? reason : "";
+  if (!blocked) {
+    removeContentInputBlocker?.();
+    return;
+  }
+  if (removeContentInputBlocker || typeof window === "undefined") {
+    return;
+  }
+  const blockInput = (event: Event): void => {
+    if (event.cancelable !== false) {
+      event.preventDefault();
+    }
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
+    if (event.type === "click" && markingActive) {
+      showContentToast(blockedToastCopy(contentInputBlockedReason));
+    }
+  };
+  for (const type of CONTENT_INPUT_EVENTS) {
+    window.addEventListener(type, blockInput, { capture: true, passive: false });
+  }
+  removeContentInputBlocker = () => {
+    for (const type of CONTENT_INPUT_EVENTS) {
+      window.removeEventListener(type, blockInput, true);
+    }
+    removeContentInputBlocker = null;
+  };
+}
+
 function ensureContentSurfaceRoot(): HTMLElement | null {
-  if (typeof document === "undefined" || !document.documentElement) {
+  if (
+    typeof document === "undefined"
+    || !document.documentElement
+    || typeof document.createElement !== "function"
+  ) {
     return null;
   }
   if (contentSurfaceRoot?.isConnected) {
     return contentSurfaceRoot;
   }
+  ensureContentSurfaceStyles();
   contentSurfaceRoot = document.createElement("div");
   contentSurfaceRoot.setAttribute("data-uf-extension-ui", "true");
   contentSurfaceRoot.setAttribute("data-uf-content-surface-root", "true");
@@ -523,15 +759,27 @@ function renderContentSurface(): void {
   const blockedReason = lockBlocked
     ? contentAuthority.blockedReason || "property-lock"
     : contentPresentation.blockedReason;
-  const curtain = lockBlocked
+  const dictatedCurtain = lockBlocked
     ? { visible: true, text: contentAuthority.banner.text || "Property locked" }
     : contentPresentation.curtain;
+  const curtain = dictatedCurtain.visible
+    ? dictatedCurtain
+    : pageInspectionActive
+    ? { visible: true, text: "Inspecting page... it will be ready soon" }
+    : dictatedCurtain;
   const banner = contentAuthority.banner;
-  const signature = JSON.stringify({ blockedReason, curtain, banner });
+  const motionPaused = freezeController.isPaused();
+  const pausedNotice = markingActive && (contentPresentation.markingEditsBlocked || markingInteractionsPaused)
+    ? pausedNoticeCopy(contentPresentation.blockedReason || "paused")
+    : "";
+  const effectiveBlockedReason = blockedReason || (pageInspectionActive ? "page-inspection" : "");
+  const signature = JSON.stringify({ effectiveBlockedReason, curtain, banner, motionPaused, pausedNotice, contentToastText });
   const root = ensureContentSurfaceRoot();
   if (!root) {
     return;
   }
+  root.style.pointerEvents = curtain.visible ? "auto" : "none";
+  setContentInputBlocked(curtain.visible, effectiveBlockedReason);
   if (signature === lastContentSurfaceSignature) {
     return;
   }
@@ -540,14 +788,19 @@ function renderContentSurface(): void {
   if (curtain.visible) {
     const curtainElement = document.createElement("section");
     curtainElement.setAttribute("role", "status");
+    curtainElement.setAttribute("aria-live", "assertive");
     curtainElement.setAttribute("data-uf-content-curtain", "true");
-    curtainElement.textContent = curtain.text || blockedReason;
-    curtainElement.style.position = "absolute";
-    curtainElement.style.inset = "0";
-    curtainElement.style.display = "grid";
-    curtainElement.style.placeItems = "center";
-    curtainElement.style.background = "rgba(15, 23, 42, 0.18)";
-    curtainElement.style.color = "#0f172a";
+    const card = document.createElement("div");
+    card.setAttribute("data-uf-content-curtain-card", "true");
+    const spinner = document.createElement("span");
+    spinner.setAttribute("aria-hidden", "true");
+    spinner.setAttribute("data-uf-content-curtain-spinner", "true");
+    const copy = document.createElement("span");
+    copy.setAttribute("data-uf-content-curtain-copy", "true");
+    copy.textContent = curtain.text || effectiveBlockedReason;
+    card.appendChild(spinner);
+    card.appendChild(copy);
+    curtainElement.appendChild(card);
     root.appendChild(curtainElement);
   }
   if (banner.visible || blockedReason) {
@@ -564,6 +817,38 @@ function renderContentSurface(): void {
     bannerElement.style.background = "rgba(15, 23, 42, 0.92)";
     bannerElement.style.color = "white";
     root.appendChild(bannerElement);
+  }
+  if (motionPaused) {
+    const indicator = document.createElement("aside");
+    indicator.setAttribute("data-uf-motion-pause-indicator", "true");
+    indicator.setAttribute("role", "status");
+    indicator.setAttribute("aria-label", "Page motion paused");
+    indicator.title = "Page motion paused";
+    const snowflake = document.createElement("span");
+    snowflake.setAttribute("aria-hidden", "true");
+    snowflake.textContent = String.fromCodePoint(0xF0717);
+    const codeTags = document.createElement("span");
+    codeTags.setAttribute("aria-hidden", "true");
+    codeTags.textContent = String.fromCodePoint(0xF1C86);
+    indicator.appendChild(snowflake);
+    indicator.appendChild(codeTags);
+    root.appendChild(indicator);
+  }
+  if (pausedNotice) {
+    const notice = document.createElement("aside");
+    notice.setAttribute("data-uf-marking-paused-notice", "true");
+    notice.setAttribute("role", "status");
+    notice.setAttribute("aria-live", "polite");
+    notice.textContent = pausedNotice;
+    root.appendChild(notice);
+  }
+  if (contentToastText) {
+    const toast = document.createElement("aside");
+    toast.setAttribute("data-uf-content-toast", "true");
+    toast.setAttribute("role", "status");
+    toast.setAttribute("aria-live", "polite");
+    toast.textContent = contentToastText;
+    root.appendChild(toast);
   }
 }
 
@@ -870,7 +1155,14 @@ function deactivateMarking(): void {
   removeMarkingListeners?.();
   markingEngine?.dispose();
   markingEngine = null;
+  if (contentToastClearHandle !== null) {
+    clearTimeout(contentToastClearHandle);
+    contentToastClearHandle = null;
+  }
+  contentToastText = "";
   syncMarkingCursor();
+  lastContentSurfaceSignature = "";
+  renderContentSurface();
 }
 
 function pauseMarkingInteractions(): boolean {
@@ -881,6 +1173,8 @@ function pauseMarkingInteractions(): boolean {
   }
   removeMarkingListeners?.();
   syncMarkingCursor();
+  lastContentSurfaceSignature = "";
+  renderContentSurface();
   return true;
 }
 
@@ -893,6 +1187,8 @@ function resumeMarkingInteractions(): boolean {
     return false;
   }
   ensureMarkingListeners();
+  lastContentSurfaceSignature = "";
+  renderContentSurface();
   return true;
 }
 
@@ -964,6 +1260,8 @@ function resetMarking(): boolean {
   }
   markingActive = true;
   ensureMarkingListeners();
+  lastContentSurfaceSignature = "";
+  renderContentSurface();
   return true;
 }
 
@@ -1002,6 +1300,8 @@ function activateContentMain(payload: unknown): Record<string, unknown> {
     }
     markingActive = true;
     ensureMarkingListeners();
+    lastContentSurfaceSignature = "";
+    renderContentSurface();
     armNavigationGate();
   }
   return { ok: true, initialized: true, tree: "rewrite" };

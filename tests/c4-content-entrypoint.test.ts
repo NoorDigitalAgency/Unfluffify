@@ -125,7 +125,46 @@ describe("C4 rewrite content entrypoints", () => {
     };
     const createMarkingEngine = vi.fn(() => engine);
     const sendMessage = vi.fn().mockResolvedValue({ ok: true });
-    const cursorStyleElements: Array<{ id: string; textContent: string; setAttribute: (name: string, value: string) => void }> = [];
+    type SurfaceElement = {
+      id: string;
+      attributes: Record<string, string>;
+      style: Record<string, string>;
+      children: SurfaceElement[];
+      textContent: string;
+      isConnected: boolean;
+      title: string;
+      setAttribute: (name: string, value: string) => void;
+      appendChild: (child: SurfaceElement) => SurfaceElement;
+      replaceChildren: (...children: SurfaceElement[]) => void;
+      remove: () => void;
+    };
+    const contentElements: SurfaceElement[] = [];
+    const createElement = vi.fn(() => {
+      const element: SurfaceElement = {
+        id: "",
+        attributes: {},
+        style: {},
+        children: [],
+        textContent: "",
+        isConnected: true,
+        title: "",
+        setAttribute(name: string, value: string) {
+          this.attributes[name] = value;
+        },
+        appendChild(child: SurfaceElement) {
+          this.children.push(child);
+          return child;
+        },
+        replaceChildren(...children: SurfaceElement[]) {
+          this.children = children;
+        },
+        remove() {
+          this.isConnected = false;
+        },
+      };
+      contentElements.push(element);
+      return element;
+    });
     const getURL = vi.fn((path: string) => `chrome-extension://test/${path}`);
     globalThis.chrome = {
       runtime: {
@@ -143,17 +182,10 @@ describe("C4 rewrite content entrypoints", () => {
           tagName: "HTML",
           scrollHeight: 1000,
           className: "page-shell",
-          appendChild: vi.fn((element: { id: string; textContent: string; setAttribute: (name: string, value: string) => void }) => {
-            cursorStyleElements.push(element);
-            return element;
-          }),
+          appendChild: vi.fn((element: SurfaceElement) => element),
         },
-        createElement: vi.fn(() => ({
-          id: "",
-          textContent: "",
-          setAttribute: vi.fn(),
-        })),
-        getElementById: vi.fn((id: string) => cursorStyleElements.find((element) => element.id === id) ?? null),
+        createElement,
+        getElementById: vi.fn((id: string) => contentElements.find((element) => element.id === id) ?? null),
         addEventListener: vi.fn((type: string, listener: EventListener) => {
           documentListeners.set(type, listener);
         }),
@@ -208,6 +240,21 @@ describe("C4 rewrite content entrypoints", () => {
 
     await applyLockState(listener);
     await dispatchContentCommand(listener, "activateContentMain");
+    const contentRoot = contentElements.find((element) => element.attributes["data-uf-content-surface-root"] === "true");
+    const pauseIndicator = contentRoot?.children.find((element) =>
+      element.attributes["data-uf-motion-pause-indicator"] === "true"
+    );
+    expect(pauseIndicator?.attributes["aria-label"]).toBe("Page motion paused");
+    expect(pauseIndicator?.title).toBe("Page motion paused");
+    expect(pauseIndicator?.children.map((element) => element.textContent)).toEqual([
+      String.fromCodePoint(0xF0717),
+      String.fromCodePoint(0xF1C86),
+    ]);
+    expect(contentElements.some((element) =>
+      element.attributes["data-uf-content-curtain-copy"] === "true"
+      && element.textContent === "Inspecting page... it will be ready soon"
+    )).toBe(true);
+    expect(windowListeners.has("keydown")).toBe(false);
     await dispatchContentCommand(listener, "activateContentMain");
     const status = await dispatchContentCommand(listener, "getContentMainStatus");
     expect(status.data).toMatchObject({
@@ -226,12 +273,15 @@ describe("C4 rewrite content entrypoints", () => {
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
     expect(getURL).toHaveBeenCalledWith("cursors/exclude.svg");
     expect(getURL).toHaveBeenCalledWith("cursors/include.svg");
-    expect(cursorStyleElements[0]?.textContent).toContain(
+    const cursorStyle = contentElements.find((element) => element.id === "unfluffify-marking-cursor-style");
+    expect(cursorStyle?.textContent).toContain(
       'cursor: url("chrome-extension://test/cursors/exclude.svg") 4 3, crosshair !important',
     );
-    expect(cursorStyleElements[0]?.textContent).toContain(
+    expect(cursorStyle?.textContent).toContain(
       'cursor: url("chrome-extension://test/cursors/include.svg") 4 3, copy !important',
     );
+    expect(contentElements.find((element) => element.id === "unfluffify-content-surface-style")?.textContent)
+      .toContain('chrome-extension://test/assets/materialdesignicons-webfont.woff2');
     expect(window.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       command: "ARM",
       sessionNonce: undefined,
@@ -253,10 +303,20 @@ describe("C4 rewrite content entrypoints", () => {
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
     documentListeners.get("keydown")?.({ code: "Space" } as unknown as Event);
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-passthrough");
+    expect(contentRoot?.children.some((element) =>
+      element.attributes["data-uf-content-toast"] === "true"
+      && element.textContent === "Page interaction mode"
+    )).toBe(true);
     documentListeners.get("keyup")?.({ code: "Space" } as unknown as Event);
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
     expect(engine.refresh).toHaveBeenCalledTimes(3);
     expect(engine.renderReadOnly).toHaveBeenCalledTimes(3);
+    await dispatchContentCommand(listener, "pauseContentMainInteractions");
+    expect(contentRoot?.children.some((element) =>
+      element.attributes["data-uf-marking-paused-notice"] === "true"
+      && element.textContent === "Marking temporarily paused"
+    )).toBe(true);
+    await dispatchContentCommand(listener, "resumeContentMainInteractions");
     const click = {
       clientX: 10,
       clientY: 20,
@@ -521,6 +581,7 @@ describe("C4 rewrite content entrypoints", () => {
 
   it("consumes brain signals into local surface memory and gates commands with lock authority", async () => {
     const addListener = vi.fn();
+    const windowListeners = new Map<string, EventListener>();
     const elements: Array<{
       tag: string;
       attributes: Record<string, string>;
@@ -616,7 +677,14 @@ describe("C4 rewrite content entrypoints", () => {
     });
     Object.defineProperty(globalThis, "window", {
       configurable: true,
-      value: { innerHeight: 500, scrollY: 0, scrollTo: vi.fn(), postMessage: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() },
+      value: {
+        innerHeight: 500,
+        scrollY: 0,
+        scrollTo: vi.fn(),
+        postMessage: vi.fn(),
+        addEventListener: vi.fn((type: string, listener: EventListener) => windowListeners.set(type, listener)),
+        removeEventListener: vi.fn((type: string) => windowListeners.delete(type)),
+      },
     });
     vi.doMock("wxt/utils/define-content-script", () => ({ defineContentScript: (config: unknown) => config }));
     vi.doMock("../src/content/marking", () => ({ createMarkingEngine, installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()) }));
@@ -635,8 +703,21 @@ describe("C4 rewrite content entrypoints", () => {
     expect(elements.find((element) => element.attributes["data-uf-content-surface-root"] === "true")?.attributes)
       .toMatchObject({ "data-uf-extension-ui": "true" });
     expect(elements.some((element) => element.attributes["data-uf-content-curtain"] === "true")).toBe(true);
+    expect(elements.some((element) => element.attributes["data-uf-content-curtain-card"] === "true")).toBe(true);
+    expect(elements.some((element) => element.attributes["data-uf-content-curtain-spinner"] === "true")).toBe(true);
     expect(elements.some((element) => element.attributes["data-uf-content-banner"] === "true")).toBe(true);
     expect(elements.some((element) => element.textContent === "Property lock not configured")).toBe(true);
+    const blockedInput = {
+      type: "keydown",
+      cancelable: true,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    };
+    windowListeners.get("keydown")?.(blockedInput as unknown as Event);
+    expect(blockedInput.preventDefault).toHaveBeenCalledTimes(1);
+    expect(blockedInput.stopPropagation).toHaveBeenCalledTimes(1);
+    expect(blockedInput.stopImmediatePropagation).toHaveBeenCalledTimes(1);
     expect(await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/page" })).toMatchObject({
       ok: false,
       failure: { code: "config-missing" },
@@ -670,7 +751,10 @@ describe("C4 rewrite content entrypoints", () => {
       ok: false,
       failure: { code: "post_ai" },
     });
-    expect(elements.some((element) => element.attributes["data-uf-content-curtain"] === "true" && element.textContent === "Computing selectors")).toBe(true);
+    expect(elements.some((element) =>
+      element.attributes["data-uf-content-curtain-copy"] === "true"
+      && element.textContent === "Computing selectors"
+    )).toBe(true);
 
     await applyLockState(listener, {
       baseUrl: "https://other.example",
