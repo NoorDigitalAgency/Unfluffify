@@ -460,27 +460,26 @@ describe("C4 rewrite content entrypoints", () => {
       source: windowObject,
       data: { kind: "uf-page-url-changed/1", toUrl: "https://example.com/b" },
     } as unknown as Event);
+    await Promise.resolve();
+    await Promise.resolve();
 
     expect(engine.dispose).toHaveBeenCalledTimes(1);
     expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       kind: "uf-bus/1",
-      frameType: "request",
-      name: "signals.emit",
+      frameType: "event",
+      name: "fact.reported",
       target: "background",
       source: "content",
-      payload: {
-        tabId: 0,
-        signal: {
-          name: "session.navigated",
+      payload: expect.objectContaining({
+        sensation: expect.objectContaining({
           source: "content",
-          cause: "content-url-change",
-          payload: {
-            fromUrl: "https://example.com/a",
-            toUrl: "https://example.com/b",
+          reason: "content-url-change",
+          facts: expect.objectContaining({
             pageUrl: "https://example.com/b",
-          },
-        },
-      },
+            markingEnabled: false,
+          }),
+        }),
+      }),
     }));
     expect(windowListeners.has("popstate")).toBe(true);
     expect(windowListeners.has("hashchange")).toBe(true);

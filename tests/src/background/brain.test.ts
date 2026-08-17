@@ -219,6 +219,32 @@ describe("P3 background brain", () => {
     expect(brain.pullSignals(0)).toEqual(emitted);
   });
 
+  it("decides exactly one marking-enabled signal from repeated activation facts", () => {
+    const brain = createRewriteBrain(9);
+    const activationFact = {
+      tabId: 9,
+      source: "popup" as const,
+      reason: "marking-activated",
+      facts: {
+        tabId: 9,
+        pageUrl: "https://example.com/page",
+        baseUrl: "https://example.com",
+        markingEnabled: true,
+      },
+    };
+
+    const first = brain.observe(activationFact);
+    const duplicate = brain.observe(activationFact);
+
+    expect(first).toMatchObject([{
+      name: "marking.enabled",
+      source: "brain",
+      cause: "activate-ok",
+    }]);
+    expect(duplicate).toEqual([]);
+    expect(brain.pullSignals(0).filter((signal) => signal.name === "marking.enabled")).toHaveLength(1);
+  });
+
   it("starts signal sequencing from rehydrated facts", () => {
     const brain = createRewriteBrain(9, {
       tabId: 9,

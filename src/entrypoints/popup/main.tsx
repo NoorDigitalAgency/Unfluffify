@@ -472,7 +472,8 @@ async function handleBoundContext(context: TargetTabContext): Promise<string> {
   if (binding.sameTabNavigation) {
     await clearSessionEmulation(context);
     await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
-    await emitPopupSignal(context.tabId, "session.navigated", { pageUrl: context.url }, binding.key);
+    await reportPopupFact(context, "navigation-observed", {}, binding.key);
+    await pullSignals(context.tabId, binding.key);
   }
   return binding.key;
 }
@@ -988,11 +989,8 @@ async function reconcileContentStatus(context: TargetTabContext, requestKey = bo
   contentActive = status.active === true;
   contentDirty = status.dirty === true;
   if (status.active === true && store.getState().name === "silent") {
-    await emitPopupSignal(context.tabId, "marking.enabled", {
-      baseUrl: "",
-      pageUrl: context.url,
-      cause: "content-reconciliation",
-    }, requestKey);
+    await reportPopupFact(context, "content-reconciliation", { markingEnabled: true }, requestKey);
+    await pullSignals(context.tabId, requestKey);
   }
   // No markings.changed from here — the brain is the only producer of it. When a
   // popup opens onto a session the brain has no record of (its signal log lives
@@ -1015,7 +1013,6 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
   const context = await resolveTargetTabContext();
   if (context === null) {
     console.error("[Unfluffify][rewrite] Unable to resolve an active tab for the popup");
-    store.dispatch(nextSignal(0, "marking.disabled", { baseUrl: "", cause: "missing-tab" }));
     render();
     return;
   }
@@ -1043,7 +1040,6 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     }
     if (!await applySessionEmulation(context)) {
       logEvent("Enable marking failed", "device emulation could not be applied", "danger");
-      await emitPopupSignal(context.tabId, "marking.disabled", { baseUrl: "", pageUrl: context.url, cause: "emulation-failed" }, requestKey);
       render();
       return;
     }
@@ -1075,14 +1071,17 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
           : "no content script on this tab — reload the page",
       activated ? "success" : "danger",
     );
-    await emitPopupSignal(context.tabId, activated ? "marking.enabled" : "marking.disabled", {
-      baseUrl: "",
-      pageUrl: context.url,
-      cause: activated ? "toggle" : "content-activation-failed",
+    await reportPopupFact(context, activated ? "marking-activated" : "marking-activation-refused", {
+      markingEnabled: activated,
     }, requestKey);
     await pullSignals(context.tabId, requestKey);
   } else {
-    await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
+    const deactivated = await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
+    if (!deactivated) {
+      logEvent("Marking disable failed", "the content script did not confirm deactivation", "danger");
+      render();
+      return;
+    }
     lastSubmissionSnapshot = null;
     lastSubmissionKey = null;
     activeRunSessionId = null;
@@ -1092,7 +1091,8 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     // it, so the posture holds — and desktop preview only becomes available now.
     await ensureSessionEmulation(context);
     logEvent("Marking disabled", "toggle");
-    await emitPopupSignal(context.tabId, "marking.disabled", { baseUrl: "", pageUrl: context.url, cause: "toggle" }, requestKey);
+    await reportPopupFact(context, "marking-deactivated", { markingEnabled: false }, requestKey);
+    await pullSignals(context.tabId, requestKey);
   }
   render();
 }

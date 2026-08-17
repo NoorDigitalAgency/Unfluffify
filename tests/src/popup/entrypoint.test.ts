@@ -405,7 +405,39 @@ describe("rewrite popup entrypoint", () => {
     const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
     let signalSeq = 0;
     let pulledDirty = false;
+    let decidedFromFact: Record<string, unknown>[] = [];
     const runtime = makeRuntime(async (message) => {
+      if (message.name === "fact.reported") {
+        const sensation = (message.payload as { sensation: { tabId: number; facts: { markingEnabled?: boolean } } }).sensation;
+        if (typeof sensation.facts.markingEnabled === "boolean") {
+          signalSeq += 1;
+          decidedFromFact.push({
+            kind: "uf-signal/1",
+            tabId: sensation.tabId,
+            seq: signalSeq,
+            name: sensation.facts.markingEnabled ? "marking.enabled" : "marking.disabled",
+            source: "brain",
+            cause: "fact-fold",
+            at: signalSeq,
+            payload: { pageUrl: "https://example.com" },
+          });
+          if (sensation.facts.markingEnabled && !pulledDirty) {
+            pulledDirty = true;
+            signalSeq += 1;
+            decidedFromFact.push({
+              kind: "uf-signal/1",
+              tabId: sensation.tabId,
+              seq: signalSeq,
+              name: "markings.changed",
+              source: "brain",
+              cause: "content-click",
+              at: signalSeq,
+              payload: { pageUrl: "https://example.com", markedCount: 1 },
+            });
+          }
+        }
+        return undefined;
+      }
       if (message.name === "signals.emit") {
         const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
         signalSeq += 1;
@@ -420,23 +452,10 @@ describe("rewrite popup entrypoint", () => {
             payload: request.signal?.payload ?? {},
           }]);
       }
-      if (message.name === "signals.pull" && (message.payload as { afterSeq?: number }).afterSeq === 0) {
-        return replyFrame(message, []);
-      }
-      if (message.name === "signals.pull" && !pulledDirty) {
-        const request = message.payload as { tabId: number };
-        pulledDirty = true;
-        signalSeq += 1;
-        return replyFrame(message, [{
-            kind: "uf-signal/1",
-            tabId: request.tabId,
-            seq: signalSeq,
-            name: "markings.changed",
-            source: "content",
-            cause: "content-click",
-            at: signalSeq,
-            payload: { pageUrl: "https://example.com", markedCount: 1 },
-          }]);
+      if (message.name === "signals.pull" && decidedFromFact.length > 0) {
+        const pending = decidedFromFact;
+        decidedFromFact = [];
+        return replyFrame(message, pending);
       }
       return replyFrame(message, []);
     });
@@ -454,6 +473,7 @@ describe("rewrite popup entrypoint", () => {
     confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
+    expect(globalThis.window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState().stateName).toBe("pre_ai_dirty");
     expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(false);
     expect(globalThis.window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState().buttons.compute).toEqual({
       disabled: false,
@@ -488,11 +508,15 @@ describe("rewrite popup entrypoint", () => {
       .toBeLessThan(sentCommandNames.indexOf("activateContentMain"));
     expect(sentCommandNames.indexOf("activateContentMain"))
       .toBeLessThan(sentCommandNames.indexOf("resetContentMain"));
-    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
-      name: "signals.pull",
-      payload: { tabId: 77, afterSeq: 1 },
-      target: "background",
-    }));
+    const runtimeFrames = runtime.sendMessage.mock.calls.map(([frame]) => frame as {
+      name?: string;
+      payload?: { signal?: { name?: string }; sensation?: { reason?: string } };
+    });
+    expect(runtimeFrames.filter(
+      (frame) => frame.name === "fact.reported" && frame.payload?.sensation?.reason === "marking-activated",
+    )).toHaveLength(1);
+    expect(runtimeFrames.filter((frame) => frame.name === "signals.emit").map((frame) => frame.payload?.signal?.name))
+      .not.toEqual(expect.arrayContaining(["marking.enabled", "marking.disabled"]));
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("resetContentMain", {}));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "signals.emit",
@@ -1283,7 +1307,25 @@ describe("rewrite popup entrypoint", () => {
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
     let dirtyReady = false;
     let signalSeq = 0;
+    let decidedFromFact: Record<string, unknown> | null = null;
     const runtime = makeRuntime(async (message) => {
+      if (message.name === "fact.reported") {
+        const sensation = (message.payload as { sensation: { tabId: number; facts: { markingEnabled?: boolean } } }).sensation;
+        if (sensation.facts.markingEnabled === true) {
+          signalSeq += 1;
+          decidedFromFact = {
+            kind: "uf-signal/1",
+            tabId: sensation.tabId,
+            seq: signalSeq,
+            name: "marking.enabled",
+            source: "brain",
+            cause: "fact-fold",
+            at: signalSeq,
+            payload: { pageUrl: "https://example.com/page" },
+          };
+        }
+        return undefined;
+      }
       if (message.name === "signals.emit") {
         const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
         signalSeq += 1;
@@ -1297,6 +1339,11 @@ describe("rewrite popup entrypoint", () => {
           at: signalSeq,
           payload: request.signal?.payload ?? {},
         }]);
+      }
+      if (message.name === "signals.pull" && decidedFromFact) {
+        const pending = decidedFromFact;
+        decidedFromFact = null;
+        return replyFrame(message, [pending]);
       }
       if (message.name === "signals.pull" && dirtyReady) {
         dirtyReady = false;
@@ -1470,14 +1517,27 @@ describe("rewrite popup entrypoint", () => {
     // markings.changed has exactly one producer now — the brain — so the stub has
     // to play that part: it folds the relayed toggle fact and decides the signal,
     // which is what the real decide.ts does.
-    let decidedFromFact: Record<string, unknown> | null = null;
+    let decidedFromFact: Record<string, unknown>[] = [];
     const runtime = makeRuntime(async (message) => {
       if (message.name === "fact.reported") {
-        const envelope = message.payload as { sensation?: { tabId?: number; facts?: { markingToggleSeq?: number } } };
+        const envelope = message.payload as { sensation?: { tabId?: number; facts?: { markingEnabled?: boolean; markingToggleSeq?: number } } };
+        if (envelope.sensation?.facts?.markingEnabled === true) {
+          signalSeq += 1;
+          decidedFromFact.push({
+            kind: "uf-signal/1",
+            tabId: envelope.sensation?.tabId ?? 77,
+            seq: signalSeq,
+            name: "marking.enabled",
+            source: "brain",
+            cause: "activate-ok",
+            at: signalSeq,
+            payload: { pageUrl: "https://example.com" },
+          });
+        }
         const seq = envelope.sensation?.facts?.markingToggleSeq ?? 0;
         if (seq > 0) {
           signalSeq += 1;
-          decidedFromFact = {
+          decidedFromFact.push({
             kind: "uf-signal/1",
             tabId: envelope.sensation?.tabId ?? 77,
             seq: signalSeq,
@@ -1486,6 +1546,105 @@ describe("rewrite popup entrypoint", () => {
             cause: "marking-toggle",
             at: signalSeq,
             payload: { pageUrl: "https://example.com", markedCount: seq },
+          });
+        }
+        return undefined;
+      }
+      if (message.name === "signals.emit") {
+        const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
+        signalSeq += 1;
+        return replyFrame(message, [{
+            kind: "uf-signal/1",
+            tabId: request.tabId,
+            seq: signalSeq,
+            name: request.signal?.name,
+            source: "brain",
+            cause: "test",
+            at: signalSeq,
+            payload: request.signal?.payload ?? {},
+          }]);
+      }
+      if (message.name === "signals.pull" && decidedFromFact.length > 0) {
+        const pending = decidedFromFact;
+        decidedFromFact = [];
+        return replyFrame(message, pending);
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: {
+        ...runtime,
+      },
+      tabs: {
+        query,
+        sendMessage: tabsSendMessage,
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await flushEntrypointWork();
+    await flushEntrypointWork();
+
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("getContentMainStatus", {}));
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "fact.reported",
+      payload: expect.objectContaining({
+        sensation: expect.objectContaining({
+          reason: "content-reconciliation",
+          facts: expect.objectContaining({ markingEnabled: true }),
+        }),
+      }),
+    }));
+    // The popup relays what it observed as a fact and never mints the signal.
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "fact.reported",
+      payload: expect.objectContaining({
+        sensation: expect.objectContaining({
+          source: "popup",
+          reason: "marking-toggle-observed",
+          facts: expect.objectContaining({ markingToggleSeq: 2 }),
+        }),
+      }),
+    }));
+    const emittedSignalNames = runtime.sendMessage.mock.calls
+      .map(([frame]) => frame as { name?: string; payload?: { signal?: { name?: string } } })
+      .filter((frame) => frame.name === "signals.emit")
+      .map((frame) => frame.payload?.signal?.name);
+    expect(emittedSignalNames).not.toContain("markings.changed");
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(false);
+  });
+
+  it("reconciles clean active content without marking it dirty", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = vi.fn();
+    vi.doMock("react-dom/client", () => ({
+      createRoot: vi.fn(() => ({ render })),
+    }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
+    const tabsSendMessage = makeTabsSendMessage(() => ({
+      ok: true,
+      active: true,
+      dirty: false,
+      pageUrl: "https://example.com",
+      markedCount: 25,
+      tree: "rewrite",
+    }));
+    let signalSeq = 0;
+    let decidedFromFact: Record<string, unknown> | null = null;
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "fact.reported") {
+        const sensation = (message.payload as { sensation: { tabId: number; facts: { markingEnabled?: boolean } } }).sensation;
+        if (sensation.facts.markingEnabled === true) {
+          signalSeq += 1;
+          decidedFromFact = {
+            kind: "uf-signal/1",
+            tabId: sensation.tabId,
+            seq: signalSeq,
+            name: "marking.enabled",
+            source: "brain",
+            cause: "activate-ok",
+            at: signalSeq,
+            payload: { pageUrl: "https://example.com" },
           };
         }
         return undefined;
@@ -1523,99 +1682,15 @@ describe("rewrite popup entrypoint", () => {
 
     await import("../../../src/entrypoints/popup/main.tsx");
     await flushEntrypointWork();
-    await flushEntrypointWork();
 
-    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("getContentMainStatus", {}));
-    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
-      name: "signals.emit",
-      payload: {
-        tabId: 77,
-        signal: {
-        name: "marking.enabled",
-        source: "popup",
-        cause: "popup-entrypoint",
-        payload: { baseUrl: "", pageUrl: "https://example.com", cause: "content-reconciliation" },
-      },
-      },
-      target: "background",
-    }));
-    // The popup relays what it observed as a fact and never mints the signal.
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "fact.reported",
       payload: expect.objectContaining({
         sensation: expect.objectContaining({
-          source: "popup",
-          reason: "marking-toggle-observed",
-          facts: expect.objectContaining({ markingToggleSeq: 2 }),
+          reason: "content-reconciliation",
+          facts: expect.objectContaining({ markingEnabled: true }),
         }),
       }),
-    }));
-    const emittedSignalNames = runtime.sendMessage.mock.calls
-      .map(([frame]) => frame as { name?: string; payload?: { signal?: { name?: string } } })
-      .filter((frame) => frame.name === "signals.emit")
-      .map((frame) => frame.payload?.signal?.name);
-    expect(emittedSignalNames).not.toContain("markings.changed");
-    expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(false);
-  });
-
-  it("reconciles clean active content without marking it dirty", async () => {
-    installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
-    vi.doMock("react-dom/client", () => ({
-      createRoot: vi.fn(() => ({ render })),
-    }));
-    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
-    const tabsSendMessage = makeTabsSendMessage(() => ({
-      ok: true,
-      active: true,
-      dirty: false,
-      pageUrl: "https://example.com",
-      markedCount: 25,
-      tree: "rewrite",
-    }));
-    let signalSeq = 0;
-    const runtime = makeRuntime(async (message) => {
-      if (message.name === "signals.emit") {
-        const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
-        signalSeq += 1;
-        return replyFrame(message, [{
-            kind: "uf-signal/1",
-            tabId: request.tabId,
-            seq: signalSeq,
-            name: request.signal?.name,
-            source: "brain",
-            cause: "test",
-            at: signalSeq,
-            payload: request.signal?.payload ?? {},
-          }]);
-      }
-      return replyFrame(message, []);
-    });
-    globalThis.chrome = {
-      runtime: {
-        ...runtime,
-      },
-      tabs: {
-        query,
-        sendMessage: tabsSendMessage,
-      },
-    } as unknown as typeof chrome;
-
-    await import("../../../src/entrypoints/popup/main.tsx");
-    await flushEntrypointWork();
-
-    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
-      name: "signals.emit",
-      payload: {
-        tabId: 77,
-        signal: {
-        name: "marking.enabled",
-        source: "popup",
-        cause: "popup-entrypoint",
-        payload: { baseUrl: "", pageUrl: "https://example.com", cause: "content-reconciliation" },
-      },
-      },
-      target: "background",
     }));
     expect(runtime.sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({
       name: "signals.emit",
@@ -1733,16 +1808,13 @@ describe("rewrite popup entrypoint", () => {
 
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("deactivateContentMain", {}));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
-      name: "signals.emit",
-      payload: {
-        tabId: 77,
-        signal: {
-        name: "session.navigated",
-        source: "popup",
-        cause: "popup-entrypoint",
-        payload: { pageUrl: "https://example.com/b" },
-      },
-      },
+      name: "fact.reported",
+      payload: expect.objectContaining({
+        sensation: expect.objectContaining({
+          reason: "navigation-observed",
+          facts: expect.objectContaining({ pageUrl: "https://example.com/b" }),
+        }),
+      }),
       target: "background",
     }));
   });

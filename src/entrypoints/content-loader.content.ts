@@ -12,11 +12,10 @@ import {
 import { hideConsentOverlays } from "../content/consent";
 import { createMarkingEngine } from "../content/marking";
 import { createFreezeController, createRevealVisitController, createSpaGuard } from "../content/stabilization";
-import type { BrainSignal } from "../domain/schema/signals";
 import type { CommandEnvelope } from "../messaging/contracts";
 import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
-import { emitRewriteSignal, type RewriteSignalBus } from "../messaging/rewrite-signals";
+import type { RewriteSignalBus } from "../messaging/rewrite-signals";
 
 const activation = createActivationGate();
 const freezeController = createFreezeController();
@@ -245,17 +244,6 @@ function reportMarkingToggle(): void {
     .catch((error: unknown) => {
       console.error("[Unfluffify][rewrite] Unable to report a marking toggle", error);
     });
-}
-
-function emitContentBrainSignal(name: BrainSignal["name"], cause: string, payload: BrainSignal["payload"]): void {
-  void emitRewriteSignal(getContentBus(), 0, {
-      name,
-      source: "content",
-      cause,
-      payload,
-  }).catch((error: unknown) => {
-    console.error("[Unfluffify][rewrite] Unable to emit content signal", error);
-  });
 }
 
 async function reportContentFact(reason: string, facts: Record<string, unknown>): Promise<void> {
@@ -659,10 +647,13 @@ function handleUrlChanged(nextUrl?: string): void {
     return;
   }
   deactivateMarking();
-  emitContentBrainSignal("session.navigated", "content-url-change", {
+  void reportContentFact("content-url-change", {
     fromUrl: previousUrl,
     toUrl: currentUrl,
     pageUrl: currentUrl,
+    markingEnabled: false,
+  }).catch((error: unknown) => {
+    console.error("[Unfluffify][rewrite] Unable to report content navigation", error);
   });
 }
 
