@@ -232,6 +232,9 @@
 
 :root,
 [data-theme] {
+  --surface: var(--card);
+  --surface-2: var(--bg-accent);
+  --ink-soft: var(--muted);
   --ink: light-dark(
     color-mix(in srgb, var(--ink-base) 94%, #040608 6%),
     color-mix(in srgb, var(--ink-base) 84%, #ffffff 16%)

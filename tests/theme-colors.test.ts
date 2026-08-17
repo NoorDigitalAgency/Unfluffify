@@ -189,6 +189,15 @@ test("popup stamps the legacy production theme before boot", () => {
   assert.match(popupMain, /document\.documentElement\.style\.colorScheme = "light dark"/);
 });
 
+test("every theme provides the Activity log surface tokens", () => {
+  const themeColorCss = readFileSync(new URL("../src/theme-color.css", import.meta.url), "utf8");
+  const sharedThemeBlock = themeColorCss.match(/:root,\s*\n\[data-theme\]\s*\{([\s\S]*?)\n\}/)?.[1] ?? "";
+
+  assert.match(sharedThemeBlock, /--surface:\s*var\(--card\)/);
+  assert.match(sharedThemeBlock, /--surface-2:\s*var\(--bg-accent\)/);
+  assert.match(sharedThemeBlock, /--ink-soft:\s*var\(--muted\)/);
+});
+
 test("theme layers define shared tokens, components, and utilities", () => {
   const themeColorCss = readFileSync(new URL("../src/theme-color.css", import.meta.url), "utf8");
   const themeComponentsCss = readFileSync(new URL("../src/theme-components.css", import.meta.url), "utf8");
