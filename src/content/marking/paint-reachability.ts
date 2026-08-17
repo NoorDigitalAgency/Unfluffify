@@ -34,6 +34,32 @@ export function isPaintReachable(
   return isPaintReachableAt(element, x, y, document);
 }
 
+export function isActuallyPaintReachable(
+  element: Element,
+  document: Document = element.ownerDocument,
+): boolean {
+  if (typeof document.elementsFromPoint !== "function") {
+    return true;
+  }
+  const rect = element.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) {
+    return false;
+  }
+  const insetX = Math.min(1, rect.width / 2);
+  const insetY = Math.min(1, rect.height / 2);
+  const points: ReadonlyArray<readonly [number, number]> = [
+    [rect.left + rect.width / 2, rect.top + rect.height / 2],
+    [rect.left + insetX, rect.top + insetY],
+    [rect.left + rect.width - insetX, rect.top + insetY],
+    [rect.left + insetX, rect.top + rect.height - insetY],
+    [rect.left + rect.width - insetX, rect.top + rect.height - insetY],
+  ];
+  return points.some(([x, y]) =>
+    getComposedHitElements(document, x, y).length > 0 &&
+    isPaintReachableAt(element, x, y, document)
+  );
+}
+
 export function isPaintReachableAt(
   element: Element,
   x: number,

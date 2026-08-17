@@ -25,7 +25,14 @@ function toCandidate(
   return {
     key: node.key,
     xpath: node.xpath,
-    selfMarkable: Boolean(node.visible && !node.closedShadow && !node.immutable && !node.chrome && (node.ownsDirectText || node.structuralBoundary)),
+    selfMarkable: Boolean(
+      node.visible &&
+      !node.closedShadow &&
+      !node.immutable &&
+      !node.chrome &&
+      (!node.silentWhitespaceExclusion || Boolean(ownRow)) &&
+      (node.ownsDirectText || node.structuralBoundary)
+    ),
     excluded: classification === "exception",
     explicitInclude: ownRow?.excluded === false && ownRow.explicit === true,
     closedShadow: node.closedShadow,

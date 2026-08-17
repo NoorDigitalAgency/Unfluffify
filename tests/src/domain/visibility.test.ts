@@ -77,4 +77,19 @@ describe("P0 visibility policy (INV-5.5..INV-5.8)", () => {
     expect(isUserVisible("zero", { ...visible, rect: { left: 0, top: 0, width: 0, height: 20 } }))
       .toBe(false);
   });
+
+  it("resolves accessibility-hidden metadata with paint reality", () => {
+    expect(isUserVisible("painted-aria", {
+      ...visible,
+      style: { ariaHidden: true, paintReachable: true },
+    })).toBe(true);
+    expect(isUserVisible("covered-aria", {
+      ...visible,
+      style: { ariaHidden: true, paintReachable: false },
+    })).toBe(false);
+    expect(isUserVisible("painted-sr-only", {
+      ...visible,
+      style: { srOnly: true, paintReachable: true },
+    })).toBe(true);
+  });
 });

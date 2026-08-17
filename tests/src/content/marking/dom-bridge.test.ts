@@ -273,6 +273,70 @@ describe("P6 DOM bridge", () => {
       .toEqual([false, false, false, false]);
   });
 
+  it("keeps accessibility-hidden prose eligible when it is actually painted", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("SECTION", rect(0, 0, 300, 300));
+    const aria = new FakeElement("P", rect(0, 20, 100, 20), "Visible aria copy");
+    const srOnly = new FakeElement("P", rect(0, 60, 100, 20), "Visible sr-only copy");
+    aria.setAttribute("aria-hidden", "true");
+    srOnly.className = "sr-only";
+    for (const element of [root, aria, srOnly]) {
+      element.ownerDocument = doc;
+    }
+    root.appendChild(aria);
+    root.appendChild(srOnly);
+    doc.pointHits = (_x, y) => y < 50 ? [aria, root] : [srOnly, root];
+
+    const view = createDomBridgeView(root as unknown as Element);
+
+    expect(view.byElement.get(aria as unknown as Element)?.evaluationNode.visible).toBe(true);
+    expect(view.byElement.get(srOnly as unknown as Element)?.evaluationNode.visible).toBe(true);
+  });
+
+  it("keeps silent whitespace in submission only and drops it when text arrives", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const blank = new FakeElement("SECTION", rect(0, 20, 200, 60));
+    const prose = new FakeElement("P", rect(0, 100, 200, 20), "Real copy");
+    for (const element of [root, blank, prose]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(blank);
+    root.appendChild(prose);
+    doc.hits = [blank, root];
+    const engine = createMarkingEngine(root as unknown as Element);
+    const blankXpath = "/main[1]/section[1]";
+
+    engine.renderReadOnly();
+    const before = engine.buildSubmission({
+      baseUrl: "https://example.com",
+      renderMode: "rendered",
+      pageUrl: "https://example.com/page",
+    });
+
+    expect(before.pages[0]?.renderedXPaths).toContainEqual({
+      xpath: blankXpath,
+      excluded: true,
+      explicit: true,
+    });
+    expect(engine.overlayRoot().children.flatMap((layer) => layer.children).some((overlay) =>
+      overlay.getAttribute("data-uf-overlay-xpath") === blankXpath
+    )).toBe(false);
+    expect(engine.resolveAtPoint(10, 30, "exclude")?.xpath).not.toBe(blankXpath);
+
+    blank.childNodes.push({ nodeType: 3, textContent: "Loaded copy" });
+    engine.refresh();
+
+    expect(engine.rows()).not.toContainEqual({
+      xpath: blankXpath,
+      excluded: true,
+      explicit: true,
+    });
+    expect(engine.rows()).toContainEqual({ xpath: blankXpath, excluded: false });
+  });
+
   it("propagates ancestor hidden styles to descendants", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("SECTION", rect(0, 0, 300, 300));

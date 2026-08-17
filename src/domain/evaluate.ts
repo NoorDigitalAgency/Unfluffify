@@ -17,6 +17,7 @@ export type EvaluationNode = Readonly<{
   chrome?: boolean;
   immutable?: boolean;
   closedShadow?: boolean;
+  silentWhitespaceExclusion?: boolean;
 }>;
 
 export type DomView = Readonly<{
@@ -56,6 +57,9 @@ function classifyNode(
     return "immutable";
   }
   if (node.chrome) {
+    return null;
+  }
+  if (node.silentWhitespaceExclusion && !nearestMark) {
     return null;
   }
   if (nearestMark?.excluded) {
@@ -127,6 +131,9 @@ function walk(
       } else if (!submittedExcludedAncestor && shouldSubmitImplicitInclude(node)) {
         rows.push(makeRow(node, false));
       }
+    } else if (!submittedExcludedAncestor && node.silentWhitespaceExclusion) {
+      rows.push(makeRow(node, true, true));
+      nextSubmittedExcludedAncestor = node.xpath;
     } else if (!submittedExcludedAncestor && shouldSubmitImplicitInclude(node)) {
       rows.push(makeRow(node, false));
     } else if (!submittedExcludedAncestor && shouldSubmitHiddenTextExclusion(node)) {

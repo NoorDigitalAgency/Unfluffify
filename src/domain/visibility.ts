@@ -14,6 +14,7 @@ export type VisibilityStyle = Readonly<{
   hidden?: boolean;
   ariaHidden?: boolean;
   srOnly?: boolean;
+  paintReachable?: boolean;
   interactionGated?: boolean;
   overflowY?: string;
   clientHeight?: number;
@@ -47,7 +48,7 @@ function hasVisibleClampPreview(style: VisibilityStyle | undefined, rect: Visibi
 export function isUserVisible(_node: unknown, geometry: VisibilityGeometry): boolean {
   const { rect } = geometry;
   const style = geometry.style;
-  if (style?.hidden || style?.ariaHidden || style?.interactionGated || style?.srOnly) {
+  if (style?.hidden || style?.interactionGated) {
     return false;
   }
   if (style?.display === "none") {
@@ -70,6 +71,14 @@ export function isUserVisible(_node: unknown, geometry: VisibilityGeometry): boo
 
   const pageHeight = geometry.pageHeight ?? Number.POSITIVE_INFINITY;
   if (rect.top + rect.height <= 0 || rect.top >= pageHeight) {
+    return false;
+  }
+
+  // Accessibility metadata is not proof of visual hiding. Sites frequently
+  // leave aria-hidden or sr-only class names on content that is still painted;
+  // accept those ambiguous cases only when the DOM bridge finds the element in
+  // the composed hit path.
+  if ((style?.ariaHidden || style?.srOnly) && style.paintReachable !== true) {
     return false;
   }
 

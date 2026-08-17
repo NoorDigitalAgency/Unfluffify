@@ -3,6 +3,7 @@ import { isStructuralBoundary as isDomainStructuralBoundary } from "../../domain
 import { isImmutableTag } from "../../domain/taxonomy";
 import { isUserVisible, type VisibilityGeometry } from "../../domain/visibility";
 import type { XPathNodeView } from "../../domain/xpath";
+import { isActuallyPaintReachable } from "./paint-reachability";
 
 export type DomBridgeNode = Readonly<{
   element: Element;
@@ -31,6 +32,71 @@ function ownsDirectText(element: Element): boolean {
   return flattenedChildNodes(element).some((node) =>
     node.nodeType === 3 && (node.textContent ?? "").trim().length > 0
   );
+}
+
+const NON_TEXTUAL_CONTENT_TAGS = new Set([
+  "IMG",
+  "SVG",
+  "CANVAS",
+  "VIDEO",
+  "AUDIO",
+  "IFRAME",
+  "PICTURE",
+  "OBJECT",
+  "EMBED",
+  "INPUT",
+  "TEXTAREA",
+  "SELECT",
+  "BUTTON",
+]);
+
+function normalizedFlattenedText(element: Element): string {
+  const fragments: string[] = [];
+  const visit = (node: Node): void => {
+    if (node.nodeType === 3) {
+      fragments.push(node.textContent ?? "");
+      return;
+    }
+    if (node.nodeType === 1) {
+      for (const child of flattenedChildNodes(node as Element)) {
+        visit(child);
+      }
+    }
+  };
+  visit(element);
+  return fragments.join(" ").replace(/\s+/g, " ").trim();
+}
+
+function hasNonTextualContent(element: Element): boolean {
+  if (NON_TEXTUAL_CONTENT_TAGS.has(element.tagName.toUpperCase())) {
+    return true;
+  }
+  return elementChildren(element).some((child) => hasNonTextualContent(child));
+}
+
+function isSilentWhitespaceExclusion(
+  element: Element,
+  visible: boolean,
+  style: CSSStyleDeclaration | undefined,
+): boolean {
+  const document = element.ownerDocument;
+  if (
+    !visible ||
+    element === document.documentElement ||
+    element === document.body
+  ) {
+    return false;
+  }
+  const display = style?.display ?? "";
+  if (
+    !display ||
+    display === "none" ||
+    display === "contents" ||
+    ["inline", "inline-block", "inline-flex", "inline-grid", "inline-table"].includes(display)
+  ) {
+    return false;
+  }
+  return normalizedFlattenedText(element) === "" && !hasNonTextualContent(element);
 }
 
 function flattenedChildNodes(element: Element): Node[] {
@@ -111,6 +177,8 @@ function geometryFor(element: Element, pass: DomBridgePass): VisibilityGeometry 
   }
   const rect = element.getBoundingClientRect();
   const style = styleFor(element, pass);
+  const ariaHidden = hasHiddenAncestor(element, "aria-hidden", "true", pass.ariaHiddenByElement);
+  const srOnly = hasClassInAncestors(element, /\b(?:sr-only|visually-hidden)\b/, pass.srOnlyByElement);
   const geometry: VisibilityGeometry = {
     rect: {
       left: rect.left,
@@ -126,8 +194,9 @@ function geometryFor(element: Element, pass: DomBridgePass): VisibilityGeometry 
         visibility: style.visibility,
         opacity: Number(style.opacity),
         hidden: hasStyleHiddenAncestor(element, pass),
-        ariaHidden: hasHiddenAncestor(element, "aria-hidden", "true", pass.ariaHiddenByElement),
-        srOnly: hasClassInAncestors(element, /\b(?:sr-only|visually-hidden)\b/, pass.srOnlyByElement),
+        ariaHidden,
+        srOnly,
+        paintReachable: ariaHidden || srOnly ? isActuallyPaintReachable(element) : undefined,
         interactionGated: hasHiddenAncestor(element, "aria-expanded", "false", pass.interactionGatedByElement),
         overflowY: style.overflowY,
         clientHeight: (element as HTMLElement).clientHeight,
@@ -273,11 +342,13 @@ function buildNode(
   xpathNode.children = childNodes;
   const landmarks = landmarkCount(element, pass);
   const structuralRole = structuralRoleFor(element);
+  const geometry = geometryFor(element, pass);
+  const visible = isUserVisible(element, geometry);
   const evaluationNode: EvaluationNode = {
     key: xpath,
     tagName,
     xpath,
-    visible: isUserVisible(element, geometryFor(element, pass)),
+    visible,
     ownsDirectText: ownsDirectText(element),
     structuralBoundary: isStructuralBoundary(element, xpath, landmarks, structuralRole),
     structuralRole,
@@ -286,6 +357,11 @@ function buildNode(
     chrome: isExtensionUi(element),
     immutable,
     closedShadow,
+    silentWhitespaceExclusion: !immutable && isSilentWhitespaceExclusion(
+      element,
+      visible,
+      styleFor(element, pass),
+    ),
     children: childEvaluations,
   };
   const bridgeNode = { element, xpathNode, evaluationNode };
