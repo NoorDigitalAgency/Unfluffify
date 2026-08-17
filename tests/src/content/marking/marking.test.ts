@@ -7,6 +7,8 @@ import {
   buildSubmissionSnapshot,
   createMarkingStore,
   flattenNode,
+  MARKING_OVERLAY_CLASSES,
+  MARKING_OVERLAY_STYLES,
   overlayClassFor,
   resolveTarget,
   type MarkingCandidate,
@@ -376,9 +378,23 @@ describe("P6 content marking engine", () => {
     expect(store.canonicalSet().rows).toEqual([]);
   });
 
-  it("maps overlay categories including closed shadow", () => {
-    expect(overlayClassFor("implicit-include")).toBe("uf-overlay-include");
-    expect(overlayClassFor("closed-shadow")).toBe("uf-overlay-closed-shadow");
+  it("maps every evaluation category into the legacy overlay grammar", () => {
+    expect(MARKING_OVERLAY_CLASSES).toHaveLength(16);
+    expect(overlayClassFor("implicit-include")).toBe("uf-default");
+    expect(overlayClassFor("explicit-include")).toBe("uf-explicit-include");
+    expect(overlayClassFor("exception")).toBe("uf-explicit-exclude");
+    expect(overlayClassFor("immutable")).toBe("uf-hard-locked");
+    expect(overlayClassFor("closed-shadow")).toBe("uf-hard-locked uf-closed-shadow");
+  });
+
+  it("keeps the legacy overlay colours and metrics exact", () => {
+    expect(MARKING_OVERLAY_STYLES).toContain("border-radius: 4px");
+    expect(MARKING_OVERLAY_STYLES).toContain("border: 2px solid #ffb300");
+    expect(MARKING_OVERLAY_STYLES).toContain("border: 1px solid #2e7d32");
+    expect(MARKING_OVERLAY_STYLES).toContain("border: 3px solid #1b5e20");
+    expect(MARKING_OVERLAY_STYLES).toContain("border: 3px solid #c62828");
+    expect(MARKING_OVERLAY_STYLES).toContain("border: 2px dashed rgba(225, 70, 70, 0.4)");
+    expect(MARKING_OVERLAY_STYLES).toContain("animation: uf-ai-content-dash 2s linear infinite");
   });
 
   it("retains silent highlights with the shared visibility policy", () => {

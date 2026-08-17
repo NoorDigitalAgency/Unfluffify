@@ -1,12 +1,178 @@
 import type { Classification } from "../../domain/schema/marking";
 
+export const MARKING_OVERLAY_STYLE_ID = "unfluffify-marking-overlay-style";
+
+/** The exact 16-class legacy marking vocabulary. Some states are activated by
+ *  later interaction slices, but their visuals live together so a box never
+ *  falls back to page-owned CSS while the state changes. */
+export const MARKING_OVERLAY_CLASSES = [
+  "uf-layer",
+  "uf-scrolling",
+  "uf-marking-temporarily-disabled",
+  "uf-rect",
+  "uf-hover",
+  "uf-focus",
+  "uf-hard-locked",
+  "uf-default",
+  "uf-ai-content",
+  "uf-ai-content-overlay",
+  "uf-ai-content-ghost",
+  "uf-explicit-include",
+  "uf-explicit-include-ghost",
+  "uf-explicit-exclude",
+  "uf-explicit-exclude-ghost",
+  "uf-interaction-ack",
+] as const;
+
 export const OVERLAY_CLASS_BY_CLASSIFICATION: Readonly<Record<Classification, string>> = {
-  "implicit-include": "uf-overlay-include",
-  "explicit-include": "uf-overlay-explicit-include",
-  exception: "uf-overlay-exception",
-  immutable: "uf-overlay-immutable",
-  "closed-shadow": "uf-overlay-closed-shadow",
+  "implicit-include": "uf-default",
+  "explicit-include": "uf-explicit-include",
+  exception: "uf-explicit-exclude",
+  immutable: "uf-hard-locked",
+  // Closed shadow is rewrite-only, but it has the same immutable interaction
+  // contract. Keep a marker class for diagnostics without inventing a sixth
+  // colour in the legacy visual language.
+  "closed-shadow": "uf-hard-locked uf-closed-shadow",
 };
+
+export const MARKING_OVERLAY_STYLES = `
+.uf-marking-layer-root {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647 !important;
+  pointer-events: none;
+}
+.uf-marking-layer-root.uf-page-inspection-active {
+  background: rgba(16, 20, 28, 0.2);
+}
+.uf-marking-layer-root .uf-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+.uf-marking-layer-root .uf-layer[data-layer="hard"] { z-index: 2; }
+.uf-marking-layer-root .uf-layer[data-layer="default"] { z-index: 3; }
+.uf-marking-layer-root .uf-layer[data-layer="saved-explicit-exclude"] { z-index: 4; }
+.uf-marking-layer-root .uf-layer[data-layer="saved-explicit-include"] { z-index: 5; }
+.uf-marking-layer-root .uf-layer[data-layer="ai-content"] { z-index: 6; }
+.uf-marking-layer-root .uf-layer[data-layer="silent"] { z-index: 6; }
+.uf-marking-layer-root .uf-layer[data-layer="session-explicit-exclude"] { z-index: 7; }
+.uf-marking-layer-root .uf-layer[data-layer="session-explicit-include"] { z-index: 8; }
+.uf-marking-layer-root .uf-layer[data-layer="focus"] { z-index: 9; }
+.uf-marking-layer-root .uf-layer[data-layer="hover"] { z-index: 10; }
+.uf-marking-layer-root .uf-layer[data-layer="interaction"] { z-index: 11; }
+.uf-marking-layer-root.uf-scrolling .uf-layer,
+.uf-marking-layer-root.uf-page-inspection-active .uf-layer {
+  opacity: 0;
+}
+.uf-marking-layer-root.uf-marking-temporarily-disabled .uf-layer {
+  opacity: 0.28;
+  filter: grayscale(0.75) saturate(0.55);
+}
+.uf-marking-layer-root.uf-marking-temporarily-disabled .uf-layer[data-layer="hover"],
+.uf-marking-layer-root.uf-marking-temporarily-disabled .uf-layer[data-layer="interaction"] {
+  opacity: 0;
+}
+.uf-marking-layer-root .uf-rect,
+.uf-marking-layer-root .uf-silent-rect {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: none;
+  border-radius: 4px;
+}
+.uf-marking-layer-root .uf-hover {
+  border: 2px solid #ffb300;
+  background: rgba(255, 179, 0, 0.1);
+}
+@keyframes uf-overlay-blink {
+  0%, 100% { opacity: 0; }
+  50% { opacity: 1; }
+}
+.uf-marking-layer-root .uf-focus {
+  border: 3px solid #00acc1;
+  background: rgba(0, 172, 193, 0.12);
+  box-shadow: 0 0 5px 5px #00acc178;
+  opacity: 1;
+  animation: uf-overlay-blink 1s linear infinite !important;
+}
+.uf-marking-layer-root .uf-hard-locked {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(225, 70, 70, 0.25),
+    rgba(225, 70, 70, 0.25) 20px,
+    rgba(225, 150, 70, 0.25) 20px,
+    rgba(225, 150, 70, 0.25) 40px
+  );
+  border: 2px dashed rgba(225, 70, 70, 0.4);
+}
+.uf-marking-layer-root .uf-default {
+  border: 1px solid #2e7d32;
+  background: rgba(46, 125, 50, 0.08);
+}
+@keyframes uf-ai-content-dash {
+  0% { background-position: 0 0, 0 100%, 0 0, 100% 0; }
+  100% { background-position: 24px 0, -24px 100%, 0 -24px, 100% 24px; }
+}
+.uf-marking-layer-root .uf-ai-content {
+  border: 1px solid transparent;
+  background-color: rgba(46, 125, 50, 0.08);
+  background-image:
+    repeating-linear-gradient(90deg, #35943a 0 6px, transparent 6px 12px),
+    repeating-linear-gradient(90deg, #35943a 0 6px, transparent 6px 12px),
+    repeating-linear-gradient(0deg, #35943a 0 6px, transparent 6px 12px),
+    repeating-linear-gradient(0deg, #35943a 0 6px, transparent 6px 12px);
+  background-size: 24px 2px, 24px 2px, 2px 24px, 2px 24px;
+  background-position: 0 0, 0 100%, 0 0, 100% 0;
+  background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
+  background-origin: border-box;
+  background-clip: border-box;
+  animation: uf-ai-content-dash 2s linear infinite !important;
+}
+.uf-marking-layer-root .uf-ai-content.uf-ai-content-overlay {
+  background-color: transparent;
+}
+.uf-marking-layer-root .uf-ai-content.uf-ai-content-ghost {
+  background-color: transparent;
+  background-image: none;
+  border-style: dotted;
+  border-color: rgba(53, 148, 58, 0.45);
+  animation: none !important;
+}
+.uf-marking-layer-root .uf-explicit-include {
+  border: 3px solid #1b5e20;
+  background: rgba(27, 94, 32, 0.2);
+}
+.uf-marking-layer-root .uf-explicit-include-ghost {
+  border: 1px dotted rgba(27, 94, 32, 0.45);
+  background: transparent;
+}
+.uf-marking-layer-root .uf-explicit-exclude {
+  border: 3px solid #c62828;
+  background: rgba(198, 40, 40, 0.2);
+}
+.uf-marking-layer-root .uf-explicit-exclude-ghost {
+  border: 1px dashed rgba(198, 40, 40, 0.45);
+  background: transparent;
+}
+@keyframes uf-interaction-pulse {
+  0% { opacity: 0.95; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.02); }
+}
+.uf-marking-layer-root .uf-interaction-ack {
+  animation: uf-interaction-pulse 160ms ease-out forwards;
+}
+.uf-marking-layer-root .uf-silent-content {
+  border: 2px dashed #44b532;
+  background: rgba(68, 181, 50, 0.08);
+}
+@media (prefers-reduced-motion: reduce) {
+  .uf-marking-layer-root .uf-interaction-ack {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+`;
 
 export function overlayClassFor(classification: Classification): string {
   return OVERLAY_CLASS_BY_CLASSIFICATION[classification];

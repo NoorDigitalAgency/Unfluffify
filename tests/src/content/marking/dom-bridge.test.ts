@@ -8,6 +8,7 @@ import {
   getComposedHitElements,
   installClosedShadowHostInstrumentation,
   isPaintReachable,
+  MARKING_OVERLAY_STYLE_ID,
   markClosedShadowHost,
 } from "../../../../src/content/marking";
 
@@ -26,6 +27,7 @@ class FakeElement {
   className = "";
   id = "";
   hidden = false;
+  clientRects: Rect[] | null = null;
   rectReadCount = 0;
   roleReadCount = 0;
 
@@ -112,6 +114,10 @@ class FakeElement {
   getBoundingClientRect(): Rect {
     this.rectReadCount += 1;
     return this.rect;
+  }
+
+  getClientRects(): Rect[] {
+    return this.clientRects ?? [this.rect];
   }
 }
 
@@ -391,16 +397,58 @@ describe("P6 DOM bridge", () => {
     expect(engine.rows()).toEqual([{ xpath: "/main[1]/p[1]", excluded: true, explicit: true }]);
     const renderedOverlay = engine.overlayRoot().children.flatMap((layer) => layer.children)[0];
     expect(renderedOverlay).toBeDefined();
-    expect(renderedOverlay?.style.backgroundColor).not.toBe("");
-    expect(renderedOverlay?.style.border).not.toBe("");
+    expect(renderedOverlay?.className).toContain("uf-rect");
+    expect(renderedOverlay?.className).toContain("uf-explicit-exclude");
     expect(engine.overlayRoot().style.pointerEvents).toBe("none");
     expect(engine.overlayRoot().style.position).toBe("fixed");
     expect(engine.overlayRoot().getAttribute("data-uf-extension-ui")).toBe("true");
+    expect(doc.documentElement.children.some((element) => element.id === MARKING_OVERLAY_STYLE_ID)).toBe(true);
 
     const renderer = createOverlayRenderer({ document: doc as unknown as Document });
     renderer.clear();
     expect(renderer.root.children).toHaveLength(11);
     expect(renderer.root.children.every((layer) => layer.children.length === 0)).toBe(true);
+  });
+
+  it("draws one keyed, reusable box per client rect", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const wrapped = new FakeElement("SPAN", rect(10, 10, 180, 42), "Wrapped content");
+    wrapped.clientRects = [rect(10, 10, 180, 20), rect(10, 32, 110, 20)];
+    root.ownerDocument = doc;
+    wrapped.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(wrapped);
+    // The bounding-box centre falls in the inter-line gap, where only the
+    // ancestor is painted. Rect-level reachability must still keep both lines.
+    doc.pointHits = (_x, y) => y >= 30 && y < 32 ? [root] : [wrapped, root];
+    const engine = createMarkingEngine(root as unknown as Element);
+    const boxes = (): FakeElement[] => engine.overlayRoot().children
+      .flatMap((layer) => layer.children)
+      .filter((overlay) => overlay.getAttribute("data-uf-overlay-xpath") === "/main[1]/span[1]");
+
+    engine.renderReadOnly();
+    const firstBoxes = boxes();
+    expect(firstBoxes).toHaveLength(2);
+    expect(firstBoxes.map((box) => ({
+      left: box.style.left,
+      top: box.style.top,
+      width: box.style.width,
+      height: box.style.height,
+    }))).toEqual([
+      { left: "10px", top: "10px", width: "180px", height: "20px" },
+      { left: "10px", top: "32px", width: "110px", height: "20px" },
+    ]);
+
+    engine.renderReadOnly();
+    expect(boxes()).toEqual(firstBoxes);
+
+    wrapped.clientRects = [rect(12, 14, 170, 20)];
+    engine.renderReadOnly();
+    expect(boxes()).toEqual([firstBoxes[0]]);
+    expect(firstBoxes[0]?.style.left).toBe("12px");
+    expect(firstBoxes[1]?.parentElement).toBeNull();
   });
 
   it("rebuilds for page mutations but not extension chrome mutations", () => {
@@ -605,7 +653,7 @@ describe("P6 DOM bridge", () => {
     );
 
     expect(engine.rows()).toContainEqual({ xpath: "/main[1]/footer[1]", excluded: true });
-    expect(footerOverlay?.className).toBe("uf-overlay-exception");
+    expect(footerOverlay?.className).toBe("uf-rect uf-explicit-exclude");
   });
 
   it("seeds a landmark-bearing full-width footer and suppresses descendant includes", () => {
@@ -732,7 +780,7 @@ describe("P6 DOM bridge", () => {
     expect([...view.byXpath.keys()].some((xpath) => xpath.includes("__closed-shadow"))).toBe(true);
     expect(engine.resolveAtPoint(10, 10, "exclude")).toBeNull();
     expect(engine.captureRenderedHtml()).toBe("<section><div>Content</div></section>");
-    expect(closedOverlay?.className).toBe("uf-overlay-closed-shadow");
+    expect(closedOverlay?.className).toBe("uf-rect uf-hard-locked uf-closed-shadow");
     expect(submission.pages[0]?.renderedXPaths).toEqual([
       { xpath: "/section[1]/div[1]", excluded: false },
     ]);
