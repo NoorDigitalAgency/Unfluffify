@@ -262,7 +262,7 @@ versioned fixtures, but live acceptance waits for the corresponding H slice.
 | ☑ | **H2** | Fenced/idempotent lock and mutation envelope: `editorSessionId`, rotated `lockToken`, operation log, expected revisions, qualifying-presence heartbeat, same-user destructive transfer. **Landed in `UnfluffifyHub@ec13dad`.** | H1 | Stale token mutates nothing; duplicate transfer rotates once; hidden/idle heartbeat cannot extend lease; stale-untransferred same session reacquires. |
 | ☑ | **H3** | Full `/load`, singular partial `/save`, explicit `/remove`, server timestamps, normalized selector comparison, full authoritative responses. **Landed in `UnfluffifyHub@a4f7850`.** | H2 | Save B request contains no A; response contains A+B; duplicate operation has one timestamp; identical selectors preserve timestamps/fingerprint. |
 | ☑ | **H4** | Complete-feed reconciliation + persisted conflict block + explicit shrink/relabel proof. **Landed in `UnfluffifyHub@1d7d39d`.** | H1, H2, H3 | Missing key deletes; relabel preserves; duplicate cross-type key blocks without mutation; invalid feed deletes nothing. |
-| ☐ | **H5** | Hub-owned `/publish`: feed/fence/completeness/`cssInfo` gates, exact-JWT GraphQL mutation, idempotent definitive/unknown outcomes. | H4 | Submitted fingerprint advances only on definitive success; timeout never reports success; same operation safely resolves/retries. |
+| ☑ | **H5** | Hub-owned `/publish`: feed/fence/completeness/`cssInfo` gates, exact-JWT GraphQL mutation, idempotent definitive/unknown outcomes. **Landed in `UnfluffifyHub@5661e04`.** | H4 | Submitted fingerprint advances only on definitive success; timeout never reports success; same operation safely resolves/retries. |
 
 ### Phase A — stop the bleeding (data correctness)
 

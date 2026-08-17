@@ -153,6 +153,28 @@ the locked `updateScrapingConditions` mutation with the exact delegated JWT. Onl
 success advances `submittedSelectorsFingerprint`. Ambiguous outcomes are recorded as
 `publication_unknown` under the same operation id.
 
+The additional request field is:
+
+```jsonc
+{
+  "expectedSelectorsFingerprint": "<64-character lowercase SHA-256>"
+}
+```
+
+Fingerprint bytes are the compact UTF-8 JSON
+`{"exclusionSelectors":[...],"inclusionSelectors":[...]}` after both saved-selector lists are
+trimmed, emptied values dropped, deduplicated case-sensitively, and ordinally sorted. It is computed
+before the immutable exclusion blanket is appended to the Lynx payload. The canonical fixture
+`{"exclusionSelectors":["footer","header"],"inclusionSelectors":["main"]}` hashes to
+`2c3af722ce277a71d3242dcf650683d9298863820dd71ab92e381c2a0a466035`.
+
+If the refreshed feed changed, the response is the reconciled full snapshot with operation status
+`reconciliation_required`; the client adopts it and uses a fresh operation. A GraphQL selector-set
+match may definitively resolve the publication without re-sending. A transport loss, malformed
+mutation response, or partial data plus errors returns `publication_unknown` while the authority
+journal keeps that operation pending. Only the same operation/fence/revisions may retry; it verifies
+`cssInfo` first and otherwise resends the identical replace-state payload.
+
 ### A.8 Authoritative response snapshot
 
 Every successful save/remove/reconcile/publish response contains the complete snapshot:
