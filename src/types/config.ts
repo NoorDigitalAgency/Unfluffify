@@ -41,13 +41,16 @@ export interface PageSaveReconciliation {
 }
 
 export interface PropertyLockState {
-  siteId?: string;
+  environmentKey?: string;
+  siteId?: string | number;
   baseUrl?: string;
   status?: string;
   connected?: boolean;
-  clientId?: string;
-  lockName?: string;
-  lockIdentity?: string;
+  backendIdentity?: string;
+  editorSessionId?: string;
+  lockToken?: string;
+  propertyRevision?: number;
+  feedRevision?: number;
   secondsRemaining?: number | null;
   [key: string]: unknown;
 }

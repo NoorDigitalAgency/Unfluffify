@@ -43,6 +43,7 @@ describe("rewrite background startup", () => {
     expect(addActionListener).toHaveBeenCalledTimes(1);
     expect(addMessageListener).toHaveBeenCalledTimes(1);
     expect(addAlarmListener).toHaveBeenCalledTimes(1);
+    expect(createAlarm).toHaveBeenCalledWith("uf-property-lock-heartbeat", { periodInMinutes: 0.5 });
 
     const listener = addActionListener.mock.calls[0]?.[0] as (tab: chrome.tabs.Tab) => void;
     listener({ id: 42 } as chrome.tabs.Tab);
@@ -614,6 +615,184 @@ describe("rewrite background startup", () => {
       });
     } finally {
       globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("rejects a panel's known-stale fence in background without sending a save", async () => {
+    const addMessageListener = vi.fn();
+    const listeners = new Map<string, Array<(event: { data?: unknown }) => void>>();
+    const socketFrames: string[] = [];
+    class FakeWebSocket {
+      send(data: string): void { socketFrames.push(data); }
+      close(): void {}
+      addEventListener(type: string, listener: (event: { data?: unknown }) => void): void {
+        listeners.set(type, [...(listeners.get(type) ?? []), listener]);
+      }
+      emit(type: string, data?: unknown): void {
+        for (const listener of listeners.get(type) ?? []) listener({ data });
+      }
+    }
+    const socket = new FakeWebSocket();
+    const originalFetch = globalThis.fetch;
+    const originalWebSocket = globalThis.WebSocket;
+    const saveRequests: Array<{ url: string; body: unknown }> = [];
+    globalThis.chrome = {
+      runtime: { sendMessage: vi.fn(), onMessage: { addListener: addMessageListener } },
+      tabs: { sendMessage: vi.fn() },
+      action: { onClicked: { addListener: vi.fn() } },
+      alarms: {
+        create: vi.fn(),
+        clear: vi.fn(),
+        onAlarm: { addListener: vi.fn() },
+      },
+    } as unknown as typeof chrome;
+    globalThis.WebSocket = (class {
+      constructor() { return socket; }
+    }) as unknown as typeof WebSocket;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/api/account/login")) {
+        return new Response(JSON.stringify({ token: "jwt-live" }), { status: 200 });
+      }
+      if (url.endsWith("/context")) {
+        return new Response(JSON.stringify({
+          status: "managed_candidate",
+          environmentKey: "stage.example.com",
+          siteId: 42,
+          baseUrl: "https://example.com",
+          pageKey: "/page",
+          pageTypes: [{ pageType: "detail", pages: [{ pageKey: "/page", wordsCount: 100 }] }],
+          membershipFingerprint: "membership",
+          assignmentFingerprint: "assignment",
+          conflicts: [],
+          upstreamCode: null,
+        }), { status: 200 });
+      }
+      if (url.endsWith("/save")) {
+        saveRequests.push({ url, body: JSON.parse(String(init?.body ?? "null")) });
+      }
+      return new Response("{}", { status: 500 });
+    }) as typeof fetch;
+
+    try {
+      const { startRewriteBackground } = await import("../../../src/background/index");
+      startRewriteBackground();
+      const runtimeListener = addMessageListener.mock.calls[0]?.[0] as (
+        message: unknown,
+        sender: unknown,
+        sendResponse: (value: unknown) => void,
+      ) => unknown;
+      let sequence = 0;
+      const call = async (name: string, payload: unknown): Promise<unknown> => {
+        sequence += 1;
+        let response: unknown;
+        runtimeListener({
+          kind: "uf-bus/1",
+          frameType: "request",
+          id: `fence-${sequence}`,
+          seq: sequence,
+          name,
+          source: "popup",
+          sourceInstance: "popup:test",
+          target: "background",
+          payload,
+        }, {}, (value: unknown) => { response = value; });
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        return response;
+      };
+
+      await call("settings.save", {
+        stageBase: "stage.example.com",
+        configEndpoint: "https://config.example.com",
+      });
+      await call("accounts.login", { email: "editor@example.com", password: "pw" });
+      // The content consumer establishes the tab-scoped lock; no side panel
+      // lock.directive request is needed to start or own the editor session.
+      sequence += 1;
+      runtimeListener({
+        kind: "uf-bus/1",
+        frameType: "event",
+        id: "content-started-1",
+        seq: sequence,
+        name: "fact.reported",
+        source: "content",
+        sourceInstance: "content:tab:5:test",
+        target: "background",
+        payload: {
+          kind: "uf-fact/1",
+          sensation: {
+            tabId: 0,
+            source: "content",
+            reason: "content-started",
+            facts: {
+              tabId: 0,
+              pageUrl: "https://example.com/page",
+              baseUrl: "https://example.com",
+            },
+          },
+        },
+      }, {}, () => undefined);
+      for (let tick = 0; tick < 10 && !listeners.has("open"); tick += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      expect(listeners.has("open")).toBe(true);
+
+      socket.emit("open");
+      const subscribe = JSON.parse(socketFrames[0] ?? "{}");
+      expect(subscribe).toMatchObject({
+        type: "subscribe",
+        environmentKey: "stage.example.com",
+        siteId: 42,
+        visible: true,
+        focusedWindow: true,
+        browserIdle: false,
+        hasUnsavedWork: false,
+      });
+      expect(subscribe.editorSessionId).toEqual(expect.any(String));
+      socket.emit("message", JSON.stringify({
+        type: "subscribed",
+        identity: "editor@example.com",
+        editorSessionId: subscribe.editorSessionId,
+        propertyRevision: 4,
+        feedRevision: 2,
+      }));
+      socket.emit("message", JSON.stringify({
+        type: "lock_state",
+        state: "locked",
+        isEditor: true,
+        editorName: "Editor",
+        editorSessionId: subscribe.editorSessionId,
+        lockToken: "fence-current",
+        propertyRevision: 4,
+        feedRevision: 2,
+      }));
+
+      const reply = await call("config.save", {
+        operationId: "save-stale-1",
+        environmentKey: "stage.example.com",
+        siteId: 42,
+        editorSessionId: subscribe.editorSessionId,
+        lockToken: "fence-stale",
+        expectedPropertyRevision: 4,
+        expectedFeedRevision: 2,
+        page: {
+          pageKey: "/page",
+          pageType: "detail",
+          renderedHtml: "<html></html>",
+          rows: [],
+        },
+        selectors: { inclusionSelectors: ["main"], exclusionSelectors: [] },
+        renderMode: "rendered",
+      });
+
+      expect(reply).toMatchObject({
+        ok: true,
+        payload: { status: "stale_fence", httpStatus: 409 },
+      });
+      expect(saveRequests).toEqual([]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      globalThis.WebSocket = originalWebSocket;
     }
   });
 

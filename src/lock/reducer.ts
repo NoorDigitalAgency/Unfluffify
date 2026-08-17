@@ -5,7 +5,7 @@ export type PropertyLockRole = "unknown" | "editor" | "passive";
 
 export type PropertyLockState = Readonly<{
   role: PropertyLockRole;
-  identity: string;
+  backendIdentity: string;
   editorName: string;
   state: string;
   timings: BackendLockTimingState;
@@ -23,11 +23,12 @@ export type PropertyLockState = Readonly<{
   lockToken?: string;
   propertyRevision?: number;
   feedRevision?: number;
+  ownershipGeneration?: number;
 }>;
 
 export const INITIAL_PROPERTY_LOCK_STATE: PropertyLockState = {
   role: "unknown",
-  identity: "",
+  backendIdentity: "",
   editorName: "",
   state: "unlocked",
   timings: {},
@@ -46,7 +47,11 @@ export function reducePropertyLockState(
   if (message.type === "subscribed") {
     return {
       ...state,
-      identity: typeof message.identity === "string" ? message.identity : state.identity,
+      backendIdentity: typeof message.identity === "string" ? message.identity : state.backendIdentity,
+      editorSessionId: typeof message.editorSessionId === "string" ? message.editorSessionId : state.editorSessionId,
+      lockToken: typeof message.lockToken === "string" ? message.lockToken : undefined,
+      propertyRevision: typeof message.propertyRevision === "number" ? message.propertyRevision : state.propertyRevision,
+      feedRevision: typeof message.feedRevision === "number" ? message.feedRevision : state.feedRevision,
     };
   }
   if (message.type === "lock_state") {
@@ -70,13 +75,17 @@ export function reducePropertyLockState(
       lockToken: typeof message.lockToken === "string" ? message.lockToken : undefined,
       propertyRevision: typeof message.propertyRevision === "number" ? message.propertyRevision : undefined,
       feedRevision: typeof message.feedRevision === "number" ? message.feedRevision : undefined,
+      ownershipGeneration: typeof message.ownershipGeneration === "number" ? message.ownershipGeneration : undefined,
       timings: mirrorBackendTimings({
         expiresAtUtc: typeof message.expiresAtUtc === "string" ? message.expiresAtUtc : undefined,
         secondsRemaining: typeof message.secondsRemaining === "number" ? message.secondsRemaining : undefined,
       }),
     };
   }
-  if (message.type === "error" && message.message === "Extension context invalidated") {
+  if (
+    message.type === "error" &&
+    (message.message === "Extension context invalidated" || message.reason === "Extension context invalidated")
+  ) {
     return { ...state, terminal: true, role: "unknown" };
   }
   if (message.type === "disconnect_warning") {

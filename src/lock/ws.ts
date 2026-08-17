@@ -23,6 +23,7 @@ export const LockServerMessageTypeSchema = z.enum([
   "suggestion_accepted",
   "transfer_countdown",
   "error",
+  "token_update",
 ]);
 
 export const LockStateSchema = z.enum([
@@ -40,6 +41,15 @@ export const LockServerMessageSchema = z.object({
 export type LockClientMessageType = z.infer<typeof LockClientMessageTypeSchema>;
 export type LockServerMessage = z.infer<typeof LockServerMessageSchema>;
 
+export const PropertyLockPresenceSchema = z.object({
+  visible: z.boolean(),
+  focusedWindow: z.boolean(),
+  browserIdle: z.boolean(),
+  suspensionReason: z.string().trim().min(1).optional(),
+});
+
+export type PropertyLockPresence = z.infer<typeof PropertyLockPresenceSchema>;
+
 export function buildPropertyLockWssUrl(endpointBase: string, token: string): string {
   const trimmed = endpointBase.trim();
   if (!trimmed || !token.trim()) {
@@ -56,24 +66,36 @@ export function buildPropertyLockWssUrl(endpointBase: string, token: string): st
 
 export function buildClientFrame(input: Readonly<{
   type: LockClientMessageType;
+  environmentKey: string;
   siteId: number;
-  identity: string;
-  pageUrl: string;
-  hasUnsavedChanges: boolean;
+  editorSessionId: string;
+  presence: PropertyLockPresence;
+  hasUnsavedWork: boolean;
+  lockToken?: string;
   extra?: Readonly<Record<string, string | number | boolean>>;
 }>): Readonly<{
   type: LockClientMessageType;
+  environmentKey: string;
   siteId: number;
-  clientId: string;
-  pageUrl: string;
-  hasUnsavedChanges: boolean;
+  editorSessionId: string;
+  visible: boolean;
+  focusedWindow: boolean;
+  browserIdle: boolean;
+  hasUnsavedWork: boolean;
+  suspensionReason?: string;
+  lockToken?: string;
 } & Record<string, string | number | boolean>> {
   return {
     type: input.type,
+    environmentKey: input.environmentKey,
     siteId: input.siteId,
-    clientId: input.identity,
-    pageUrl: input.pageUrl,
-    hasUnsavedChanges: input.hasUnsavedChanges,
+    editorSessionId: input.editorSessionId,
+    visible: input.presence.visible,
+    focusedWindow: input.presence.focusedWindow,
+    browserIdle: input.presence.browserIdle,
+    hasUnsavedWork: input.hasUnsavedWork,
+    ...(input.presence.suspensionReason ? { suspensionReason: input.presence.suspensionReason } : {}),
+    ...(input.lockToken ? { lockToken: input.lockToken } : {}),
     ...(input.extra ?? {}),
   };
 }

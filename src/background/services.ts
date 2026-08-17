@@ -1,8 +1,15 @@
-import { buildPropertyLockWssUrl, createPropertyLockClient, type LockIdentity, type PropertyLockState, type WebSocketLike } from "../lock";
+import {
+  buildPropertyLockWssUrl,
+  createPropertyLockClient,
+  type EditorSession,
+  type PropertyLockPresence,
+  type PropertyLockState,
+  type WebSocketLike,
+} from "../lock";
 import {
   createConfigRepo,
   createIndexedDbStore,
-  createLockIdentityRepo,
+  createEditorSessionRepo,
   createLocalPropertyRepo,
   createMemoryStore,
   createRunRecordRepo,
@@ -119,12 +126,13 @@ export function createRewriteBackgroundServices(input: Readonly<{
   transport?: JsonTransport;
   socket?: WebSocketLike;
   socketFactory?: (url: string) => WebSocketLike;
+  editorSessionIdFactory?: () => string;
 }> = {}) {
   const store = createBackgroundStore();
   const tabStateRepo = createTabStateRepo(store);
   const configRepo = createConfigRepo(store);
   const runRecordRepo = createRunRecordRepo(store);
-  const lockIdentityRepo = createLockIdentityRepo(store);
+  const editorSessionRepo = createEditorSessionRepo(store);
   const localPropertyRepo = createLocalPropertyRepo(store);
   const settingsStore = createSettingsRepo(store);
   const loadSettings = async (): Promise<Settings> => {
@@ -166,7 +174,7 @@ export function createRewriteBackgroundServices(input: Readonly<{
       tabStateRepo,
       configRepo,
       runRecordRepo,
-      lockIdentityRepo,
+      editorSessionRepo,
       localPropertyRepo,
       settingsStore,
     },
@@ -397,36 +405,46 @@ export function createRewriteBackgroundServices(input: Readonly<{
       },
     },
     async createLockClient(inputContext: Readonly<{
+      environmentKey: string;
       tabId: number;
       siteId: number;
-      pageUrl: string;
-      hasUnsavedChanges?: () => boolean;
+      presence?: () => PropertyLockPresence;
+      hasUnsavedWork?: () => boolean;
       onStateChange?: (state: PropertyLockState) => void;
     }>) {
-      const loadedIdentity = await lockIdentityRepo.load(inputContext.tabId, inputContext.siteId);
+      const loadedSession = await editorSessionRepo.load(
+        inputContext.environmentKey,
+        inputContext.tabId,
+        inputContext.siteId,
+      );
+      const now = Date.now();
+      const editorSession: EditorSession = loadedSession.ok && loadedSession.value
+        ? loadedSession.value
+        : {
+            environmentKey: inputContext.environmentKey,
+            tabId: inputContext.tabId,
+            siteId: inputContext.siteId,
+            editorSessionId: input.editorSessionIdFactory?.() ?? globalThis.crypto.randomUUID(),
+            createdAt: now,
+            updatedAt: now,
+          };
+      if (!loadedSession.ok || !loadedSession.value) {
+        await editorSessionRepo.save(editorSession);
+      }
       const currentSettings = await loadSettings();
       const wsUrl = buildPropertyLockWssUrl(currentSettings.configEndpoint ?? currentSettings.stageBase ?? "", currentSettings.token ?? "");
       const socket = input.socket ?? (input.socketFactory ?? createWebSocketSocket)(wsUrl);
       return createPropertyLockClient({
         socket,
-        tabId: inputContext.tabId,
-        siteId: inputContext.siteId,
-        pageUrl: inputContext.pageUrl,
-        identity: loadedIdentity.ok && loadedIdentity.value
-          ? {
-            tabId: loadedIdentity.value.tabId,
-            siteId: loadedIdentity.value.siteId,
-            identity: loadedIdentity.value.identity,
-            updatedAt: loadedIdentity.value.updatedAt,
-          } satisfies LockIdentity
-          : null,
-        hasUnsavedChanges: inputContext.hasUnsavedChanges,
+        editorSession,
+        presence: inputContext.presence,
+        hasUnsavedWork: inputContext.hasUnsavedWork,
         onStateChange: inputContext.onStateChange,
-        persistIdentity(identity) {
-          return lockIdentityRepo.save({
-            ...identity,
-            issuedAt: identity.updatedAt,
-          });
+        persistEditorSession(session) {
+          return editorSessionRepo.save(session);
+        },
+        async onTokenUpdate(token) {
+          await updateSettings((current) => ({ ...current, token }));
         },
       });
     },

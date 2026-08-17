@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createFetchJsonTransport, createRewriteBackgroundServices } from "../../../src/background/services";
 import { createPropertyLockRuntime } from "../../../src/background/lock-runtime";
@@ -299,9 +299,9 @@ describe("rewrite background services", () => {
       // The WS is exempt from rotation: it has no response headers and carries
       // its token in the connect query string, so it picks up a rotation only
       // by reading settings again on the next connect.
-      await services.createLockClient({ tabId: 1, siteId: 42, pageUrl: "https://example.com/a" });
+      await services.createLockClient({ environmentKey: "a.example.com", tabId: 1, siteId: 42 });
       await services.lynx.resolvePropertyContext("a.example.com", "https://example.com/a");
-      await services.createLockClient({ tabId: 2, siteId: 42, pageUrl: "https://example.com/b" });
+      await services.createLockClient({ environmentKey: "a.example.com", tabId: 2, siteId: 42 });
 
       expect(urls).toEqual([
         "wss://lock.example.com/property-lock?token=original-jwt",
@@ -310,6 +310,26 @@ describe("rewrite background services", () => {
     } finally {
       Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: originalIndexedDb });
     }
+  });
+
+  it("persists one environment-scoped editor session per tab instead of persisting backend identity", async () => {
+    let nextId = 0;
+    const services = createRewriteBackgroundServices({
+      socketFactory: () => fakeSocket().socket,
+      editorSessionIdFactory: () => `editor-${++nextId}`,
+    });
+
+    const first = await services.createLockClient({ environmentKey: "a.example.com", tabId: 1, siteId: 42 });
+    const reopenedPanel = await services.createLockClient({ environmentKey: "a.example.com", tabId: 1, siteId: 42 });
+    const otherTab = await services.createLockClient({ environmentKey: "a.example.com", tabId: 2, siteId: 42 });
+    const otherEnvironment = await services.createLockClient({ environmentKey: "b.example.com", tabId: 1, siteId: 42 });
+
+    expect(first.editorSession().editorSessionId).toBe("editor-1");
+    expect(reopenedPanel.editorSession().editorSessionId).toBe("editor-1");
+    expect(otherTab.editorSession().editorSessionId).toBe("editor-2");
+    expect(otherEnvironment.editorSession().editorSessionId).toBe("editor-3");
+    expect(first.editorSession()).not.toHaveProperty("identity");
+    expect(first.editorSession()).not.toHaveProperty("lockToken");
   });
 
   it("leaves the stored token untouched when a login is rejected", async () => {
@@ -596,9 +616,15 @@ describe("rewrite background services", () => {
     const request = { tabId: 6, pageUrl: "https://managed.example.com/page", baseUrl: "https://managed.example.com" };
     await services.settings.update((current) => ({ ...current, stageBase: "stage.example.com", token: "live" }));
 
-    await runtime.directive(request);
+    await Promise.all([runtime.directive(request), runtime.directive(request)]);
+    expect(sockets).toHaveLength(1);
     sockets[0].emit("open");
-    sockets[0].emit("message", JSON.stringify({ type: "subscribed", identity: "backend-1" }));
+    const subscribedSessionId = JSON.parse(sockets[0].sent[0] ?? "{}").editorSessionId;
+    sockets[0].emit("message", JSON.stringify({
+      type: "subscribed",
+      identity: "backend-1",
+      editorSessionId: subscribedSessionId,
+    }));
     expect(sockets[0].sent.map((frame) => JSON.parse(frame).type)).toContain("take_lock");
 
     await services.accounts.logout();
@@ -677,7 +703,13 @@ describe("rewrite background services", () => {
 
     await runtime.directive({ ...request, pageUrl: "https://example.com/next", hasUnsavedChanges: true });
     const statusFrame = sockets[0].sent.map((frame) => JSON.parse(frame)).findLast((frame) => frame.type === "client_status");
-    expect(statusFrame).toMatchObject({ pageUrl: "https://example.com/next", hasUnsavedChanges: true });
+    expect(statusFrame).toMatchObject({
+      environmentKey: "stage.example.com",
+      siteId: 5542,
+      hasUnsavedWork: true,
+    });
+    expect(statusFrame).not.toHaveProperty("pageUrl");
+    expect(statusFrame).not.toHaveProperty("clientId");
 
     await runtime.directive({ ...request, pageUrl: "https://other.example/page", baseUrl: "https://other.example" });
     expect(sockets).toHaveLength(2);
@@ -689,6 +721,92 @@ describe("rewrite background services", () => {
     sockets[0].emit("close");
     await runtime.directive(request);
     expect(sockets).toHaveLength(3);
+  });
+
+  it("keeps the editor lease alive from background after the panel stops issuing directives", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-17T12:00:00Z"));
+    try {
+      const sockets: ReturnType<typeof fakeSocket>[] = [];
+      const services = createRewriteBackgroundServices({
+        transport: async (request) => hubContext(request),
+        socketFactory() {
+          const ws = fakeSocket();
+          sockets.push(ws);
+          return ws.socket;
+        },
+        editorSessionIdFactory: () => "editor-background-1",
+      });
+      await services.settings.update((current) => ({
+        ...current,
+        stageBase: "stage.example.com",
+        token: "live",
+      }));
+      const runtime = createPropertyLockRuntime({ services });
+      const request = {
+        tabId: 5,
+        pageUrl: "https://example.com/page",
+        baseUrl: "https://example.com",
+        hasUnsavedChanges: true,
+      };
+
+      await runtime.directive(request);
+      sockets[0].emit("open");
+      sockets[0].emit("message", JSON.stringify({
+        type: "subscribed",
+        identity: "backend-account",
+        editorSessionId: "editor-background-1",
+        propertyRevision: 4,
+        feedRevision: 2,
+      }));
+      sockets[0].emit("message", JSON.stringify({
+        type: "lock_state",
+        state: "locked",
+        isEditor: true,
+        editorName: "Me",
+        editorSessionId: "editor-background-1",
+        lockToken: "fence-current",
+        propertyRevision: 4,
+        feedRevision: 2,
+      }));
+      const heartbeatCount = () => sockets[0].sent
+        .map((frame) => JSON.parse(frame))
+        .filter((frame) => frame.type === "heartbeat").length;
+      const beforePanelClose = heartbeatCount();
+
+      // No further lock.directive call represents the side panel going away.
+      vi.advanceTimersByTime(30_001);
+      runtime.heartbeat();
+
+      expect(heartbeatCount()).toBe(beforePanelClose + 1);
+      expect(JSON.parse(sockets[0].sent.at(-1) ?? "{}")).toMatchObject({
+        type: "heartbeat",
+        environmentKey: "stage.example.com",
+        siteId: 5542,
+        editorSessionId: "editor-background-1",
+        lockToken: "fence-current",
+        hasUnsavedWork: true,
+      });
+
+      const envelope = {
+        operationId: "save-1",
+        environmentKey: "stage.example.com",
+        siteId: 5542,
+        editorSessionId: "editor-background-1",
+        lockToken: "fence-current",
+        expectedPropertyRevision: 4,
+        expectedFeedRevision: 2,
+      };
+      expect(runtime.authorizeMutation(envelope)).toEqual({ ok: true, request: envelope });
+      expect(runtime.authorizeMutation({ ...envelope, lockToken: "fence-stale" })).toMatchObject({
+        ok: false,
+        status: "stale_fence",
+        propertyRevision: 4,
+        feedRevision: 2,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not permanently cache transient context failures", async () => {

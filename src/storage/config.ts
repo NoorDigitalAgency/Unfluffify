@@ -80,6 +80,14 @@ export const PropertyMutationEnvelopeSchema = z.object({
   expectedFeedRevision: z.number().int().nonnegative(),
 });
 
+export const PropertySaveFailureStatusSchema = z.enum([
+  "stale_fence",
+  "revision_conflict",
+  "operation_conflict",
+  "operation_pending",
+  "invalid_request",
+]);
+
 export const PropertySavePageSchema = z.object({
   pageKey: PageKeySchema,
   title: z.string().max(1024).optional(),
@@ -105,6 +113,7 @@ export type SelectorSet = z.infer<typeof SelectorSetSchema>;
 export type PageMarkingSnapshot = z.infer<typeof PageMarkingSnapshotSchema>;
 export type ConfigSnapshot = z.infer<typeof ConfigSnapshotSchema>;
 export type PropertyMutationEnvelope = z.infer<typeof PropertyMutationEnvelopeSchema>;
+export type PropertySaveFailureStatus = z.infer<typeof PropertySaveFailureStatusSchema>;
 export type PropertySavePage = z.infer<typeof PropertySavePageSchema>;
 export type PropertySaveRequest = z.infer<typeof PropertySaveRequestSchema>;
 export type PropertyPublishRequest = z.infer<typeof PropertyPublishRequestSchema>;

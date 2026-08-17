@@ -1,6 +1,11 @@
-import { adoptLockIdentity, type LockIdentity } from "./identity";
+import { adoptEditorSession, type EditorSession } from "./identity";
 import { reducePropertyLockState, INITIAL_PROPERTY_LOCK_STATE, type PropertyLockState } from "./reducer";
-import { buildClientFrame, parseServerMessage, type LockClientMessageType } from "./ws";
+import {
+  buildClientFrame,
+  parseServerMessage,
+  type LockClientMessageType,
+  type PropertyLockPresence,
+} from "./ws";
 import { PROPERTY_LOCK_EDITOR_IDLE_TIMEOUT_MS, PROPERTY_LOCK_HEARTBEAT_INTERVAL_MS } from "./timings";
 
 export type WebSocketLike = Readonly<{
@@ -9,27 +14,38 @@ export type WebSocketLike = Readonly<{
   addEventListener(type: "open" | "message" | "close" | "error", listener: (event: { data?: unknown }) => void): void;
 }>;
 
+const QUALIFYING_PRESENCE: PropertyLockPresence = {
+  visible: true,
+  focusedWindow: true,
+  browserIdle: false,
+};
+
 export function createPropertyLockClient(input: Readonly<{
   socket: WebSocketLike;
-  tabId: number;
-  siteId: number;
-  pageUrl: string;
-  identity: LockIdentity | null;
-  persistIdentity: (identity: LockIdentity) => Promise<void> | void;
-  hasUnsavedChanges?: () => boolean;
+  editorSession: EditorSession;
+  persistEditorSession: (session: EditorSession) => Promise<void> | void;
+  presence?: () => PropertyLockPresence;
+  hasUnsavedWork?: () => boolean;
   onStateChange?: (state: PropertyLockState) => void;
+  onTokenUpdate?: (token: string) => Promise<void> | void;
   now?: () => number;
 }>) {
   const now = input.now ?? Date.now;
-  let state: PropertyLockState = INITIAL_PROPERTY_LOCK_STATE;
-  let identity = input.identity;
-  let pageUrl = input.pageUrl;
+  let editorSession = input.editorSession;
+  let state: PropertyLockState = {
+    ...INITIAL_PROPERTY_LOCK_STATE,
+    environmentKey: editorSession.environmentKey,
+    editorSessionId: editorSession.editorSessionId,
+  };
   let socketOpen = false;
   let subscribed = false;
   let closed = false;
   let lastActivityAt = now();
   let lastHeartbeatAt = Number.NEGATIVE_INFINITY;
-  const pendingFrames: Array<{ type: LockClientMessageType; extra?: Readonly<Record<string, string | number | boolean>> }> = [];
+  const pendingFrames: Array<{
+    type: LockClientMessageType;
+    extra?: Readonly<Record<string, string | number | boolean>>;
+  }> = [];
 
   const setState = (next: PropertyLockState): void => {
     state = next;
@@ -40,7 +56,7 @@ export function createPropertyLockClient(input: Readonly<{
     if (closed) {
       return;
     }
-    if (type !== "subscribe" && (!socketOpen || !identity || !subscribed)) {
+    if (type !== "subscribe" && (!socketOpen || !subscribed)) {
       const existingIndex = pendingFrames.findIndex((frame) => frame.type === type);
       if (existingIndex >= 0) {
         pendingFrames[existingIndex] = { type, extra };
@@ -51,10 +67,12 @@ export function createPropertyLockClient(input: Readonly<{
     }
     input.socket.send(JSON.stringify(buildClientFrame({
       type,
-      siteId: input.siteId,
-      identity: identity?.identity ?? "pending",
-      pageUrl,
-      hasUnsavedChanges: input.hasUnsavedChanges?.() ?? false,
+      environmentKey: editorSession.environmentKey,
+      siteId: editorSession.siteId,
+      editorSessionId: editorSession.editorSessionId,
+      presence: input.presence?.() ?? QUALIFYING_PRESENCE,
+      hasUnsavedWork: input.hasUnsavedWork?.() ?? false,
+      ...(type === "subscribe" || !state.lockToken ? {} : { lockToken: state.lockToken }),
       extra,
     })));
   };
@@ -66,20 +84,34 @@ export function createPropertyLockClient(input: Readonly<{
   });
   input.socket.addEventListener("message", (event) => {
     const message = parseServerMessage(JSON.parse(String(event.data)));
-    if (message.type === "subscribed" && typeof message.identity === "string") {
-      const adopted = adoptLockIdentity(identity, {
-        tabId: input.tabId,
-        siteId: input.siteId,
-        identity: message.identity,
+    if (message.type === "token_update" && typeof message.token === "string" && message.token.trim()) {
+      void input.onTokenUpdate?.(message.token);
+    }
+    if (message.type === "subscribed") {
+      if (
+        typeof message.editorSessionId === "string" &&
+        message.editorSessionId !== editorSession.editorSessionId
+      ) {
+        setState({ ...state, role: "unknown", state: "locked" });
+        input.socket.close();
+        closed = true;
+        pendingFrames.splice(0);
+        return;
+      }
+      const adopted = adoptEditorSession(editorSession, {
+        ...editorSession,
         updatedAt: now(),
       });
-      identity = adopted.current;
+      editorSession = adopted.current;
       subscribed = true;
-      void input.persistIdentity(adopted.current);
+      void input.persistEditorSession(adopted.current);
+      state = reducePropertyLockState(state, message);
       while (pendingFrames.length > 0) {
         const pending = pendingFrames.shift();
         if (pending) send(pending.type, pending.extra);
       }
+      setState(state);
+      return;
     }
     setState(reducePropertyLockState(state, message));
   });
@@ -91,7 +123,7 @@ export function createPropertyLockClient(input: Readonly<{
     subscribed = false;
     closed = true;
     pendingFrames.splice(0);
-    setState({ ...state, role: "unknown", state: "locked" });
+    setState({ ...state, role: "unknown", state: "locked", lockToken: undefined });
   });
 
   return {
@@ -118,9 +150,6 @@ export function createPropertyLockClient(input: Readonly<{
     clientStatus(): void {
       send("client_status");
     },
-    setPageUrl(nextPageUrl: string): void {
-      pageUrl = nextPageUrl;
-    },
     suggestTakeover(): void {
       send("suggest_takeover");
     },
@@ -139,8 +168,8 @@ export function createPropertyLockClient(input: Readonly<{
     state(): PropertyLockState {
       return state;
     },
-    identity(): LockIdentity | null {
-      return identity;
+    editorSession(): EditorSession {
+      return editorSession;
     },
     isClosed(): boolean {
       return closed;

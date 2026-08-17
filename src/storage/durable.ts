@@ -1,5 +1,5 @@
 export {
-  createLockIdentityRepo,
+  createEditorSessionRepo,
   createRunRecordRepo,
   createTabStateRepo,
 } from "./repositories";

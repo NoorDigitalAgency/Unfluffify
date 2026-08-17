@@ -1,21 +1,30 @@
 import { z } from "zod";
 
-export const LockIdentitySchema = z.object({
+export const EditorSessionSchema = z.object({
+  environmentKey: z.string().trim().min(1),
   tabId: z.number().int().nonnegative(),
   siteId: z.number().int().positive(),
-  identity: z.string().min(1),
+  editorSessionId: z.string().trim().min(1),
+  createdAt: z.number().int().nonnegative(),
   updatedAt: z.number().int().nonnegative(),
 });
 
-export type LockIdentity = z.infer<typeof LockIdentitySchema>;
+/** A client-owned editing session. This is deliberately not the authenticated
+ * backend identity and not the backend-issued fencing token. */
+export type EditorSession = z.infer<typeof EditorSessionSchema>;
 
-export function adoptLockIdentity(
-  previous: LockIdentity | null,
-  next: LockIdentity,
-): Readonly<{ current: LockIdentity; previousInvalidated: boolean }> {
-  const current = LockIdentitySchema.parse(next);
+export function adoptEditorSession(
+  previous: EditorSession | null,
+  next: EditorSession,
+): Readonly<{ current: EditorSession; previousInvalidated: boolean }> {
+  const current = EditorSessionSchema.parse(next);
   return {
     current,
-    previousInvalidated: Boolean(previous && previous.identity !== current.identity),
+    previousInvalidated: Boolean(previous && (
+      previous.environmentKey !== current.environmentKey ||
+      previous.tabId !== current.tabId ||
+      previous.siteId !== current.siteId ||
+      previous.editorSessionId !== current.editorSessionId
+    )),
   };
 }

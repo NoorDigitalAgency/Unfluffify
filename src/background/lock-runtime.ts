@@ -4,6 +4,9 @@ import type { RewriteBackgroundServices } from "./services";
 import { createRealmBus, type LockStatus } from "../messaging/realms";
 import { createTabTransport } from "../messaging/transports/tabs";
 import { createPageContextRuntime } from "./page-context-runtime";
+import type { PropertyMutationEnvelope } from "../storage/config";
+
+export const PROPERTY_LOCK_HEARTBEAT_ALARM = "uf-property-lock-heartbeat";
 
 export type LockDirectiveRequest = Readonly<{
   tabId: number;
@@ -17,6 +20,22 @@ type TabsLike = Readonly<{
 }>;
 
 type LockClient = Awaited<ReturnType<RewriteBackgroundServices["createLockClient"]>>;
+
+export type MutationFenceFailure = Readonly<{
+  ok: false;
+  status: "stale_fence";
+  propertyRevision: number;
+  feedRevision: number;
+  reason: string;
+}>;
+
+export type MutationFenceAuthorization<T extends PropertyMutationEnvelope> =
+  | Readonly<{ ok: true; request: T }>
+  | MutationFenceFailure;
+
+function clientKey(environmentKey: string, tabId: number, siteId: number): string {
+  return `${environmentKey}\u0000${tabId}\u0000${siteId}`;
+}
 
 function baseUrlFor(url: string): string {
   try {
@@ -105,6 +124,7 @@ export function createPropertyLockRuntime(input: Readonly<{
   }>) => Promise<void> | void;
 }>) {
   const clients = new Map<string, LockClient>();
+  const clientCreations = new Map<string, Promise<LockClient>>();
   const pageUrls = new Map<string, string>();
   const unsavedByKey = new Map<string, boolean>();
   const claimedKeys = new Set<string>();
@@ -188,45 +208,63 @@ export function createPropertyLockRuntime(input: Readonly<{
     activeKeyByTab.delete(tabId);
   };
 
-  const getOrCreateClient = async (request: LockDirectiveRequest, siteId: number, baseUrl: string): Promise<LockClient> => {
-    const key = `${request.tabId}:${siteId}`;
+  const getOrCreateClient = async (
+    request: LockDirectiveRequest,
+    environmentKey: string,
+    siteId: number,
+    baseUrl: string,
+  ): Promise<LockClient> => {
+    const key = clientKey(environmentKey, request.tabId, siteId);
     const existing = clients.get(key);
     if (existing && !existing.isClosed()) {
-      existing.setPageUrl(request.pageUrl);
       return existing;
+    }
+    const inFlight = clientCreations.get(key);
+    if (inFlight) {
+      return await inFlight;
     }
     if (existing?.isClosed()) {
       clients.delete(key);
       claimedKeys.delete(key);
     }
-    const client = await input.services.createLockClient({
-      tabId: request.tabId,
-      siteId,
-      pageUrl: request.pageUrl,
-      hasUnsavedChanges: () => unsavedByKey.get(key) === true,
-      onStateChange: (state) => {
-        if (activeKeyByTab.get(request.tabId) !== key) {
-          return;
-        }
-        const pageUrl = pageUrls.get(key) ?? request.pageUrl;
-        const response = lockStateFromState({ pageUrl, baseUrl, siteId, state, status: "ok" });
-        const observation = observeLockState(request.tabId, pageUrl, response);
-        if (observation) {
-          void observation.then(
-            () => publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response),
-            (error: unknown) => {
-              console.error("[Unfluffify][rewrite] Unable to observe property-lock facts", error);
-              publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
-            },
-          );
-        } else {
-          publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
-        }
-      },
-    });
-    clients.set(key, client);
-    pageUrls.set(key, request.pageUrl);
-    return client;
+    const creation = input.services.createLockClient({
+        environmentKey,
+        tabId: request.tabId,
+        siteId,
+        hasUnsavedWork: () => unsavedByKey.get(key) === true,
+        onStateChange: (state) => {
+          if (activeKeyByTab.get(request.tabId) !== key) {
+            return;
+          }
+          const pageUrl = pageUrls.get(key) ?? request.pageUrl;
+          const response = lockStateFromState({ pageUrl, baseUrl, siteId, state, status: "ok" });
+          const observation = observeLockState(request.tabId, pageUrl, response);
+          if (observation) {
+            void observation.then(
+              () => publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response),
+              (error: unknown) => {
+                console.error("[Unfluffify][rewrite] Unable to observe property-lock facts", error);
+                publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
+              },
+            );
+          } else {
+            publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
+          }
+        },
+      })
+      .then((client) => {
+        clients.set(key, client);
+        pageUrls.set(key, request.pageUrl);
+        return client;
+      });
+    clientCreations.set(key, creation);
+    try {
+      return await creation;
+    } finally {
+      if (clientCreations.get(key) === creation) {
+        clientCreations.delete(key);
+      }
+    }
   };
 
   return {
@@ -265,10 +303,16 @@ export function createPropertyLockRuntime(input: Readonly<{
         publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
         return response;
       }
-      const key = `${request.tabId}:${context.siteId}`;
+      if (!context.environmentKey) {
+        const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: context.siteId, state: null, status: "unavailable" });
+        await observeLockState(request.tabId, request.pageUrl, response);
+        publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
+        return response;
+      }
+      const key = clientKey(context.environmentKey, request.tabId, context.siteId);
       releaseActiveForTab(request.tabId, key);
       activeKeyByTab.set(request.tabId, key);
-      const client = await getOrCreateClient(request, context.siteId, baseUrl);
+      const client = await getOrCreateClient(request, context.environmentKey, context.siteId, baseUrl);
       const previousPageUrl = pageUrls.get(key);
       const previousUnsaved = unsavedByKey.get(key);
       unsavedByKey.set(key, request.hasUnsavedChanges === true);
@@ -277,7 +321,6 @@ export function createPropertyLockRuntime(input: Readonly<{
         claimedKeys.add(key);
       }
       if (previousPageUrl !== request.pageUrl || previousUnsaved !== (request.hasUnsavedChanges === true)) {
-        client.setPageUrl(request.pageUrl);
         client.clientStatus();
         pageUrls.set(key, request.pageUrl);
       }
@@ -289,7 +332,44 @@ export function createPropertyLockRuntime(input: Readonly<{
       return response;
     },
     activity(tabId: number, siteId: number): void {
-      clients.get(`${tabId}:${siteId}`)?.activity();
+      const activeKey = activeKeyByTab.get(tabId);
+      const client = activeKey ? clients.get(activeKey) : undefined;
+      if (client?.editorSession().siteId === siteId) {
+        client.activity();
+      }
+    },
+    heartbeat(): void {
+      for (const client of clients.values()) {
+        if (!client.isClosed()) {
+          client.heartbeat();
+        }
+      }
+    },
+    authorizeMutation<T extends PropertyMutationEnvelope>(request: T): MutationFenceAuthorization<T> {
+      const client = [...clients.values()].find((candidate) => {
+        const session = candidate.editorSession();
+        return session.environmentKey === request.environmentKey &&
+          session.siteId === request.siteId &&
+          session.editorSessionId === request.editorSessionId;
+      });
+      const state = client?.state();
+      if (
+        !client ||
+        client.isClosed() ||
+        state?.role !== "editor" ||
+        state.editorSessionId !== request.editorSessionId ||
+        !state.lockToken ||
+        state.lockToken !== request.lockToken
+      ) {
+        return {
+          ok: false,
+          status: "stale_fence",
+          propertyRevision: state?.propertyRevision ?? request.expectedPropertyRevision,
+          feedRevision: state?.feedRevision ?? request.expectedFeedRevision,
+          reason: "The editor session no longer owns the current property lock fence.",
+        };
+      }
+      return { ok: true, request };
     },
     republish(tabId: number, baseUrl: string): void {
       const state = latestLockStates.get(tabId);

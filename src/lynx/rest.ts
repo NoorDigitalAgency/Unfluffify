@@ -4,7 +4,9 @@ import {
   ConfigSnapshotSchema,
   EnvironmentKeySchema,
   PropertyPublishRequestSchema,
+  PropertySaveFailureStatusSchema,
   PropertySaveRequestSchema,
+  type PropertySaveFailureStatus,
   type PropertyPublishRequest,
   type PropertySaveRequest,
 } from "../storage/config";
@@ -34,6 +36,13 @@ export type LoadConfigResult =
 export type SaveConfigResult =
   | Readonly<{ status: "ok"; data: SaveResponse }>
   | Readonly<{ status: "conflict"; data?: SaveResponse; httpStatus: number }>
+  | Readonly<{
+      status: PropertySaveFailureStatus;
+      httpStatus: number;
+      propertyRevision: number;
+      feedRevision: number;
+      reason?: string;
+    }>
   | Readonly<{ status: "empty" | "auth_error" | "invalid" | "error"; httpStatus: number }>;
 export type PublishConfigResult =
   | Readonly<{ status: PublicationSnapshotStatus; data: SaveResponse; httpStatus: number }>
@@ -47,6 +56,15 @@ export type PublishConfigResult =
 
 const FencedPublicationFailureSchema = z.object({
   status: PublicationFailureStatusSchema,
+  value: ConfigSnapshotSchema.nullable().optional(),
+  propertyRevision: z.number().int().nonnegative(),
+  feedRevision: z.number().int().nonnegative(),
+  duplicateOperation: z.boolean().optional(),
+  reason: z.string().nullable().optional(),
+});
+
+const FencedSaveFailureSchema = z.object({
+  status: PropertySaveFailureStatusSchema,
   value: ConfigSnapshotSchema.nullable().optional(),
   propertyRevision: z.number().int().nonnegative(),
   feedRevision: z.number().int().nonnegative(),
@@ -101,9 +119,20 @@ export async function saveConfigSnapshot(
   }
   if (response.status === 409) {
     const parsed = SaveResponseSchema.safeParse(response.body);
-    return parsed.success
-      ? { status: "conflict", data: parsed.data, httpStatus: response.status }
-      : { status: "conflict", httpStatus: response.status };
+    if (parsed.success) {
+      return { status: "conflict", data: parsed.data, httpStatus: response.status };
+    }
+    const failure = FencedSaveFailureSchema.safeParse(response.body);
+    if (failure.success) {
+      return {
+        status: failure.data.status,
+        httpStatus: response.status,
+        propertyRevision: failure.data.propertyRevision,
+        feedRevision: failure.data.feedRevision,
+        ...(failure.data.reason ? { reason: failure.data.reason } : {}),
+      };
+    }
+    return { status: "conflict", httpStatus: response.status };
   }
   if (response.status !== 200) {
     return { status: "error", httpStatus: response.status };

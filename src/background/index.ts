@@ -1,5 +1,5 @@
 import { createRewriteBrainRuntime } from "./rewrite-brain-runtime";
-import { createPropertyLockRuntime } from "./lock-runtime";
+import { createPropertyLockRuntime, PROPERTY_LOCK_HEARTBEAT_ALARM } from "./lock-runtime";
 import { createRenderEmulationRuntime } from "./render-emulation-runtime";
 import { createRewriteBackgroundServices } from "./services";
 import { createAuthTokenMonitor } from "./auth-token-monitor";
@@ -100,10 +100,6 @@ export function startRewriteBackground(): void {
     },
   });
   void authTokenMonitor.start();
-  api.alarms?.onAlarm?.addListener((alarm) => {
-    runtime.keepAlive.handleAlarm(alarm);
-    void authTokenMonitor.handleAlarm(alarm);
-  });
   const bus = createRealmBus({
     realm: "background",
     transport: createRuntimeTransport(api.runtime),
@@ -145,6 +141,16 @@ export function startRewriteBackground(): void {
       }
     },
   });
+  // The lease belongs to the background editor session, not to the side-panel
+  // document. Closing the panel therefore removes no client and no heartbeat.
+  api.alarms?.create(PROPERTY_LOCK_HEARTBEAT_ALARM, { periodInMinutes: 0.5 });
+  api.alarms?.onAlarm?.addListener((alarm) => {
+    runtime.keepAlive.handleAlarm(alarm);
+    void authTokenMonitor.handleAlarm(alarm);
+    if (alarm.name === PROPERTY_LOCK_HEARTBEAT_ALARM) {
+      lockRuntime.heartbeat();
+    }
+  });
   bus.onCommand("signals.pull", async (request, meta) => {
     const tabId = request.tabId === 0 ? parseSenderTabId(meta.sourceInstance) ?? 0 : request.tabId;
     const brain = await runtime.getBrain(tabId);
@@ -181,7 +187,12 @@ export function startRewriteBackground(): void {
     }
     if (envelope.sensation.reason === "content-started") {
       const baseUrl = typeof envelope.sensation.facts.baseUrl === "string" ? envelope.sensation.facts.baseUrl : "";
-      lockRuntime.republish(tabId, baseUrl);
+      const pageUrl = typeof envelope.sensation.facts.pageUrl === "string" ? envelope.sensation.facts.pageUrl : "";
+      if (pageUrl) {
+        await lockRuntime.directive({ tabId, pageUrl, baseUrl, hasUnsavedChanges: false });
+      } else {
+        lockRuntime.republish(tabId, baseUrl);
+      }
     }
   });
   bus.onCommand("lock.directive", (request) => lockRuntime.directive(request));
@@ -339,7 +350,15 @@ export function startRewriteBackground(): void {
     if (!environmentKey || environmentKey !== request.environmentKey) {
       return { status: "environment_unconfigured" as const };
     }
-    const result = await services.lynx.saveConfigSnapshot(request);
+    const authorization = lockRuntime.authorizeMutation(request);
+    if (!authorization.ok) {
+      return {
+        status: authorization.status,
+        httpStatus: 409,
+        reason: authorization.reason,
+      };
+    }
+    const result = await services.lynx.saveConfigSnapshot(authorization.request);
     if (result.status === "ok") {
       try {
         const config = await services.property.applyBackendSave(
@@ -357,14 +376,26 @@ export function startRewriteBackground(): void {
     }
     return result.status === "conflict"
       ? { status: result.status, httpStatus: result.httpStatus, ...(result.data ? { config: result.data } : {}) }
-      : { status: result.status, httpStatus: result.httpStatus };
+      : {
+          status: result.status,
+          httpStatus: result.httpStatus,
+          ...("reason" in result && result.reason ? { reason: result.reason } : {}),
+        };
   });
   bus.onCommand("config.publish", async (request) => {
     const environmentKey = await services.lynx.currentEnvironmentKey();
     if (!environmentKey || environmentKey !== request.environmentKey) {
       return { status: "environment_unconfigured" as const };
     }
-    const result = await services.lynx.publishConfigSnapshot(request);
+    const authorization = lockRuntime.authorizeMutation(request);
+    if (!authorization.ok) {
+      return {
+        status: authorization.status,
+        httpStatus: 409,
+        reason: authorization.reason,
+      };
+    }
+    const result = await services.lynx.publishConfigSnapshot(authorization.request);
     if ("data" in result) {
       try {
         const config = await services.property.applyBackendSave(

@@ -93,6 +93,23 @@ describe("P4 REST config client", () => {
     await expect(saveConfigSnapshot(async () => okJson(null), saveRequest())).resolves.toEqual({ status: "empty", httpStatus: 200 });
   });
 
+  it("preserves a typed stale-fence save conflict instead of flattening it", async () => {
+    await expect(saveConfigSnapshot(async () => okJson({
+      status: "stale_fence",
+      value: null,
+      propertyRevision: 5,
+      feedRevision: 3,
+      duplicateOperation: false,
+      reason: "lock token is no longer current",
+    }, 409), saveRequest())).resolves.toEqual({
+      status: "stale_fence",
+      httpStatus: 409,
+      propertyRevision: 5,
+      feedRevision: 3,
+      reason: "lock token is no longer current",
+    });
+  });
+
   it("publishes only through Hub and accepts only definitive authoritative success", async () => {
     const calls: JsonRequest[] = [];
     const published = {

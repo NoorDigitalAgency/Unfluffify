@@ -16,7 +16,14 @@ import {
   LockRoleSchema,
 } from "../domain/schema/facts";
 import { RenderModeSchema } from "../domain/schema/property";
-import { ConfigSnapshotSchema, PageKeySchema, PropertyPublishRequestSchema, PropertySaveRequestSchema, SelectorSetSchema } from "../storage/config";
+import {
+  ConfigSnapshotSchema,
+  PageKeySchema,
+  PropertyPublishRequestSchema,
+  PropertySaveFailureStatusSchema,
+  PropertySaveRequestSchema,
+  SelectorSetSchema,
+} from "../storage/config";
 import { MarkRowSchema } from "../domain/schema/marking";
 import { ConnectionSettingsSchema } from "../storage/settings";
 import { PageContextResolutionSchema } from "../domain/schema/context";
@@ -218,17 +225,21 @@ export const applicationContract = defineContract({
       response: z.discriminatedUnion("status", [
         z.object({ status: z.literal("ok"), config: ConfigSnapshotSchema }),
         z.object({
-          status: z.enum([
-            "conflict",
-            "empty",
-            "auth_error",
-            "invalid",
-            "integrity_shrink",
-            "environment_unconfigured",
-            "error",
+          status: z.union([
+            z.enum([
+              "conflict",
+              "empty",
+              "auth_error",
+              "invalid",
+              "integrity_shrink",
+              "environment_unconfigured",
+              "error",
+            ]),
+            PropertySaveFailureStatusSchema,
           ]),
           httpStatus: z.number().optional(),
           config: ConfigSnapshotSchema.optional(),
+          reason: z.string().optional(),
         }),
       ]),
     },

@@ -4,7 +4,7 @@ import { parseConfigSnapshot } from "../../../src/storage/config";
 import { RENDER_MODE_NEVER_DECIDED_AT, isRenderModeConfirmed } from "../../../src/storage/config";
 import {
   createConfigRepo,
-  createLockIdentityRepo,
+  createEditorSessionRepo,
   createMemoryStore,
   createRunRecordRepo,
   createTabStateRepo,
@@ -74,10 +74,10 @@ describe("P2 storage repositories", () => {
     await expect(repo.load(7)).resolves.toEqual({ ok: true, value: null });
   });
 
-  it("round-trips run records, lock identities, and configs", async () => {
+  it("round-trips run records, editor sessions, and configs", async () => {
     const store = createMemoryStore();
     const runRepo = createRunRecordRepo(store);
-    const lockRepo = createLockIdentityRepo(store);
+    const sessionRepo = createEditorSessionRepo(store);
     const configRepo = createConfigRepo(store);
     const run = {
       sessionId: "run-1",
@@ -87,21 +87,22 @@ describe("P2 storage repositories", () => {
       updatedAt: 2,
       deadlineAt: 3,
     };
-    const lock = {
+    const session = {
+      environmentKey: "a.example.com",
       tabId: 1,
       siteId: 123,
-      identity: "backend-issued",
-      issuedAt: 1,
+      editorSessionId: "editor-session-1",
+      createdAt: 1,
       updatedAt: 2,
     };
     const config = configSnapshot();
 
     await runRepo.save(run);
-    await lockRepo.save(lock);
+    await sessionRepo.save(session);
     await configRepo.save(config);
 
     await expect(runRepo.load("run-1")).resolves.toEqual({ ok: true, value: run });
-    await expect(lockRepo.load(1, 123)).resolves.toEqual({ ok: true, value: lock });
+    await expect(sessionRepo.load("a.example.com", 1, 123)).resolves.toEqual({ ok: true, value: session });
     await expect(configRepo.load("a.example.com", 123)).resolves.toEqual({ ok: true, value: config });
   });
 
@@ -204,12 +205,13 @@ describe("P2 storage repositories", () => {
         updatedAt: 1,
       },
     }));
-    const lockRepo = createLockIdentityRepo(createMemoryStore({
-      "lockIdentity:1:123": {
+    const sessionRepo = createEditorSessionRepo(createMemoryStore({
+      "editorSession:a.example.com:1:123": {
+        environmentKey: "a.example.com",
         tabId: 2,
         siteId: 123,
-        identity: "wrong-tab",
-        issuedAt: 1,
+        editorSessionId: "wrong-tab",
+        createdAt: 1,
         updatedAt: 1,
       },
     }));
@@ -225,7 +227,7 @@ describe("P2 storage repositories", () => {
       ok: false,
       error: { code: "INVALID_STORED_VALUE" },
     });
-    await expect(lockRepo.load(1, 123)).resolves.toMatchObject({
+    await expect(sessionRepo.load("a.example.com", 1, 123)).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_STORED_VALUE" },
     });
