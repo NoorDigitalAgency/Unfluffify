@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-import { ConfigSnapshotSchema, type ConfigSnapshot } from "../storage/config";
+import {
+  ConfigSnapshotSchema,
+  EnvironmentKeySchema,
+  PropertySaveRequestSchema,
+  type PropertySaveRequest,
+} from "../storage/config";
 import type { JsonTransport } from "./transport";
 
 export const LoadResponseSchema = ConfigSnapshotSchema;
@@ -16,23 +21,28 @@ export type SaveResponse = z.infer<typeof SaveResponseSchema>;
 export type RemoveResponse = z.infer<typeof RemoveResponseSchema>;
 export type LoadConfigResult =
   | Readonly<{ status: "ok"; data: LoadResponse }>
-  | Readonly<{ status: "auth_error" | "not_found" | "error"; httpStatus: number }>;
+  | Readonly<{ status: "auth_error" | "not_found" | "invalid" | "error"; httpStatus: number }>;
 export type SaveConfigResult =
   | Readonly<{ status: "ok"; data: SaveResponse }>
-  | Readonly<{ status: "empty" | "auth_error" | "error"; httpStatus: number }>;
+  | Readonly<{ status: "conflict"; data?: SaveResponse; httpStatus: number }>
+  | Readonly<{ status: "empty" | "auth_error" | "invalid" | "error"; httpStatus: number }>;
 
-export function buildOrdinaryConfigSyncBody(siteId: number): Readonly<{ siteId: number }> {
-  return { siteId };
+export function buildOrdinaryConfigSyncBody(
+  environmentKey: string,
+  siteId: number,
+): Readonly<{ environmentKey: string; siteId: number }> {
+  return { environmentKey: EnvironmentKeySchema.parse(environmentKey), siteId };
 }
 
 export async function loadConfigSnapshot(
   transport: JsonTransport,
+  environmentKey: string,
   siteId: number,
 ): Promise<LoadConfigResult> {
   const response = await transport({
     method: "POST",
     path: "/load",
-    body: buildOrdinaryConfigSyncBody(siteId),
+    body: buildOrdinaryConfigSyncBody(environmentKey, siteId),
   });
   if (response.status === 401 || response.status === 403) {
     return { status: "auth_error", httpStatus: response.status };
@@ -43,14 +53,17 @@ export async function loadConfigSnapshot(
   if (response.status !== 200) {
     return { status: "error", httpStatus: response.status };
   }
-  return { status: "ok", data: LoadResponseSchema.parse(response.body) };
+  const parsed = LoadResponseSchema.safeParse(response.body);
+  return parsed.success
+    ? { status: "ok", data: parsed.data }
+    : { status: "invalid", httpStatus: response.status };
 }
 
 export async function saveConfigSnapshot(
   transport: JsonTransport,
-  snapshot: ConfigSnapshot,
+  request: PropertySaveRequest,
 ): Promise<SaveConfigResult> {
-  const body = ConfigSnapshotSchema.parse(snapshot);
+  const body = PropertySaveRequestSchema.parse(request);
   const response = await transport({
     method: "POST",
     path: "/save",
@@ -59,13 +72,22 @@ export async function saveConfigSnapshot(
   if (response.status === 401 || response.status === 403) {
     return { status: "auth_error", httpStatus: response.status };
   }
+  if (response.status === 409) {
+    const parsed = SaveResponseSchema.safeParse(response.body);
+    return parsed.success
+      ? { status: "conflict", data: parsed.data, httpStatus: response.status }
+      : { status: "conflict", httpStatus: response.status };
+  }
   if (response.status !== 200) {
     return { status: "error", httpStatus: response.status };
   }
   if (!response.body || typeof response.body !== "object") {
     return { status: "empty", httpStatus: response.status };
   }
-  return { status: "ok", data: SaveResponseSchema.parse(response.body) };
+  const parsed = SaveResponseSchema.safeParse(response.body);
+  return parsed.success
+    ? { status: "ok", data: parsed.data }
+    : { status: "invalid", httpStatus: response.status };
 }
 
 export async function removePageMarking(

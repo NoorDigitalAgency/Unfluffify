@@ -26,6 +26,11 @@ import { pollAiJob } from "../lynx/ai-job";
 import { buildCssInfoRequest, buildUpdateScrapingConditionsRequest, buildUrlSearchInfoRequest, parseUrlSearchInfo, readGraphqlErrorCode } from "../lynx/graphql";
 import { loadConfigSnapshot, saveConfigSnapshot } from "../lynx/rest";
 import { persistDurableFacts, rehydrateDurableFacts, reDeriveVolatile } from "./persistence";
+import {
+  adoptAuthoritativeSnapshot,
+  normalizeEnvironmentKey,
+  overlayLivePageOnAuthoritativeCorpus,
+} from "../storage/property-snapshot-authority";
 
 /** The subset createFetchJsonTransport needs to resolve a base URL and auth. */
 type EndpointSettings = Readonly<{
@@ -116,6 +121,8 @@ export function createRewriteBackgroundServices(input: Readonly<{
     const result = await settingsStore.load();
     return result.ok && result.value ? result.value : {};
   };
+  const currentEnvironmentKey = async (): Promise<string | null> =>
+    normalizeEnvironmentKey((await loadSettings()).stageBase);
   /** Settings are read-modify-written from several places (an endpoint save, a
    *  login, a silent token rotation). Serializing them keeps a concurrent pair
    *  from each reading the same baseline and one losing the other's field. */
@@ -156,35 +163,42 @@ export function createRewriteBackgroundServices(input: Readonly<{
     property: {
       /** Applies the backend-authority rule to a load outcome.
        *
-       *  A 200 and a 404 are both answers, so both remove local property data;
-       *  the render mode survives a 404 only, because until a configuration
-       *  exists there is nowhere else for the operator's choice to live. A
-       *  transport or auth failure is not an answer — it says nothing about what
-       *  the backend holds, so it must leave local data exactly as it was. */
-      async applyBackendLoad(siteId: number, outcome: Readonly<{
-        status: "ok" | "auth_error" | "not_found" | "error";
+       *  A validated 200 atomically replaces the durable full-corpus baseline.
+       *  A 404 clears it, retaining only the documented local render-mode
+       *  exception. A transport, auth, or validation failure is not an
+       *  authoritative answer and therefore leaves durable state untouched. */
+      async applyBackendLoad(environmentKey: string, siteId: number, outcome: Readonly<{
+        status: "ok" | "auth_error" | "not_found" | "invalid" | "error";
         config?: ConfigSnapshot;
       }>) {
-        if (outcome.status === "auth_error" || outcome.status === "error") {
-          const existing = await localPropertyRepo.load(siteId);
+        if (outcome.status === "auth_error" || outcome.status === "invalid" || outcome.status === "error") {
+          const existing = await localPropertyRepo.load(environmentKey, siteId);
           return {
             renderMode: existing.ok ? existing.value?.renderMode : undefined,
             source: "local" as const,
           };
         }
-        // Both answers invalidate the local mirror of the configuration.
-        await configRepo.clear(siteId);
         if (outcome.status === "ok") {
+          const stored = await configRepo.load(environmentKey, siteId);
+          const adopted = adoptAuthoritativeSnapshot(
+            stored.ok ? stored.value : null,
+            outcome.config,
+            { environmentKey, siteId },
+          );
+          await configRepo.save(adopted);
           await localPropertyRepo.save({
+            environmentKey,
             siteId,
             backendConfigPresent: true,
             updatedAt: new Date().toISOString(),
           });
-          return { renderMode: outcome.config?.renderMode, source: "backend" as const };
+          return { renderMode: adopted.renderMode, source: "backend" as const };
         }
-        const existing = await localPropertyRepo.load(siteId);
+        await configRepo.clear(environmentKey, siteId);
+        const existing = await localPropertyRepo.load(environmentKey, siteId);
         const keptRenderMode = existing.ok ? existing.value?.renderMode : undefined;
         await localPropertyRepo.save({
+          environmentKey,
           siteId,
           backendConfigPresent: false,
           ...(keptRenderMode ? { renderMode: keptRenderMode } : {}),
@@ -192,24 +206,37 @@ export function createRewriteBackgroundServices(input: Readonly<{
         });
         return { renderMode: keptRenderMode, source: "local" as const };
       },
-      /** The backend now holds the configuration, so the local copy has served
-       *  its purpose and must go. */
-      async applyBackendSave(siteId: number) {
-        await configRepo.clear(siteId);
+      /** A validated successful save response atomically replaces the durable
+       *  background baseline. Any unexplained shrink throws before storage. */
+      async applyBackendSave(environmentKey: string, siteId: number, snapshot: ConfigSnapshot) {
+        const stored = await configRepo.load(environmentKey, siteId);
+        const adopted = adoptAuthoritativeSnapshot(
+          stored.ok ? stored.value : null,
+          snapshot,
+          { environmentKey, siteId },
+        );
+        await configRepo.save(adopted);
         await localPropertyRepo.save({
+          environmentKey,
           siteId,
           backendConfigPresent: true,
           updatedAt: new Date().toISOString(),
         });
+        return adopted;
+      },
+      async overlayAiCorpus(environmentKey: string, siteId: number, live: Parameters<typeof overlayLivePageOnAuthoritativeCorpus>[1]) {
+        const stored = await configRepo.load(environmentKey, siteId);
+        return overlayLivePageOnAuthoritativeCorpus(stored.ok ? stored.value : null, live);
       },
       /** Refused when the backend already has a configuration for the property:
        *  local storage is only permitted while it does not. */
-      async rememberRenderMode(siteId: number, renderMode: RenderMode) {
-        const existing = await localPropertyRepo.load(siteId);
+      async rememberRenderMode(environmentKey: string, siteId: number, renderMode: RenderMode) {
+        const existing = await localPropertyRepo.load(environmentKey, siteId);
         if (existing.ok && existing.value?.backendConfigPresent) {
           return { stored: false as const, reason: "backend-config-present" as const };
         }
         await localPropertyRepo.save({
+          environmentKey,
           siteId,
           backendConfigPresent: false,
           renderMode,
@@ -230,8 +257,9 @@ export function createRewriteBackgroundServices(input: Readonly<{
         rehydrateDurableFacts(tabStateRepo, tabId).then((facts) => facts ? reDeriveVolatile(facts) : null),
     },
     lynx: {
-      loadConfigSnapshot: (siteId: number) => loadConfigSnapshot(transport, siteId),
-      saveConfigSnapshot: (snapshot: Parameters<typeof saveConfigSnapshot>[1]) => saveConfigSnapshot(transport, snapshot),
+      currentEnvironmentKey,
+      loadConfigSnapshot: (environmentKey: string, siteId: number) => loadConfigSnapshot(transport, environmentKey, siteId),
+      saveConfigSnapshot: (request: Parameters<typeof saveConfigSnapshot>[1]) => saveConfigSnapshot(transport, request),
       startAiRun: (snapshot: Parameters<typeof startAiRun>[1]) => startAiRun(transport, snapshot),
       getAiRunStatus: (sessionId: string) => getAiRunStatus(transport, sessionId),
       getAiRunResult: (sessionId: string) => getAiRunResult(transport, sessionId),

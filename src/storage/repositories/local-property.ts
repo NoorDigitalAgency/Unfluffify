@@ -17,6 +17,7 @@ import { invalidStoredValue, parseStoredValue } from "./key-value";
  *  survives a service-worker restart: without it a later write could not tell
  *  whether local storage is still permitted. */
 export const LocalPropertyStateSchema = z.object({
+  environmentKey: z.string().trim().min(1),
   siteId: z.number().int().positive(),
   backendConfigPresent: z.boolean(),
   renderMode: RenderModeSchema.optional(),
@@ -28,29 +29,33 @@ export type LocalPropertyState = z.infer<typeof LocalPropertyStateSchema>;
 const LOCAL_PROPERTY_PREFIX = "local-property:";
 
 export interface LocalPropertyRepo {
-  load(siteId: number): Promise<StorageReadResult<LocalPropertyState>>;
+  load(environmentKey: string, siteId: number): Promise<StorageReadResult<LocalPropertyState>>;
   save(state: LocalPropertyState): Promise<void>;
-  clear(siteId: number): Promise<void>;
+  clear(environmentKey: string, siteId: number): Promise<void>;
 }
 
-function keyFor(siteId: number): string {
-  return `${LOCAL_PROPERTY_PREFIX}${siteId}`;
+function keyFor(environmentKey: string, siteId: number): string {
+  return `${LOCAL_PROPERTY_PREFIX}${environmentKey.trim().toLowerCase()}:${siteId}`;
 }
 
 export function createLocalPropertyRepo(store: KeyValueStore): LocalPropertyRepo {
   return {
-    async load(siteId) {
-      const parsed = parseStoredValue(LocalPropertyStateSchema, await store.get(keyFor(siteId)));
-      if (parsed.ok && parsed.value && parsed.value.siteId !== siteId) {
-        return invalidStoredValue("Stored local property state does not match requested siteId");
+    async load(environmentKey, siteId) {
+      const parsed = parseStoredValue(LocalPropertyStateSchema, await store.get(keyFor(environmentKey, siteId)));
+      if (parsed.ok && parsed.value && (
+        parsed.value.siteId !== siteId ||
+        parsed.value.environmentKey !== environmentKey.trim().toLowerCase()
+      )) {
+        return invalidStoredValue("Stored local property state does not match requested property scope");
       }
       return parsed;
     },
     async save(state) {
-      await store.set(keyFor(state.siteId), LocalPropertyStateSchema.parse(state));
+      const parsed = LocalPropertyStateSchema.parse(state);
+      await store.set(keyFor(parsed.environmentKey, parsed.siteId), parsed);
     },
-    async clear(siteId) {
-      await store.remove(keyFor(siteId));
+    async clear(environmentKey, siteId) {
+      await store.remove(keyFor(environmentKey, siteId));
     },
   };
 }

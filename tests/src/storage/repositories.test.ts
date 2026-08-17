@@ -18,9 +18,14 @@ import {
 
 function configSnapshot(): ConfigSnapshot {
   return {
-    version: 1,
+    version: 2,
+    environmentKey: "a.example.com",
     baseUrl: "https://example.com",
     siteId: 123,
+    propertyRevision: 1,
+    feedRevision: 1,
+    membershipFingerprint: "membership",
+    assignmentFingerprint: "assignment",
     renderMode: "rendered",
     renderModeUpdatedAt: "2026-07-07T00:00:00Z",
     selectors: {
@@ -29,12 +34,19 @@ function configSnapshot(): ConfigSnapshot {
     },
     selectorsUpdatedAt: "2026-07-07T00:00:00Z",
     submittedSelectorsFingerprint: "fp",
-    pageMarkings: {
-      "https://example.com/page": {
+    pages: {
+      "/page": {
         timestamp: "2026-07-07T00:00:00Z",
+        pageType: "detail",
         renderedHtml: "<html></html>",
         rows: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
       },
+    },
+    reconciliation: {
+      revision: 1,
+      feedFingerprint: "feed",
+      removedPageKeys: [],
+      relabelledPages: [],
     },
   };
 }
@@ -90,7 +102,7 @@ describe("P2 storage repositories", () => {
 
     await expect(runRepo.load("run-1")).resolves.toEqual({ ok: true, value: run });
     await expect(lockRepo.load(1, 123)).resolves.toEqual({ ok: true, value: lock });
-    await expect(configRepo.load(123)).resolves.toEqual({ ok: true, value: config });
+    await expect(configRepo.load("a.example.com", 123)).resolves.toEqual({ ok: true, value: config });
   });
 
   it("returns structured schema errors for malformed persisted blobs", async () => {
@@ -145,7 +157,7 @@ describe("P2 storage repositories", () => {
       },
     }));
     const configRepo = createConfigRepo(createMemoryStore({
-      "config:123": { ...configSnapshot(), siteId: null },
+      "config:a.example.com:123": { ...configSnapshot(), siteId: 999 },
     }));
 
     await expect(tabRepo.load(7)).resolves.toMatchObject({
@@ -160,7 +172,7 @@ describe("P2 storage repositories", () => {
       ok: false,
       error: { code: "INVALID_STORED_VALUE" },
     });
-    await expect(configRepo.load(123)).resolves.toMatchObject({
+    await expect(configRepo.load("a.example.com", 123)).resolves.toMatchObject({
       ok: false,
       error: { code: "INVALID_STORED_VALUE" },
     });
@@ -174,9 +186,10 @@ describe("P2 storage repositories", () => {
     expect(() =>
       parseConfigSnapshot({
         ...configSnapshot(),
-        pageMarkings: {
+        pages: {
           "https://example.com/page": {
             timestamp: "now",
+            pageType: "detail",
             renderedHtml: "<html></html>",
             rows: [{ xpath: "/html[1]/body[1]", excluded: true }],
           },
@@ -189,10 +202,11 @@ describe("P2 storage repositories", () => {
     const baseline = configSnapshot();
     const updated = {
       ...baseline,
-      pageMarkings: {
-        ...baseline.pageMarkings,
-        "https://example.com/other": {
+      pages: {
+        ...baseline.pages,
+        "/other": {
           timestamp: "2026-07-07T00:00:00Z",
+          pageType: "detail",
           renderedHtml: "<html></html>",
           rows: [{ xpath: "/html[1]/body[1]/main[2]", excluded: false }],
         },
@@ -213,12 +227,12 @@ describe("P2 storage repositories", () => {
   it("does not alias backend baseline and mutable draft objects", () => {
     const session = createSessionDraft(configSnapshot());
     const draft = session.draft as ConfigSnapshot;
-    draft.pageMarkings["https://example.com/page"].rows.push({
+    draft.pages["/page"].rows.push({
       xpath: "/html[1]/body[1]/aside[1]",
       excluded: true,
     });
 
-    expect(session.baseline.pageMarkings["https://example.com/page"].rows).toEqual([
+    expect(session.baseline.pages["/page"].rows).toEqual([
       { xpath: "/html[1]/body[1]/main[1]", excluded: false },
     ]);
     expect(discardSessionDraft(session).draft).toEqual(session.baseline);

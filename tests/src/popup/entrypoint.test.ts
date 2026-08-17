@@ -1,5 +1,37 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BusFrame } from "../../../src/messaging/contract";
+import type { ConfigSnapshot } from "../../../src/storage/config";
+
+function backendConfig(): ConfigSnapshot {
+  const page = (pageKey: string) => ({
+    timestamp: "2026-08-17T10:00:00Z",
+    pageType: "detail",
+    renderedHtml: `<html>${pageKey}</html>`,
+    rows: [],
+  });
+  return {
+    version: 2,
+    environmentKey: "example.com",
+    siteId: 1,
+    baseUrl: "https://example.com",
+    propertyRevision: 4,
+    feedRevision: 2,
+    membershipFingerprint: "membership",
+    assignmentFingerprint: "assignment",
+    renderMode: "rendered",
+    renderModeUpdatedAt: "2026-08-17T10:00:00Z",
+    selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+    selectorsUpdatedAt: "2026-08-17T10:00:00Z",
+    submittedSelectorsFingerprint: "selectors",
+    pages: { "/": page("/"), "/page": page("/page"), "/a": page("/a"), "/b": page("/b") },
+    reconciliation: {
+      revision: 2,
+      feedFingerprint: "feed",
+      removedPageKeys: [],
+      relabelledPages: [],
+    },
+  };
+}
 
 function installEntrypointDom(href: string): void {
   Object.defineProperty(globalThis, "document", {
@@ -117,6 +149,13 @@ function makeRuntime(handler: (frame: BusFrame) => Promise<unknown> | unknown) {
           status: "ok",
           siteId: 1,
           lockRole: "editor",
+          authority: {
+            environmentKey: "example.com",
+            editorSessionId: "editor-1",
+            lockToken: "lock-1",
+            propertyRevision: 4,
+            feedRevision: 2,
+          },
           directive: {
             baseUrl: "https://example.com",
             configPresent: true,
@@ -147,6 +186,14 @@ function makeRuntime(handler: (frame: BusFrame) => Promise<unknown> | unknown) {
       if (frame.name === "offscreen.refineXpaths") {
         const payload = frame.payload as { rows?: unknown };
         return replyFrame(frame, { rows: Array.isArray(payload.rows) ? payload.rows : [] });
+      }
+      if (frame.name === "config.load") {
+        return replyFrame(frame, {
+          status: "ok",
+          config: backendConfig(),
+          renderMode: "rendered",
+          renderModeSource: "backend",
+        });
       }
       return handler(frame);
     }),
@@ -511,7 +558,7 @@ describe("rewrite popup entrypoint", () => {
         });
       }
       if (message.name === "config.save") {
-        return replyFrame(message, { status: "ok" });
+        return replyFrame(message, { status: "ok", config: backendConfig() });
       }
       return replyFrame(message, []);
     });
@@ -539,7 +586,7 @@ describe("rewrite popup entrypoint", () => {
     }));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "ai.run",
-      payload: snapshot,
+      payload: { siteId: 1, snapshot },
       target: "background",
     }));
     expect(render.mock.calls.at(-1)?.[0].props.presentation.saveDisabled).toBe(false);
@@ -564,8 +611,9 @@ describe("rewrite popup entrypoint", () => {
       name: "config.save",
       target: "background",
       payload: expect.objectContaining({
-        baseUrl: "https://example.com",
+        environmentKey: "example.com",
         siteId: 1,
+        page: expect.objectContaining({ pageKey: "/page", pageType: "detail" }),
         selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
       }),
     }));
@@ -620,7 +668,7 @@ describe("rewrite popup entrypoint", () => {
         });
       }
       if (message.name === "config.save") {
-        return replyFrame(message, { status: "ok" });
+        return replyFrame(message, { status: "ok", config: backendConfig() });
       }
       if (message.name === "signals.pull" && activeUrl === "https://example.com/b" && !rehydratedB) {
         rehydratedB = true;
@@ -688,8 +736,9 @@ describe("rewrite popup entrypoint", () => {
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "config.save",
       payload: expect.objectContaining({
-        pageMarkings: expect.objectContaining({
-          "https://example.com/b": expect.objectContaining({ renderedHtml: "<html>b</html>" }),
+        page: expect.objectContaining({
+          pageKey: "/b",
+          renderedHtml: "<html>b</html>",
         }),
       }),
     }));
@@ -820,7 +869,7 @@ describe("rewrite popup entrypoint", () => {
       }
       if (message.name === "config.save") {
         dirtyOnSaveTail = true;
-        return replyFrame(message, { status: "ok" });
+        return replyFrame(message, { status: "ok", config: backendConfig() });
       }
       if (message.name === "signals.pull" && dirtyOnSaveTail) {
         dirtyOnSaveTail = false;

@@ -13,7 +13,7 @@ import { z } from "zod";
 import { AiRunPayloadSnapshotSchema } from "../domain/schema/submission";
 import { LockRoleSchema } from "../domain/schema/facts";
 import { RenderModeSchema } from "../domain/schema/property";
-import { ConfigSnapshotSchema, SelectorSetSchema } from "../storage/config";
+import { ConfigSnapshotSchema, PropertySaveRequestSchema, SelectorSetSchema } from "../storage/config";
 import { MarkRowSchema } from "../domain/schema/marking";
 import { ConnectionSettingsSchema } from "../storage/settings";
 
@@ -34,6 +34,13 @@ const LockDirectiveResponseSchema = z.object({
   status: LockStatusSchema,
   siteId: z.number().int().positive().nullable(),
   lockRole: LockRoleSchema,
+  authority: z.object({
+    environmentKey: z.string().min(1),
+    editorSessionId: z.string().min(1),
+    lockToken: z.string().min(1),
+    propertyRevision: z.number().int().nonnegative(),
+    feedRevision: z.number().int().nonnegative(),
+  }).optional(),
   directive: z.unknown(),
   lockBanner: z.object({
     visible: z.boolean(),
@@ -128,7 +135,10 @@ export const applicationContract = defineContract({
       response: z.object({ ok: z.literal(true) }),
     },
     "ai.run": {
-      request: AiRunPayloadSnapshotSchema,
+      request: z.object({
+        siteId: z.number().int().positive(),
+        snapshot: AiRunPayloadSnapshotSchema,
+      }),
       response: z.object({
         status: z.string(),
         sessionId: z.string().optional(),
@@ -140,15 +150,27 @@ export const applicationContract = defineContract({
        earlier session is not re-asked on every popup open. */
     "config.load": {
       request: z.object({ siteId: z.number().int().positive() }),
-      response: z.object({
-        status: z.enum(["ok", "auth_error", "not_found", "error"]),
-        httpStatus: z.number().optional(),
-        config: ConfigSnapshotSchema.optional(),
-        /* The effective mode after the backend-authority rule has been applied,
-           so the popup adopts a decision rather than making one. */
-        renderMode: RenderModeSchema.optional(),
-        renderModeSource: z.enum(["backend", "local"]),
-      }),
+      response: z.discriminatedUnion("status", [
+        z.object({
+          status: z.literal("ok"),
+          config: ConfigSnapshotSchema,
+          renderMode: RenderModeSchema.optional(),
+          renderModeSource: z.literal("backend"),
+        }),
+        z.object({
+          status: z.enum([
+            "auth_error",
+            "not_found",
+            "invalid",
+            "integrity_shrink",
+            "environment_unconfigured",
+            "error",
+          ]),
+          httpStatus: z.number().optional(),
+          renderMode: RenderModeSchema.optional(),
+          renderModeSource: z.enum(["backend", "local"]),
+        }),
+      ]),
     },
     /* Stores an operator's choice for a property the backend has no
        configuration for. Refused otherwise — see local-property.ts. */
@@ -163,11 +185,23 @@ export const applicationContract = defineContract({
       }),
     },
     "config.save": {
-      request: ConfigSnapshotSchema,
-      response: z.object({
-        status: z.string(),
-        httpStatus: z.number().optional(),
-      }),
+      request: PropertySaveRequestSchema,
+      response: z.discriminatedUnion("status", [
+        z.object({ status: z.literal("ok"), config: ConfigSnapshotSchema }),
+        z.object({
+          status: z.enum([
+            "conflict",
+            "empty",
+            "auth_error",
+            "invalid",
+            "integrity_shrink",
+            "environment_unconfigured",
+            "error",
+          ]),
+          httpStatus: z.number().optional(),
+          config: ConfigSnapshotSchema.optional(),
+        }),
+      ]),
     },
     /* The JWT never crosses this boundary: the popup reads and writes only the
        endpoint fields, and learns about the credential as a boolean. */

@@ -8,6 +8,7 @@ import { getInstalledBrowserApi } from "../common/browser";
 import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
 import { parseSenderTabId } from "../messaging/rewrite-signals";
+import { canonicalPageKey, PropertySnapshotIntegrityError } from "../storage/property-snapshot-authority";
 
 export { createRewriteBrain } from "./rewrite-brain";
 
@@ -214,12 +215,13 @@ export function startRewriteBackground(): void {
     }
     const cached = pageContextCache.get(baseUrl);
     if (cached) {
+      const currentPageKey = canonicalPageKey(request.pageUrl);
       return {
         property: cached.property,
         baseUrl,
         siteId: cached.siteId,
         renderModeSet: cached.renderModeSet,
-        candidatePage: cached.pageMarkings.includes(request.pageUrl),
+        candidatePage: currentPageKey !== null && cached.pageMarkings.includes(currentPageKey),
         hasPageRecords: cached.pageMarkings.length > 0,
         reason: cached.reason,
       };
@@ -239,12 +241,17 @@ export function startRewriteBackground(): void {
       }
       return { ...empty, reason };
     }
-    const loaded = await services.lynx.loadConfigSnapshot(site.siteId);
+    const environmentKey = await services.lynx.currentEnvironmentKey();
+    if (!environmentKey) {
+      return { ...empty, property: true, siteId: site.siteId, reason: "environment-unconfigured" };
+    }
+    const loaded = await services.lynx.loadConfigSnapshot(environmentKey, site.siteId);
     // Same adaptation as config.load: the authority rule takes {status, config}.
-    const authority = await services.property.applyBackendLoad(site.siteId, loaded.status === "ok"
+    const authority = await services.property.applyBackendLoad(environmentKey, site.siteId, loaded.status === "ok"
       ? { status: loaded.status, config: loaded.data }
       : { status: loaded.status });
-    const pageMarkings = loaded.status === "ok" ? Object.keys(loaded.data.pageMarkings) : [];
+    const pageMarkings = loaded.status === "ok" ? Object.keys(loaded.data.pages) : [];
+    const currentPageKey = canonicalPageKey(request.pageUrl);
     const entry = {
       property: true,
       siteId: site.siteId,
@@ -264,7 +271,7 @@ export function startRewriteBackground(): void {
       baseUrl,
       siteId: entry.siteId,
       renderModeSet: entry.renderModeSet,
-      candidatePage: entry.pageMarkings.includes(request.pageUrl),
+      candidatePage: currentPageKey !== null && entry.pageMarkings.includes(currentPageKey),
       hasPageRecords: entry.pageMarkings.length > 0,
       reason: entry.reason,
     };
@@ -275,36 +282,90 @@ export function startRewriteBackground(): void {
     const response = await bus.request("offscreen.refineXpaths", request, { target: "offscreen" });
     return response.ok ? response.data : { rows: request.rows };
   });
-  bus.onCommand("ai.run", async (snapshot) => {
+  bus.onCommand("ai.run", async (request) => {
+    const environmentKey = await services.lynx.currentEnvironmentKey();
+    if (!environmentKey) {
+      return { status: "environment_unconfigured" };
+    }
+    const snapshot = await services.property.overlayAiCorpus(
+      environmentKey,
+      request.siteId,
+      request.snapshot,
+    );
     const result = await services.lynx.runAiJob(snapshot);
     return result.status === "ok"
       ? { status: result.status, sessionId: result.sessionId, selectors: result.selectors }
       : { status: result.status, httpStatus: "httpStatus" in result ? result.httpStatus : undefined };
   });
   bus.onCommand("config.load", async (request) => {
-    const result = await services.lynx.loadConfigSnapshot(request.siteId);
+    const environmentKey = await services.lynx.currentEnvironmentKey();
+    if (!environmentKey) {
+      return { status: "environment_unconfigured" as const, renderModeSource: "local" as const };
+    }
+    const result = await services.lynx.loadConfigSnapshot(environmentKey, request.siteId);
     // The rule lives in services, not here and not in the popup: one place
     // decides what local data survives a backend answer.
-    const applied = await services.property.applyBackendLoad(request.siteId, result.status === "ok"
-      ? { status: result.status, config: result.data }
-      : { status: result.status });
-    return {
-      status: result.status,
-      ...(result.status === "ok" ? { config: result.data } : { httpStatus: result.httpStatus }),
-      ...(applied.renderMode ? { renderMode: applied.renderMode } : {}),
-      renderModeSource: applied.source,
-    };
-  });
-  bus.onCommand("renderMode.remember", (request) =>
-    services.property.rememberRenderMode(request.siteId, request.renderMode));
-  bus.onCommand("config.save", async (snapshot) => {
-    const result = await services.lynx.saveConfigSnapshot(snapshot);
-    if (result.status === "ok" && snapshot.siteId !== null) {
-      // The backend holds it now, so the local copy has served its purpose.
-      await services.property.applyBackendSave(snapshot.siteId);
+    try {
+      if (result.status === "ok") {
+        const applied = await services.property.applyBackendLoad(
+          environmentKey,
+          request.siteId,
+          { status: "ok", config: result.data },
+        );
+        return {
+          status: "ok" as const,
+          config: result.data,
+          ...(applied.renderMode ? { renderMode: applied.renderMode } : {}),
+          renderModeSource: "backend" as const,
+        };
+      }
+      const applied = await services.property.applyBackendLoad(
+        environmentKey,
+        request.siteId,
+        { status: result.status },
+      );
+      return {
+        status: result.status,
+        httpStatus: result.httpStatus,
+        ...(applied.renderMode ? { renderMode: applied.renderMode } : {}),
+        renderModeSource: applied.source,
+      };
+    } catch (error) {
+      if (error instanceof PropertySnapshotIntegrityError) {
+        return { status: "integrity_shrink" as const, renderModeSource: "local" as const };
+      }
+      throw error;
     }
-    return result.status === "ok"
-      ? { status: result.status }
+  });
+  bus.onCommand("renderMode.remember", async (request) => {
+    const environmentKey = await services.lynx.currentEnvironmentKey();
+    return environmentKey
+      ? services.property.rememberRenderMode(environmentKey, request.siteId, request.renderMode)
+      : { stored: false as const, reason: "environment-unconfigured" as const };
+  });
+  bus.onCommand("config.save", async (request) => {
+    const environmentKey = await services.lynx.currentEnvironmentKey();
+    if (!environmentKey || environmentKey !== request.environmentKey) {
+      return { status: "environment_unconfigured" as const };
+    }
+    const result = await services.lynx.saveConfigSnapshot(request);
+    if (result.status === "ok") {
+      try {
+        const config = await services.property.applyBackendSave(
+          request.environmentKey,
+          request.siteId,
+          result.data,
+        );
+        return { status: "ok" as const, config };
+      } catch (error) {
+        if (error instanceof PropertySnapshotIntegrityError) {
+          return { status: "integrity_shrink" as const };
+        }
+        throw error;
+      }
+    }
+    return result.status === "conflict"
+      ? { status: result.status, httpStatus: result.httpStatus, ...(result.data ? { config: result.data } : {}) }
       : { status: result.status, httpStatus: result.httpStatus };
   });
   bus.onCommand("settings.load", async () => {

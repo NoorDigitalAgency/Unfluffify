@@ -164,8 +164,27 @@ describe("P9 property-lock client", () => {
       canEdit: false,
       countdownSeconds: 60,
     });
-    ws.emit("message", JSON.stringify({ type: "lock_state", state: "locked", isEditor: true, editorName: "Me" }));
+    ws.emit("message", JSON.stringify({
+      type: "lock_state",
+      state: "locked",
+      isEditor: true,
+      editorName: "Me",
+      environmentKey: "a.example.com",
+      editorSessionId: "editor-1",
+      lockToken: "lock-1",
+      propertyRevision: 4,
+      feedRevision: 2,
+    }));
     expect(projectPropertyLockView(client.state()).canEdit).toBe(true);
+    expect(client.state()).toMatchObject({ lockToken: "lock-1", propertyRevision: 4, feedRevision: 2 });
+    ws.emit("message", JSON.stringify({
+      type: "lock_state",
+      state: "locked",
+      isEditor: false,
+      editorName: "Other",
+    }));
+    expect(client.state()).toMatchObject({ role: "passive" });
+    expect(client.state().lockToken).toBeUndefined();
     ws.emit("close");
     expect(projectPropertyLockView(client.state()).canEdit).toBe(false);
     client.heartbeat();

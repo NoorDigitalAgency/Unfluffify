@@ -57,10 +57,25 @@ function directiveFromState(input: Readonly<{
       : input.status === "signed_out"
         ? "signed-out"
         : "property-lock";
+  const authority = input.state?.role === "editor" &&
+    input.state.environmentKey &&
+    input.state.editorSessionId &&
+    input.state.lockToken &&
+    input.state.propertyRevision !== undefined &&
+    input.state.feedRevision !== undefined
+    ? {
+        environmentKey: input.state.environmentKey,
+        editorSessionId: input.state.editorSessionId,
+        lockToken: input.state.lockToken,
+        propertyRevision: input.state.propertyRevision,
+        feedRevision: input.state.feedRevision,
+      }
+    : undefined;
   return {
     status: input.status,
     siteId: input.siteId,
     lockRole,
+    ...(authority ? { authority } : {}),
     lockBanner: {
       visible: view.bannerVisible,
       text: view.text,

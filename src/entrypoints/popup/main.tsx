@@ -29,7 +29,8 @@ import { createRealmBus } from "../../messaging/realms";
 import { createTabTransport } from "../../messaging/transports/tabs";
 import { createRuntimeTransport } from "../../messaging/transports/runtime";
 import { emitRewriteSignal, pullRewriteSignals, type RewriteSignalBus } from "../../messaging/rewrite-signals";
-import type { ConfigSnapshot, SelectorSet } from "../../storage/config";
+import type { ConfigSnapshot, PropertySaveRequest, SelectorSet } from "../../storage/config";
+import { canonicalPageKey } from "../../storage/property-snapshot-authority";
 import type { ConnectionSettings } from "../../storage/settings";
 import type { RenderMode } from "../../domain/schema/property";
 import { isRenderModeConfirmed } from "../../storage/config";
@@ -115,6 +116,7 @@ let configViewLocked = false;
  *  clean marking session; never stored locally — they are backend property data
  *  with no exemption, so a 404 leaves none. */
 let loadedSelectors: SelectorSet | null = null;
+let loadedConfig: ConfigSnapshot | null = null;
 let silentSelectorsAppliedKey: string | null = null;
 let boundTabUrl = "";
 let lockStatus = "";
@@ -357,6 +359,8 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   configPresent = false;
   configLoadAttemptedSiteId = null;
   configStatus = "";
+  loadedConfig = null;
+  loadedSelectors = null;
   contentActive = false;
   contentDirty = false;
   contentReachable = true;
@@ -661,9 +665,16 @@ async function refineSubmissionXpaths(snapshot: AiRunPayloadSnapshot): Promise<A
 }
 
 type LockDirectiveResponse = Readonly<{
-  status: "ok" | "not_configured" | "not_candidate" | "unavailable";
+  status: "ok" | "not_configured" | "not_candidate" | "signed_out" | "unavailable";
   siteId: number | null;
   lockRole: "unknown" | "editor" | "passive";
+  authority?: Readonly<{
+    environmentKey: string;
+    editorSessionId: string;
+    lockToken: string;
+    propertyRevision: number;
+    feedRevision: number;
+  }>;
   directive: unknown;
   lockBanner: Readonly<{ visible: boolean; text: string; countdownSeconds?: number }>;
 }>;
@@ -851,25 +862,36 @@ async function captureSubmission(context: TargetTabContext): Promise<AiRunPayloa
   return await refineSubmissionXpaths(response.snapshot as AiRunPayloadSnapshot);
 }
 
-function configFromSubmission(snapshot: AiRunPayloadSnapshot, selectors: SelectorSet): ConfigSnapshot {
-  const now = new Date().toISOString();
-  const page = snapshot.pages[0];
+function configFromSubmission(
+  snapshot: AiRunPayloadSnapshot,
+  selectors: SelectorSet,
+  lock: LockDirectiveResponse,
+  currentPageUrl: string,
+): PropertySaveRequest | null {
+  const pageKey = canonicalPageKey(currentPageUrl);
+  const page = pageKey
+    ? snapshot.pages.find((candidate) => canonicalPageKey(candidate.url) === pageKey)
+    : undefined;
+  const pageType = pageKey ? loadedConfig?.pages[pageKey]?.pageType : undefined;
+  if (!page || !pageKey || !pageType || !lock.authority || activeSiteId === null) {
+    return null;
+  }
   return {
-    version: 1,
-    baseUrl: snapshot.baseUrl,
+    operationId: globalThis.crypto.randomUUID(),
+    environmentKey: lock.authority.environmentKey,
     siteId: activeSiteId,
+    editorSessionId: lock.authority.editorSessionId,
+    lockToken: lock.authority.lockToken,
+    expectedPropertyRevision: lock.authority.propertyRevision,
+    expectedFeedRevision: lock.authority.feedRevision,
     renderMode: snapshot.renderMode,
-    renderModeUpdatedAt: now,
     selectors,
-    selectorsUpdatedAt: now,
-    submittedSelectorsFingerprint: "",
-    pageMarkings: {
-      [page.url]: {
-        timestamp: now,
-        renderedHtml: page.renderedHtml,
-        rawHtml: page.rawHtml,
-        rows: page.renderedXPaths,
-      },
+    page: {
+      pageKey,
+      pageType,
+      renderedHtml: page.renderedHtml,
+      ...(snapshot.renderMode === "static" && page.rawHtml !== undefined ? { rawHtml: page.rawHtml } : {}),
+      rows: page.renderedXPaths,
     },
   };
 }
@@ -1232,8 +1254,11 @@ async function loadPropertyConfig(siteId: number): Promise<void> {
     renderModeSource = response.data.renderModeSource;
     // Selectors are backend property data with no local exemption, so nothing
     // survives a 404 to apply.
-    loadedSelectors = null;
-    silentSelectorsAppliedKey = null;
+    if (response.data.status === "not_found") {
+      loadedConfig = null;
+      loadedSelectors = null;
+      silentSelectorsAppliedKey = null;
+    }
     logEvent(
       "Config not loaded",
       response.data.status === "not_found"
@@ -1248,6 +1273,7 @@ async function loadPropertyConfig(siteId: number): Promise<void> {
   }
   renderModeSource = response.data.renderModeSource;
   const config = response.data.config;
+  loadedConfig = config;
   loadedSelectors = config.selectors;
   // Repaint the silent preview on the next tick.
   silentSelectorsAppliedKey = null;
@@ -1551,7 +1577,13 @@ async function runAi(): Promise<void> {
   }
   lastSubmissionSnapshot = snapshot;
   lastSubmissionKey = requestKey;
-  const response = await getPopupBus().request("ai.run", snapshot, { target: "background" });
+  if (activeSiteId === null) {
+    return;
+  }
+  const response = await getPopupBus().request("ai.run", {
+    siteId: activeSiteId,
+    snapshot,
+  }, { target: "background" });
   if (!response.ok || response.data.status !== "ok") {
     if (activeRunSessionId === localRunId) {
       logEvent("Run AI failed", response.ok ? response.data.status : response.failure.code, "danger");
@@ -1606,6 +1638,10 @@ async function saveSession(): Promise<void> {
     render();
     return;
   }
+  // Save needs the authoritative candidate label for the singular current-page
+  // request. A popup can reach Save before its first polling tick, so do not
+  // assume the background baseline has already been loaded by polling.
+  await maybeLoadPropertyConfig();
   const saveButton = resolvePopupActionButtons(store.getPresentation(), {
     runAi: true,
     save: true,
@@ -1647,7 +1683,18 @@ async function saveSession(): Promise<void> {
     render();
     return;
   }
-  const response = await getPopupBus().request("config.save", configFromSubmission(snapshot, selectors), { target: "background" });
+  const saveRequest = configFromSubmission(snapshot, selectors, lock, context.url);
+  if (!saveRequest) {
+    logEvent("Save blocked", "authoritative lock or candidate page type is unavailable", "danger");
+    await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
+    await emitPopupSignalAndPullTail(context.tabId, "reconciliation.ended", {
+      pageUrl: context.url,
+      reason: "save-authority-unavailable",
+    }, requestKey);
+    render();
+    return;
+  }
+  const response = await getPopupBus().request("config.save", saveRequest, { target: "background" });
   await pullSignals(context.tabId, requestKey);
   if (store.getState().name === "reconciling" && store.getState().reconciliationDirty) {
     await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
@@ -1656,6 +1703,8 @@ async function saveSession(): Promise<void> {
     return;
   }
   if (response.ok && response.data.status === "ok") {
+    loadedConfig = response.data.config ?? loadedConfig;
+    loadedSelectors = loadedConfig?.selectors ?? loadedSelectors;
     await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
     lastSubmissionSnapshot = null;
     lastSubmissionKey = null;

@@ -308,15 +308,21 @@ describe("rewrite background services", () => {
       await services.repos.settingsStore.save({ configEndpoint: "https://config.example.com", aiEndpoint: "https://ai.example.com:8443" });
 
       await services.lynx.saveConfigSnapshot({
-        version: 1,
-        baseUrl: "https://example.com",
+        operationId: "save-1",
+        environmentKey: "a.example.com",
         siteId: 1,
+        editorSessionId: "editor-1",
+        lockToken: "lock-1",
+        expectedPropertyRevision: 0,
+        expectedFeedRevision: 0,
+        page: {
+          pageKey: "/page",
+          pageType: "detail",
+          renderedHtml: "<html></html>",
+          rows: [],
+        },
         renderMode: "rendered",
-        renderModeUpdatedAt: "now",
         selectors: { inclusionSelectors: [], exclusionSelectors: [] },
-        selectorsUpdatedAt: "now",
-        submittedSelectorsFingerprint: "",
-        pageMarkings: {},
       });
 
       expect(calls).toEqual(["https://config.example.com/save"]);

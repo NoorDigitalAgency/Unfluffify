@@ -18,6 +18,11 @@ export type PropertyLockState = Readonly<{
   transfer?: Readonly<{ fromName: string; toName: string }>;
   canContinueHere?: boolean;
   otherTabHasUnsavedChanges?: boolean;
+  environmentKey?: string;
+  editorSessionId?: string;
+  lockToken?: string;
+  propertyRevision?: number;
+  feedRevision?: number;
 }>;
 
 export const INITIAL_PROPERTY_LOCK_STATE: PropertyLockState = {
@@ -58,6 +63,13 @@ export function reducePropertyLockState(
       transfer: undefined,
       canContinueHere: typeof message.canContinueHere === "boolean" ? message.canContinueHere : state.canContinueHere,
       otherTabHasUnsavedChanges: typeof message.otherTabHasUnsavedChanges === "boolean" ? message.otherTabHasUnsavedChanges : state.otherTabHasUnsavedChanges,
+      // Fence authority belongs to this exact lock_state. Never retain a token
+      // from an older grant when the backend omits it after loss or transfer.
+      environmentKey: typeof message.environmentKey === "string" ? message.environmentKey : undefined,
+      editorSessionId: typeof message.editorSessionId === "string" ? message.editorSessionId : undefined,
+      lockToken: typeof message.lockToken === "string" ? message.lockToken : undefined,
+      propertyRevision: typeof message.propertyRevision === "number" ? message.propertyRevision : undefined,
+      feedRevision: typeof message.feedRevision === "number" ? message.feedRevision : undefined,
       timings: mirrorBackendTimings({
         expiresAtUtc: typeof message.expiresAtUtc === "string" ? message.expiresAtUtc : undefined,
         secondsRemaining: typeof message.secondsRemaining === "number" ? message.secondsRemaining : undefined,

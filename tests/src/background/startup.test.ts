@@ -381,15 +381,26 @@ describe("rewrite background startup", () => {
       alarms: { create: vi.fn(), clear: vi.fn(), onAlarm: { addListener: vi.fn() } },
     } as unknown as typeof chrome;
     const stored = {
-      version: 1,
+      version: 2,
+      environmentKey: "a.example.com",
       baseUrl: "https://shop.example.com",
       siteId: 4821,
+      propertyRevision: 1,
+      feedRevision: 1,
+      membershipFingerprint: "membership",
+      assignmentFingerprint: "assignment",
       renderMode: "static",
       renderModeUpdatedAt: "2026-08-04T10:00:00Z",
       selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
       selectorsUpdatedAt: "2026-08-04T10:00:00Z",
       submittedSelectorsFingerprint: "",
-      pageMarkings: {},
+      pages: {},
+      reconciliation: {
+        revision: 1,
+        feedFingerprint: "feed",
+        removedPageKeys: [],
+        relabelledPages: [],
+      },
     };
     const requests: Array<{ url: string; body: unknown }> = [];
     const originalFetch = globalThis.fetch;
@@ -412,14 +423,17 @@ describe("rewrite background startup", () => {
         return response;
       };
 
-      await call("settings.save", { configEndpoint: "https://config.example.com" }, "c-1", 1);
+      await call("settings.save", {
+        configEndpoint: "https://config.example.com",
+        stageBase: "a.example.com",
+      }, "c-1", 1);
       expect(await call("config.load", { siteId: 4821 }, "c-2", 2)).toMatchObject({
         ok: true,
         payload: { status: "ok", config: { renderMode: "static", renderModeUpdatedAt: "2026-08-04T10:00:00Z" } },
       });
       expect(requests.at(-1)).toEqual({
         url: "https://config.example.com/load",
-        body: { siteId: 4821 },
+        body: { environmentKey: "a.example.com", siteId: 4821 },
       });
     } finally {
       globalThis.fetch = originalFetch;
