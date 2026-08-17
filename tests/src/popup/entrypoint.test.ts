@@ -129,6 +129,45 @@ function contentCommand(name: string, payload?: unknown) {
   });
 }
 
+function reportedFactFrame(
+  source: "content" | "popup",
+  reason: string,
+  facts: Record<string, unknown>,
+  id: string,
+): BusFrame {
+  return {
+    kind: "uf-bus/1",
+    frameType: "event",
+    id,
+    seq: 0,
+    name: "fact.reported",
+    source,
+    sourceInstance: `${source}:77`,
+    target: "background",
+    payload: {
+      kind: "uf-fact/1",
+      sensation: {
+        tabId: 77,
+        source,
+        reason,
+        facts: {
+          tabId: 77,
+          pageUrl: "https://example.com/page",
+          ...facts,
+        },
+      },
+    },
+  };
+}
+
+function contentPreviewExitedFrame(markingEnabled: boolean, id = "content-preview-exited"): BusFrame {
+  return reportedFactFrame("content", "preview-exited", {
+    markingEnabled,
+    previewActive: false,
+    previewExitRequested: false,
+  }, id);
+}
+
 function makeTabsSendMessage(
   handler: (tabId: number, message: { type?: string } & Record<string, unknown>) => Promise<unknown> | unknown,
 ) {
@@ -604,6 +643,14 @@ describe("rewrite popup entrypoint", () => {
     });
     let signalSeq = 0;
     const runtime = makeRuntime(async (message) => {
+      if (
+        message.name === "fact.reported" &&
+        (message.payload as { sensation?: { reason?: string } }).sensation?.reason === "preview-exit-requested"
+      ) {
+        // Model content's single exit-routine completion. The popup click owns
+        // only the request and must not claim that the page has restored.
+        await runtime.sendMessage(contentPreviewExitedFrame(true));
+      }
       if (message.name === "signals.emit") {
         const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
         signalSeq += 1;
@@ -673,6 +720,35 @@ describe("rewrite popup entrypoint", () => {
     render.mock.calls.at(-1)?.[0].props.onPreview();
     await flushEntrypointWork();
     expect(render.mock.calls.at(-1)?.[0].props.presentation.temporarilyDisabledOverlay).toBe(true);
+
+    const previewDraft = {
+      selectors: render.mock.calls.at(-1)?.[0].props.presentation.selectors,
+      contentRows: render.mock.calls.at(-1)?.[0].props.presentation.contentRows,
+    };
+    render.mock.calls.at(-1)?.[0].props.onExitPreview();
+    await flushEntrypointWork();
+    expect(render.mock.calls.at(-1)?.[0].props.diagnostics.stateName).toBe("post_ai_clean");
+    expect(render.mock.calls.at(-1)?.[0].props.presentation).toMatchObject(previewDraft);
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "fact.reported",
+      source: "popup",
+      payload: expect.objectContaining({
+        sensation: expect.objectContaining({
+          reason: "preview-exit-requested",
+          facts: expect.objectContaining({ previewExitRequested: true }),
+        }),
+      }),
+    }));
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "fact.reported",
+      source: "content",
+      payload: expect.objectContaining({
+        sensation: expect.objectContaining({
+          reason: "preview-exited",
+          facts: expect.objectContaining({ previewActive: false, previewExitRequested: false }),
+        }),
+      }),
+    }));
 
     render.mock.calls.at(-1)?.[0].props.onSave();
     await flushEntrypointWork();
@@ -1300,6 +1376,40 @@ describe("rewrite popup entrypoint", () => {
     }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
     const runtime = makeRuntime(async (message) => {
+      if (message.name === "page.context") {
+        return replyFrame(message, {
+          status: "managed_candidate",
+          generation: 1,
+          observedUrl: "https://example.com/page",
+          draftDisposition: "preserve",
+          environmentKey: "example.com",
+          siteId: 1,
+          baseUrl: "https://example.com",
+          pageKey: "/page",
+          pageTypes: [{ pageType: "detail", pages: [{ pageKey: "/page", wordsCount: 42 }] }],
+          membershipFingerprint: "membership",
+          assignmentFingerprint: "assignment",
+          conflicts: [],
+          upstreamCode: null,
+          renderModeSet: true,
+          todo: {
+            covered: 1,
+            actionable: 1,
+            pageTypes: [{
+              pageType: "detail",
+              markedCount: 1,
+              current: true,
+              candidates: [{ pageKey: "/page", wordsCount: 42, marked: true, current: true }],
+            }],
+          },
+        });
+      }
+      if (
+        message.name === "fact.reported" &&
+        (message.payload as { sensation?: { reason?: string } }).sensation?.reason === "preview-exit-requested"
+      ) {
+        await runtime.sendMessage(contentPreviewExitedFrame(false, "content-silent-preview-exited"));
+      }
       if (message.name === "signals.emit") {
         const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
         return replyFrame(message, [{
@@ -1326,7 +1436,29 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    await flushEntrypointWork();
+    await runtime.sendMessage(reportedFactFrame("content", "seed-silent-preview-marking", {
+      markingEnabled: true,
+    }, "seed-silent-preview-marking"));
+    await runtime.sendMessage(reportedFactFrame("popup", "seed-silent-preview-run", {
+      markingEnabled: true,
+      runPhase: "running",
+      runSessionId: "seed-run",
+    }, "seed-silent-preview-run"));
+    await runtime.sendMessage(reportedFactFrame("popup", "seed-silent-preview-complete", {
+      markingEnabled: true,
+      runPhase: "completed",
+      runSessionId: "seed-run",
+      runSelectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+    }, "seed-silent-preview-complete"));
+    await runtime.sendMessage(reportedFactFrame("popup", "seed-silent-preview-saved", {
+      savedSeq: 1,
+    }, "seed-silent-preview-saved"));
+    render.mock.calls.at(-1)?.[0].props.onRefresh();
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.diagnostics.stateName === "silent" &&
+        render.mock.calls.at(-1)?.[0].props.presentation.selectors.inclusionSelectors.length > 0,
+      "selector-bearing silent state",
+    );
     render.mock.calls.at(-1)?.[0].props.onPreview();
     await flushEntrypointWork();
 
@@ -1339,6 +1471,11 @@ describe("rewrite popup entrypoint", () => {
         }),
       }),
     }));
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.enableToggleChecked).toBe(false);
+
+    render.mock.calls.at(-1)?.[0].props.onExitPreview();
+    await flushEntrypointWork();
+    expect(render.mock.calls.at(-1)?.[0].props.diagnostics.stateName).toBe("silent");
     expect(render.mock.calls.at(-1)?.[0].props.presentation.enableToggleChecked).toBe(false);
   });
 

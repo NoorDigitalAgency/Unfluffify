@@ -161,7 +161,12 @@ export function transitionContentState(state: ContentState, signal: BrainSignal)
         : base;
     case "preview.exited":
       return state.name === "exit_restoring" || state.name === "preview_open" || state.name === "silent_preview"
-        ? { ...base, name: state.priorState ?? "silent", priorState: undefined, reconciliationReason: "" }
+        ? {
+          ...base,
+          name: signal.payload.restored === false ? "silent" : state.priorState ?? "silent",
+          priorState: undefined,
+          reconciliationReason: "",
+        }
         : base;
     case "session.discarded":
       return state.name === "silent" ? base : {

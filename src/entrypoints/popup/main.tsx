@@ -2025,9 +2025,43 @@ async function showPreview(): Promise<void> {
     return;
   }
   const origin = store.getState().name === "silent" ? "silent" : "post_ai";
+  const selectors = store.getPresentation().selectors;
+  if (origin === "silent" && selectors.inclusionSelectors.length + selectors.exclusionSelectors.length === 0) {
+    render();
+    return;
+  }
   await reportPopupFactAndPull(context, "preview-opened", {
     previewActive: true,
     previewOrigin: origin,
+    // Every preview cycle has its own rising exit-request edge. Clearing the
+    // prior cycle here makes a second open/exit pair observable to the brain.
+    previewExitRequested: false,
+  }, requestKey);
+  render();
+}
+
+function previewStateIsOpen(): boolean {
+  const state = store.getState();
+  const visibleState = state.name === "locked" ? state.priorState : state.name;
+  return visibleState === "preview_open" || visibleState === "silent_preview";
+}
+
+async function exitPreview(): Promise<void> {
+  const context = await resolveTargetTabContext();
+  if (context === null) {
+    return;
+  }
+  const requestKey = await handleBoundContext(context);
+  await pullSignals(context.tabId, requestKey);
+  // Exit is a mechanical restore, not an edit. It remains available if the
+  // property lock changes while preview is open, but a stale click cannot birth
+  // an exit request after another signal already closed the preview.
+  if (!previewStateIsOpen()) {
+    render();
+    return;
+  }
+  await reportPopupFactAndPull(context, "preview-exit-requested", {
+    previewExitRequested: true,
   }, requestKey);
   render();
 }
@@ -2098,6 +2132,7 @@ function render(): void {
       onSave={() => { void saveSession(); }}
       onDiscard={() => { void discardMarkings(); }}
       onPreview={() => { void showPreview(); }}
+      onExitPreview={() => { void exitPreview(); }}
       onRefresh={() => { void refreshPopup(); }}
       onSettingsChange={updateSettingsField}
       onSettingsSave={() => { void saveStoredSettings(); }}

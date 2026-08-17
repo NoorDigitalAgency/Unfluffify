@@ -161,6 +161,7 @@ function applyContentSignal(signal: BrainSignal): boolean {
   if (nextState === contentState) {
     return false;
   }
+  const completesPreviewExit = signal.name === "preview.exit.requested" && nextState.name === "exit_restoring";
   const previousPresentation = contentPresentation;
   contentState = nextState;
   contentPresentation = memoryForContent(nextState);
@@ -170,6 +171,18 @@ function applyContentSignal(signal: BrainSignal): boolean {
     resumeMarkingInteractions();
   }
   renderContentSurface();
+  if (completesPreviewExit) {
+    // This is the single completion point. The popup owns the request; content
+    // owns the fact that its page posture has finished restoring. Reporting the
+    // falling previewActive edge lets the brain birth preview.exited for both
+    // organs, while resetting the request readies the next preview cycle.
+    void reportContentFact("preview-exited", {
+      previewActive: false,
+      previewExitRequested: false,
+    }).catch((error: unknown) => {
+      console.error("[Unfluffify][rewrite] Unable to report preview restoration", error);
+    });
+  }
   return true;
 }
 

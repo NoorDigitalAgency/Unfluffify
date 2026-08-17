@@ -96,7 +96,7 @@ export function decideSignals(prev: TabFacts | null, next: TabFacts): readonly S
     decisions.push({
       name: "preview.exited",
       cause: "preview",
-      payload: { pageUrl },
+      payload: { pageUrl, restored: true },
     });
   }
   if ((prev?.savedSeq ?? 0) < (next.savedSeq ?? 0)) {

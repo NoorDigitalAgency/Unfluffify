@@ -39,6 +39,29 @@ describe("rewrite popup FSM", () => {
     expect(state.name).toBe("pre_ai_dirty");
   });
 
+  it("returns preview to its exact origin without dirtying or replacing the draft", () => {
+    const draft = {
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+      contentRows: [{ xpath: "/html[1]/body[1]/main[1]", classification: "included" as const }],
+    };
+    let marking = transitionPopupState(
+      { name: "post_ai_clean", lastConsumedSeq: 1, reconciliationReason: "", ...draft },
+      signal(2, "preview.opened", { origin: "post_ai" }),
+    );
+    marking = transitionPopupState(marking, signal(3, "preview.exit.requested", { restore: true }));
+    expect(marking).toMatchObject({ name: "exit_restoring", priorState: "post_ai_clean", ...draft });
+    marking = transitionPopupState(marking, signal(4, "preview.exited", { restored: true }));
+    expect(marking).toMatchObject({ name: "post_ai_clean", priorState: undefined, ...draft });
+
+    let silent = transitionPopupState(
+      { name: "silent", lastConsumedSeq: 4, reconciliationReason: "", selectors: draft.selectors },
+      signal(5, "preview.opened", { origin: "silent" }),
+    );
+    silent = transitionPopupState(silent, signal(6, "preview.exit.requested", { restore: true }));
+    silent = transitionPopupState(silent, signal(7, "preview.exited", { restored: true }));
+    expect(silent).toMatchObject({ name: "silent", priorState: undefined, selectors: draft.selectors });
+  });
+
   it("rehydrates selector-bearing completion after a clean marking enable", () => {
     let state = transitionPopupState({ name: "silent", lastConsumedSeq: 1, reconciliationReason: "" }, signal(2, "marking.enabled", { pageUrl: "https://example.com" }));
     state = transitionPopupState(state, signal(3, "run.started", { pageUrl: "https://example.com", sessionId: "run-1" }));

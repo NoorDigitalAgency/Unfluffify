@@ -240,7 +240,12 @@ export function transitionPopupState(state: PopupState, signal: BrainSignal): Po
         : base;
     case "preview.exited":
       return state.name === "exit_restoring" || state.name === "preview_open" || state.name === "silent_preview"
-        ? { ...base, name: state.priorState ?? "silent", reconciliationReason: "", priorState: undefined }
+        ? {
+          ...base,
+          name: signal.payload.restored === false ? "silent" : state.priorState ?? "silent",
+          reconciliationReason: "",
+          priorState: undefined,
+        }
         : base;
     case "session.saved":
       return state.name === "reconciling" && state.reconciliationDirty

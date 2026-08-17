@@ -652,5 +652,43 @@ describe("C4 rewrite content entrypoints", () => {
     expect(startupFacts).toBeDefined();
     expect(startupFacts).not.toHaveProperty("lockRole");
     expect(startupFacts).not.toHaveProperty("configPresent");
+
+    queueSignal("run.completed", { sessionId: "run-1" });
+    queueSignal("preview.opened", { origin: "post_ai" });
+    queueSignal("preview.exit.requested", { restore: true });
+    await applyLockState(listener);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // The popup only requested the exit. Content owns the one completion fact,
+    // after it has consumed the request and entered its restoring posture.
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "uf-bus/1",
+      frameType: "event",
+      name: "fact.reported",
+      target: "background",
+      source: "content",
+      payload: expect.objectContaining({
+        sensation: expect.objectContaining({
+          source: "content",
+          reason: "preview-exited",
+          facts: expect.objectContaining({
+            previewActive: false,
+            previewExitRequested: false,
+          }),
+        }),
+      }),
+    }));
+    expect((await dispatchContentCommand(listener, "getContentMainStatus")).data).toMatchObject({
+      sessionState: { name: "exit_restoring" },
+      presentation: { markingEditsBlocked: true, blockedReason: "post_ai" },
+    });
+
+    queueSignal("preview.exited", { restored: true });
+    await applyLockState(listener);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((await dispatchContentCommand(listener, "getContentMainStatus")).data).toMatchObject({
+      sessionState: { name: "post_ai_clean" },
+      presentation: { markingEditsBlocked: false, blockedReason: "" },
+    });
   });
 });

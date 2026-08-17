@@ -19,6 +19,11 @@ export type PopupPresentation = Readonly<{
   selectors: PopupSelectorList;
   enableToggleChecked: boolean;
   desktopPreviewChecked: boolean;
+  /** The preview replaces the ordinary session surface. This remains true while
+   *  the content organ is restoring, and through a property-lock overlay whose
+   *  remembered underlay is still preview. */
+  previewVisible: boolean;
+  previewExitPending: boolean;
   countdownText: string;
   lockBanner: PropertyLockBanner;
 }>;
@@ -33,7 +38,7 @@ const EMPTY_LOCK_BANNER: PropertyLockBanner = {
   text: "",
 };
 
-function baseSurface(state: PopupState, now: number): Pick<PopupPresentation, "contentRows" | "selectors" | "enableToggleChecked" | "desktopPreviewChecked" | "countdownText" | "lockBanner"> {
+function baseSurface(state: PopupState, now: number): Pick<PopupPresentation, "contentRows" | "selectors" | "enableToggleChecked" | "desktopPreviewChecked" | "previewVisible" | "previewExitPending" | "countdownText" | "lockBanner"> {
   const remainingMs = state.name === "running" && state.runDeadlineAt ? Math.max(0, state.runDeadlineAt - now) : 0;
   const totalSeconds = Math.ceil(remainingMs / 1000);
   const minutes = Math.floor(totalSeconds / 60);
@@ -41,12 +46,15 @@ function baseSurface(state: PopupState, now: number): Pick<PopupPresentation, "c
   const toggleState = ["exit_restoring", "inspecting", "reconciling"].includes(state.name) && state.priorState
     ? state.priorState
     : state.name;
+  const visibleState = state.name === "locked" && state.priorState ? state.priorState : state.name;
   const matrixForcesUnchecked = ["silent", "silent_preview", "boot", "locked"].includes(toggleState);
   return {
     contentRows: state.contentRows ?? [],
     selectors: state.selectors ?? EMPTY_SELECTORS,
     enableToggleChecked: matrixForcesUnchecked ? false : state.enableToggleChecked ?? true,
     desktopPreviewChecked: state.desktopPreviewChecked ?? false,
+    previewVisible: ["preview_open", "silent_preview", "exit_restoring"].includes(visibleState),
+    previewExitPending: visibleState === "exit_restoring",
     countdownText: totalSeconds > 0 ? `${minutes}:${String(seconds).padStart(2, "0")}` : "",
     lockBanner: state.lockBanner ?? EMPTY_LOCK_BANNER,
   };

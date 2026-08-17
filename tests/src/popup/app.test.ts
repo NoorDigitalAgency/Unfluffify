@@ -27,6 +27,7 @@ const FULL_HANDLERS = {
   onSave: NOOP,
   onDiscard: NOOP,
   onPreview: NOOP,
+  onExitPreview: NOOP,
   onRefresh: NOOP,
   onSettingsChange: NOOP,
   onSettingsSave: NOOP,
@@ -221,6 +222,49 @@ describe("popup App surface", () => {
     expect(renderMode).toContain('id="render-mode-set"');
     expect(renderMode).not.toContain('id="render-mode-cancel"');
     expect(renderRenderModeView({ ...SIGNED_IN, renderMode: "rendered" })).toContain('id="render-mode-cancel"');
+  });
+
+  it("replaces the session with a preview surface that has one explicit exit", () => {
+    const state: PopupState = {
+      name: "preview_open",
+      lastConsumedSeq: 8,
+      priorState: "post_ai_clean",
+      reconciliationReason: "post_ai",
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+      contentRows: EDITING.contentRows,
+    };
+    const markup = renderApp(state, { ...SIGNED_IN, stateName: "preview_open", renderMode: "rendered" });
+
+    expect(markup).toContain('data-view="preview"');
+    expect(markup).toContain('aria-label="Detected Content"');
+    expect(markup).toContain('id="preview-exit"');
+    expect(markup).toContain('aria-label="Exit Preview"');
+    expect(markup).toContain("Exit preview to resume editing.");
+    expect(markup).toContain("/html[1]/body[1]/div[1]/nav[1]");
+    for (const id of ["toggle-enabled", "page-save", "page-revert", "marking-preview", "config-header-open"]) {
+      expect(markup, `#${id} must not remain interactive behind preview`).not.toContain(`id="${id}"`);
+    }
+
+    const restoring = renderApp(
+      { ...state, name: "exit_restoring" },
+      { ...SIGNED_IN, stateName: "exit_restoring", renderMode: "rendered" },
+    );
+    expect(restoring).toContain('aria-busy="true"');
+    expect(restoring).toMatch(/id="preview-exit"[^>]*disabled/);
+    expect(restoring).toContain("Restoring the page…");
+  });
+
+  it("offers silent preview only when saved selectors exist", () => {
+    const available = renderSilentView(
+      { ...SIGNED_IN, renderMode: "rendered" },
+      { ...SILENT, selectors: { inclusionSelectors: ["main"], exclusionSelectors: [] } },
+    );
+    const unavailable = renderSilentView({ ...SIGNED_IN, renderMode: "rendered" });
+
+    expect(available).toContain('id="preview-latest"');
+    expect(available).not.toMatch(/id="preview-latest"[^>]*disabled/);
+    expect(unavailable).toMatch(/id="preview-latest"[^>]*disabled/);
+    expect(unavailable).toContain('data-blocked-reason="no-saved-selectors"');
   });
 
   it("shows only a spinner on the loading view", () => {

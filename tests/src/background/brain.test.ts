@@ -115,6 +115,33 @@ describe("P3 background brain", () => {
     )).toEqual(["session.navigated", "marking.disabled", "reconciliation.ended"]);
   });
 
+  it("decides preview exit request and restored completion as separate edges", () => {
+    const open = {
+      ...createInitialTabFacts(1),
+      pageUrl: "https://example.com/page",
+      previewActive: true,
+      previewExitRequested: false,
+    };
+    const requested = { ...open, previewExitRequested: true };
+    expect(decideSignals(open, requested)).toEqual([
+      expect.objectContaining({
+        name: "preview.exit.requested",
+        payload: { pageUrl: "https://example.com/page", restore: true },
+      }),
+    ]);
+
+    expect(decideSignals(requested, {
+      ...requested,
+      previewActive: false,
+      previewExitRequested: false,
+    })).toEqual([
+      expect.objectContaining({
+        name: "preview.exited",
+        payload: { pageUrl: "https://example.com/page", restored: true },
+      }),
+    ]);
+  });
+
   it("emits monotonic consumed-once signals", () => {
     const log = createSignalLog({ tabId: 1, now: () => 100 });
     const first = log.append({ name: "marking.enabled", cause: "activate-ok", payload: { baseUrl: "x" } });

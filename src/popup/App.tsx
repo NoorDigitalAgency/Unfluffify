@@ -358,6 +358,7 @@ export function App({
   onSave,
   onDiscard,
   onPreview,
+  onExitPreview,
   onRefresh,
   onSettingsChange,
   onSettingsSave,
@@ -389,6 +390,7 @@ export function App({
   onSave?: () => void;
   onDiscard?: () => void;
   onPreview?: () => void;
+  onExitPreview?: () => void;
   onRefresh?: () => void;
   onSettingsChange?: (field: PopupSettingsField, value: string) => void;
   onSettingsSave?: () => void;
@@ -494,6 +496,83 @@ export function App({
           <span className="popup-loading-view__spinner" aria-hidden="true" />
           <span className="popup-loading-view__title">{presentation.curtainText || "Starting Unfluffify"}</span>
         </div>
+      </main>
+    );
+  }
+
+  if (presentation.previewVisible) {
+    return (
+      <main
+        className="app"
+        data-main-hidden={presentation.mainUiHidden}
+        data-state-name={diagnostics.stateName}
+        data-view="preview"
+      >
+        <header className="app-header">
+          <div className="header-text">
+            <span className="section-title">
+              <i className="mdi mdi-broom btn-icon" aria-hidden="true" />
+              <span>Unfluffify</span>
+            </span>
+            <span className="hint status-text" data-session-phase={diagnostics.stateName}>
+              {presentation.previewExitPending ? "Restoring page" : "Preview"}
+            </span>
+          </div>
+        </header>
+
+        <section
+          className="card preview-sidebar"
+          aria-label="Detected Content"
+          aria-busy={presentation.previewExitPending}
+        >
+          <div className="preview-sidebar__header">
+            <span className="section-title">
+              <i className="mdi mdi-format-list-bulleted btn-icon" aria-hidden="true" />
+              <span>Detected Content</span>
+            </span>
+            <button
+              id="preview-exit"
+              type="button"
+              className="preview-sidebar__dismiss"
+              title="Exit Preview"
+              aria-label="Exit Preview"
+              disabled={!onExitPreview || presentation.previewExitPending}
+              onClick={onExitPreview}
+            >
+              <i className="mdi mdi-exit-to-app btn-icon" aria-hidden="true" />
+            </button>
+          </div>
+          <p className="hint preview-sidebar__hint">
+            {presentation.previewExitPending
+              ? "Restoring the page…"
+              : "Click a row or included page content to compare both sides. Exit preview to resume editing."}
+          </p>
+          {presentation.contentRows.length === 0 ? (
+            <p className="preview-sidebar__empty">No content detected</p>
+          ) : (
+            <ul className="preview-sidebar__list">
+              {presentation.contentRows.map((row, index) => (
+                <li
+                  key={row.xpath}
+                  className={`preview-sidebar__item preview-sidebar__item--${row.classification}`}
+                  data-row-classification={row.classification}
+                >
+                  <div className="preview-sidebar__item-button" aria-disabled="true">
+                    <span className="preview-sidebar__item-index">{index + 1}.</span>
+                    <span className="preview-sidebar__item-text">
+                      <span className={`u-d-block ${CLASSIFICATION_TONE[row.classification] ?? "u-color-muted"}`}>
+                        {CLASSIFICATION_LABEL[row.classification] ?? row.classification}
+                      </span>
+                      <span className="u-font-mono">{row.xpath}</span>
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <output data-silent-mode={presentation.silentModeActive} data-temp-disabled={presentation.temporarilyDisabledOverlay} />
       </main>
     );
   }
@@ -744,6 +823,18 @@ export function App({
               The stored selectors are applied to the page. Enable marking to make changes.
             </p>
             <div className="button-row">
+              <button
+                id="preview-latest"
+                type="button"
+                className="u-btn-secondary"
+                disabled={!onPreview || buttons.preview.disabled || selectorCount === 0}
+                data-blocked-reason={selectorCount === 0 ? "no-saved-selectors" : buttons.preview.blockedReason}
+                title={selectorCount === 0 ? "No saved selectors" : buttons.preview.blockedReason}
+                onClick={onPreview}
+              >
+                <i className="mdi mdi-eye-outline btn-icon" aria-hidden="true" />
+                Show Content List
+              </button>
               <button
                 id="save-excludes"
                 type="button"

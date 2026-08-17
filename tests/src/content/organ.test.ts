@@ -49,6 +49,26 @@ describe("content signal organ", () => {
     expect(state).toMatchObject({ name: "pre_ai_dirty", priorState: undefined });
   });
 
+  it("holds interactions during preview exit and restores the exact origin", () => {
+    let marking = transitionContentState(INITIAL_CONTENT_STATE, signal(1, "marking.enabled"));
+    marking = transitionContentState(marking, signal(2, "run.started", { sessionId: "run-1" }));
+    marking = transitionContentState(marking, signal(3, "run.completed", { sessionId: "run-1" }));
+    marking = transitionContentState(marking, signal(4, "preview.opened", { origin: "post_ai" }));
+    marking = transitionContentState(marking, signal(5, "preview.exit.requested", { restore: true }));
+    expect(marking).toMatchObject({ name: "exit_restoring", priorState: "post_ai_clean" });
+    expect(memoryForContent(marking).markingEditsBlocked).toBe(true);
+    marking = transitionContentState(marking, signal(6, "preview.exited", { restored: true }));
+    expect(marking).toMatchObject({ name: "post_ai_clean", priorState: undefined });
+
+    let silent = transitionContentState(
+      { name: "silent", lastConsumedSeq: 6, reconciliationReason: "" },
+      signal(7, "preview.opened", { origin: "silent" }),
+    );
+    silent = transitionContentState(silent, signal(8, "preview.exit.requested", { restore: true }));
+    silent = transitionContentState(silent, signal(9, "preview.exited", { restored: true }));
+    expect(silent).toMatchObject({ name: "silent", priorState: undefined });
+  });
+
   it("keeps editor preparation visible without raising the temporary edit block", () => {
     const state: ContentState = {
       name: "reconciling",
