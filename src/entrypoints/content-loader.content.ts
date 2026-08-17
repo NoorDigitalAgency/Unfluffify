@@ -577,6 +577,28 @@ function ensureContentSurfaceStyles(): void {
   from { opacity: 0; transform: translate(-50%, 8px); }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
+[data-uf-content-banner="true"] {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-sizing: border-box;
+  padding: 12px 16px;
+  border-bottom: 1px solid #d39e00;
+  background: #fff3cd;
+  color: #4d3900;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16);
+  pointer-events: auto;
+  font: 600 14px/1.35 "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+[data-uf-content-banner-copy="true"] {
+  flex: 1;
+  min-width: 0;
+}
 [data-uf-content-curtain="true"] {
   position: absolute;
   inset: 0;
@@ -755,13 +777,8 @@ function ensureContentSurfaceRoot(): HTMLElement | null {
 }
 
 function renderContentSurface(): void {
-  const lockBlocked = contentAuthority.lockBlocked;
-  const blockedReason = lockBlocked
-    ? contentAuthority.blockedReason || "property-lock"
-    : contentPresentation.blockedReason;
-  const dictatedCurtain = lockBlocked
-    ? { visible: true, text: contentAuthority.banner.text || "Property locked" }
-    : contentPresentation.curtain;
+  const blockedReason = contentPresentation.blockedReason;
+  const dictatedCurtain = contentPresentation.curtain;
   const curtain = dictatedCurtain.visible
     ? dictatedCurtain
     : pageInspectionActive
@@ -803,19 +820,20 @@ function renderContentSurface(): void {
     curtainElement.appendChild(card);
     root.appendChild(curtainElement);
   }
-  if (banner.visible || blockedReason) {
+  if (banner.visible) {
     const bannerElement = document.createElement("aside");
     bannerElement.setAttribute("role", "status");
+    bannerElement.setAttribute("aria-live", banner.reason === "disconnect-warning" ? "assertive" : "polite");
     bannerElement.setAttribute("data-uf-content-banner", "true");
-    bannerElement.textContent = banner.text || blockedReason;
-    bannerElement.style.position = "fixed";
-    bannerElement.style.left = "16px";
-    bannerElement.style.right = "16px";
-    bannerElement.style.bottom = "16px";
-    bannerElement.style.padding = "8px 12px";
-    bannerElement.style.borderRadius = "8px";
-    bannerElement.style.background = "rgba(15, 23, 42, 0.92)";
-    bannerElement.style.color = "white";
+    bannerElement.setAttribute("data-uf-lock-reason", banner.reason);
+    bannerElement.setAttribute("data-uf-lock-role", contentAuthority.lockRole);
+    if (typeof banner.countdownSeconds === "number") {
+      bannerElement.setAttribute("data-uf-lock-countdown-seconds", String(banner.countdownSeconds));
+    }
+    const bannerCopy = document.createElement("span");
+    bannerCopy.setAttribute("data-uf-content-banner-copy", "true");
+    bannerCopy.textContent = banner.text;
+    bannerElement.appendChild(bannerCopy);
     root.appendChild(bannerElement);
   }
   if (motionPaused) {

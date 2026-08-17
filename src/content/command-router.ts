@@ -4,6 +4,7 @@ import {
   LockBannerVocabularySchema,
   LockReasonSchema,
   LockRoleSchema,
+  type LockBannerVocabulary,
   type LockReason,
   type LockRole,
 } from "../domain/schema/facts";
@@ -21,13 +22,14 @@ export const ContentLockStateSchema = z.object({
 });
 
 export type ContentLockState = z.infer<typeof ContentLockStateSchema>;
+export type ContentLockBanner = Readonly<LockBannerVocabulary & { text: string }>;
 export type ContentAuthorityState = Readonly<{
   baseUrl: string;
   configPresent: boolean;
   lockRole: LockRole;
   lockBlocked: boolean;
   blockedReason: LockReason | "";
-  banner: Readonly<{ visible: boolean; text: string }>;
+  banner: ContentLockBanner;
 }>;
 
 export type ContentCommandContext = Readonly<{
@@ -124,7 +126,7 @@ export function createDefaultContentAuthority(pageUrl: string): ContentAuthority
     lockRole: "unknown",
     lockBlocked: false,
     blockedReason: "",
-    banner: { visible: false, text: "" },
+    banner: { visible: false, reason: "editor", text: "" },
   };
 }
 
@@ -136,7 +138,7 @@ export function authorityFromLockState(state: ContentLockState): ContentAuthorit
     lockBlocked: !state.canEdit,
     blockedReason: state.blockedReason,
     banner: {
-      visible: state.banner.visible,
+      ...state.banner,
       text: resolveContentLockCopy(state.banner),
     },
   };

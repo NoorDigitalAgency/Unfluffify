@@ -702,22 +702,28 @@ describe("C4 rewrite content entrypoints", () => {
     expect(configBlocked).toMatchObject({ ok: true, data: { ok: true } });
     expect(elements.find((element) => element.attributes["data-uf-content-surface-root"] === "true")?.attributes)
       .toMatchObject({ "data-uf-extension-ui": "true" });
-    expect(elements.some((element) => element.attributes["data-uf-content-curtain"] === "true")).toBe(true);
-    expect(elements.some((element) => element.attributes["data-uf-content-curtain-card"] === "true")).toBe(true);
-    expect(elements.some((element) => element.attributes["data-uf-content-curtain-spinner"] === "true")).toBe(true);
-    expect(elements.some((element) => element.attributes["data-uf-content-banner"] === "true")).toBe(true);
-    expect(elements.some((element) => element.textContent === "Property lock not configured")).toBe(true);
-    const blockedInput = {
+    const contentRoot = elements.find((element) => element.attributes["data-uf-content-surface-root"] === "true");
+    const lockBanner = contentRoot?.children.find((element) =>
+      (element as typeof elements[number]).attributes["data-uf-content-banner"] === "true"
+    ) as typeof elements[number] | undefined;
+    expect(contentRoot?.children.some((element) =>
+      (element as typeof elements[number]).attributes["data-uf-content-curtain"] === "true"
+    )).toBe(false);
+    expect(lockBanner?.attributes).toMatchObject({
+      "data-uf-lock-reason": "not-configured",
+      "data-uf-lock-role": "editor",
+      "aria-live": "polite",
+    });
+    expect((lockBanner?.children[0] as typeof elements[number]).textContent).toBe("Property lock not configured");
+    const pageInput = {
       type: "keydown",
       cancelable: true,
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),
       stopImmediatePropagation: vi.fn(),
     };
-    windowListeners.get("keydown")?.(blockedInput as unknown as Event);
-    expect(blockedInput.preventDefault).toHaveBeenCalledTimes(1);
-    expect(blockedInput.stopPropagation).toHaveBeenCalledTimes(1);
-    expect(blockedInput.stopImmediatePropagation).toHaveBeenCalledTimes(1);
+    windowListeners.get("keydown")?.(pageInput as unknown as Event);
+    expect(pageInput.preventDefault).not.toHaveBeenCalled();
     expect(await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/page" })).toMatchObject({
       ok: false,
       failure: { code: "config-missing" },
@@ -727,12 +733,63 @@ describe("C4 rewrite content entrypoints", () => {
       lockRole: "passive",
       canEdit: false,
       blockedReason: "locked",
-      banner: { visible: true, reason: "locked" },
+      banner: { visible: true, reason: "locked", editorName: "Dana", countdownSeconds: 42 },
     });
+    const countdownBanner = contentRoot?.children.find((element) =>
+      (element as typeof elements[number]).attributes["data-uf-content-banner"] === "true"
+    ) as typeof elements[number] | undefined;
+    expect(countdownBanner?.attributes).toMatchObject({
+      "data-uf-lock-reason": "locked",
+      "data-uf-lock-role": "passive",
+      "data-uf-lock-countdown-seconds": "42",
+    });
+    expect((countdownBanner?.children[0] as typeof elements[number]).textContent)
+      .toBe("This property will be released for editing in 42s");
     expect(await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/page" })).toMatchObject({
       ok: false,
       failure: { code: "property-lock" },
     });
+
+    const transitions = [
+      {
+        blockedReason: "transfer",
+        banner: { visible: true, reason: "transfer", fromName: "Dana", toName: "Kai", countdownSeconds: 12 },
+        expected: "Editing is being transferred from Dana to Kai (12s).",
+        live: "polite",
+      },
+      {
+        blockedReason: "disconnect-warning",
+        banner: { visible: true, reason: "disconnect-warning", countdownSeconds: 70 },
+        expected: "Connection lost. You will lose the editor role in 70s unless the connection recovers.",
+        live: "assertive",
+      },
+      {
+        blockedReason: "takeover-suggested",
+        banner: { visible: true, reason: "takeover-suggested", fromName: "Kai" },
+        expected: "Kai would like to edit this property",
+        live: "polite",
+      },
+    ] as const;
+    for (const transition of transitions) {
+      await applyLockState(listener, {
+        lockRole: "passive",
+        canEdit: false,
+        blockedReason: transition.blockedReason,
+        banner: transition.banner,
+      });
+      const transitionBanner = contentRoot?.children.find((element) =>
+        (element as typeof elements[number]).attributes["data-uf-content-banner"] === "true"
+      ) as typeof elements[number] | undefined;
+      expect(transitionBanner?.attributes).toMatchObject({
+        "data-uf-lock-reason": transition.banner.reason,
+        "aria-live": transition.live,
+      });
+      expect((transitionBanner?.children[0] as typeof elements[number]).textContent).toBe(transition.expected);
+    }
+    await applyLockState(listener);
+    expect(contentRoot?.children.some((element) =>
+      (element as typeof elements[number]).attributes["data-uf-content-banner"] === "true"
+    )).toBe(false);
 
     queueSignal("reconciliation.started", { reason: "saving" });
     await applyLockState(listener);
@@ -755,6 +812,17 @@ describe("C4 rewrite content entrypoints", () => {
       element.attributes["data-uf-content-curtain-copy"] === "true"
       && element.textContent === "Computing selectors"
     )).toBe(true);
+    const blockedInput = {
+      type: "keydown",
+      cancelable: true,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    };
+    windowListeners.get("keydown")?.(blockedInput as unknown as Event);
+    expect(blockedInput.preventDefault).toHaveBeenCalledTimes(1);
+    expect(blockedInput.stopPropagation).toHaveBeenCalledTimes(1);
+    expect(blockedInput.stopImmediatePropagation).toHaveBeenCalledTimes(1);
 
     await applyLockState(listener, {
       baseUrl: "https://other.example",
