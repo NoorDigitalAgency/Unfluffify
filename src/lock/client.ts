@@ -1,12 +1,20 @@
 import { adoptEditorSession, type EditorSession } from "./identity";
+import { checkNetworkReachability } from "./reachability";
 import { reducePropertyLockState, INITIAL_PROPERTY_LOCK_STATE, type PropertyLockState } from "./reducer";
 import {
   buildClientFrame,
   parseServerMessage,
   type LockClientMessageType,
+  type LockServerMessage,
   type PropertyLockPresence,
 } from "./ws";
-import { PROPERTY_LOCK_EDITOR_IDLE_TIMEOUT_MS, PROPERTY_LOCK_HEARTBEAT_INTERVAL_MS } from "./timings";
+import {
+  PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS,
+  PROPERTY_LOCK_EDITOR_IDLE_TIMEOUT_MS,
+  PROPERTY_LOCK_HEARTBEAT_INTERVAL_MS,
+  PROPERTY_LOCK_RECONNECT_DELAY_MS,
+  PROPERTY_LOCK_RECONNECT_MAX_DELAY_MS,
+} from "./timings";
 
 export type WebSocketLike = Readonly<{
   send(data: string): void;
@@ -20,14 +28,48 @@ const QUALIFYING_PRESENCE: PropertyLockPresence = {
   browserIdle: false,
 };
 
+export type PropertyLockFence = Readonly<{
+  editorSessionId: string;
+  lockToken: string;
+  ownershipGeneration?: number;
+}>;
+
+export type PropertyLockOwnershipTransfer = Readonly<{
+  previous: PropertyLockFence;
+  next: PropertyLockState;
+}>;
+
+function isAuthoritativeTransfer(
+  message: LockServerMessage,
+  editorSessionId: string,
+  previous: PropertyLockFence | null,
+): boolean {
+  if (!previous || message.type !== "lock_state") {
+    return false;
+  }
+  const holderSessionId = typeof message.editorSessionId === "string" ? message.editorSessionId : "";
+  if (holderSessionId && holderSessionId !== editorSessionId) {
+    return true;
+  }
+  if (message.isEditor === true) {
+    return false;
+  }
+  return typeof message.ownershipGeneration === "number" &&
+    typeof previous.ownershipGeneration === "number" &&
+    message.ownershipGeneration > previous.ownershipGeneration;
+}
+
 export function createPropertyLockClient(input: Readonly<{
-  socket: WebSocketLike;
+  socket?: WebSocketLike;
+  socketFactory?: () => WebSocketLike;
   editorSession: EditorSession;
   persistEditorSession: (session: EditorSession) => Promise<void> | void;
   presence?: () => PropertyLockPresence;
   hasUnsavedWork?: () => boolean;
   onStateChange?: (state: PropertyLockState) => void;
   onTokenUpdate?: (token: string) => Promise<void> | void;
+  onOwnershipTransferred?: (event: PropertyLockOwnershipTransfer) => Promise<void> | void;
+  networkReachable?: () => Promise<boolean>;
   now?: () => number;
 }>) {
   const now = input.now ?? Date.now;
@@ -37,9 +79,16 @@ export function createPropertyLockClient(input: Readonly<{
     environmentKey: editorSession.environmentKey,
     editorSessionId: editorSession.editorSessionId,
   };
+  let currentSocket: WebSocketLike | null = null;
+  let initialSocket = input.socket ?? null;
   let socketOpen = false;
   let subscribed = false;
-  let closed = false;
+  let disposed = false;
+  let wantsLock = false;
+  let reconnectAttempts = 0;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let connectionLossTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastOwnedFence: PropertyLockFence | null = null;
   let lastActivityAt = now();
   let lastHeartbeatAt = Number.NEGATIVE_INFINITY;
   const pendingFrames: Array<{
@@ -52,8 +101,22 @@ export function createPropertyLockClient(input: Readonly<{
     input.onStateChange?.(state);
   };
 
+  const clearReconnectTimer = (): void => {
+    if (reconnectTimer !== null) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+  };
+
+  const clearConnectionLossTimer = (): void => {
+    if (connectionLossTimer !== null) {
+      clearTimeout(connectionLossTimer);
+      connectionLossTimer = null;
+    }
+  };
+
   const send = (type: LockClientMessageType, extra?: Readonly<Record<string, string | number | boolean>>): void => {
-    if (closed) {
+    if (disposed) {
       return;
     }
     if (type !== "subscribe" && (!socketOpen || !subscribed)) {
@@ -65,7 +128,10 @@ export function createPropertyLockClient(input: Readonly<{
       }
       return;
     }
-    input.socket.send(JSON.stringify(buildClientFrame({
+    if (!currentSocket) {
+      return;
+    }
+    currentSocket.send(JSON.stringify(buildClientFrame({
       type,
       environmentKey: editorSession.environmentKey,
       siteId: editorSession.siteId,
@@ -77,60 +143,208 @@ export function createPropertyLockClient(input: Readonly<{
     })));
   };
 
-  input.socket.addEventListener("open", () => {
-    socketOpen = true;
-    closed = false;
-    send("subscribe");
-  });
-  input.socket.addEventListener("message", (event) => {
-    const message = parseServerMessage(JSON.parse(String(event.data)));
-    if (message.type === "token_update" && typeof message.token === "string" && message.token.trim()) {
-      void input.onTokenUpdate?.(message.token);
-    }
-    if (message.type === "subscribed") {
-      if (
-        typeof message.editorSessionId === "string" &&
-        message.editorSessionId !== editorSession.editorSessionId
-      ) {
-        setState({ ...state, role: "unknown", state: "locked" });
-        input.socket.close();
-        closed = true;
-        pendingFrames.splice(0);
-        return;
-      }
-      const adopted = adoptEditorSession(editorSession, {
-        ...editorSession,
-        updatedAt: now(),
-      });
-      editorSession = adopted.current;
-      subscribed = true;
-      void input.persistEditorSession(adopted.current);
-      state = reducePropertyLockState(state, message);
-      while (pendingFrames.length > 0) {
-        const pending = pendingFrames.shift();
-        if (pending) send(pending.type, pending.extra);
-      }
-      setState(state);
+  const startConnectionLossWatch = (): void => {
+    if (connectionLossTimer !== null || (!input.socketFactory && !input.networkReachable)) {
       return;
     }
-    setState(reducePropertyLockState(state, message));
-  });
-  input.socket.addEventListener("error", () => {
-    setState({ ...state, role: "unknown" });
-  });
-  input.socket.addEventListener("close", () => {
+    connectionLossTimer = setTimeout(() => {
+      connectionLossTimer = null;
+      void (async () => {
+        const reachable = await (input.networkReachable?.() ?? checkNetworkReachability()).catch(() => false);
+        if (disposed || subscribed || socketOpen) {
+          return;
+        }
+        if (!reachable) {
+          setState({
+            ...state,
+            role: "unknown",
+            connectivity: "unavailable",
+            state: "locked",
+            disconnectReason: "network_unavailable",
+          });
+        }
+      })();
+    }, PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS);
+  };
+
+  const scheduleReconnect = (): void => {
+    if (disposed || !input.socketFactory || reconnectTimer !== null) {
+      return;
+    }
+    reconnectAttempts += 1;
+    const delay = Math.min(
+      PROPERTY_LOCK_RECONNECT_DELAY_MS * 2 ** (reconnectAttempts - 1),
+      PROPERTY_LOCK_RECONNECT_MAX_DELAY_MS,
+    );
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connect();
+    }, delay);
+  };
+
+  const handleTransportLoss = (socket: WebSocketLike, reason: string): void => {
+    if (disposed || currentSocket !== socket) {
+      return;
+    }
+    currentSocket = null;
     socketOpen = false;
     subscribed = false;
-    closed = true;
-    pendingFrames.splice(0);
-    setState({ ...state, role: "unknown", state: "locked", lockToken: undefined });
-  });
+    setState({
+      ...state,
+      role: "unknown",
+      connectivity: "reconnecting",
+      state: "disconnect_warning",
+      timings: {},
+      disconnectReason: reason,
+    });
+    startConnectionLossWatch();
+    scheduleReconnect();
+  };
+
+  const observeAuthoritativeOwnership = (
+    message: LockServerMessage,
+    next: PropertyLockState,
+  ): void => {
+    if (message.type !== "lock_state") {
+      return;
+    }
+    if (isAuthoritativeTransfer(message, editorSession.editorSessionId, lastOwnedFence)) {
+      const previous = lastOwnedFence;
+      lastOwnedFence = null;
+      if (previous) {
+        void Promise.resolve(input.onOwnershipTransferred?.({ previous, next })).catch((error) => {
+          console.error("[Unfluffify][rewrite] Unable to discard the transferred lock draft", error);
+        });
+      }
+      return;
+    }
+    if (
+      message.isEditor === true &&
+      message.editorSessionId === editorSession.editorSessionId &&
+      typeof message.lockToken === "string"
+    ) {
+      lastOwnedFence = {
+        editorSessionId: editorSession.editorSessionId,
+        lockToken: message.lockToken,
+        ...(typeof message.ownershipGeneration === "number"
+          ? { ownershipGeneration: message.ownershipGeneration }
+          : {}),
+      };
+    }
+  };
+
+  const attachSocket = (socket: WebSocketLike): void => {
+    currentSocket = socket;
+    socket.addEventListener("open", () => {
+      if (disposed || currentSocket !== socket) {
+        return;
+      }
+      socketOpen = true;
+      send("subscribe");
+    });
+    socket.addEventListener("message", (event) => {
+      if (disposed || currentSocket !== socket) {
+        return;
+      }
+      const message = parseServerMessage(JSON.parse(String(event.data)));
+      if (message.type === "token_update" && typeof message.token === "string" && message.token.trim()) {
+        void input.onTokenUpdate?.(message.token);
+      }
+      if (message.type === "subscribed") {
+        if (
+          typeof message.editorSessionId === "string" &&
+          message.editorSessionId !== editorSession.editorSessionId
+        ) {
+          setState({ ...state, role: "unknown", connectivity: "unavailable", state: "locked" });
+          disposed = true;
+          clearReconnectTimer();
+          clearConnectionLossTimer();
+          currentSocket = null;
+          socket.close();
+          pendingFrames.splice(0);
+          return;
+        }
+        const adopted = adoptEditorSession(editorSession, {
+          ...editorSession,
+          updatedAt: now(),
+        });
+        editorSession = adopted.current;
+        subscribed = true;
+        reconnectAttempts = 0;
+        clearReconnectTimer();
+        clearConnectionLossTimer();
+        void input.persistEditorSession(adopted.current);
+        state = reducePropertyLockState(state, message);
+        while (pendingFrames.length > 0) {
+          const pending = pendingFrames.shift();
+          if (pending) send(pending.type, pending.extra);
+        }
+        if (wantsLock) {
+          send("take_lock");
+        }
+        setState(state);
+        return;
+      }
+      const next = reducePropertyLockState(state, message);
+      observeAuthoritativeOwnership(message, next);
+      setState(next);
+    });
+    socket.addEventListener("error", () => {
+      if (currentSocket !== socket || disposed) {
+        return;
+      }
+      handleTransportLoss(socket, "socket_error");
+      try {
+        socket.close();
+      } catch {
+        // The loss is already recorded and reconnect scheduling is independent.
+      }
+    });
+    socket.addEventListener("close", () => {
+      handleTransportLoss(socket, "socket_closed");
+    });
+  };
+
+  function connect(): void {
+    if (disposed || currentSocket) {
+      return;
+    }
+    let socket: WebSocketLike | null;
+    try {
+      socket = initialSocket ?? input.socketFactory?.() ?? null;
+    } catch {
+      initialSocket = null;
+      setState({
+        ...state,
+        role: "unknown",
+        connectivity: "reconnecting",
+        state: "disconnect_warning",
+        timings: {},
+        disconnectReason: "socket_connect_failed",
+      });
+      startConnectionLossWatch();
+      scheduleReconnect();
+      return;
+    }
+    initialSocket = null;
+    if (!socket) {
+      setState({ ...state, role: "unknown", connectivity: "unavailable", state: "locked" });
+      return;
+    }
+    attachSocket(socket);
+  }
+
+  connect();
 
   return {
     claim(): void {
-      send("take_lock");
+      wantsLock = true;
+      if (socketOpen && subscribed) {
+        send("take_lock");
+      }
     },
     release(): void {
+      wantsLock = false;
       send("release_lock");
     },
     heartbeat(): void {
@@ -160,9 +374,19 @@ export function createPropertyLockClient(input: Readonly<{
       send("continue_editing", { force, discardPrevious });
     },
     close(): void {
+      if (disposed) {
+        return;
+      }
+      wantsLock = false;
       send("release_lock");
-      input.socket.close();
-      closed = true;
+      disposed = true;
+      clearReconnectTimer();
+      clearConnectionLossTimer();
+      const socket = currentSocket;
+      currentSocket = null;
+      socketOpen = false;
+      subscribed = false;
+      socket?.close();
       pendingFrames.splice(0);
     },
     state(): PropertyLockState {
@@ -172,7 +396,7 @@ export function createPropertyLockClient(input: Readonly<{
       return editorSession;
     },
     isClosed(): boolean {
-      return closed;
+      return disposed;
     },
   };
 }

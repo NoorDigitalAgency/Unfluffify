@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   adoptEditorSession,
   buildClientFrame,
   buildPropertyLockWssUrl,
+  checkNetworkReachability,
   isNetworkReachable,
   mirrorBackendTimings,
   PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS,
@@ -11,6 +12,8 @@ import {
   PROPERTY_LOCK_HEARTBEAT_INTERVAL_MS,
   PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS,
   PROPERTY_LOCK_PASSIVE_RELEASE_COUNTDOWN_MS,
+  PROPERTY_LOCK_RECONNECT_DELAY_MS,
+  PROPERTY_LOCK_RECONNECT_MAX_DELAY_MS,
   parseServerMessage,
   createPropertyLockClient,
   projectPropertyLockView,
@@ -112,6 +115,8 @@ describe("P9 property-lock client", () => {
 
   it("mirrors backend-authoritative timers without computing deadlines", () => {
     expect(PROPERTY_LOCK_HEARTBEAT_INTERVAL_MS).toBe(30_000);
+    expect(PROPERTY_LOCK_RECONNECT_DELAY_MS).toBe(2_000);
+    expect(PROPERTY_LOCK_RECONNECT_MAX_DELAY_MS).toBe(60_000);
     expect(PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS).toBe(70_000);
     expect(PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS).toBe(70_000);
     expect(PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS).toBe(30_000);
@@ -128,6 +133,7 @@ describe("P9 property-lock client", () => {
   it("does not treat unknown initial lock state as editable", () => {
     expect(projectPropertyLockView({
       role: "unknown",
+      connectivity: "connecting",
       backendIdentity: "",
       editorName: "",
       state: "unlocked",
@@ -140,6 +146,30 @@ describe("P9 property-lock client", () => {
     expect(isNetworkReachable({ websocketOpen: true, httpProbeReachable: true })).toBe(true);
     expect(isNetworkReachable({ websocketOpen: true, httpProbeReachable: false })).toBe(false);
     expect(isNetworkReachable({ websocketOpen: false, httpProbeReachable: true })).toBe(false);
+  });
+
+  it("probes independent HTTP endpoints with a bounded no-cache request", async () => {
+    const requests: Array<{ url: string; init: Record<string, unknown> }> = [];
+    const reachable = await checkNetworkReachability({
+      urls: ["https://probe-one.example", "https://probe-two.example"],
+      fetch: async (url, init) => {
+        requests.push({ url, init });
+        if (url.includes("one")) throw new Error("first probe failed");
+        return {};
+      },
+    });
+
+    expect(reachable).toBe(true);
+    expect(requests.map(({ url }) => url)).toEqual([
+      "https://probe-one.example",
+      "https://probe-two.example",
+    ]);
+    expect(requests[0].init).toMatchObject({ cache: "no-store", mode: "no-cors" });
+    expect(requests[0].init.signal).toBeInstanceOf(AbortSignal);
+    await expect(checkNetworkReachability({
+      urls: ["https://probe-one.example", "https://probe-two.example"],
+      fetch: async () => { throw new Error("offline"); },
+    })).resolves.toBe(false);
   });
 
   it("parses target server message vocabulary", () => {
@@ -366,5 +396,160 @@ describe("P9 property-lock client", () => {
     ws.emit("message", JSON.stringify({ type: "token_update", token: "jwt-rotated" }));
     await Promise.resolve();
     expect(updates).toEqual(["jwt-rotated"]);
+  });
+
+  it("reconnects with exponential backoff without closing the editor session", async () => {
+    vi.useFakeTimers();
+    try {
+      const sockets: ReturnType<typeof fakeSocket>[] = [];
+      const client = createPropertyLockClient({
+        socketFactory() {
+          const socket = fakeSocket();
+          sockets.push(socket);
+          return socket.socket;
+        },
+        networkReachable: async () => true,
+        editorSession: editorSession(),
+        persistEditorSession() {},
+      });
+
+      sockets[0].emit("error");
+      expect(client.state()).toMatchObject({ role: "unknown", connectivity: "reconnecting" });
+      expect(client.isClosed()).toBe(false);
+      await vi.advanceTimersByTimeAsync(PROPERTY_LOCK_RECONNECT_DELAY_MS - 1);
+      expect(sockets).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(sockets).toHaveLength(2);
+
+      sockets[1].emit("error");
+      await vi.advanceTimersByTimeAsync(PROPERTY_LOCK_RECONNECT_DELAY_MS * 2 - 1);
+      expect(sockets).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(sockets).toHaveLength(3);
+      client.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("retains an unsaved draft when the same editor session reacquires a stale lease", async () => {
+    vi.useFakeTimers();
+    try {
+      const sockets: ReturnType<typeof fakeSocket>[] = [];
+      const transfers: unknown[] = [];
+      const client = createPropertyLockClient({
+        socketFactory() {
+          const socket = fakeSocket();
+          sockets.push(socket);
+          return socket.socket;
+        },
+        networkReachable: async () => true,
+        editorSession: editorSession(),
+        persistEditorSession() {},
+        hasUnsavedWork: () => true,
+        onOwnershipTransferred(event) { transfers.push(event); },
+      });
+      client.claim();
+      sockets[0].emit("open");
+      sockets[0].emit("message", JSON.stringify({
+        type: "subscribed",
+        editorSessionId: "editor-1",
+      }));
+      sockets[0].emit("message", JSON.stringify({
+        type: "lock_state",
+        state: "locked",
+        isEditor: true,
+        editorSessionId: "editor-1",
+        lockToken: "fence-old",
+        ownershipGeneration: 1,
+      }));
+
+      sockets[0].emit("close");
+      await vi.advanceTimersByTimeAsync(PROPERTY_LOCK_RECONNECT_DELAY_MS);
+      sockets[1].emit("open");
+      sockets[1].emit("message", JSON.stringify({
+        type: "subscribed",
+        editorSessionId: "editor-1",
+      }));
+      sockets[1].emit("message", JSON.stringify({
+        type: "lock_state",
+        state: "locked",
+        isEditor: true,
+        editorSessionId: "editor-1",
+        lockToken: "fence-reacquired",
+        ownershipGeneration: 2,
+      }));
+      client.clientStatus();
+
+      expect(transfers).toEqual([]);
+      expect(client.state()).toMatchObject({
+        role: "editor",
+        connectivity: "connected",
+        lockToken: "fence-reacquired",
+      });
+      expect(JSON.parse(sockets[1].sent.at(-1) ?? "{}")).toMatchObject({
+        type: "client_status",
+        editorSessionId: "editor-1",
+        lockToken: "fence-reacquired",
+        hasUnsavedWork: true,
+      });
+      client.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("marks prolonged network failure unavailable without declaring an ownership transfer", async () => {
+    vi.useFakeTimers();
+    try {
+      const sockets: ReturnType<typeof fakeSocket>[] = [];
+      const transfers: unknown[] = [];
+      const client = createPropertyLockClient({
+        socketFactory() {
+          const socket = fakeSocket();
+          sockets.push(socket);
+          return socket.socket;
+        },
+        networkReachable: async () => false,
+        editorSession: editorSession(),
+        persistEditorSession() {},
+        hasUnsavedWork: () => true,
+        onOwnershipTransferred(event) { transfers.push(event); },
+      });
+      sockets[0].emit("open");
+      sockets[0].emit("message", JSON.stringify({ type: "subscribed", editorSessionId: "editor-1" }));
+      sockets[0].emit("message", JSON.stringify({
+        type: "lock_state",
+        state: "locked",
+        isEditor: true,
+        editorSessionId: "editor-1",
+        lockToken: "fence-old",
+        ownershipGeneration: 1,
+      }));
+      sockets[0].emit("close");
+
+      await vi.advanceTimersByTimeAsync(PROPERTY_LOCK_CONNECTION_LOSS_TIMEOUT_MS);
+      expect(client.state()).toMatchObject({ connectivity: "unavailable", role: "unknown" });
+      expect(transfers).toEqual([]);
+
+      sockets[1].emit("open");
+      sockets[1].emit("message", JSON.stringify({ type: "subscribed", editorSessionId: "editor-1" }));
+      sockets[1].emit("message", JSON.stringify({
+        type: "lock_state",
+        state: "locked",
+        isEditor: true,
+        editorSessionId: "editor-1",
+        lockToken: "fence-restored",
+        ownershipGeneration: 1,
+      }));
+      client.clientStatus();
+      expect(JSON.parse(sockets[1].sent.at(-1) ?? "{}")).toMatchObject({
+        type: "client_status",
+        hasUnsavedWork: true,
+      });
+      client.close();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

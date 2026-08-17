@@ -312,6 +312,51 @@ describe("rewrite background services", () => {
     }
   });
 
+  it("uses a lock-channel token rotation for reconnecting the same editor session", async () => {
+    vi.useFakeTimers();
+    try {
+      const sockets: ReturnType<typeof fakeSocket>[] = [];
+      const urls: string[] = [];
+      const services = createRewriteBackgroundServices({
+        socketFactory(url) {
+          urls.push(url);
+          const socket = fakeSocket();
+          sockets.push(socket);
+          return socket.socket;
+        },
+        networkReachability: async () => true,
+        editorSessionIdFactory: () => "editor-reconnect-token",
+      });
+      await services.repos.settingsStore.save({
+        configEndpoint: "https://lock.example.com",
+        token: "original-jwt",
+      });
+      const client = await services.createLockClient({
+        environmentKey: "a.example.com",
+        tabId: 1,
+        siteId: 42,
+      });
+      sockets[0].emit("open");
+      sockets[0].emit("message", JSON.stringify({
+        type: "subscribed",
+        editorSessionId: "editor-reconnect-token",
+      }));
+      sockets[0].emit("message", JSON.stringify({ type: "token_update", token: "rotated-jwt" }));
+      await Promise.resolve();
+      sockets[0].emit("close");
+      await vi.advanceTimersByTimeAsync(2_000);
+
+      expect(urls).toEqual([
+        "wss://lock.example.com/property-lock?token=original-jwt",
+        "wss://lock.example.com/property-lock?token=rotated-jwt",
+      ]);
+      expect(client.editorSession().editorSessionId).toBe("editor-reconnect-token");
+      client.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("persists one environment-scoped editor session per tab instead of persisting backend identity", async () => {
     let nextId = 0;
     const services = createRewriteBackgroundServices({
@@ -843,6 +888,69 @@ describe("rewrite background services", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("discards draft status only when an authoritative foreign fence takes ownership", async () => {
+    const sockets: ReturnType<typeof fakeSocket>[] = [];
+    const transfers: unknown[] = [];
+    const services = createRewriteBackgroundServices({
+      transport: async (request) => hubContext(request),
+      socketFactory() {
+        const socket = fakeSocket();
+        sockets.push(socket);
+        return socket.socket;
+      },
+      editorSessionIdFactory: () => "editor-draft-1",
+    });
+    await services.settings.update((current) => ({
+      ...current,
+      stageBase: "stage.example.com",
+      token: "live",
+    }));
+    const runtime = createPropertyLockRuntime({
+      services,
+      onAuthoritativeTransfer(event) { transfers.push(event); },
+    });
+    const presence = { visible: true, focusedWindow: true, browserIdle: false };
+    runtime.presenceChanged(9, presence);
+    await runtime.directive({
+      tabId: 9,
+      pageUrl: "https://example.com/page",
+      hasUnsavedChanges: true,
+    });
+    sockets[0].emit("open");
+    sockets[0].emit("message", JSON.stringify({ type: "subscribed", editorSessionId: "editor-draft-1" }));
+    sockets[0].emit("message", JSON.stringify({
+      type: "lock_state",
+      state: "locked",
+      isEditor: true,
+      editorSessionId: "editor-draft-1",
+      lockToken: "fence-one",
+      ownershipGeneration: 1,
+      propertyRevision: 4,
+      feedRevision: 2,
+    }));
+
+    runtime.presenceChanged(9, presence);
+    expect(JSON.parse(sockets[0].sent.at(-1) ?? "{}")).toMatchObject({
+      type: "client_status",
+      hasUnsavedWork: true,
+    });
+    sockets[0].emit("message", JSON.stringify({
+      type: "lock_state",
+      state: "locked",
+      isEditor: false,
+      editorName: "Other",
+      editorSessionId: "editor-other",
+      ownershipGeneration: 2,
+    }));
+    runtime.presenceChanged(9, presence);
+
+    expect(transfers).toEqual([{ tabId: 9, environmentKey: "stage.example.com", siteId: 5542 }]);
+    expect(JSON.parse(sockets[0].sent.at(-1) ?? "{}")).toMatchObject({
+      type: "client_status",
+      hasUnsavedWork: false,
+    });
   });
 
   it("does not resurrect an editor session when navigation wins a context-resolution race", async () => {

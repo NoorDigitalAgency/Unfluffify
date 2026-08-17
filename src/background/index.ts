@@ -123,10 +123,40 @@ export function startRewriteBackground(): void {
       await tabTerminations.get(tabId);
     }
   };
+  const clearTabContinuation = async (tabId: number): Promise<void> => {
+    const latestRun = await services.repos.runRecordRepo.loadLatestForTab(tabId);
+    if (latestRun.ok && latestRun.value) {
+      await services.repos.runRecordRepo.clear(latestRun.value.sessionId);
+    }
+    await services.repos.tabStateRepo.clear(tabId);
+  };
+  const beginTabCleanup = (tabId: number, cleanup: () => Promise<void>): Promise<void> => {
+    runtime.forgetBrain(tabId);
+    const previous = tabTerminations.get(tabId);
+    const termination = (async () => {
+      if (previous) {
+        await previous;
+      }
+      await cleanup();
+    })();
+    tabTerminations.set(tabId, termination);
+    const clearTermination = () => {
+      if (tabTerminations.get(tabId) === termination) {
+        tabTerminations.delete(tabId);
+      }
+    };
+    void termination.then(clearTermination, clearTermination);
+    return termination;
+  };
   const lockRuntime = createPropertyLockRuntime({
     services,
     context: pageContextRuntime,
     tabs: api.tabs,
+    onAuthoritativeTransfer({ tabId }) {
+      // A foreign/rotated fence is the ownership boundary. Clear only the old
+      // continuation; the passive client remains connected for future handoff.
+      return beginTabCleanup(tabId, () => clearTabContinuation(tabId));
+    },
     async observeLockFacts(facts) {
       await awaitTabTermination(facts.tabId);
       const brain = await runtime.getBrain(facts.tabId);
@@ -161,23 +191,10 @@ export function startRewriteBackground(): void {
       // Navigation/reload and tab close are draft-terminal, unlike a transient
       // network failure. Release the lease first, then erase every tab-scoped
       // durable continuation so the next document starts a new editor session.
-      runtime.forgetBrain(tabId);
-      const termination = (async () => {
+      return beginTabCleanup(tabId, async () => {
         await lockRuntime.terminateTab(tabId, { forgetPresence: reason === "tab-closed" });
-        const latestRun = await services.repos.runRecordRepo.loadLatestForTab(tabId);
-        if (latestRun.ok && latestRun.value) {
-          await services.repos.runRecordRepo.clear(latestRun.value.sessionId);
-        }
-        await services.repos.tabStateRepo.clear(tabId);
-      })();
-      tabTerminations.set(tabId, termination);
-      const clearTermination = () => {
-        if (tabTerminations.get(tabId) === termination) {
-          tabTerminations.delete(tabId);
-        }
-      };
-      void termination.then(clearTermination, clearTermination);
-      return termination;
+        await clearTabContinuation(tabId);
+      });
     },
   });
   void lockBrowserLifecycle.start().catch((error) => {

@@ -1,5 +1,6 @@
 export * from "./client";
 export * from "./identity";
+export * from "./reachability";
 export * from "./reducer";
 export * from "./timings";
 export * from "./view";

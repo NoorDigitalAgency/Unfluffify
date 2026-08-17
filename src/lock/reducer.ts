@@ -2,9 +2,11 @@ import type { LockServerMessage } from "./ws";
 import { mirrorBackendTimings, type BackendLockTimingState } from "./timings";
 
 export type PropertyLockRole = "unknown" | "editor" | "passive";
+export type PropertyLockConnectivity = "connecting" | "connected" | "reconnecting" | "unavailable";
 
 export type PropertyLockState = Readonly<{
   role: PropertyLockRole;
+  connectivity: PropertyLockConnectivity;
   backendIdentity: string;
   editorName: string;
   state: string;
@@ -28,6 +30,7 @@ export type PropertyLockState = Readonly<{
 
 export const INITIAL_PROPERTY_LOCK_STATE: PropertyLockState = {
   role: "unknown",
+  connectivity: "connecting",
   backendIdentity: "",
   editorName: "",
   state: "unlocked",
@@ -47,6 +50,7 @@ export function reducePropertyLockState(
   if (message.type === "subscribed") {
     return {
       ...state,
+      connectivity: "connected",
       backendIdentity: typeof message.identity === "string" ? message.identity : state.backendIdentity,
       editorSessionId: typeof message.editorSessionId === "string" ? message.editorSessionId : state.editorSessionId,
       lockToken: typeof message.lockToken === "string" ? message.lockToken : undefined,
@@ -58,6 +62,7 @@ export function reducePropertyLockState(
     const isEditor = message.isEditor === true;
     return {
       ...state,
+      connectivity: "connected",
       role: isEditor ? "editor" : "passive",
       state: typeof message.state === "string" ? message.state : state.state,
       editorName: typeof message.editorName === "string" ? message.editorName : state.editorName,
@@ -91,6 +96,7 @@ export function reducePropertyLockState(
   if (message.type === "disconnect_warning") {
     return {
       ...state,
+      connectivity: "reconnecting",
       state: "disconnect_warning",
       disconnectReason: stringField(message, "reason"),
       timings: mirrorBackendTimings({
@@ -101,12 +107,14 @@ export function reducePropertyLockState(
   if (message.type === "inactivity_warning") {
     return {
       ...state,
+      connectivity: "connected",
       state: "expiry_warning",
     };
   }
   if (message.type === "takeover_suggestion") {
     return {
       ...state,
+      connectivity: "connected",
       state: "takeover_available",
       takeoverSuggestion: {
         suggestionId: stringField(message, "suggestionId"),
@@ -137,6 +145,7 @@ export function reducePropertyLockState(
   if (message.type === "transfer_countdown") {
     return {
       ...state,
+      connectivity: "connected",
       state: "transfer",
       transfer: {
         fromName: stringField(message, "transferFromName") || stringField(message, "fromName"),

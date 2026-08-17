@@ -127,6 +127,11 @@ export function createPropertyLockRuntime(input: Readonly<{
   services: RewriteBackgroundServices;
   context?: Pick<ReturnType<typeof createPageContextRuntime>, "resolve">;
   tabs?: TabsLike;
+  onAuthoritativeTransfer?: (event: Readonly<{
+    tabId: number;
+    environmentKey: string;
+    siteId: number;
+  }>) => Promise<void> | void;
   observeLockFacts?: (facts: Readonly<{
     tabId: number;
     siteId: number | null;
@@ -261,6 +266,17 @@ export function createPropertyLockRuntime(input: Readonly<{
       siteId,
       presence: () => presenceByTab.get(request.tabId) ?? UNKNOWN_PRESENCE,
       hasUnsavedWork: () => unsavedByKey.get(key) === true,
+      onOwnershipTransferred: () => {
+        // A rotated/foreign fence is authoritative. Discard draft status before
+        // publishing the passive state so no subsequent frame can advertise the
+        // previous owner's unsaved work.
+        unsavedByKey.set(key, false);
+        return input.onAuthoritativeTransfer?.({
+          tabId: request.tabId,
+          environmentKey,
+          siteId,
+        });
+      },
       onStateChange: (state) => {
         if (activeKeyByTab.get(request.tabId) !== key) {
           return;

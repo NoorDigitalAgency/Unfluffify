@@ -1,5 +1,6 @@
 import {
   buildPropertyLockWssUrl,
+  checkNetworkReachability,
   createPropertyLockClient,
   type EditorSession,
   type PropertyLockPresence,
@@ -126,6 +127,7 @@ export function createRewriteBackgroundServices(input: Readonly<{
   transport?: JsonTransport;
   socket?: WebSocketLike;
   socketFactory?: (url: string) => WebSocketLike;
+  networkReachability?: () => Promise<boolean>;
   editorSessionIdFactory?: () => string;
 }> = {}) {
   const store = createBackgroundStore();
@@ -411,6 +413,7 @@ export function createRewriteBackgroundServices(input: Readonly<{
       presence?: () => PropertyLockPresence;
       hasUnsavedWork?: () => boolean;
       onStateChange?: (state: PropertyLockState) => void;
+      onOwnershipTransferred?: () => Promise<void> | void;
     }>) {
       const loadedSession = await editorSessionRepo.load(
         inputContext.environmentKey,
@@ -432,18 +435,27 @@ export function createRewriteBackgroundServices(input: Readonly<{
         await editorSessionRepo.save(editorSession);
       }
       const currentSettings = await loadSettings();
-      const wsUrl = buildPropertyLockWssUrl(currentSettings.configEndpoint ?? currentSettings.stageBase ?? "", currentSettings.token ?? "");
-      const socket = input.socket ?? (input.socketFactory ?? createWebSocketSocket)(wsUrl);
+      const wsEndpoint = currentSettings.configEndpoint ?? currentSettings.stageBase ?? "";
+      let wsToken = currentSettings.token ?? "";
       return createPropertyLockClient({
-        socket,
+        ...(input.socket ? { socket: input.socket } : {
+          socketFactory: () => (input.socketFactory ?? createWebSocketSocket)(
+            buildPropertyLockWssUrl(wsEndpoint, wsToken),
+          ),
+          networkReachable: input.networkReachability ?? checkNetworkReachability,
+        }),
         editorSession,
         presence: inputContext.presence,
         hasUnsavedWork: inputContext.hasUnsavedWork,
         onStateChange: inputContext.onStateChange,
+        onOwnershipTransferred: inputContext.onOwnershipTransferred,
         persistEditorSession(session) {
           return editorSessionRepo.save(session);
         },
         async onTokenUpdate(token) {
+          // A reconnect belongs to this same editor session, but authenticates
+          // a fresh transport with the latest lock-channel rotation.
+          wsToken = token;
           await updateSettings((current) => ({ ...current, token }));
         },
       });

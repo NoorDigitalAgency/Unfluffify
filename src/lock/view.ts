@@ -15,6 +15,17 @@ export function projectPropertyLockView(state: PropertyLockState): PropertyLockV
   if (state.terminal) {
     return { bannerVisible: true, reason: "extension-context-invalidated", canEdit: false };
   }
+  if (state.connectivity === "unavailable") {
+    return { bannerVisible: true, reason: "unavailable", canEdit: false };
+  }
+  if (state.connectivity === "reconnecting") {
+    return {
+      bannerVisible: true,
+      reason: "disconnect-warning",
+      canEdit: false,
+      countdownSeconds: state.timings.secondsRemaining,
+    };
+  }
   if (state.state === "unlocked" && state.role === "unknown") {
     return { bannerVisible: true, reason: "connecting", canEdit: false };
   }
