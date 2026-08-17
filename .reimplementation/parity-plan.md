@@ -279,7 +279,7 @@ versioned fixtures, but live acceptance waits for the corresponding H slice.
 
 | ✅ | ID | Slice | Needs | Test that proves it |
 |----|----|-------|-------|---------------------|
-| ☐ | **B1** | Delete the popup's birth sites for the three names the brain already decides (`session.navigated`, `marking.enabled`, `marking.disabled`); the popup reports **facts**, the brain decides edges. | — | One enable produces **exactly one** `marking.enabled` in the log. |
+| ☑ | **B1** | Delete the popup's birth sites for the three names the brain already decides (`session.navigated`, `marking.enabled`, `marking.disabled`); the popup reports **facts**, the brain decides edges. **Landed in `84012d27`.** | — | One enable produces **exactly one** `marking.enabled` in the log. |
 | ☐ | **B2** | Move the remaining popup-born names (`run.*`, `preview.*`, `session.saved/discarded`, `reconciliation.*`) behind facts the brain folds and decides. | B1 | Every signal in the log carries `source:"brain"`; no `source:"popup"` frame exists. |
 | ☐ | **B3** | Delete `composeContentDirective` and the 500 ms push. Content becomes a **signal consumer** with its own per-state memory matrix. | B2 | Content renders its surface from consumed signals; no directive message type remains. |
 | ☐ | **B4** | Delete `preLockPopupState` / `settlePreLockAiRun` / `store.reset()` transitions and the fabricated `source:"brain"` offline signals. | B2 | The organ only ever moves via the transition table; a property-lock episode returns to `priorState` mechanically. |
