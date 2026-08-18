@@ -44,11 +44,33 @@ function identityOf(context: PropertyContextResponse): string | null {
   return context.siteId === null ? null : `${context.environmentKey}\u0000${context.siteId}`;
 }
 
-function contextFields(context: PropertyContextResponse) {
+function absoluteBaseUrl(baseUrl: string | null, observedUrl: string): string | null {
+  if (baseUrl === null) {
+    return null;
+  }
+  try {
+    const observed = new URL(observedUrl);
+    const candidate = baseUrl.startsWith("//")
+      ? `${observed.protocol}${baseUrl}`
+      : baseUrl.includes("://")
+        ? baseUrl
+        : `${observed.protocol}//${baseUrl}`;
+    const parsed = new URL(candidate);
+    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.origin : baseUrl;
+  } catch {
+    return baseUrl;
+  }
+}
+
+function contextFields(context: PropertyContextResponse, observedUrl: string) {
   return {
     environmentKey: context.environmentKey || null,
     siteId: context.siteId,
-    baseUrl: context.baseUrl,
+    // Hub owns the canonical property host and may return it without a scheme
+    // (for example, "bonliva.se"). Facts shared across extension realms require
+    // an absolute URL, so add only the observed page's scheme while preserving
+    // Hub's canonical host.
+    baseUrl: absoluteBaseUrl(context.baseUrl, observedUrl),
     pageKey: context.pageKey,
     pageTypes: context.pageTypes,
     membershipFingerprint: context.membershipFingerprint,
@@ -138,7 +160,7 @@ export function createPageContextRuntime(input: Readonly<{
           : candidate ? "managed_candidate" : "managed_non_candidate",
         ...common,
         draftDisposition: definitiveChange ? "terminate" : "preserve",
-        ...contextFields(context),
+        ...contextFields(context, observedUrl),
       };
     }
 
@@ -151,7 +173,7 @@ export function createPageContextRuntime(input: Readonly<{
         status: "suspended_candidate_feed_conflict",
         ...common,
         draftDisposition: definitiveChange ? "terminate" : "preserve",
-        ...contextFields(preserved),
+        ...contextFields(preserved, observedUrl),
         conflicts: context.conflicts,
         upstreamCode: context.upstreamCode ?? null,
       };
@@ -164,7 +186,7 @@ export function createPageContextRuntime(input: Readonly<{
         status: "unmanaged",
         ...common,
         draftDisposition: previous ? "terminate" : "preserve",
-        ...contextFields(context),
+        ...contextFields(context, observedUrl),
       };
     }
 
@@ -183,7 +205,7 @@ export function createPageContextRuntime(input: Readonly<{
       status,
       ...common,
       draftDisposition: "preserve",
-      ...(preserved ? contextFields(preserved) : contextFields(context)),
+      ...(preserved ? contextFields(preserved, observedUrl) : contextFields(context, observedUrl)),
       upstreamCode: context.upstreamCode ?? null,
     };
   };

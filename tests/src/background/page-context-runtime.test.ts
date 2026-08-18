@@ -32,6 +32,20 @@ function deferred<T>() {
 }
 
 describe("page context runtime", () => {
+  it("promotes Hub's host-form canonical base URL to an absolute origin", async () => {
+    const runtime = createPageContextRuntime({
+      currentEnvironmentKey: async () => "stage.example.com",
+      hasToken: async () => true,
+      resolve: async () => ({ ...managed(60, "/"), baseUrl: "bonliva.se" }),
+    });
+
+    await expect(runtime.resolve({ tabId: 60, pageUrl: "https://www.bonliva.se/" })).resolves.toMatchObject({
+      status: "managed_candidate",
+      siteId: 60,
+      baseUrl: "https://bonliva.se",
+    });
+  });
+
   it("discards a late navigation generation without replacing the newer canonical context", async () => {
     const first = deferred<PropertyContextResponse>();
     const second = deferred<PropertyContextResponse>();
