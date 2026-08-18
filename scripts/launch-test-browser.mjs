@@ -415,10 +415,10 @@ function buildLiveStateScript(action, options = {}) {
   }
 
   // Timeout-wrapped evaluate to prevent hanging the MCP server
-  const evalWithTimeout = async (fn, ms = 8000) => {
+  const evalWithTimeout = async (fn, arg, ms = 8000) => {
     return Promise.race([
-      popup.evaluate(fn),
-      new Promise((_, reject) => setTimeout(() => reject(new Error("popup evaluate timeout")), ms))
+      popup.evaluate(fn, arg),
+      popup.waitForTimeout(ms).then(() => { throw new Error("popup evaluate timeout"); })
     ]);
   };
 
@@ -786,12 +786,16 @@ async function dropServiceWorkerRegistration() {
   return true;
 }
 
+let manifestStamp = null;
+
 async function stampBuildVersion() {
   const manifestPath = join(EXT_DIR, "manifest.json");
   const counterPath = join(TEMP_DIR, "build-counter");
+  let originalManifest;
   let manifest;
   try {
-    manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    originalManifest = await readFile(manifestPath, "utf8");
+    manifest = JSON.parse(originalManifest);
   } catch {
     return null;
   }
@@ -799,10 +803,25 @@ async function stampBuildVersion() {
   const previous = Number.parseInt(await readFile(counterPath, "utf8").catch(() => "0"), 10);
   const counter = (Number.isFinite(previous) ? previous + 1 : 1) % 65536;
   const stamped = `${base}.${counter}`;
+  const stampedManifest = JSON.stringify({ ...manifest, version: stamped });
   await mkdir(TEMP_DIR, { recursive: true });
   await writeFile(counterPath, String(counter), "utf8");
-  await writeFile(manifestPath, JSON.stringify({ ...manifest, version: stamped }), "utf8");
+  await writeFile(manifestPath, stampedManifest, "utf8");
+  manifestStamp = { manifestPath, originalManifest, stampedManifest };
   return stamped;
+}
+
+async function restoreStampedManifest() {
+  const stamp = manifestStamp;
+  manifestStamp = null;
+  if (!stamp) return false;
+
+  const currentManifest = await readFile(stamp.manifestPath, "utf8").catch(() => null);
+  // Never overwrite a build that completed while the live browser was running.
+  if (currentManifest !== stamp.stampedManifest) return false;
+
+  await writeFile(stamp.manifestPath, stamp.originalManifest, "utf8");
+  return true;
 }
 
 try {
@@ -874,10 +893,18 @@ const server = spawnPlaywrightMcp([
 
 const client = makeClient(server);
 let controlChannel = null;
+let stopPromise = null;
 
-const stop = async () => {
-  controlChannel?.stop();
-  await client.closeStdin();
+const stop = () => {
+  stopPromise ??= (async () => {
+    controlChannel?.stop();
+    try {
+      await client.closeStdin();
+    } finally {
+      await restoreStampedManifest();
+    }
+  })();
+  return stopPromise;
 };
 process.on("SIGINT", () => {
   console.log("\n[launch] stopping…");
@@ -943,7 +970,11 @@ if (extId && tabId && boundUrl) {
   console.error("[launch] the page is loaded; browser left open for inspection.");
 }
 
-await new Promise((resolvePromise, rejectPromise) => {
-  server.once("error", rejectPromise);
-  server.once("close", () => resolvePromise());
-});
+try {
+  await new Promise((resolvePromise, rejectPromise) => {
+    server.once("error", rejectPromise);
+    server.once("close", () => resolvePromise());
+  });
+} finally {
+  await restoreStampedManifest();
+}

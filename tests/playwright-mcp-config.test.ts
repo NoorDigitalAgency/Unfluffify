@@ -44,7 +44,18 @@ test("live browser launcher targets the WXT output and canonical pnpm command", 
   assert.match(launcher, /process\.exit\(1\);/);
   assert.match(launcher, /const CONTROL_STATE_TIMEOUT_MS = 30_000;/);
   assert.match(launcher, /const CONTROL_OBSERVE_TIMEOUT_MS = 10_000;/);
+  assert.match(launcher, /evalWithTimeout = async \(fn, arg, ms = 8000\)/);
+  assert.match(launcher, /popup\.evaluate\(fn, arg\)/);
+  assert.match(launcher, /popup\.waitForTimeout\(ms\)\.then/);
+  assert.doesNotMatch(
+    launcher,
+    /new Promise\(\(_?, reject\) => setTimeout\(\(\) => reject\(new Error\("popup evaluate timeout"\)/,
+  );
   assert.match(launcher, /runStateAction\("state", CONTROL_OBSERVE_TIMEOUT_MS\)/);
+  assert.match(launcher, /async function restoreStampedManifest\(\)/);
+  assert.match(launcher, /if \(currentManifest !== stamp\.stampedManifest\) return false;/);
+  assert.match(launcher, /await writeFile\(stamp\.manifestPath, stamp\.originalManifest, "utf8"\);/);
+  assert.match(launcher, /finally \{[\s\S]*?await restoreStampedManifest\(\);[\s\S]*?\}/);
   assert.doesNotMatch(launcher, /document\.body\?\.innerText/);
   assert.match(launcher, /if \(line === "state"\) \{[\s\S]*?const resumeObserve = observing;[\s\S]*?observing = false;[\s\S]*?runStateAction\("state", CONTROL_STATE_TIMEOUT_MS\)[\s\S]*?if \(resumeObserve\) \{[\s\S]*?observing = true;[\s\S]*?void observeLoop\(\);/);
   assert.match(launcher, /if \(line === "exit-preview"\) \{[\s\S]*?runStateAction\("exit-preview", CONTROL_STATE_TIMEOUT_MS\)/);
