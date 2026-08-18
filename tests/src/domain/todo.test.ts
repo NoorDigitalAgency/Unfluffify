@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { projectTodoCoverage } from "../../../src/domain/todo";
+import { pageTypeForCandidate, projectTodoCoverage } from "../../../src/domain/todo";
 import type { PropertyContextPageType } from "../../../src/domain/schema/context";
 
 const FEED: readonly PropertyContextPageType[] = [
@@ -49,5 +49,12 @@ describe("canonical Todo projection", () => {
     );
 
     expect(todo).toMatchObject({ covered: 6, actionable: 6 });
+  });
+
+  it("provides the feed label needed by a property's first save", () => {
+    const todo = projectTodoCoverage(FEED, "/", new Set());
+
+    expect(pageTypeForCandidate(todo, "/")).toBe("home");
+    expect(pageTypeForCandidate(todo, "/outside-feed")).toBeUndefined();
   });
 });

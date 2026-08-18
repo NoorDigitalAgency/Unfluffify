@@ -679,6 +679,7 @@ describe("rewrite popup entrypoint", () => {
     expect(sentCommandNames).toContain("getContentMainStatus");
     expect(sentCommandNames).not.toContain("directive.content");
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("activateContentMain", {
+      baseUrl: "https://example.com",
       pageUrl: "https://example.com",
       realEditorActivation: true,
     }));
@@ -2233,6 +2234,7 @@ describe("rewrite popup entrypoint", () => {
 
     expect(query).not.toHaveBeenCalled();
     expect(tabsSendMessage).toHaveBeenCalledWith(123, contentCommand("activateContentMain", {
+      baseUrl: "https://example.com",
       pageUrl: "",
       realEditorActivation: true,
     }));

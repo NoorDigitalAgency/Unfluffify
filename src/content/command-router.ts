@@ -55,9 +55,12 @@ const DATA_AFFECTING_COMMANDS = new Set([
   "captureSubmissionSnapshot",
   "resetContentMain",
 ]);
-const DIRECTIVE_EDIT_BLOCKED_COMMANDS = new Set([
+const LOCK_BLOCKED_COMMANDS = new Set([
   "activateContentMain",
   "captureSubmissionSnapshot",
+]);
+const PRESENTATION_EDIT_BLOCKED_COMMANDS = new Set([
+  "activateContentMain",
 ]);
 
 function baseUrlFor(url: string): string {
@@ -105,14 +108,21 @@ function gateCommand(command: CommandEnvelope, context: ContentCommandContext): 
   if (context.presentation.reconciliationPending) {
     return failure("reconciliation-pending", "Content command is blocked while reconciliation is pending");
   }
+  if (context.authority.lockBlocked && LOCK_BLOCKED_COMMANDS.has(command.name)) {
+    return failure(
+      context.authority.blockedReason || "property-lock",
+      "Content state currently blocks marking edits",
+    );
+  }
+  // Run AI enters its blocking presentation before it captures the immutable
+  // snapshot, preventing page edits during the capture. The capture itself is
+  // read-only and must remain available under that curtain.
   if (
-    (context.authority.lockBlocked || context.presentation.markingEditsBlocked) &&
-    DIRECTIVE_EDIT_BLOCKED_COMMANDS.has(command.name)
+    context.presentation.markingEditsBlocked &&
+    PRESENTATION_EDIT_BLOCKED_COMMANDS.has(command.name)
   ) {
     return failure(
-      context.authority.lockBlocked
-        ? context.authority.blockedReason || "property-lock"
-        : context.presentation.blockedReason || "session-blocked",
+      context.presentation.blockedReason || "session-blocked",
       "Content state currently blocks marking edits",
     );
   }

@@ -29,3 +29,12 @@ export function projectTodoCoverage(
     pageTypes: actionable,
   };
 }
+
+/** Resolve the authoritative candidate label carried by the Hub feed. This is
+ * also the only page-type source available when an operator saves a property's
+ * very first page and no persisted config exists yet. */
+export function pageTypeForCandidate(todo: TodoCoverage, pageKey: string): string | undefined {
+  return todo.pageTypes.find((pageType) =>
+    pageType.candidates.some((candidate) => candidate.pageKey === pageKey)
+  )?.pageType;
+}

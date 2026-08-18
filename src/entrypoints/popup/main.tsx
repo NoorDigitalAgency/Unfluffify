@@ -47,6 +47,7 @@ import { createEventLog } from "../../popup/event-log";
 import type { LockAction, LockBannerVocabulary, LockReason } from "../../domain/schema/facts";
 import { resolvePopupLockCopy } from "../../popup/copy";
 import type { TodoCoverage } from "../../domain/schema/todo";
+import { pageTypeForCandidate } from "../../domain/todo";
 import type { PageContextResolution } from "../../domain/schema/context";
 import { todoRefreshDue } from "../../popup/todo-recovery";
 import { AI_RUN_TIMEOUT_MS } from "../../lynx/ai";
@@ -1176,7 +1177,10 @@ async function refreshLockDirective(context: TargetTabContext, requestKey = boun
   return lock;
 }
 
-async function captureSubmission(context: TargetTabContext): Promise<AiRunPayloadSnapshot | null> {
+async function captureSubmission(
+  context: TargetTabContext,
+  canonicalBaseUrl: string,
+): Promise<AiRunPayloadSnapshot | null> {
   if (confirmedRenderMode === null) {
     // The snapshot carries the render mode; there is nothing honest to put here.
     logEvent("Capture refused", "choose a render mode first", "warn");
@@ -1202,7 +1206,9 @@ async function captureSubmission(context: TargetTabContext): Promise<AiRunPayloa
   }
   const response = await requestContentMessage(context.tabId, {
     type: "captureSubmissionSnapshot",
-    baseUrl: baseUrlFor(context.url),
+    // Hub's canonical property host can differ from the observed page alias.
+    // The content gate compares against lock authority, not browser cosmetics.
+    baseUrl: canonicalBaseUrl,
     renderMode: confirmedRenderMode,
     pageUrl: context.url,
     ...(rawHtml === undefined ? {} : { rawHtml }),
@@ -1223,7 +1229,9 @@ function configFromSubmission(
   const page = pageKey
     ? snapshot.pages.find((candidate) => canonicalPageKey(candidate.url) === pageKey)
     : undefined;
-  const pageType = pageKey ? loadedConfig?.pages[pageKey]?.pageType : undefined;
+  const pageType = pageKey
+    ? loadedConfig?.pages[pageKey]?.pageType ?? pageTypeForCandidate(todoCoverage, pageKey)
+    : undefined;
   if (!page || !pageKey || !pageType || !lock.authority || activeSiteId === null) {
     return null;
   }
@@ -1327,6 +1335,7 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     }
     const activated = await sendContentMessage(context.tabId, {
       type: "activateContentMain",
+      baseUrl: lock.baseUrl,
       pageUrl: context.url,
       realEditorActivation: true,
       // Seeds a clean session: the defaults first, then these laid over them.
@@ -1937,7 +1946,7 @@ async function runAi(): Promise<void> {
     runSessionId: localRunId,
     runDeadlineAt: startedAt + AI_RUN_TIMEOUT_MS,
   }, requestKey);
-  const snapshot = await captureSubmission(context);
+  const snapshot = await captureSubmission(context, lock.baseUrl);
   if (!snapshot) {
     if (activeRunSessionId === localRunId) {
       logEvent("Run AI failed", "page snapshot capture failed", "danger");
@@ -2037,7 +2046,7 @@ async function saveSession(): Promise<void> {
   }
   const snapshot = lastSubmissionKey === requestKey && lastSubmissionSnapshot
     ? lastSubmissionSnapshot
-    : await captureSubmission(context);
+    : await captureSubmission(context, lock.baseUrl);
   if (!snapshot) {
     return;
   }

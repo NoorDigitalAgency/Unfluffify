@@ -9,9 +9,15 @@ type AncestorSignature = Readonly<{
 type ElementFingerprint = Readonly<{
   tag: string;
   text: string;
+  textTokens: readonly string[];
   attrs: Readonly<Record<string, string>>;
   classes: readonly string[];
   ancestors: readonly AncestorSignature[];
+}>;
+
+type IndexedCandidate = Readonly<{
+  element: Element;
+  fingerprint: ElementFingerprint;
 }>;
 
 function parseHtml(html: string): Document {
@@ -94,9 +100,11 @@ function ancestorSignature(element: Element, depth = 4): AncestorSignature[] {
 }
 
 function fingerprint(element: Element): ElementFingerprint {
+  const text = normalizeText(element.textContent).slice(0, 300);
   return {
     tag: element.tagName.toLowerCase(),
-    text: normalizeText(element.textContent).slice(0, 300),
+    text,
+    textTokens: tokens(text).slice(0, 30),
     attrs: preferredAttributes(element),
     classes: classTokens(element),
     ancestors: ancestorSignature(element),
@@ -120,9 +128,9 @@ function ancestorSimilarity(
   return score;
 }
 
-function scoreCandidate(source: ElementFingerprint, candidate: Element): number {
-  let score = candidate.tagName.toLowerCase() === source.tag ? 15 : 0;
-  const attributes = preferredAttributes(candidate);
+function scoreCandidate(source: ElementFingerprint, candidate: ElementFingerprint): number {
+  let score = candidate.tag === source.tag ? 15 : 0;
+  const attributes = candidate.attrs;
   const weights: Readonly<Record<string, number>> = {
     id: 100,
     name: 40,
@@ -150,9 +158,9 @@ function scoreCandidate(source: ElementFingerprint, candidate: Element): number 
       score += weight * 0.35;
     }
   }
-  score += 45 * jaccard(tokens(source.text).slice(0, 30), tokens(candidate.textContent).slice(0, 30));
-  score += 20 * jaccard(source.classes, classTokens(candidate));
-  score += ancestorSimilarity(source.ancestors, ancestorSignature(candidate));
+  score += 45 * jaccard(source.textTokens, candidate.textTokens);
+  score += 20 * jaccard(source.classes, candidate.classes);
+  score += ancestorSimilarity(source.ancestors, candidate.ancestors);
   return score;
 }
 
@@ -181,15 +189,21 @@ export function refineXPathEntriesFromDocuments(
   rows: readonly MarkRow[],
   minScore = 30,
 ): readonly MarkRow[] {
-  const allElements = Array.from(rawDocument.querySelectorAll("*"));
-  const byTag = new Map<string, Element[]>();
-  for (const element of allElements) {
-    const tag = element.tagName.toLowerCase();
+  // Candidate properties (text, attributes and ancestors) do not change during
+  // refinement. Computing them inside every row/candidate comparison turns a
+  // real page into hundreds of thousands of repeated DOM walks.
+  const allElements = Array.from(rawDocument.querySelectorAll("*")).map((element): IndexedCandidate => ({
+    element,
+    fingerprint: fingerprint(element),
+  }));
+  const byTag = new Map<string, IndexedCandidate[]>();
+  for (const candidate of allElements) {
+    const tag = candidate.fingerprint.tag;
     const tagged = byTag.get(tag);
     if (tagged) {
-      tagged.push(element);
+      tagged.push(candidate);
     } else {
-      byTag.set(tag, [element]);
+      byTag.set(tag, [candidate]);
     }
   }
 
@@ -203,17 +217,17 @@ export function refineXPathEntriesFromDocuments(
     let bestNode: Element | null = null;
     let bestScore = Number.NEGATIVE_INFINITY;
     for (const candidate of primary) {
-      const score = scoreCandidate(source, candidate);
+      const score = scoreCandidate(source, candidate.fingerprint);
       if (score > bestScore) {
-        bestNode = candidate;
+        bestNode = candidate.element;
         bestScore = score;
       }
     }
     if (bestScore < minScore && primary !== allElements) {
       for (const candidate of allElements) {
-        const score = scoreCandidate(source, candidate);
+        const score = scoreCandidate(source, candidate.fingerprint);
         if (score > bestScore) {
-          bestNode = candidate;
+          bestNode = candidate.element;
           bestScore = score;
         }
       }
