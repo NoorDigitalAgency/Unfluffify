@@ -44,13 +44,10 @@ test("live browser launcher targets the WXT output and canonical pnpm command", 
   assert.match(launcher, /process\.exit\(1\);/);
   assert.match(launcher, /const CONTROL_STATE_TIMEOUT_MS = 30_000;/);
   assert.match(launcher, /const CONTROL_OBSERVE_TIMEOUT_MS = 10_000;/);
-  assert.match(launcher, /evalWithTimeout = async \(fn, arg, ms = 8000\)/);
-  assert.match(launcher, /popup\.evaluate\(fn, arg\)/);
-  assert.match(launcher, /popup\.waitForTimeout\(ms\)\.then/);
-  assert.doesNotMatch(
-    launcher,
-    /new Promise\(\(_?, reject\) => setTimeout\(\(\) => reject\(new Error\("popup evaluate timeout"\)/,
-  );
+  assert.match(launcher, /"Runtime\.evaluate"/);
+  assert.match(launcher, /awaitPromise: true, returnByValue: true/);
+  assert.match(launcher, /buildPopupActionExpression\(action, options\)/);
+  assert.doesNotMatch(launcher, /browser\.close\(\)/);
   assert.match(launcher, /runStateAction\("state", CONTROL_OBSERVE_TIMEOUT_MS\)/);
   assert.match(launcher, /async function restoreStampedManifest\(\)/);
   assert.match(launcher, /if \(currentManifest !== stamp\.stampedManifest\) return false;/);

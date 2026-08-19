@@ -55,6 +55,25 @@ test("public pnpm browser launcher is node-native", () => {
   );
 });
 
+test("browser launcher opens the persistent popup without wedging the MCP request queue", () => {
+  const launchScript = readFileSync(
+    new URL("../scripts/launch-test-browser.mjs", import.meta.url),
+    "utf8",
+  );
+  assert.equal(
+    launchScript.includes('name: "browser_run_code_unsafe"'),
+    false,
+    "binding and live control must not enter MCP's context-wide completion wait",
+  );
+  assert.ok(launchScript.includes('fetch(endpoint, { method: "PUT" })'));
+  assert.ok(launchScript.includes("await openCdpTab(boundUrl);"));
+  assert.ok(launchScript.includes("await waitForCdpTarget(boundUrl);"));
+  assert.ok(launchScript.includes("await bringCdpPageToFront(finalUrl);"));
+  assert.ok(launchScript.includes('"Page.bringToFront"'));
+  assert.ok(launchScript.includes("Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set"));
+  assert.ok(launchScript.includes("Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set"));
+});
+
 test("browser launcher never reloads the extension, and reloads the page", () => {
   // chrome.runtime.reload() began UNLOADING the unpacked extension outright in the
   // MCP-managed Chromium (2026-08-05, 1.62.0-alpha): no worker returns, extension
@@ -75,7 +94,7 @@ test("browser launcher never reloads the extension, and reloads the page", () =>
     false,
     "the extension reload unloads the extension in this Chromium; freshness must come from the fresh process",
   );
-  assert.ok(launchScript.indexOf("page.reload(") > 0, "the target page must still be reloaded");
+  assert.ok(launchScript.includes('"Page.reload"'), "the target page must still be reloaded");
   // Whatever the reason, a launch must still refuse to proceed without a worker.
   assert.ok(launchScript.includes("No live extension service worker"));
 });
@@ -133,5 +152,3 @@ test("browser launcher drops the worker registration without dropping the data",
   const launch = launchScript.indexOf("spawnPlaywrightMcp([");
   assert.ok(drop > 0 && launch > 0 && drop < launch, "the drop must happen before Chrome is started");
 });
-
-

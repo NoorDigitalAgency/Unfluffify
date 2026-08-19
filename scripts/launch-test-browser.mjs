@@ -193,80 +193,190 @@ async function deterministicExtensionId(path) {
   return out;
 }
 
-// The bind script runs inside `browser_run_code_unsafe`, whose sandbox is NOT a
-// full Node context: globals like `setTimeout` and `URL` are undefined. Use
-// Playwright APIs (`page.waitForTimeout`) and plain string ops only. The inner
-// `worker.evaluate` body runs in the extension service worker, where `chrome.*`
-// and `setTimeout` are available.
-const BIND_SCRIPT = `async (page) => {
-  const ctx = page.context();
-  let worker = ctx.serviceWorkers()[0];
-  if (!worker) worker = await ctx.waitForEvent('serviceworker', { timeout: 15000 });
-  const extId = String(worker.url()).split('/')[2];
-
-  // Probe every worker handle rather than trusting index 0: after a reload the
-  // dead handle can linger, and evaluating on it throws.
-  const liveWorker = async () => {
-    for (let i = 0; i < 60; i++) {
-      for (const candidate of ctx.serviceWorkers()) {
-        try {
-          if (await candidate.evaluate(() => Boolean(chrome && chrome.runtime && chrome.runtime.id))) {
-            return candidate;
-          }
-        } catch (_) { /* handle belongs to a torn-down worker */ }
-      }
-      await page.waitForTimeout(500);
-    }
-    throw new Error('No live extension service worker');
-  };
-
-  // NO chrome.runtime.reload() here, deliberately, and it is not an oversight.
-  //
-  // The reload used to exist because a profile that survives between runs keeps
-  // serving the service worker it registered last time — the manifest version
-  // never changes, so a bus command added since then answers NO_HANDLER against
-  // freshly built files. But on 2026-08-05 that reload began UNLOADING the
-  // unpacked extension outright in the MCP-managed Chromium (observed twice,
-  // deterministically, on 1.62.0-alpha): no worker comes back, extension targets
-  // vanish, and popup.html answers ERR_BLOCKED_BY_CLIENT. A browser with no
-  // extension cannot test anything, which is strictly worse than one that might
-  // be running a worker from a previous registration.
-  //
-  // Freshness therefore comes from the process, not from a reload: Chrome is
-  // started anew on every launch with --load-extension pointing at the build this
-  // script just produced. That is airtight for a profile this run created, and
-  // for a reused profile the banner says so rather than pretending otherwise — a
-  // cleared profile is the fix if a new bus command answers NO_HANDLER.
-  worker = await liveWorker();
-
-  // The page must still be reloaded: it was navigated before this ran, and a
-  // content script that missed its injection window leaves every content command
-  // failing with "Receiving end does not exist" so marking cannot arm.
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
-  await page.waitForTimeout(1500);
-
-  const pageUrl = page.url();
-  let tabId = null;
-  for (let i = 0; i < 40; i++) {
-    tabId = await worker.evaluate(async (targetUrl) => {
-      const tabs = await chrome.tabs.query({});
-      const norm = (u) => String(u || '').replace(/#.*$/, '');
-      const t = norm(targetUrl);
-      const exact = tabs.find((x) => norm(x.url) === t);
-      if (exact && Number.isFinite(exact.id)) return exact.id;
-      const fb = tabs.find((x) => norm(x.url) && t && norm(x.url).startsWith(t.split('?')[0]));
-      return fb && Number.isFinite(fb.id) ? fb.id : null;
-    }, pageUrl);
-    if (Number.isFinite(tabId)) break;
-    await page.waitForTimeout(500);
+async function openCdpTab(url) {
+  const endpoint = `http://127.0.0.1:${CDP_PORT}/json/new?${encodeURIComponent(url)}`;
+  const response = await fetch(endpoint, { method: "PUT" });
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(`CDP could not open the popup tab (${response.status}): ${body.slice(0, 500)}`);
   }
-  if (!Number.isFinite(tabId)) throw new Error('Could not resolve a Chrome tab id for ' + pageUrl);
-  const popup = await ctx.newPage();
-  const boundUrl = 'chrome-extension://' + extId + '/popup.html?debugTabId=' + tabId;
-  await popup.goto(boundUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-  await popup.waitForTimeout(1000);
-  return JSON.stringify({ extId: extId, tabId: tabId, boundUrl: boundUrl, pageUrl: pageUrl, refreshed: true });
-}`;
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw new Error(`CDP returned an invalid popup target: ${body.slice(0, 500)}`);
+  }
+}
+
+async function listCdpTargets() {
+  const response = await fetch(`http://127.0.0.1:${CDP_PORT}/json/list`);
+  if (!response.ok) {
+    throw new Error(`CDP target list failed (${response.status})`);
+  }
+  const targets = await response.json();
+  if (!Array.isArray(targets)) {
+    throw new Error("CDP target list was not an array");
+  }
+  return targets;
+}
+
+async function waitForCdpTarget(url, timeoutMs = 15_000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastUrls = [];
+  while (Date.now() < deadline) {
+    const targets = await listCdpTargets();
+    lastUrls = targets.map((targetInfo) => String(targetInfo?.url ?? ""));
+    const popupTarget = targets.find((targetInfo) => targetInfo?.type === "page" && targetInfo?.url === url);
+    if (popupTarget) return popupTarget;
+    await delay(250);
+  }
+  throw new Error(`CDP popup target did not appear: ${url}; targets=${JSON.stringify(lastUrls)}`);
+}
+
+async function bringCdpPageToFront(url) {
+  const normalizedUrl = String(url).replace(/#.*$/, "");
+  const targets = await listCdpTargets();
+  const pageTarget = targets.find((targetInfo) =>
+    targetInfo?.type === "page"
+      && String(targetInfo?.url ?? "").replace(/#.*$/, "") === normalizedUrl);
+  if (!pageTarget?.webSocketDebuggerUrl) {
+    throw new Error(`Could not focus the managed page target for ${url}`);
+  }
+  await sendCdpCommand(pageTarget.webSocketDebuggerUrl, "Page.bringToFront", {}, 10_000);
+}
+
+function sendCdpCommand(webSocketDebuggerUrl, method, params, timeoutMs) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const socket = new WebSocket(webSocketDebuggerUrl);
+    const requestId = 1;
+    let settled = false;
+    const timer = setTimeout(() => {
+      finish(new Error(`timeout waiting for CDP ${method}`));
+    }, timeoutMs);
+
+    function finish(error, value) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      try { socket.close(); } catch { /* the debug socket may already be closed */ }
+      if (error) rejectPromise(error);
+      else resolvePromise(value);
+    }
+
+    socket.addEventListener("open", () => {
+      socket.send(JSON.stringify({ id: requestId, method, params }));
+    });
+    socket.addEventListener("message", (event) => {
+      let message;
+      try {
+        message = JSON.parse(String(event.data));
+      } catch {
+        return;
+      }
+      if (message?.id !== requestId) return;
+      if (message.error) {
+        finish(new Error(`CDP ${method} failed: ${JSON.stringify(message.error)}`));
+        return;
+      }
+      finish(null, message.result);
+    });
+    socket.addEventListener("error", () => finish(new Error(`CDP ${method} socket failed`)));
+    socket.addEventListener("close", () => finish(new Error(`CDP ${method} socket closed before replying`)));
+  });
+}
+
+async function evaluateCdpTarget(targetInfo, expression, timeoutMs) {
+  if (!targetInfo?.webSocketDebuggerUrl) {
+    throw new Error(`CDP target has no debugger URL: ${String(targetInfo?.url ?? "unknown")}`);
+  }
+  const response = await sendCdpCommand(
+    targetInfo.webSocketDebuggerUrl,
+    "Runtime.evaluate",
+    { expression, awaitPromise: true, returnByValue: true },
+    timeoutMs,
+  );
+  if (response?.exceptionDetails) {
+    const description = response.exceptionDetails?.exception?.description
+      ?? response.exceptionDetails?.text
+      ?? "unknown evaluation error";
+    throw new Error(`CDP Runtime.evaluate failed: ${description}`);
+  }
+  return response?.result?.value;
+}
+
+async function waitForLiveServiceWorker(timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const targets = await listCdpTargets();
+    const workers = targets.filter((targetInfo) =>
+      targetInfo?.type === "service_worker"
+        && String(targetInfo?.url ?? "").startsWith("chrome-extension://"));
+    for (const worker of workers) {
+      try {
+        const isLive = await evaluateCdpTarget(
+          worker,
+          "Boolean(globalThis.chrome && chrome.runtime && chrome.runtime.id)",
+          5_000,
+        );
+        if (isLive) return worker;
+      } catch {
+        // A torn-down worker target can linger briefly; probe the next handle.
+      }
+    }
+    await delay(500);
+  }
+  throw new Error("No live extension service worker");
+}
+
+async function bindPopupWithCdp(pageUrl) {
+  const normalizedPageUrl = String(pageUrl).replace(/#.*$/, "");
+  const targets = await listCdpTargets();
+  const pageTarget = targets.find((targetInfo) =>
+    targetInfo?.type === "page"
+      && String(targetInfo?.url ?? "").replace(/#.*$/, "") === normalizedPageUrl);
+  if (!pageTarget?.webSocketDebuggerUrl) {
+    throw new Error(`Could not find the managed page target for ${pageUrl}`);
+  }
+
+  let worker = await waitForLiveServiceWorker();
+  const extId = String(worker.url).split("/")[2];
+
+  // The page was first navigated before binding. Reload it without MCP's
+  // context-wide wait-for-completion heuristic so a third-party iframe or live
+  // request cannot wedge the request queue and prevent every later control.
+  await sendCdpCommand(pageTarget.webSocketDebuggerUrl, "Page.reload", {}, 30_000);
+  await delay(1_500);
+
+  let tabId = null;
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    worker = await waitForLiveServiceWorker(5_000);
+    const expression = `(async () => {
+      const targetUrl = ${JSON.stringify(pageUrl)};
+      const tabs = await chrome.tabs.query({});
+      const normalize = (url) => String(url || '').replace(/#.*$/, '');
+      const normalizedTarget = normalize(targetUrl);
+      const exact = tabs.find((tab) => normalize(tab.url) === normalizedTarget);
+      if (exact && Number.isFinite(exact.id)) return exact.id;
+      const fallback = tabs.find((tab) =>
+        normalize(tab.url) && normalizedTarget
+          && normalize(tab.url).startsWith(normalizedTarget.split('?')[0]));
+      return fallback && Number.isFinite(fallback.id) ? fallback.id : null;
+    })()`;
+    tabId = await evaluateCdpTarget(worker, expression, 5_000).catch(() => null);
+    if (Number.isFinite(tabId)) break;
+    await delay(500);
+  }
+  if (!Number.isFinite(tabId)) {
+    throw new Error(`Could not resolve a Chrome tab id for ${pageUrl}`);
+  }
+
+  return {
+    extId,
+    tabId,
+    boundUrl: `chrome-extension://${extId}/popup.html?debugTabId=${tabId}`,
+    pageUrl,
+    refreshed: true,
+  };
+}
 
 function makeClient(child) {
   if (!child.stdin || !child.stdout || !child.stderr) {
@@ -373,167 +483,149 @@ function toolText(resp) {
   }
 }
 
-function extractJsonObject(text) {
-  const trimmed = text.trim();
-  const candidates = [
-    trimmed,
-    trimmed.match(/\{[\s\S]*\}/)?.[0] ?? "",
-  ].filter(Boolean);
-  for (const candidate of candidates) {
-    try {
-      const parsed = JSON.parse(candidate);
-      if (typeof parsed === "string") {
-        return extractJsonObject(parsed);
-      }
-      if (parsed && typeof parsed === "object") {
-        return parsed;
-      }
-      return { value: parsed };
-    } catch {
-      // Try the next candidate.
-    }
-  }
-  return { raw: text };
-}
-
-function buildLiveStateScript(action, options = {}) {
+function buildPopupActionExpression(action, options = {}) {
   const clickSelector = options.clickSelector ? JSON.stringify(options.clickSelector) : "null";
   const inputValues = options.inputValues ? JSON.stringify(options.inputValues) : "null";
   const evalExpr = options.expr ? JSON.stringify(options.expr) : "null";
-  return `async (page) => {
+  return `(async () => {
   try {
   const action = ${JSON.stringify(action)};
   const clickSelector = ${clickSelector};
   const inputValues = ${inputValues};
   const evalExpr = ${evalExpr};
-  const ctx = page.context();
-  const pages = ctx.pages();
-  const popup = pages.find((candidate) => String(candidate.url()).startsWith('chrome-extension://') && String(candidate.url()).includes('/popup.html'));
-  const target = pages.find((candidate) => !String(candidate.url()).startsWith('chrome-extension://') && !String(candidate.url()).startsWith('chrome://'));
-  if (!popup) {
-    return JSON.stringify({ error: 'Could not find the bound Unfluffify popup tab', pages: pages.map(c => c.url()) });
-  }
-
-  // Timeout-wrapped evaluate to prevent hanging the MCP server
-  const evalWithTimeout = async (fn, arg, ms = 8000) => {
-    return Promise.race([
-      popup.evaluate(fn, arg),
-      popup.waitForTimeout(ms).then(() => { throw new Error("popup evaluate timeout"); })
-    ]);
-  };
+  const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 
   async function collectPopupState() {
-    // Wait for popup to be ready (debug hook available) with a short timeout
-    await popup.waitForFunction(() => {
-      return !!(window.__UNFLUFFIFY_POPUP_DEBUG__ && typeof window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState === "function");
-    }, { timeout: 5000 }).catch(() => {});
-    const popupState = await evalWithTimeout(async () => {
-      const popupDebug = window.__UNFLUFFIFY_POPUP_DEBUG__;
-      if (!popupDebug || typeof popupDebug.getViewState !== "function") {
-        return { error: 'Popup debug hook is unavailable', url: location.href, title: document.title };
-      }
-      const view = popupDebug.getViewState();
-      const viewKeys = [
-        'previewActive', 'previewBlocked', 'previewItemsPending', 'previewWillRestoreMarking',
-        'toggleEnabled', 'toggleEnabledDisabled', 'computeButtonDisabled',
-        'markingPreviewVisible', 'markingPreviewDisabled',
-        'pageSaveDisabled', 'pageRevertDisabled',
-        'sessionHasPendingChanges', 'currentPageHasPendingChanges',
-        'sessionRequiresAiRun', 'currentDraftDirty',
-        'pageDraftStatusText', 'aiDirtyNoticeText',
-        'isBusy', 'busyMessage',
-        'previewBlockedReason', 'currentBaseUrl',
-        'markingPreviewVisible', 'pageDraftStatusText'
-      ];
-      const pickedView = {};
-      for (const key of viewKeys) pickedView[key] = view[key];
-      const domIds = ['compute', 'marking-preview', 'page-save', 'page-revert', 'toggle-enabled'];
-      const dom = {};
-      for (const id of domIds) {
-        const element = document.getElementById(id);
-        dom[id] = element
-          ? {
-            disabled: Boolean(element.disabled),
-            checked: 'checked' in element ? Boolean(element.checked) : null,
-            text: String(element.textContent || '').trim(),
-            title: element.getAttribute('title') || '',
-            ariaLabel: element.getAttribute('aria-label') || '',
-            visible: Boolean(element.offsetWidth || element.offsetHeight || element.getClientRects().length)
-          }
-          : null;
-      }
-      // Also collect input fields
-      const inputs = Array.from(document.querySelectorAll('input[type=text], input[type=url], input[type=password], textarea'));
-      const inputState = inputs.map(i => ({ id: i.id || i.name || '?', value: (i.value||'').slice(0,80), placeholder: i.placeholder || '', visible: !!(i.offsetWidth || i.offsetHeight) }));
-      return {
-        url: location.href,
-        title: document.title,
-        view: pickedView,
-        dom,
-        inputs: inputState
-      };
-    });
-    const targetState = target
-      ? await target.evaluate(() => ({
-        url: location.href,
-        title: document.title,
-        activeElement: document.activeElement ? document.activeElement.tagName : ''
-      })).catch((error) => ({ error: String(error && error.message ? error.message : error) }))
-      : null;
-    return { popup: popupState, target: targetState };
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (window.__UNFLUFFIFY_POPUP_DEBUG__ && typeof window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState === 'function') break;
+      await sleep(250);
+    }
+    const popupDebug = window.__UNFLUFFIFY_POPUP_DEBUG__;
+    if (!popupDebug || typeof popupDebug.getViewState !== 'function') {
+      return { error: 'Popup debug hook is unavailable', url: location.href, title: document.title };
+    }
+    const view = popupDebug.getViewState();
+    const viewKeys = [
+      'previewActive', 'previewBlocked', 'previewItemsPending', 'previewWillRestoreMarking',
+      'toggleEnabled', 'toggleEnabledDisabled', 'computeButtonDisabled',
+      'markingPreviewVisible', 'markingPreviewDisabled',
+      'pageSaveDisabled', 'pageRevertDisabled',
+      'sessionHasPendingChanges', 'currentPageHasPendingChanges',
+      'sessionRequiresAiRun', 'currentDraftDirty',
+      'pageDraftStatusText', 'aiDirtyNoticeText',
+      'isBusy', 'busyMessage',
+      'previewBlockedReason', 'currentBaseUrl'
+    ];
+    const pickedView = {};
+    for (const key of viewKeys) pickedView[key] = view[key];
+    const domIds = ['compute', 'marking-preview', 'page-save', 'page-revert', 'toggle-enabled'];
+    const dom = {};
+    for (const id of domIds) {
+      const element = document.getElementById(id);
+      dom[id] = element
+        ? {
+          disabled: Boolean(element.disabled),
+          checked: 'checked' in element ? Boolean(element.checked) : null,
+          text: String(element.textContent || '').trim(),
+          title: element.getAttribute('title') || '',
+          ariaLabel: element.getAttribute('aria-label') || '',
+          visible: Boolean(element.offsetWidth || element.offsetHeight || element.getClientRects().length)
+        }
+        : null;
+    }
+    const inputs = Array.from(document.querySelectorAll('input[type=text], input[type=url], input[type=password], textarea'));
+    const inputState = inputs.map((input) => ({
+      id: input.id || input.name || '?',
+      value: String(input.value || '').slice(0, 80),
+      placeholder: input.placeholder || '',
+      visible: Boolean(input.offsetWidth || input.offsetHeight),
+    }));
+    return { url: location.href, title: document.title, view: pickedView, dom, inputs: inputState };
   }
 
   if (action === 'click' && clickSelector) {
     const before = await collectPopupState();
-    await evalWithTimeout((sel) => {
-      const el = document.querySelector(sel) || document.getElementById(sel);
-      if (!el) throw new Error('Element not found: ' + sel);
-      el.click();
-    }, clickSelector);
-    await popup.waitForTimeout(2000);
+    const element = document.querySelector(clickSelector) || document.getElementById(clickSelector);
+    if (!element) throw new Error('Element not found: ' + clickSelector);
+    element.click();
+    await sleep(2000);
     const after = await collectPopupState();
-    return JSON.stringify({ action, selector: clickSelector, before, after, pages: pages.map(c => c.url()) });
+    return { action, selector: clickSelector, before, after };
   }
 
   if (action === 'set-inputs' && inputValues) {
-    await evalWithTimeout((vals) => {
-      for (const [id, value] of Object.entries(vals)) {
-        const el = document.getElementById(id) || document.querySelector('[name="' + id + '"]');
-        if (el) {
-          el.value = value;
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-          el.dispatchEvent(new Event('change', { bubbles: true }));
-        }
+    for (const [id, value] of Object.entries(inputValues)) {
+      const element = document.getElementById(id) || document.querySelector('[name="' + id + '"]');
+      if (element) {
+        const inputValueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+        const textareaValueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+        const valueSetter = element instanceof HTMLTextAreaElement ? textareaValueSetter : inputValueSetter;
+        if (!valueSetter) throw new Error('Native input value setter is unavailable');
+        valueSetter.call(element, value);
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
       }
-    }, inputValues);
-    await popup.waitForTimeout(500);
+    }
+    await sleep(500);
     const state = await collectPopupState();
-    return JSON.stringify({ action, inputValues, state, pages: pages.map(c => c.url()) });
+    return { action, inputValues, state };
   }
 
   if (action === 'exit-preview') {
     const before = await collectPopupState();
-    await evalWithTimeout(() => {
-      const button = document.querySelector('.preview-sidebar__dismiss');
-      if (!button) throw new Error('Exit Preview button not found');
-      button.click();
-    });
-    await popup.waitForTimeout(1500);
+    const button = document.querySelector('.preview-sidebar__dismiss');
+    if (!button) throw new Error('Exit Preview button not found');
+    button.click();
+    await sleep(1500);
     const after = await collectPopupState();
-    return JSON.stringify({ action, before, after, pages: pages.map(c => c.url()) });
+    return { action, before, after };
   }
 
   if (action === 'eval' && evalExpr) {
-    const result = await evalWithTimeout(evalExpr);
-    return JSON.stringify({ action, result, pages: pages.map(c => c.url()) });
+    const result = await (0, eval)(evalExpr);
+    return { action, result };
   }
 
   const state = await collectPopupState();
-  return JSON.stringify({ action, state, pages: pages.map(c => c.url()) });
+  return { action, state };
   } catch (e) {
-    return JSON.stringify({ error: String(e && e.message ? e.message : e), action: ${JSON.stringify(action)} });
+    return { error: String(e && e.message ? e.message : e), action: ${JSON.stringify(action)} };
   }
-}`;
+})()`;
+}
+
+async function runCdpStateAction(action, timeoutMs, options = {}) {
+  const targets = await listCdpTargets();
+  const pages = targets.filter((targetInfo) => targetInfo?.type === "page");
+  const popup = pages.find((targetInfo) =>
+    String(targetInfo?.url ?? "").startsWith("chrome-extension://")
+      && String(targetInfo?.url ?? "").includes("/popup.html"));
+  const targetPage = pages.find((targetInfo) => {
+    const url = String(targetInfo?.url ?? "");
+    return !url.startsWith("chrome-extension://") && !url.startsWith("chrome://");
+  });
+  const pageUrls = pages.map((targetInfo) => String(targetInfo?.url ?? ""));
+  if (!popup) {
+    return { error: "Could not find the bound Unfluffify popup tab", pages: pageUrls };
+  }
+
+  const result = asJson(await evaluateCdpTarget(
+    popup,
+    buildPopupActionExpression(action, options),
+    timeoutMs,
+  ));
+  const targetState = targetPage
+    ? await evaluateCdpTarget(
+      targetPage,
+      "({ url: location.href, title: document.title, activeElement: document.activeElement ? document.activeElement.tagName : '' })",
+      timeoutMs,
+    ).catch((error) => ({ error: String(error?.message ?? error) }))
+    : null;
+
+  if (result.state) result.state = { popup: result.state, target: targetState };
+  if (result.before) result.before = { popup: result.before, target: targetState };
+  if (result.after) result.after = { popup: result.after, target: targetState };
+  return { ...result, pages: pageUrls };
 }
 
 function asJson(value) {
@@ -562,7 +654,7 @@ function summarizeButtonState(result) {
   };
 }
 
-function makeControlChannel(client) {
+function makeControlChannel() {
   let queue = Promise.resolve();
   let observing = true;
   let lastObserved = "";
@@ -575,11 +667,7 @@ function makeControlChannel(client) {
   }
 
   async function runStateAction(action, timeoutMs = CONTROL_STATE_TIMEOUT_MS, options = {}) {
-    const response = await client.request("tools/call", {
-      name: "browser_run_code_unsafe",
-      arguments: { code: buildLiveStateScript(action, options) },
-    }, timeoutMs);
-    return extractJsonObject(toolText(response));
+    return await runCdpStateAction(action, timeoutMs, options);
   }
 
   function printJson(prefix, value) {
@@ -935,17 +1023,18 @@ const finalUrl = navText.match(/Page URL:\s*(\S+)/)?.[1] ?? target;
 console.log(`[launch] page loaded: ${finalUrl}`);
 
 console.log("[launch] binding popup to the page tab (debugTabId)…");
-const bind = await client.request("tools/call", {
-  name: "browser_run_code_unsafe",
-  arguments: { code: BIND_SCRIPT },
-});
-const bindText = toolText(bind);
-const bindClean = bindText.replaceAll('\\"', '"');
-const extId = bindClean.match(/"extId"\s*:\s*"([^"]+)"/)?.[1];
-const tabId = bindClean.match(/"tabId"\s*:\s*(\d+)/)?.[1];
-const boundUrl = bindClean.match(/"boundUrl"\s*:\s*"([^"]+)"/)?.[1];
+const bindInfo = await bindPopupWithCdp(finalUrl);
+const { extId, tabId, boundUrl } = bindInfo;
 
 if (extId && tabId && boundUrl) {
+  console.log("[launch] opening bound popup through the managed browser CDP endpoint…");
+  await openCdpTab(boundUrl);
+  await waitForCdpTarget(boundUrl);
+  // The property lock tracks the bound website tab, not the debug popup. A new
+  // popup becomes Chrome's active tab by default and therefore suspends the lock
+  // as `tab-hidden`; return focus to the target while retaining CDP control of
+  // the hidden popup.
+  await bringCdpPageToFront(finalUrl);
   console.log("");
   console.log("================ live test browser ready ================");
   console.log(`  target page : ${finalUrl}`);
@@ -955,18 +1044,17 @@ if (extId && tabId && boundUrl) {
   // The banner is evidence of what is actually running, so it must not claim more
   // than the launch can guarantee. A reused profile can still serve a worker from
   // a previous registration; only a fresh one rules that out.
-  console.log(`  freshness   : ${bindClean.includes('"refreshed":true')
+  console.log(`  freshness   : ${bindInfo.refreshed
     ? `${droppedWorker ? "worker registration dropped" : "no prior worker registration"}`
       + `${stampedVersion ? `, version ${stampedVersion}` : ", WARNING: version not stamped"}`
       + `; page reloaded; profile ${PROFILE_EXISTED ? "reused (data kept)" : "new"}`
     : "WARNING: not refreshed; the worker may be running a previous build"}`);
   console.log("=========================================================");
   console.log("Browser is open. Stop with Ctrl-C or `kill <pid>` to close it.");
-  controlChannel = makeControlChannel(client);
+  controlChannel = makeControlChannel();
   controlChannel.start();
 } else {
-  console.error("[launch] popup binding did not return the expected result:");
-  console.error(bindText);
+  console.error("[launch] popup binding did not return the expected result");
   console.error("[launch] the page is loaded; browser left open for inspection.");
 }
 
