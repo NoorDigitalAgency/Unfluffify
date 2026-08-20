@@ -534,12 +534,33 @@ describe("P6 content marking engine", () => {
     });
   });
 
-  it("strips closed-shadow hosts from submitted rendered HTML to preserve XPath alignment", () => {
+  it("preserves captured-shadow hosts while stripping extension and automation artifacts", () => {
     expect(stripUncapturableHtml(
       '<section><div data-uf-closed-shadow-host="true"><p>Closed</p></div><div>Content</div></section>',
-    )).toBe("<section><div>Content</div></section>");
+    )).toBe("<section><div><p>Closed</p></div><div>Content</div></section>");
     expect(stripUncapturableHtml(
-      '<section><div data-uf-closed-shadow-host="true"><div>Closed</div></div><div>Content</div></section>',
+      '<section><browser-mcp-container><div>Automation</div></browser-mcp-container><div data-uf-extension-ui="true">Overlay</div><div>Content</div></section>',
     )).toBe("<section><div>Content</div></section>");
+
+    const left = leaf("left", "/html[1]/body[1]/main[1]/p[1]");
+    const evaluation = createMarkingStore({
+      root: {
+        key: "body",
+        tagName: "BODY",
+        xpath: "/html[1]/body[1]",
+        visible: true,
+        children: [left],
+      },
+    }).currentEvaluation();
+    const snapshot = buildSubmissionSnapshot({
+      baseUrl: "https://example.com",
+      renderMode: "static",
+      pageUrl: "https://example.com/page",
+      renderedHtml: '<main data-uf-motion-paused="true"><p>Rendered</p></main>',
+      rawHtml: '<main><div id="unfluffify-consent-bypass-style">Helper</div><p>Static</p></main>',
+      evaluation,
+    });
+    expect(snapshot.pages[0]?.renderedHtml).toBe("<main><p>Rendered</p></main>");
+    expect(snapshot.pages[0]?.rawHtml).toBe("<main><p>Static</p></main>");
   });
 });

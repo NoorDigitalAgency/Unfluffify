@@ -102,6 +102,11 @@ const page = globalThis as unknown as PageWorldRoot;
     const patched: InstrumentedAttachShadow = function patchedAttachShadow(this: Element, init: ShadowRootInit) {
       if (init && init.mode === "closed") {
         this.setAttribute?.("data-uf-closed-shadow-host", "true");
+        // Closed roots created before this hook remain genuinely inaccessible.
+        // Roots created after it retain their authored "closed" provenance but
+        // are exposed as open so the extension can flatten and mark the same
+        // composed content Google WRS can retrieve.
+        return originalAttachShadow.call(this, { ...init, mode: "open" });
       }
       return originalAttachShadow.call(this, init);
     };

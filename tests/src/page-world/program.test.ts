@@ -15,6 +15,45 @@ function dispatchFromPage(
 }
 
 describe("P5 page-world program", () => {
+  it("captures early closed shadow roots as retrievable open roots", () => {
+    const source = readFileSync("src/page-world/program.js", "utf8");
+    const requestedModes: string[] = [];
+    class FakeElement {
+      readonly attributes = new Map<string, string>();
+      shadowRoot: { mode: string } | null = null;
+
+      setAttribute(name: string, value: string): void {
+        this.attributes.set(name, value);
+      }
+
+      attachShadow(init: { mode: string }): { mode: string } {
+        requestedModes.push(init.mode);
+        this.shadowRoot = { mode: init.mode };
+        return this.shadowRoot;
+      }
+    }
+    const context = {
+      Element: FakeElement,
+      performance: { now: () => 123 },
+      document: { documentElement: { toggleAttribute() {} } },
+      setTimeout(callback: () => void) { callback(); return 1; },
+      clearTimeout() {},
+      setInterval() { return 1; },
+      clearInterval() {},
+      requestAnimationFrame(callback: (now: number) => void) { callback(1); return 1; },
+      cancelAnimationFrame() {},
+      addEventListener() {},
+    };
+
+    vm.runInNewContext(source, { ...context, globalThis: context });
+    const host = new FakeElement();
+    const root = host.attachShadow({ mode: "closed" });
+
+    expect(requestedModes).toEqual(["open"]);
+    expect(root).toBe(host.shadowRoot);
+    expect(host.attributes.get("data-uf-closed-shadow-host")).toBe("true");
+  });
+
   it("is one plain JavaScript source with the fixed allow-list and nonce response shape", () => {
     const source = readFileSync("src/page-world/program.js", "utf8");
 

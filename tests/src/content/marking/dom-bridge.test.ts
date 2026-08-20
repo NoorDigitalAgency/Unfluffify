@@ -22,6 +22,7 @@ class FakeElement {
   readonly nodeType = 1;
   parentElement: FakeElement | null = null;
   shadowHost: FakeElement | null = null;
+  assigned: FakeElement[] = [];
   ownerDocument!: FakeDocument;
   shadowRoot?: { children: FakeElement[]; childNodes?: Array<{ nodeType?: number; textContent?: string } | FakeElement>; elementsFromPoint: (_x: number, _y: number) => FakeElement[] } | null;
   className = "";
@@ -109,6 +110,14 @@ class FakeElement {
 
   contains(element: FakeElement): boolean {
     return this === element || this.children.some((child) => child.contains(element));
+  }
+
+  matches(selector: string): boolean {
+    return selector.toLowerCase() === this.tagName.toLowerCase();
+  }
+
+  assignedNodes(): FakeElement[] {
+    return this.assigned;
   }
 
   getBoundingClientRect(): Rect {
@@ -234,7 +243,7 @@ describe("P6 DOM bridge", () => {
 
     expect([...view.byXpath.keys()]).toContain("/section[1]/p[1]");
     expect([...view.byXpath.keys()]).toContain("/section[1]/p[2]");
-    expect([...view.byElement.keys()]).not.toContain(chrome as unknown as Element);
+    expect(view.byElement.has(chrome as unknown as Element)).toBe(false);
   });
 
   it("does not let extension UI shift captured sibling XPath indexes", () => {
@@ -498,6 +507,38 @@ describe("P6 DOM bridge", () => {
     expect(renderer.root.children.every((layer) => layer.children.length === 0)).toBe(true);
   });
 
+  it("keeps a collapsed wrapper XPath while drawing its visible descendant geometry", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const wrapper = new FakeElement("SECTION", rect(0, 0, 0, 0));
+    const paragraph = new FakeElement("P", rect(20, 40, 180, 30), "Visible descendant");
+    for (const element of [root, wrapper, paragraph]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    wrapper.appendChild(paragraph);
+    root.appendChild(wrapper);
+    const renderer = createOverlayRenderer({ document: doc as unknown as Document });
+
+    renderer.render({
+      rows: [{ xpath: "/main[1]/section[1]", excluded: false, explicit: true }],
+      overlay: new Map([["/main[1]/section[1]", "explicit-include"]]),
+    }, new Map([["/main[1]/section[1]", {
+      element: wrapper as unknown as Element,
+      visible: true,
+    }]]));
+
+    const box = renderer.root.children.flatMap((layer) => layer.children).find((candidate) =>
+      candidate.getAttribute("data-uf-overlay-xpath") === "/main[1]/section[1]"
+    );
+    expect(box).toBeDefined();
+    expect(box?.style.left).toBe("20px");
+    expect(box?.style.top).toBe("40px");
+    expect(box?.getAttribute("data-uf-overlay-xpath")).toBe("/main[1]/section[1]");
+    renderer.dispose();
+  });
+
   it("renders the three legacy silent border classes on separate reusable layers", () => {
     const doc = new FakeDocument();
     const content = new FakeElement("P", rect(0, 0, 120, 20), "Content");
@@ -530,7 +571,7 @@ describe("P6 DOM bridge", () => {
     renderer.dispose();
   });
 
-  it("uses the animated legacy selector border without changing selector-seeded rows", () => {
+  it("forgets selector provenance after applying selectors as ordinary user marks", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 200));
     const paragraph = new FakeElement("P", rect(10, 10, 120, 20), "Selected content");
@@ -552,7 +593,7 @@ describe("P6 DOM bridge", () => {
     const selectorBox = engine.overlayRoot().children
       .flatMap((layer) => layer.children)
       .find((box) => box.getAttribute("data-uf-overlay-xpath") === "/main[1]/p[1]");
-    expect(selectorBox?.className).toBe("uf-rect uf-ai-content");
+    expect(selectorBox?.className).toBe("uf-rect uf-explicit-include");
     expect(engine.rows()).toContainEqual({
       xpath: "/main[1]/p[1]",
       excluded: false,
@@ -906,6 +947,37 @@ describe("P6 DOM bridge", () => {
     expect(doc.createElementCount - createdBefore).toBe(2);
   });
 
+  it("rejects a stale toggle target after the DOM generation is rebuilt", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const original = new FakeElement("P", rect(0, 0, 120, 20), "Original");
+    root.ownerDocument = doc;
+    original.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(original);
+    doc.hits = [original, root];
+    const engine = createMarkingEngine(root as unknown as Element);
+    const staleTarget = engine.resolveAtPoint(10, 10, "exclude");
+    expect(staleTarget).not.toBeNull();
+
+    root.replaceChildren();
+    const replacement = new FakeElement("P", rect(0, 0, 120, 20), "Replacement");
+    replacement.ownerDocument = doc;
+    root.appendChild(replacement);
+    doc.hits = [replacement, root];
+    engine.refresh();
+
+    expect(engine.toggle(staleTarget!, "exclude")).toBe(false);
+    expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[1]", excluded: false });
+    expect(engine.rows()).not.toContainEqual({
+      xpath: "/main[1]/p[1]",
+      excluded: true,
+      explicit: true,
+    });
+    engine.dispose();
+  });
+
   it("matches the legacy 052c Shift-widening golden fixture", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 400, 400));
@@ -1047,26 +1119,47 @@ describe("P6 DOM bridge", () => {
     expect(engine.resolveAtPoint(10, 10, "exclude")?.xpath).toBe("/main[1]/p[1]");
   });
 
-  it("can mark closed shadow hosts through instrumentation metadata", () => {
+  it("flattens and marks a closed root captured by early instrumentation", () => {
     const doc = new FakeDocument();
     const host = new FakeElement("X-CLOSED", rect(0, 0, 100, 20), "host");
+    const shadow = new FakeElement("P", rect(0, 0, 100, 20), "Shadow copy");
     host.ownerDocument = doc;
+    shadow.ownerDocument = doc;
+    shadow.shadowHost = host;
+    host.shadowRoot = { children: [shadow], childNodes: [shadow], elementsFromPoint: () => [shadow] };
 
     markClosedShadowHost(host as unknown as Element);
     const view = createDomBridgeView(host as unknown as Element);
 
-    expect(view.root.closedShadow).toBe(true);
+    expect(view.root.closedShadow).toBe(false);
+    expect(view.byXpath.get("/x-closed[1]/p[1]")?.element).toBe(shadow);
+    expect(captureFlattenedHtml(host as unknown as Element)).toBe(
+      "<x-closed><p>Shadow copy</p>host</x-closed>",
+    );
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(host);
+    const engine = createMarkingEngine(host as unknown as Element);
+    expect(engine.seedFromSelectors({ inclusionSelectors: ["p"], exclusionSelectors: [] })).toBe(true);
+    expect(engine.rows()).toContainEqual({
+      xpath: "/x-closed[1]/p[1]",
+      excluded: false,
+      explicit: true,
+    });
+    engine.dispose();
   });
 
-  it("keeps closed-shadow hosts out of canonical sibling indexes and unmarkable", () => {
+  it("omits only an inaccessible closed root while preserving its host and light DOM", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("SECTION", rect(0, 0, 300, 300));
     const closed = new FakeElement("DIV", rect(0, 0, 100, 20), "Closed");
+    const light = new FakeElement("SPAN", rect(0, 0, 80, 20), "Light");
     const content = new FakeElement("DIV", rect(0, 30, 100, 20), "Content");
     markClosedShadowHost(closed as unknown as Element);
     root.ownerDocument = doc;
     closed.ownerDocument = doc;
+    light.ownerDocument = doc;
     content.ownerDocument = doc;
+    closed.appendChild(light);
     root.appendChild(closed);
     root.appendChild(content);
     doc.hits = [closed, root];
@@ -1079,39 +1172,46 @@ describe("P6 DOM bridge", () => {
       renderMode: "rendered",
       pageUrl: "https://example.com/page",
     });
-    const closedOverlay = engine.overlayRoot().children.flatMap((layer) => layer.children).find((child) =>
-      child.getAttribute("data-uf-overlay-xpath")?.includes("__closed-shadow")
-    );
-
     expect([...view.byXpath.keys()]).toContain("/section[1]/div[1]");
-    expect([...view.byXpath.keys()].some((xpath) => xpath.includes("__closed-shadow"))).toBe(true);
-    expect(engine.resolveAtPoint(10, 10, "exclude")).toBeNull();
-    expect(engine.captureRenderedHtml()).toBe("<section><div>Content</div></section>");
-    expect(closedOverlay?.className).toBe("uf-rect uf-hard-locked uf-closed-shadow");
-    expect(submission.pages[0]?.renderedXPaths).toEqual([
-      { xpath: "/section[1]/div[1]", excluded: false },
-    ]);
+    expect([...view.byXpath.keys()]).toContain("/section[1]/div[1]/span[1]");
+    expect([...view.byXpath.keys()]).toContain("/section[1]/div[2]");
+    expect([...view.byXpath.keys()].some((xpath) => xpath.includes("__closed-shadow"))).toBe(false);
+    expect(engine.resolveAtPoint(10, 10, "exclude")?.xpath).toBe("/section[1]/div[1]");
+    expect(engine.captureRenderedHtml()).toBe(
+      "<section><div>Closed<span>Light</span></div><div>Content</div></section>",
+    );
+    expect(submission.pages[0]?.renderedXPaths).toContainEqual({
+      xpath: "/section[1]/div[1]",
+      excluded: false,
+    });
     expect(submission.pages[0]?.renderedXPaths.every((row) =>
       /^\/(?:[A-Za-z][A-Za-z0-9:_-]*\[[1-9]\d*\])(?:\/[A-Za-z][A-Za-z0-9:_-]*\[[1-9]\d*\])*$/.test(row.xpath)
     )).toBe(true);
   });
 
-  it("captures flattened open shadow HTML while skipping extension and closed-shadow hosts", () => {
+  it("captures nested open and captured-closed shadow HTML", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("SECTION", rect(0, 0, 300, 300));
     const shadow = new FakeElement("P", rect(0, 0, 100, 20), "Shadow");
     const closed = new FakeElement("DIV", rect(0, 30, 100, 20), "Closed");
+    const closedShadow = new FakeElement("EM", rect(0, 30, 80, 20), "Captured");
     const content = new FakeElement("DIV", rect(0, 60, 100, 20), "Content");
     markClosedShadowHost(closed as unknown as Element);
-    for (const element of [root, shadow, closed, content]) {
+    for (const element of [root, shadow, closed, closedShadow, content]) {
       element.ownerDocument = doc;
     }
     root.shadowRoot = { children: [shadow], childNodes: [shadow], elementsFromPoint: () => [shadow] };
+    closedShadow.shadowHost = closed;
+    closed.shadowRoot = {
+      children: [closedShadow],
+      childNodes: [closedShadow],
+      elementsFromPoint: () => [closedShadow],
+    };
     root.appendChild(closed);
     root.appendChild(content);
 
     expect(captureFlattenedHtml(root as unknown as Element)).toBe(
-      "<section><p>Shadow</p><div>Content</div></section>",
+      "<section><p>Shadow</p><div><em>Captured</em>Closed</div><div>Content</div></section>",
     );
   });
 
@@ -1126,6 +1226,43 @@ describe("P6 DOM bridge", () => {
     } as unknown as FakeElement["shadowRoot"];
 
     expect(captureFlattenedHtml(root as unknown as Element)).toBe("<section>Shadow text</section>");
+  });
+
+  it("flattens slotted nodes in composed order without duplicating light DOM", () => {
+    const doc = new FakeDocument();
+    const host = new FakeElement("SECTION", rect(0, 0, 300, 300));
+    const before = new FakeElement("P", rect(0, 0, 100, 20), "Before");
+    const slot = new FakeElement("SLOT", rect(0, 20, 100, 20));
+    const assigned = new FakeElement("P", rect(0, 20, 100, 20), "Assigned");
+    const after = new FakeElement("P", rect(0, 40, 100, 20), "After");
+    const unassigned = new FakeElement("P", rect(0, 60, 100, 20), "Unassigned light");
+    for (const element of [host, before, slot, assigned, after, unassigned]) {
+      element.ownerDocument = doc;
+    }
+    slot.assigned = [assigned];
+    assigned.shadowHost = host;
+    before.shadowHost = host;
+    slot.shadowHost = host;
+    after.shadowHost = host;
+    host.shadowRoot = {
+      children: [before, slot, after],
+      childNodes: [before, slot, after],
+      elementsFromPoint: () => [],
+    };
+    host.appendChild(assigned);
+    host.appendChild(unassigned);
+
+    const view = createDomBridgeView(host as unknown as Element);
+    expect([...view.byXpath.keys()]).toEqual([
+      "/section[1]/p[1]",
+      "/section[1]/p[2]",
+      "/section[1]/p[3]",
+      "/section[1]/p[4]",
+      "/section[1]",
+    ]);
+    expect(captureFlattenedHtml(host as unknown as Element)).toBe(
+      "<section><p>Before</p><p>Assigned</p><p>After</p><p>Unassigned light</p></section>",
+    );
   });
 
   it("submits a row for direct open-shadow text captured on the host", () => {
@@ -1143,7 +1280,7 @@ describe("P6 DOM bridge", () => {
     expect(engine.rows()).toEqual([{ xpath: "/section[1]", excluded: false }]);
   });
 
-  it("ignores closed-shadow descendants when computing ancestor page-shell metadata", () => {
+  it("includes captured-closed descendants in composed page-shell metadata", () => {
     const doc = new FakeDocument();
     const wrapper = new FakeElement("SECTION", rect(0, 0, 200, 200), "Wrapper");
     const closed = new FakeElement("X-CLOSED", rect(0, 0, 200, 200));
@@ -1153,14 +1290,15 @@ describe("P6 DOM bridge", () => {
     for (const element of [wrapper, closed, header, nav]) {
       element.ownerDocument = doc;
     }
-    closed.appendChild(header);
-    closed.appendChild(nav);
+    header.shadowHost = closed;
+    nav.shadowHost = closed;
+    closed.shadowRoot = { children: [header, nav], childNodes: [header, nav], elementsFromPoint: () => [] };
     wrapper.appendChild(closed);
 
     const view = createDomBridgeView(wrapper as unknown as Element);
 
-    expect(view.root.landmarkCount).toBe(0);
-    expect(view.root.pageShell).toBe(false);
+    expect(view.root.landmarkCount).toBe(2);
+    expect(view.root.pageShell).toBe(true);
   });
 
   it("does not build or target descendants inside immutable subtrees", () => {
@@ -1180,7 +1318,7 @@ describe("P6 DOM bridge", () => {
     const view = createDomBridgeView(root as unknown as Element);
     const engine = createMarkingEngine(root as unknown as Element);
 
-    expect([...view.byElement.keys()]).not.toContain(title as unknown as Element);
+    expect(view.byElement.has(title as unknown as Element)).toBe(false);
     expect(engine.resolveAtPoint(10, 10, "exclude")).toBeNull();
   });
 

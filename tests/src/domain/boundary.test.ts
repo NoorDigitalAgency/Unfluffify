@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { BoundaryNode } from "../../../src/domain/boundary";
-import { isSelfMarkable, isStructuralBoundary } from "../../../src/domain/boundary";
+import {
+  isSelfMarkable,
+  isStructuralBoundary,
+  isToggleableBoundary,
+} from "../../../src/domain/boundary";
 
 const node = (overrides: Partial<BoundaryNode>): BoundaryNode => ({
   key: "n",
@@ -36,5 +40,15 @@ describe("P0 boundary predicates (INV-3.5..INV-3.6)", () => {
       false,
     );
     expect(isSelfMarkable(node({ structuralRole: "section", pageShell: true }))).toBe(false);
+  });
+
+  it("shares one toggleable-boundary decision for closed and silent surfaces", () => {
+    expect(isToggleableBoundary(node({ ownsDirectText: true }))).toBe(true);
+    expect(isToggleableBoundary(node({ ownsDirectText: true, closedShadow: true }))).toBe(false);
+    expect(isToggleableBoundary(node({ ownsDirectText: true, silentWhitespaceExclusion: true }))).toBe(false);
+    expect(isToggleableBoundary(
+      node({ ownsDirectText: true, silentWhitespaceExclusion: true }),
+      { hasOwnMark: () => true },
+    )).toBe(true);
   });
 });

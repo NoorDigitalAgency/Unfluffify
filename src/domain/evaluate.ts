@@ -1,6 +1,7 @@
 import type { CanonicalMarkSet, Classification, MarkRow } from "./schema/marking";
 import type { StructuralRole } from "./boundary";
 import { isImmutableTag } from "./taxonomy";
+import { isToggleableBoundary } from "./boundary";
 import { compareXpathsInDocumentOrder, isDocumentRootRowXPath, isXPathInSubtree } from "./xpath";
 
 export type EvaluationNode = Readonly<{
@@ -74,7 +75,7 @@ function classifyNode(
   if (nearestMark && !nearestMark.excluded) {
     return nearestMark.explicit ? "explicit-include" : "implicit-include";
   }
-  if (node.visible && (node.ownsDirectText || node.structuralBoundary)) {
+  if (isToggleableBoundary(node)) {
     return "implicit-include";
   }
   return null;

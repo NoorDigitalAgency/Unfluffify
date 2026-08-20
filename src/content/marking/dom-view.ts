@@ -13,7 +13,7 @@ export type DomBridgeNode = Readonly<{
 
 export type DomBridgeView = Readonly<{
   root: EvaluationNode;
-  byElement: ReadonlyMap<Element, DomBridgeNode>;
+  byElement: Pick<WeakMap<Element, DomBridgeNode>, "get" | "has">;
   byXpath: ReadonlyMap<string, DomBridgeNode>;
 }>;
 
@@ -100,10 +100,30 @@ function isSilentWhitespaceExclusion(
 }
 
 function flattenedChildNodes(element: Element): Node[] {
-  return [
-    ...Array.from((element as Element & { shadowRoot?: ShadowRoot | null }).shadowRoot?.childNodes ?? []),
-    ...Array.from(element.childNodes),
-  ];
+  const shadowRoot = (element as Element & { shadowRoot?: ShadowRoot | null }).shadowRoot;
+  if (!shadowRoot) {
+    return Array.from(element.childNodes);
+  }
+  const assigned = new Set<Node>();
+  const expandSlot = (node: Node): Node[] => {
+    const slot = node.nodeType === 1 && (node as Element).tagName.toUpperCase() === "SLOT"
+      ? node as HTMLSlotElement
+      : null;
+    if (!slot) {
+      return [node];
+    }
+    const assignedNodes = typeof slot.assignedNodes === "function"
+      ? slot.assignedNodes({ flatten: true })
+      : [];
+    const replacements = assignedNodes.length > 0 ? assignedNodes : Array.from(slot.childNodes);
+    for (const replacement of replacements) {
+      assigned.add(replacement);
+    }
+    return replacements;
+  };
+  const shadowNodes = Array.from(shadowRoot.childNodes).flatMap(expandSlot);
+  const remainingLightNodes = Array.from(element.childNodes).filter((node) => !assigned.has(node));
+  return [...shadowNodes, ...remainingLightNodes];
 }
 
 function depthFromBody(xpath: string): number {
@@ -125,7 +145,7 @@ function landmarkCount(element: Element, pass: DomBridgePass): number {
     ? 1
     : 0;
   const count = own + elementChildren(element, pass)
-    .filter((child) => !isExtensionUi(child) && !isClosedShadowHost(child))
+    .filter((child) => !isExtensionUi(child))
     .reduce((total, child) => total + landmarkCount(child, pass), 0);
   pass.landmarkCountByElement.set(element, count);
   return count;
@@ -279,8 +299,8 @@ function elementChildren(element: Element, pass?: DomBridgePass): Element[] {
   if (cached) {
     return cached;
   }
-  const shadowRoot = (element as Element & { shadowRoot?: ShadowRoot | null }).shadowRoot;
-  const children = [...Array.from(shadowRoot?.children ?? []), ...Array.from(element.children)];
+  const children = flattenedChildNodes(element)
+    .filter((node): node is Element => node.nodeType === 1);
   pass?.childrenByElement.set(element, children);
   return children;
 }
@@ -289,22 +309,17 @@ function xpathTag(element: Element): string {
   return element.tagName.toLowerCase();
 }
 
-function isClosedShadowHost(element: Element): boolean {
-  return element.getAttribute("data-uf-closed-shadow-host") === "true";
-}
-
 function buildNode(
   element: Element,
   parent: XPathNodeView | null,
   xpath: string,
-  byElement: Map<Element, DomBridgeNode>,
+  byElement: WeakMap<Element, DomBridgeNode>,
   byXpath: Map<string, DomBridgeNode>,
   pass: DomBridgePass,
 ): DomBridgeNode | null {
   if (isExtensionUi(element)) {
     return null;
   }
-  const closedShadow = isClosedShadowHost(element);
   const xpathNode = {
     key: xpath,
     tagName: element.tagName,
@@ -314,19 +329,10 @@ function buildNode(
   const childEvaluations: EvaluationNode[] = [];
   const tagName = element.tagName.toUpperCase();
   const immutable = isImmutableTag(tagName);
-  if (!closedShadow && !immutable) {
+  if (!immutable) {
     const seenTags = new Map<string, number>();
-    let closedShadowIndex = 0;
     for (const child of elementChildren(element, pass)) {
       if (isExtensionUi(child)) {
-        continue;
-      }
-      if (isClosedShadowHost(child)) {
-        closedShadowIndex += 1;
-        const built = buildNode(child, xpathNode, `${xpath}/__closed-shadow[${closedShadowIndex}]`, byElement, byXpath, pass);
-        if (built) {
-          childEvaluations.push(built.evaluationNode);
-        }
         continue;
       }
       const tag = xpathTag(child);
@@ -356,7 +362,7 @@ function buildNode(
     landmarkCount: landmarks,
     chrome: isExtensionUi(element),
     immutable,
-    closedShadow,
+    closedShadow: false,
     silentWhitespaceExclusion: !immutable && isSilentWhitespaceExclusion(
       element,
       visible,
@@ -371,7 +377,7 @@ function buildNode(
 }
 
 export function createDomBridgeView(rootElement: Element): DomBridgeView {
-  const byElement = new Map<Element, DomBridgeNode>();
+  const byElement = new WeakMap<Element, DomBridgeNode>();
   const byXpath = new Map<string, DomBridgeNode>();
   const pass: DomBridgePass = {
     childrenByElement: new WeakMap(),
@@ -412,6 +418,7 @@ export function installClosedShadowHostInstrumentation(win: Window): () => void 
   proto.attachShadow = function patchedAttachShadow(this: Element, init: ShadowRootInit): ShadowRoot {
     if (init.mode === "closed") {
       markClosedShadowHost(this);
+      return original.call(this, { ...init, mode: "open" });
     }
     return original.call(this, init);
   };
@@ -435,7 +442,7 @@ function serializeAttributes(element: Element): string {
 }
 
 export function captureFlattenedHtml(element: Element): string {
-  if (isExtensionUi(element) || isClosedShadowHost(element)) {
+  if (isExtensionUi(element)) {
     return "";
   }
   const tag = element.tagName.toLowerCase();

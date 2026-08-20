@@ -11,19 +11,22 @@ export type StructuralRole =
 export type BoundaryNode = Readonly<{
   key: string;
   tagName: string;
-  depthFromBody: number;
+  depthFromBody?: number;
   visible: boolean;
   ownsDirectText?: boolean;
   chrome?: boolean;
   structuralRole?: StructuralRole;
   landmarkCount?: number;
   pageShell?: boolean;
+  closedShadow?: boolean;
+  silentWhitespaceExclusion?: boolean;
 }>;
 
 export type BoundaryContext = Readonly<{
   isVisible?: (node: BoundaryNode) => boolean;
   isChrome?: (node: BoundaryNode) => boolean;
   ownsDirectText?: (node: BoundaryNode) => boolean;
+  hasOwnMark?: (node: BoundaryNode) => boolean;
 }>;
 
 export function isPageShell(node: BoundaryNode): boolean {
@@ -37,7 +40,7 @@ export function isPageShell(node: BoundaryNode): boolean {
   if ((node.landmarkCount ?? 0) >= 2) {
     return true;
   }
-  return node.structuralRole === "generic" && node.depthFromBody <= 2;
+  return node.structuralRole === "generic" && (node.depthFromBody ?? Number.POSITIVE_INFINITY) <= 2;
 }
 
 export function ownsDirectText(node: BoundaryNode, ctx: BoundaryContext = {}): boolean {
@@ -69,4 +72,12 @@ export function isSelfMarkable(node: BoundaryNode, ctx: BoundaryContext = {}): b
     !isImmutableTag(node.tagName) &&
     (ownsDirectText(node, ctx) || isStructuralBoundary(node, ctx))
   );
+}
+
+/** The one target/evaluation boundary predicate. A silent-whitespace surface
+ * becomes toggleable only after an ordinary explicit/default row exists. */
+export function isToggleableBoundary(node: BoundaryNode, ctx: BoundaryContext = {}): boolean {
+  return !node.closedShadow &&
+    (!node.silentWhitespaceExclusion || ctx.hasOwnMark?.(node) === true) &&
+    isSelfMarkable(node, ctx);
 }

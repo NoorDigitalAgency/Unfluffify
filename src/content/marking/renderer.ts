@@ -118,30 +118,7 @@ function rectIsPaintReachable(element: Element, rect: RectLike, document: Docume
   return points.some(([x, y]) => isPaintReachableAt(element, x, y, document));
 }
 
-function clientRectsFor(element: Element, document: Document): RectLike[] {
-  const getClientRects = (element as Element & {
-    getClientRects?: () => ArrayLike<RectLike>;
-  }).getClientRects;
-  const clientRects = typeof getClientRects === "function"
-    ? Array.from(getClientRects.call(element))
-    : [];
-  const visible = clientRects.filter((rect) =>
-    rectInViewport(rect, document) && rectIsPaintReachable(element, rect, document)
-  );
-  if (visible.length > 0) {
-    return visible;
-  }
-  const boundingRect = element.getBoundingClientRect();
-  return rectInViewport(boundingRect, document)
-    && rectIsPaintReachable(element, boundingRect, document)
-    ? [boundingRect]
-    : [];
-}
-
-/** Raw geometry is deliberately separate from paint-reachable geometry. It is
- *  used only for retained explicit marks: a visible include must survive a
- *  transient cover, while a genuinely hidden include becomes a ghost. */
-function rawClientRectsFor(element: Element): RectLike[] {
+function ownMeasurableRects(element: Element): RectLike[] {
   const getClientRects = (element as Element & {
     getClientRects?: () => ArrayLike<RectLike>;
   }).getClientRects;
@@ -154,6 +131,55 @@ function rawClientRectsFor(element: Element): RectLike[] {
   }
   const boundingRect = element.getBoundingClientRect();
   return boundingRect.width > 0 && boundingRect.height > 0 ? [boundingRect] : [];
+}
+
+function composedElementChildren(element: Element): Element[] {
+  const shadowRoot = (element as Element & { shadowRoot?: ShadowRoot | null }).shadowRoot;
+  return [...Array.from(shadowRoot?.children ?? []), ...Array.from(element.children ?? [])]
+    .filter((child) => child.getAttribute("data-uf-extension-ui") !== "true");
+}
+
+/** A display:contents/collapsed wrapper owns the semantic XPath, while the
+ * nearest painted descendant owns its geometry. Stop at the first measurable
+ * depth so unrelated deep descendants do not turn into one giant outline. */
+function nearestDescendantRects(
+  element: Element,
+  accept: (candidate: Element, rect: RectLike) => boolean,
+): RectLike[] {
+  let frontier = composedElementChildren(element).slice(0, 64);
+  for (let depth = 0; depth < 8 && frontier.length > 0; depth += 1) {
+    const rects = frontier.flatMap((candidate) =>
+      ownMeasurableRects(candidate).filter((rect) => accept(candidate, rect))
+    );
+    if (rects.length > 0) {
+      return rects;
+    }
+    frontier = frontier.flatMap(composedElementChildren).slice(0, 64);
+  }
+  return [];
+}
+
+function clientRectsFor(element: Element, document: Document): RectLike[] {
+  const visible = ownMeasurableRects(element).filter((rect) =>
+    rectInViewport(rect, document) && rectIsPaintReachable(element, rect, document)
+  );
+  if (visible.length > 0) {
+    return visible;
+  }
+  return nearestDescendantRects(element, (candidate, rect) =>
+    rectInViewport(rect, document) && rectIsPaintReachable(candidate, rect, document)
+  );
+}
+
+/** Raw geometry is deliberately separate from paint-reachable geometry. It is
+ *  used only for retained explicit marks: a visible include must survive a
+ *  transient cover, while a genuinely hidden include becomes a ghost. */
+function rawClientRectsFor(element: Element): RectLike[] {
+  const measurable = ownMeasurableRects(element);
+  if (measurable.length > 0) {
+    return measurable;
+  }
+  return nearestDescendantRects(element, () => true);
 }
 
 function placeOverlay(overlay: HTMLElement, rect: RectLike): void {
@@ -192,7 +218,6 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   const classificationBoxes = new Map<string, ClassificationBox>();
   const silentPresentationByXpath = new Map<string, string>();
   const silentBoxes = new Map<string, SilentBox>();
-  const aiContentXpaths = new Set<string>();
   const hoverBoxes = new Map<string, HTMLElement>();
   let hoverElement: Element | null = null;
   let hoverXpath = "";
@@ -242,16 +267,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     let layerKey = LAYER_BY_CLASSIFICATION[classification];
     let presentation = overlayClassFor(classification);
     let rects = clientRectsFor(target.element, options.document);
-    if (classification === "explicit-include" && aiContentXpaths.has(xpath)) {
-      layerKey = "ai-content";
-      presentation = "uf-ai-content";
-      if (rects.length === 0) {
-        rects = rawClientRectsFor(target.element);
-        if (!target.visible) {
-          presentation = "uf-ai-content uf-ai-content-ghost";
-        }
-      }
-    } else if (rects.length === 0 && classification === "explicit-include") {
+    if (rects.length === 0 && classification === "explicit-include") {
       rects = rawClientRectsFor(target.element);
       if (!target.visible) {
         presentation = "uf-explicit-include-ghost";
@@ -484,12 +500,6 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         silentPresentationByXpath.set(xpath, "uf-silent-excluded");
       }
       drawSilent(byXpath);
-    },
-    setAiContentXpaths(xpaths: ReadonlySet<string>): void {
-      aiContentXpaths.clear();
-      for (const xpath of xpaths) {
-        aiContentXpaths.add(xpath);
-      }
     },
     acknowledge(element: Element, xpath: string, mode: "include" | "exclude"): void {
       clearAcknowledgement();

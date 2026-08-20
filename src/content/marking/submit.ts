@@ -19,7 +19,7 @@ export function buildSubmissionSnapshot(input: Readonly<{
     pages: [{
       url: input.pageUrl,
       renderedHtml,
-      rawHtml: input.rawHtml,
+      rawHtml: input.rawHtml === undefined ? undefined : stripUncapturableHtml(input.rawHtml),
       renderedXPaths: input.evaluation.rows,
     }],
   });
@@ -27,16 +27,40 @@ export function buildSubmissionSnapshot(input: Readonly<{
 
 export function stripUncapturableHtml(html: string): string {
   let output = html;
-  const openPattern = /<([a-zA-Z][\w:-]*)(?=[^>]*\sdata-uf-closed-shadow-host=(?:"true"|'true'))[^>]*>/i;
-  let match = openPattern.exec(output);
-  while (match) {
-    const [openTag, tagName] = match;
-    const start = match.index;
-    const end = findMatchingClose(output, tagName, start + openTag.length);
-    output = output.slice(0, start) + output.slice(end);
-    match = openPattern.exec(output);
+  const artifactOpenPatterns = [
+    /<(browser-mcp-container)\b[^>]*>/i,
+    /<([a-zA-Z][\w:-]*)(?=[^>]*\sdata-uf-extension-ui=(?:"true"|'true'))[^>]*>/i,
+    /<([a-zA-Z][\w:-]*)(?=[^>]*\sdata-wxt-shadow-root(?:\s|=|>))[^>]*>/i,
+    /<([a-zA-Z][\w:-]*)(?=[^>]*\sid=(?:"(?:browser-mcp-container|unfluffify-[^"]*)"|'(?:browser-mcp-container|unfluffify-[^']*)'))[^>]*>/i,
+  ];
+  for (const openPattern of artifactOpenPatterns) {
+    let match = openPattern.exec(output);
+    while (match) {
+      const [openTag, tagName] = match;
+      const start = match.index;
+      const end = findMatchingClose(output, tagName, start + openTag.length);
+      output = output.slice(0, start) + output.slice(end);
+      match = openPattern.exec(output);
+    }
   }
-  return output;
+  return output.replace(
+    /<([a-zA-Z][\w:-]*)([^>]*)>/g,
+    (openTag, tagName: string, attributes: string) => {
+      const consentHidden = /\sdata-uf-consent-hidden(?:=(?:"true"|'true'|true))?/i.test(attributes);
+      let sanitized = attributes;
+      if (consentHidden) {
+        sanitized = sanitized.replace(/\sstyle=("([^"]*)"|'([^']*)')/i, (_style, quoted: string, double: string, single: string) => {
+          const quote = quoted[0];
+          const value = (double ?? single ?? "")
+            .replace(/(?:^|;)\s*(?:opacity\s*:\s*0|visibility\s*:\s*hidden|pointer-events\s*:\s*none)\s*!important\s*;?/gi, "")
+            .trim();
+          return value ? ` style=${quote}${value}${quote}` : "";
+        });
+      }
+      sanitized = sanitized.replace(/\sdata-uf-[\w:-]+(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, "");
+      return `<${tagName}${sanitized}>`;
+    },
+  );
 }
 
 function findMatchingClose(html: string, tagName: string, startIndex: number): number {

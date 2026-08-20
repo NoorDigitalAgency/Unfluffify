@@ -48,6 +48,7 @@
       const patched = function patchedAttachShadow(init) {
         if (init && init.mode === "closed") {
           this.setAttribute?.("data-uf-closed-shadow-host", "true");
+          return originalAttachShadow.call(this, { ...init, mode: "open" });
         }
         return originalAttachShadow.call(this, init);
       };

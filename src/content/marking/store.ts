@@ -64,6 +64,23 @@ function nearestExcludedAncestorMark(markSet: CanonicalMarkSet, xpath: string): 
     .sort((left, right) => right.xpath.length - left.xpath.length)[0];
 }
 
+function assertBranchSpliceInvariant(
+  previous: EvaluationResult,
+  next: EvaluationResult,
+  branchRootXpath: string,
+): void {
+  const previousOutside = new Map([...previous.overlay]
+    .filter(([xpath]) => !isXPathInSubtree(xpath, branchRootXpath)));
+  const nextOutside = new Map([...next.overlay]
+    .filter(([xpath]) => !isXPathInSubtree(xpath, branchRootXpath)));
+  if (
+    previousOutside.size !== nextOutside.size ||
+    [...previousOutside].some(([xpath, classification]) => nextOutside.get(xpath) !== classification)
+  ) {
+    throw new Error(`Branch evaluation changed overlay state outside ${branchRootXpath}`);
+  }
+}
+
 export function createMarkingStore(domView: DomView, initialMarks: CanonicalMarkSet = { rows: [] }) {
   let marks = initialMarks;
   let result = evaluate(marks, domView);
@@ -101,12 +118,14 @@ export function createMarkingStore(domView: DomView, initialMarks: CanonicalMark
       marks = applyToggle(marks, branchRoot.xpath, mode, { unexcludeAncestorXpaths });
       const inheritedAncestorMark = nearestAncestorMark(marks, evaluationRoot.xpath);
       const inheritedExcludedAncestor = nearestExcludedAncestorMark(marks, evaluationRoot.xpath);
-      result = evaluateBranch(result, {
+      const nextResult = evaluateBranch(result, {
         root: evaluationRoot,
         canonicalMarks: marks,
         inheritedAncestorMark,
         inheritedSubmittedExcludedAncestor: inheritedExcludedAncestor?.xpath,
       });
+      assertBranchSpliceInvariant(result, nextResult, evaluationRoot.xpath);
+      result = nextResult;
       return { ...result, branchRoot: evaluationRoot };
     },
     rows(): readonly MarkRow[] {

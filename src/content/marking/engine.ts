@@ -14,6 +14,19 @@ import { buildSubmissionSnapshot } from "./submit";
 import type { RenderMode } from "../../domain/schema/property";
 import { isToggleableDefaultTag } from "../../domain/taxonomy";
 import type { VisibilityGeometry } from "../../domain/visibility";
+import { isToggleableBoundary } from "../../domain/boundary";
+
+function evaluationNodeFingerprint(node: EvaluationNode): string {
+  return [
+    node.xpath,
+    node.tagName,
+    node.visible ? "1" : "0",
+    node.ownsDirectText ? "1" : "0",
+    node.structuralBoundary ? "1" : "0",
+    node.closedShadow ? "1" : "0",
+    ...(node.children ?? []).map((child) => child.xpath),
+  ].join("\u0000");
+}
 
 function buildCandidateIndex(
   root: EvaluationNode,
@@ -28,14 +41,7 @@ function buildCandidateIndex(
     const candidate = {
     key: node.key,
     xpath: node.xpath,
-    selfMarkable: Boolean(
-      node.visible &&
-      !node.closedShadow &&
-      !node.immutable &&
-      !node.chrome &&
-      (!node.silentWhitespaceExclusion || Boolean(ownRow)) &&
-      (node.ownsDirectText || node.structuralBoundary)
-    ),
+    selfMarkable: isToggleableBoundary(node, { hasOwnMark: () => Boolean(ownRow) }),
     excluded: classification === "exception",
     explicitInclude: ownRow?.excluded === false && ownRow.explicit === true,
     closedShadow: node.closedShadow,
@@ -169,9 +175,13 @@ export function createMarkingEngine(rootElement: Element) {
   let candidateByXpath: Map<string, MarkingCandidate> | null = null;
   let overlayTargets = new Map<string, OverlayRenderTarget>();
   let widenByKey = new Map<string, WidenNode>();
-  let selectorIncludedXpaths = new Set<string>();
+  let bridgeGeneration = 0;
+  let toggleInProgress = false;
+  const generationByNode = new WeakMap<EvaluationNode, number>();
+  const fingerprintByNode = new WeakMap<EvaluationNode, string>();
 
   const rebuildBridgeIndexes = (): void => {
+    bridgeGeneration += 1;
     candidateByXpath = null;
     overlayTargets = new Map([...bridge.byXpath].map(([xpath, value]) => [xpath, {
       element: value.element,
@@ -179,6 +189,10 @@ export function createMarkingEngine(rootElement: Element) {
     }]));
     widenByKey = new Map<string, WidenNode>();
     toWidenNode(bridge.root, null, widenByKey);
+    for (const { evaluationNode } of bridge.byXpath.values()) {
+      generationByNode.set(evaluationNode, bridgeGeneration);
+      fingerprintByNode.set(evaluationNode, evaluationNodeFingerprint(evaluationNode));
+    }
   };
   rebuildBridgeIndexes();
 
@@ -390,23 +404,37 @@ export function createMarkingEngine(rootElement: Element) {
    *  Matches outside the evaluated tree (invisible, chrome, closed shadow) have
    *  no row to seed and are skipped. */
   const xpathsMatching = (selectors: readonly string[]): string[] => {
-    const found: string[] = [];
+    const found = new Set<string>();
     for (const selector of selectors) {
       let matches: ArrayLike<Element>;
       try {
         matches = rootElement.ownerDocument.querySelectorAll(selector);
       } catch {
-        // A backend selector the browser rejects must not abort the whole seed.
-        continue;
+        // A minimal/non-document realm may lack querySelectorAll; captured
+        // shadow elements are still matched individually below.
+        matches = [];
       }
       for (const element of Array.from(matches)) {
         const xpath = bridge.byElement.get(element)?.evaluationNode.xpath;
         if (xpath) {
-          found.push(xpath);
+          found.add(xpath);
+        }
+      }
+      // querySelectorAll does not enter shadow roots. Captured closed roots are
+      // intentionally exposed and flattened, so match every canonical bridge
+      // element during this one-time simulated-user phase as well.
+      for (const [xpath, entry] of bridge.byXpath) {
+        try {
+          if (entry.element.matches?.(selector)) {
+            found.add(xpath);
+          }
+        } catch {
+          // The document query above already validated most selectors; a
+          // realm-specific/custom-element matcher may still reject one.
         }
       }
     }
-    return found;
+    return [...found];
   };
 
   return {
@@ -427,8 +455,6 @@ export function createMarkingEngine(rootElement: Element) {
         applySelectorSeed(store.canonicalSet(), { excludeXpaths, includeXpaths }),
       );
       candidateByXpath = null;
-      selectorIncludedXpaths = new Set(includeXpaths);
-      renderer.setAiContentXpaths(selectorIncludedXpaths);
       renderCurrent();
       return true;
     },
@@ -454,23 +480,33 @@ export function createMarkingEngine(rootElement: Element) {
       }
       return bridge.byXpath.get(resolved.xpath)?.evaluationNode ?? null;
     },
-    toggle(node: EvaluationNode, mode: Exclude<MarkMode, "disabled" | "passthrough">): void {
-      hoverResolution = null;
-      const element = bridge.byXpath.get(node.xpath)?.element;
-      if (element) {
-        renderer.acknowledge(element, node.xpath, mode);
+    toggle(node: EvaluationNode, mode: Exclude<MarkMode, "disabled" | "passthrough">): boolean {
+      const current = bridge.byXpath.get(node.xpath);
+      const element = current?.element as (Element & { isConnected?: boolean }) | undefined;
+      if (
+        toggleInProgress ||
+        current?.evaluationNode !== node ||
+        generationByNode.get(node) !== bridgeGeneration ||
+        fingerprintByNode.get(node) !== evaluationNodeFingerprint(node) ||
+        element?.isConnected === false
+      ) {
+        return false;
       }
-      const toggled = store.toggle(node, mode);
-      candidateByXpath = null;
-      const activeExplicitIncludes = new Set(store.canonicalSet().rows
-        .filter((row) => !row.excluded && row.explicit === true)
-        .map((row) => row.xpath));
-      selectorIncludedXpaths = new Set([...selectorIncludedXpaths]
-        .filter((xpath) => activeExplicitIncludes.has(xpath)));
-      renderer.setAiContentXpaths(selectorIncludedXpaths);
-      renderer.renderBranch(toggled, byXpathElementsForBranch(toggled.branchRoot));
-      if (silentHighlightsArmed) {
-        renderSilent();
+      toggleInProgress = true;
+      hoverResolution = null;
+      try {
+        if (element) {
+          renderer.acknowledge(element, node.xpath, mode);
+        }
+        const toggled = store.toggle(node, mode);
+        candidateByXpath = null;
+        renderer.renderBranch(toggled, byXpathElementsForBranch(toggled.branchRoot));
+        if (silentHighlightsArmed) {
+          renderSilent();
+        }
+        return true;
+      } finally {
+        toggleInProgress = false;
       }
     },
     renderReadOnly(): void {
