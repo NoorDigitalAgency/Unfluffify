@@ -63,9 +63,9 @@ rows again through the integrated and live matrices.
 | U-16 | P1 | `tests/transfer-payload-store.test.ts`; `tests/capture-page-snapshot-handler.test.ts` | P9 large-corpus scenario |
 | U-17 | P4 | `tests/src/background/emulation-policy.test.ts`; `tests/src/popup/app.test.ts` | production package inspection |
 | U-18a | P8 | planned cache/unregister action tests | P11 cache and unregister flow |
-| U-18b | P7 | `tests/popup-render-mode.test.ts`; `tests/render-mode-inspector.test.ts` | P11 manual inspection |
+| U-18b | P7 | `tests/popup-render-mode.test.ts`; `tests/render-mode-inspector.test.ts`; `tests/src/popup/render-mode-inspection.test.ts`; `tests/src/background/render-emulation-runtime.test.ts` | P11 manual inspection |
 | U-18c | P6 | `tests/src/domain/todo.test.ts`; `tests/src/lynx/context.test.ts`; `tests/src/background/page-context-runtime.test.ts` | P11 feed-owned page types |
-| U-18d | P7 | planned production/debug preview-classification snapshots | production/debug build gates |
+| U-18d | P7 | `tests/src/popup/preview-classification.test.ts`; `tests/src/popup/app.test.ts` | production/debug build gates |
 | U-18e | P8 | planned debug-toolkit positive/production-negative tests | production/debug build gates |
 | D-01 | P2 | `tests/src/domain/evaluate.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P9 toggle/branch scenario |
 | D-02 | P2 | `tests/src/domain/selector-seed.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P9 selector-vs-user equivalence |
@@ -79,20 +79,20 @@ rows again through the integrated and live matrices.
 | D-10 | P3 | `tests/c4-content-entrypoint.test.ts`; `tests/src/content/marking/marking.test.ts` | P11 invalid-target flow |
 | D-11 | P3 | `tests/mark-mode-fsm.test.ts`; `tests/c4-content-entrypoint.test.ts` | P11 Space recovery paths |
 | D-12 | P3 | `tests/c4-content-entrypoint.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P11 passthrough/busy visuals |
-| D-13 | P7 | `tests/render-mode-inspection-handlers.test.ts`; planned overlay lifecycle test | P11 inspection teardown |
+| D-13 | P7 | `tests/render-mode-inspection-handlers.test.ts`; `tests/src/popup/render-mode-inspection.test.ts`; `tests/src/background/render-emulation-runtime.test.ts`; `tests/src/content/organ.test.ts` | P11 inspection teardown |
 | D-14 | P3 | `tests/src/content/marking/dom-bridge.test.ts`; production-negative bundle rechecked in P10 | production/debug build gates |
 | D-15 | P3 | `tests/src/content/marking/dom-bridge.test.ts` | P11 geometry matrix |
 | D-16 | P3 | `tests/src/popup/app.test.ts` | production popup inspection |
-| D-17 | P7 | `tests/preview-tooltip.test.ts`; planned hover/scroll correspondence test | P11 preview-list interaction |
-| D-18 | P7 | planned internal-to-production classification mapping snapshots | production/debug build gates |
-| D-19 | P7 | planned constrained-preview event firewall tests | P11 blocked-actions/allowed-scroll matrix |
+| D-17 | P7 | `tests/preview-tooltip.test.ts`; `tests/src/content/marking/dom-bridge.test.ts`; `tests/src/popup/app.test.ts`; `tests/src/popup/entrypoint.test.ts` | P11 preview-list interaction |
+| D-18 | P7 | `tests/src/popup/preview-classification.test.ts`; `tests/src/popup/app.test.ts` | production/debug build gates |
+| D-19 | P7 | `tests/src/content/input-firewall.test.ts`; `tests/src/content/organ.test.ts`; `tests/src/popup/app.test.ts` | P11 blocked-actions/allowed-scroll matrix |
 | D-20 | P4 | `tests/src/content/stabilization/stabilization.test.ts`; `tests/c4-content-entrypoint.test.ts` | P11 hidden-tab activation |
 | D-21 | P4 | `tests/src/content/stabilization/stabilization.test.ts` | P11 concurrent activation |
 | D-22 | P4 | `tests/src/page-world/program.test.ts` | P11 motion-source matrix |
 | D-23 | P4 | `tests/src/page-world/program.test.ts` | P11 hidden-content matrix |
 | D-24 | P4 | `tests/src/page-world/program.test.ts`; `tests/page-world-source-parity.test.ts` | P11 late-motion lifecycle |
 | D-25 | P6 | `tests/src/popup/candidate-navigation.test.ts`; `tests/src/popup/entrypoint.test.ts` | P11 unknown/dirty navigation |
-| D-26 | P7 | planned render-inspection watchdog/retry tests | P11 stalled-inspection recovery |
+| D-26 | P7 | `tests/src/popup/render-mode-inspection.test.ts`; `tests/src/background/render-emulation-runtime.test.ts` | P11 stalled-inspection recovery |
 | D-27 | P6 | `tests/src/popup/candidate-navigation.test.ts`; `tests/src/popup/entrypoint.test.ts` | P11 navigation failure recovery |
 | D-28 | P5 | `tests/src/storage/settings.test.ts`; `tests/src/background/startup.test.ts`; `tests/src/lynx/token-rotation.test.ts` | P11 endpoint/token invalidation |
 | D-29 | P8 | planned dynamic-action-icon state test | production action-icon inspection |

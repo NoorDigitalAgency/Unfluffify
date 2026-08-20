@@ -531,7 +531,17 @@ in the owning phase and rerun its focused gate plus P9–P11.
     boundaries, inline confirmed same-tab candidate navigation, bounded
     fail-open inspection warnings, and cleanup failure restoration without
     unregistering the tab.
-- [ ] P7 — Preview and inspection
+- [x] P7 — Preview and inspection
+  - Implementation commit: `54f62756` (`Constrain preview and inspection lifecycles`).
+  - `pnpm lint && pnpm check` passed.
+  - `pnpm vitest run tests/src/content/organ.test.ts tests/src/content/input-firewall.test.ts tests/src/popup/preview-classification.test.ts tests/src/popup/render-mode-inspection.test.ts tests/src/background/render-emulation-runtime.test.ts tests/src/content/marking/dom-bridge.test.ts tests/src/popup/app.test.ts tests/src/popup/entrypoint.test.ts tests/c4-content-entrypoint.test.ts`
+    — 9 files / 165 tests passed.
+  - `pnpm test -- --reporter=dot` — 86 files / 672 tests passed.
+  - Evidence covers curtain-free but page-action-blocked silent/post-AI preview,
+    native scroll preservation, row-hover emphasis and row-click exact-XPath
+    scrolling, pointer-only row behavior, production/debug classification
+    projection, explicit inspection begin/end lifecycle, and popup/background
+    watchdog teardown with retryable no-inference failures.
 - [ ] P8 — Popup UX/debug/recovery
 - [ ] P9 — End-to-end integration
 - [ ] P10 — Automated release gates
