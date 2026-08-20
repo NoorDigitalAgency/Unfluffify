@@ -9,11 +9,11 @@ rows again through the integrated and live matrices.
 | Decision | Primary phase | Automated evidence | Live/build evidence |
 |---|---|---|---|
 | I-01 | P2 | `tests/dirty-baseline.test.ts`; `tests/src/domain/selector-seed.test.ts` | P9 marking scenario |
-| I-02 | P1 | `tests/src/domain/import-boundary.test.ts`; `tests/bus-boundary.test.ts` | `pnpm check` |
-| I-03 | P1 | `tests/reconciliation-fact-brain-authority.test.ts`; `tests/popup-authority-boundary.test.ts` | P9 worker-restart scenario |
-| I-04 | P1 | `tests/bus-core.test.ts`; `tests/bus-envelope.test.ts`; `tests/src/messaging/contracts.test.ts` | `pnpm check` |
-| I-05 | P1 | `tests/brain-state-store-persistence.test.ts`; `tests/background-runtime-keepalive.test.ts` | P9 worker-restart scenario |
-| I-06 | P1 | `tests/build-artifact-parity.test.ts` plus planned authored-page-world generation test | production/debug build gates |
+| I-02 | P1 | `tests/src/domain/import-boundary.test.ts`; `tests/integration/rewrite-cutover.test.ts` | `pnpm check` |
+| I-03 | P1 | `tests/src/background/brain.test.ts`; `tests/src/popup/signal-cursor.test.ts` | P9 worker-restart scenario |
+| I-04 | P1 | `tests/src/messaging/bus.test.ts`; `tests/src/messaging/contracts.test.ts`; `tests/src/messaging/transports/runtime.test.ts` | `pnpm check` |
+| I-05 | P1 | `tests/src/background/brain.test.ts`; `tests/src/background/startup.test.ts` | P9 worker-restart scenario |
+| I-06 | P1 | `tests/page-world-source-parity.test.ts`; `tests/src/page-world/program.test.ts` | production/debug stale-artifact build gates |
 | I-07 | P5 | `tests/src/background/property-authority.test.ts`; `tests/popup-site-resolution.test.ts` | P11 property identity record |
 | I-08 | P5 | `tests/src/domain/todo.test.ts`; `tests/page-type-taxonomy.test.ts` | P11 candidate navigation |
 | I-09 | P5 | `tests/no-autonomous-backend-io.test.ts`; `tests/src/background/services.test.ts` | P11 Hub network observation |
@@ -54,12 +54,12 @@ rows again through the integrated and live matrices.
 | U-07 | P5 | `tests/config.test.ts`; `tests/config-store-queue.test.ts` | P11 configuration edit |
 | U-08 | P6 | `tests/src/popup/app.test.ts`; `tests/popup-todo-recovery.test.ts` | P11 Todo expansion choices |
 | U-09 | P8 | `tests/property-lock-banner-mode.test.ts`; planned production-copy snapshot | P11 lock copy |
-| U-10 | P1 | `tests/session-signal-edges.test.ts`; `tests/brain-heartbeat.test.ts` | P9 event/reconciliation scenario |
+| U-10 | P1 | `tests/src/background/brain.test.ts`; `tests/src/popup/signal-cursor.test.ts`; `tests/src/popup/entrypoint.test.ts` | P9 event/reconciliation scenario |
 | U-11 | P6 | `tests/popup-site-resolution.test.ts`; planned sticky-binding navigation case | P11 bound-tab observation |
 | U-12 | P3 | `tests/mark-mode-fsm.test.ts`; `tests/c4-content-entrypoint.test.ts` | P11 Space passthrough |
 | U-13 | P2 | `tests/src/content/marking/dom-bridge.test.ts`; planned temporary-ID cleanup case | P9 shadow/preview scenario |
 | U-14 | P2 | `tests/src/domain/boundary.test.ts`; `tests/src/domain/evaluate.test.ts` | P9 canonical marking scenario |
-| U-15 | P1 | planned popup-controller boundary/source test | `pnpm check` and bundle gate |
+| U-15 | P1 | `tests/src/popup/root-recovery.test.ts`; `tests/c3-popup-entrypoint.test.ts` | `pnpm check` and bundle gate |
 | U-16 | P1 | `tests/transfer-payload-store.test.ts`; `tests/capture-page-snapshot-handler.test.ts` | P9 large-corpus scenario |
 | U-17 | P4 | `tests/device-emulation-lifecycle.test.ts`; planned manual-control absence assertion | production package inspection |
 | U-18a | P8 | planned cache/unregister action tests | P11 cache and unregister flow |
@@ -97,7 +97,7 @@ rows again through the integrated and live matrices.
 | D-28 | P5 | `tests/src/background/auth-token-monitor.test.ts`; `tests/src/lynx/token-rotation.test.ts` | P11 endpoint/token invalidation |
 | D-29 | P8 | planned dynamic-action-icon state test | production action-icon inspection |
 | D-30 | P8 | planned manifest/global-shortcut absence test; `tests/mark-mode-fsm.test.ts` | production package inspection |
-| D-31 | P1 | planned panel error-boundary/remount/rehydration test | P11 panel corruption recovery |
+| D-31 | P1 | `tests/src/popup/root-recovery.test.ts`; `tests/src/popup/entrypoint.test.ts` | P11 panel corruption recovery |
 | D-32 | P8 | planned popup scroll-lock lifecycle test | P11 modal/busy teardown |
 
 ## Integrated evidence

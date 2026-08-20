@@ -460,7 +460,17 @@ in the owning phase and rerun its focused gate plus P9–P11.
   - `pnpm lint && pnpm check && pnpm test` — lint and all TypeScript checks passed;
     75 files / 622 tests passed.
   - Baseline/push evidence: [`p0-baseline.md`](./p0-baseline.md).
-- [ ] P1 — Runtime and architecture
+- [x] P1 — Runtime and architecture
+  - Commits: `ca923627` (`Generate page-world runtime from TypeScript`) and
+    `1f0786d1` (`Harden panel and cross-realm payload recovery`).
+  - `pnpm vitest run tests/src/domain/import-boundary.test.ts tests/integration/rewrite-cutover.test.ts tests/src/messaging/bus.test.ts tests/src/messaging/contracts.test.ts tests/src/background/brain.test.ts tests/src/popup/signal-cursor.test.ts tests/page-world-source-parity.test.ts tests/src/popup/root-recovery.test.ts tests/transfer-payload-store.test.ts tests/capture-page-snapshot-handler.test.ts tests/offscreen-entrypoint.test.ts tests/src/popup/entrypoint.test.ts`
+    — 12 files / 91 tests passed.
+  - `pnpm lint && pnpm check` passed; `pnpm test` — 79 files / 632 tests
+    passed.
+  - Worker rehydration, monotonic signal heads, idempotent keepalive leases,
+    consumed-once cursors, popup root remount/rehydration, scoped SHA-256 payload
+    transfer, and stale generated-page-world rejection are covered by the phase
+    evidence above.
 - [ ] P2 — Canonical marking and composed document
 - [ ] P3 — Fast interaction and visual grammar
 - [ ] P4 — Reveal/freeze and emulation
