@@ -496,7 +496,12 @@ describe("P6 DOM bridge", () => {
     expect(renderedOverlay).toBeDefined();
     expect(renderedOverlay?.className).toContain("uf-rect");
     expect(renderedOverlay?.className).toContain("uf-explicit-exclude");
+    expect(engine.overlayRoot().style.pointerEvents).toBe("auto");
+    engine.setPassthrough(true);
     expect(engine.overlayRoot().style.pointerEvents).toBe("none");
+    expect(engine.overlayRoot().className).toContain("uf-marking-temporarily-disabled");
+    engine.setPassthrough(false);
+    expect(engine.overlayRoot().style.pointerEvents).toBe("auto");
     expect(engine.overlayRoot().style.position).toBe("fixed");
     expect(engine.overlayRoot().getAttribute("data-uf-extension-ui")).toBe("true");
     expect(doc.documentElement.children.some((element) => element.id === MARKING_OVERLAY_STYLE_ID)).toBe(true);
@@ -568,6 +573,10 @@ describe("P6 DOM bridge", () => {
     expect(classes).toContain("uf-silent-rect uf-silent-content");
     expect(classes).toContain("uf-silent-rect uf-silent-immutable");
     expect(classes).toContain("uf-silent-rect uf-silent-excluded");
+    renderer.setSilentDebugAnnotations(true);
+    const debugBoxes = renderer.root.children.flatMap((layer) => layer.children);
+    expect(debugBoxes.every((box) => box.getAttribute("data-uf-silent-copy") === "true")).toBe(true);
+    expect(debugBoxes.map((box) => box.getAttribute("title"))).toContain("XPath: /p[1]");
     renderer.dispose();
   });
 
@@ -1335,6 +1344,18 @@ describe("P6 DOM bridge", () => {
     doc.hits = [host];
 
     expect(getComposedHitElements(doc as unknown as Document, 10, 10)[0]).toBe(painted);
+  });
+
+  it("looks through the pointer-capturing extension overlay to the page hit stack", () => {
+    const doc = new FakeDocument();
+    const overlay = new FakeElement("DIV", rect(0, 0, 300, 300));
+    const paragraph = new FakeElement("P", rect(0, 0, 100, 20), "Painted");
+    overlay.ownerDocument = doc;
+    paragraph.ownerDocument = doc;
+    overlay.setAttribute("data-uf-extension-ui", "true");
+    doc.hits = [overlay, paragraph];
+
+    expect(getComposedHitElements(doc as unknown as Document, 10, 10)).toEqual([paragraph]);
   });
 
   it("orders pointer-suppressed descendants before their painted shadow ancestor", () => {

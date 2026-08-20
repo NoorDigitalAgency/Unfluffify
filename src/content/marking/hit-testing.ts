@@ -48,6 +48,9 @@ export function getComposedHitElements(document: Document, x: number, y: number)
     : [];
   const expanded: Element[] = [];
   const seen = new Set<Element>();
+  const isExtensionUi = (element: Element): boolean =>
+    element.getAttribute("data-uf-extension-ui") === "true" ||
+    Boolean(element.closest?.('[data-uf-extension-ui="true"]'));
   const withSuppressedBefore = (element: Element): Element[] => [
     ...collectPointerSuppressedDescendants(element, x, y),
     element,
@@ -57,6 +60,9 @@ export function getComposedHitElements(document: Document, x: number, y: number)
       ...pierceOpenShadow(hit, x, y).flatMap(withSuppressedBefore),
       ...withSuppressedBefore(hit),
     ]) {
+      if (isExtensionUi(candidate)) {
+        continue;
+      }
       if (!seen.has(candidate)) {
         seen.add(candidate);
         expanded.push(candidate);

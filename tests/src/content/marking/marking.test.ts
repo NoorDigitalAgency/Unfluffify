@@ -453,6 +453,24 @@ describe("P6 content marking engine", () => {
     expect(store.canonicalSet().rows).toEqual([]);
   });
 
+  it("clears only an explicit context-menu mark and restores the calculated default", () => {
+    const section: EvaluationNode = {
+      key: "section",
+      tagName: "SECTION",
+      xpath: "/html[1]/body[1]/section[1]",
+      visible: true,
+      ownsDirectText: true,
+    };
+    const store = createMarkingStore({ root: section }, {
+      rows: [{ xpath: section.xpath, excluded: true, explicit: true }],
+    });
+
+    expect(store.clear(section)).not.toBeNull();
+    expect(store.canonicalSet().rows).toEqual([]);
+    expect(store.currentEvaluation().overlay.get(section.xpath)).toBe("implicit-include");
+    expect(store.clear(section)).toBeNull();
+  });
+
   it("maps every evaluation category into the legacy overlay grammar", () => {
     expect(MARKING_OVERLAY_CLASSES).toHaveLength(16);
     expect(overlayClassFor("implicit-include")).toBe("uf-default");
@@ -473,6 +491,9 @@ describe("P6 content marking engine", () => {
     expect(MARKING_OVERLAY_STYLES).toContain("border: 2px dashed #44b532");
     expect(MARKING_OVERLAY_STYLES).toContain("border: 1px dashed rgba(156, 107, 107, 0.45)");
     expect(MARKING_OVERLAY_STYLES).toContain("border: 2px dashed #b03b3b");
+    expect(MARKING_OVERLAY_STYLES).toContain("animation-play-state: paused !important");
+    expect(MARKING_OVERLAY_STYLES).toContain("border: 3px dashed #c62828");
+    expect(MARKING_OVERLAY_STYLES).toContain('[data-uf-marking-menu="true"]');
   });
 
   it("retains silent highlights with the shared visibility policy", () => {

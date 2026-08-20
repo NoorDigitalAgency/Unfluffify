@@ -561,10 +561,7 @@ export function App({
       >
         <header className="app-header">
           <div className="header-text">
-            <span className="section-title">
-              <i className="mdi mdi-broom btn-icon" aria-hidden="true" />
-              <span>Unfluffify</span>
-            </span>
+            <img className="header-logo" src="/logo.png" alt="Unfluffify" />
             <span className="hint status-text" data-session-phase={diagnostics.stateName}>
               {presentation.previewExitPending ? "Restoring page" : "Preview"}
             </span>
@@ -578,7 +575,7 @@ export function App({
         >
           <div className="preview-sidebar__header">
             <span className="section-title">
-              <i className="mdi mdi-format-list-bulleted btn-icon" aria-hidden="true" />
+              <i className="mdi mdi-eye-outline btn-icon" aria-hidden="true" />
               <span>Detected Content</span>
             </span>
             <button
@@ -632,10 +629,7 @@ export function App({
     <main className="app" data-main-hidden={presentation.mainUiHidden} data-state-name={diagnostics.stateName} data-view={view}>
       <header className="app-header">
         <div className="header-text">
-          <span className="section-title">
-            <i className="mdi mdi-broom btn-icon" aria-hidden="true" />
-            <span>Unfluffify</span>
-          </span>
+          <img className="header-logo" src="/logo.png" alt="Unfluffify" />
           <span className="hint status-text" data-session-phase={diagnostics.stateName}>
             {diagnostics.stateName || "unknown"}
             {presentation.silentModeActive ? " · idle" : ""}
@@ -860,7 +854,7 @@ export function App({
             title={buttons.compute.blockedReason}
             onClick={onRunAi}
           >
-            <i className="mdi mdi-robot btn-icon" aria-hidden="true" />
+            <i className="mdi mdi-auto-fix btn-icon" aria-hidden="true" />
             Run AI
           </button>
           <button
@@ -883,7 +877,7 @@ export function App({
             title={buttons.discard.blockedReason}
             onClick={onDiscard}
           >
-            <i className="mdi mdi-undo btn-icon" aria-hidden="true" />
+            <i className="mdi mdi-restore btn-icon" aria-hidden="true" />
             Discard
           </button>
           <button
@@ -895,7 +889,7 @@ export function App({
             title={buttons.preview.blockedReason}
             onClick={onPreview}
           >
-            <i className="mdi mdi-format-list-bulleted btn-icon" aria-hidden="true" />
+            <i className="mdi mdi-eye-outline btn-icon" aria-hidden="true" />
             Content list
           </button>
         </div>
@@ -1096,7 +1090,7 @@ export function App({
           value={`${presentation.contentRows.length} (${includedCount} in / ${excludedCount} out)`}
         />
         <StatRow
-          icon="mdi-robot"
+          icon="mdi-auto-fix"
           label="AI selectors"
           value={`${selectorCount} (${presentation.selectors.inclusionSelectors.length} in / ${presentation.selectors.exclusionSelectors.length} out)`}
           tone={selectorCount > 0 ? "u-color-success" : "u-color-muted"}
@@ -1242,7 +1236,7 @@ export function App({
       <section className="card" aria-label="Marked rows">
         <div className="section-header">
           <span className="section-title">
-            <i className="mdi mdi-format-list-bulleted btn-icon" aria-hidden="true" />
+            <i className="mdi mdi-eye-outline btn-icon" aria-hidden="true" />
             <span>Marked rows</span>
           </span>
           <span className="hint u-font-mono">{presentation.contentRows.length}</span>
@@ -1282,7 +1276,7 @@ export function App({
       <section className="card" aria-label="AI selectors">
         <div className="section-header">
           <span className="section-title">
-            <i className="mdi mdi-robot btn-icon" aria-hidden="true" />
+            <i className="mdi mdi-auto-fix btn-icon" aria-hidden="true" />
             <span>AI selectors</span>
           </span>
           <span className="hint u-font-mono">{selectorCount}</span>

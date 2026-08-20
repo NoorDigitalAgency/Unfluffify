@@ -76,6 +76,10 @@ export const MARKING_OVERLAY_STYLES = `
 .uf-marking-layer-root.uf-marking-temporarily-disabled .uf-layer[data-layer="interaction"] {
   opacity: 0;
 }
+.uf-marking-layer-root.uf-marking-temporarily-disabled .uf-rect,
+.uf-marking-layer-root.uf-marking-temporarily-disabled .uf-silent-rect {
+  animation-play-state: paused !important;
+}
 .uf-marking-layer-root .uf-rect,
 .uf-marking-layer-root .uf-silent-rect {
   position: absolute;
@@ -164,6 +168,11 @@ export const MARKING_OVERLAY_STYLES = `
 .uf-marking-layer-root .uf-interaction-ack {
   animation: uf-interaction-pulse 160ms ease-out forwards;
 }
+.uf-marking-layer-root .uf-interaction-invalid {
+  border: 3px dashed #c62828;
+  background: rgba(198, 40, 40, 0.18);
+  animation: uf-interaction-pulse 220ms ease-out forwards;
+}
 .uf-marking-layer-root .uf-silent-content {
   border: 2px dashed #44b532;
   background: rgba(68, 181, 50, 0.08);
@@ -180,6 +189,10 @@ export const MARKING_OVERLAY_STYLES = `
   border: 2px dashed #b03b3b;
   background: rgba(176, 59, 59, 0.08);
 }
+.uf-marking-layer-root [data-uf-silent-copy="true"] {
+  pointer-events: auto;
+  cursor: copy;
+}
 @media (prefers-reduced-motion: reduce) {
   .uf-marking-layer-root .uf-focus,
   .uf-marking-layer-root .uf-ai-content {
@@ -190,6 +203,35 @@ export const MARKING_OVERLAY_STYLES = `
     opacity: 0.6;
   }
 }
+[data-uf-marking-menu="true"] {
+  position: fixed;
+  z-index: 2147483647;
+  display: grid;
+  min-width: 166px;
+  gap: 2px;
+  box-sizing: border-box;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 9px;
+  background: rgba(35, 39, 47, 0.97);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  color: white;
+  pointer-events: auto;
+  font: 600 12px/1.3 Inter, system-ui, sans-serif;
+}
+[data-uf-marking-menu-action] {
+  min-height: 30px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  font: inherit;
+  cursor: pointer;
+}
+[data-uf-marking-menu-action]:hover { background: rgba(255, 255, 255, 0.12); }
+[data-uf-marking-menu-action]:disabled { opacity: 0.38; cursor: default; }
 `;
 
 export function overlayClassFor(classification: Classification): string {

@@ -222,6 +222,23 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   let hoverElement: Element | null = null;
   let hoverXpath = "";
   let acknowledgementClearHandle: ReturnType<typeof setTimeout> | null = null;
+  let silentDebugAnnotations = false;
+
+  const updateClientArea = (): void => {
+    const view = options.document.defaultView;
+    const documentElement = options.document.documentElement;
+    const viewportWidth = view?.innerWidth ?? documentElement.clientWidth;
+    const viewportHeight = view?.innerHeight ?? documentElement.clientHeight;
+    const clientWidth = documentElement.clientWidth || viewportWidth;
+    const clientHeight = documentElement.clientHeight || viewportHeight;
+    const direction = view?.getComputedStyle?.(documentElement).direction ?? documentElement.dir;
+    const leftGutter = direction === "rtl" ? Math.max(0, viewportWidth - clientWidth) : 0;
+    root.style.inset = "auto";
+    root.style.left = `${leftGutter}px`;
+    root.style.top = "0";
+    root.style.width = `${clientWidth}px`;
+    root.style.height = `${clientHeight}px`;
+  };
 
   root.setAttribute("data-uf-extension-ui", "true");
   root.className = "uf-marking-layer-root";
@@ -229,8 +246,9 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   // page CSP and hostile author styles must never move or activate the chrome.
   root.style.position = "fixed";
   root.style.inset = "0";
-  root.style.pointerEvents = "none";
+  root.style.pointerEvents = "auto";
   root.style.zIndex = "2147483647";
+  updateClientArea();
   if (!root.parentElement) {
     options.document.documentElement.appendChild(root);
   }
@@ -360,6 +378,13 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
           silentBoxes.set(key, record);
           layer.appendChild(overlay);
         }
+        if (silentDebugAnnotations) {
+          record.overlay.setAttribute("data-uf-silent-copy", "true");
+          record.overlay.setAttribute("title", `XPath: ${xpath}`);
+        } else {
+          record.overlay.removeAttribute?.("data-uf-silent-copy");
+          record.overlay.removeAttribute?.("title");
+        }
         placeOverlay(record.overlay, rects[index]!);
         used.add(key);
       }
@@ -409,7 +434,10 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     layers.get("interaction")?.replaceChildren();
   };
 
-  const setRootState = (className: "uf-scrolling", active: boolean): void => {
+  const setRootState = (
+    className: "uf-scrolling" | "uf-marking-temporarily-disabled",
+    active: boolean,
+  ): void => {
     const classes = new Set(root.className.split(/\s+/).filter(Boolean));
     if (active) {
       classes.add(className);
@@ -470,6 +498,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       byXpath: ReadonlyMap<string, OverlayRenderTarget>,
       renderOptions: Readonly<{ includeSilent?: boolean }> = {},
     ): void {
+      updateClientArea();
       drawCurrentClassifications(byXpath);
       if (renderOptions.includeSilent !== false) {
         drawSilent(byXpath);
@@ -520,6 +549,44 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       }
       if (rects.length > 0) {
         acknowledgementClearHandle = setTimeout(clearAcknowledgement, 180);
+      }
+    },
+    rejectAtPoint(x: number, y: number): void {
+      clearAcknowledgement();
+      const layer = layers.get("interaction");
+      if (!layer) {
+        return;
+      }
+      const overlay = options.document.createElement("div");
+      overlay.setAttribute("data-uf-extension-ui", "true");
+      overlay.setAttribute("data-uf-interaction-invalid", "true");
+      overlay.className = "uf-rect uf-interaction-invalid";
+      placeOverlay(overlay, { left: x - 9, top: y - 9, width: 18, height: 18 });
+      layer.appendChild(overlay);
+      acknowledgementClearHandle = setTimeout(clearAcknowledgement, 240);
+    },
+    setPassthrough(active: boolean): void {
+      root.style.pointerEvents = active ? "none" : "auto";
+      setRootState("uf-marking-temporarily-disabled", active);
+      if (active) {
+        hoverElement = null;
+        hoverXpath = "";
+        drawHover();
+      }
+    },
+    setSuspended(active: boolean): void {
+      setRootState("uf-marking-temporarily-disabled", active);
+    },
+    setSilentDebugAnnotations(active: boolean): void {
+      silentDebugAnnotations = active;
+      for (const record of silentBoxes.values()) {
+        if (active) {
+          record.overlay.setAttribute("data-uf-silent-copy", "true");
+          record.overlay.setAttribute("title", `XPath: ${record.xpath}`);
+        } else {
+          record.overlay.removeAttribute?.("data-uf-silent-copy");
+          record.overlay.removeAttribute?.("title");
+        }
       }
     },
     setScrolling(active: boolean): void {

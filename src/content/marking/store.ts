@@ -35,6 +35,12 @@ export function applyToggle(
   return { rows };
 }
 
+export function applyClear(markSet: CanonicalMarkSet, xpath: string): CanonicalMarkSet {
+  return {
+    rows: markSet.rows.filter((row) => row.xpath !== xpath),
+  };
+}
+
 function findNodeByXpath(node: EvaluationNode, xpath: string): EvaluationNode | null {
   if (node.xpath === xpath) {
     return node;
@@ -127,6 +133,24 @@ export function createMarkingStore(domView: DomView, initialMarks: CanonicalMark
       assertBranchSpliceInvariant(result, nextResult, evaluationRoot.xpath);
       result = nextResult;
       return { ...result, branchRoot: evaluationRoot };
+    },
+    clear(branchRoot: EvaluationNode): (EvaluationResult & Readonly<{ branchRoot: EvaluationNode }>) | null {
+      const existing = marks.rows.find((row) => row.xpath === branchRoot.xpath && row.explicit === true);
+      if (!existing) {
+        return null;
+      }
+      marks = applyClear(marks, branchRoot.xpath);
+      const inheritedAncestorMark = nearestAncestorMark(marks, branchRoot.xpath);
+      const inheritedExcludedAncestor = nearestExcludedAncestorMark(marks, branchRoot.xpath);
+      const nextResult = evaluateBranch(result, {
+        root: branchRoot,
+        canonicalMarks: marks,
+        inheritedAncestorMark,
+        inheritedSubmittedExcludedAncestor: inheritedExcludedAncestor?.xpath,
+      });
+      assertBranchSpliceInvariant(result, nextResult, branchRoot.xpath);
+      result = nextResult;
+      return { ...result, branchRoot };
     },
     rows(): readonly MarkRow[] {
       return result.rows;

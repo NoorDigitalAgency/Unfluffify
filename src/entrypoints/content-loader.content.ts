@@ -11,6 +11,7 @@ import {
 } from "../content/command-router";
 import { hideConsentOverlays } from "../content/consent";
 import { createMarkingEngine } from "../content/marking";
+import { createPhysicalActionDeduper, openMarkingContextMenu } from "../content/marking/interaction";
 import {
   INITIAL_CONTENT_STATE,
   memoryForContent,
@@ -45,6 +46,7 @@ let markingInteractionsPaused = false;
 let spacePassthroughActive = false;
 let altIncludeActive = false;
 let removeMarkingListeners: (() => void) | null = null;
+let removeSilentDebugCopyListener: (() => void) | null = null;
 let navigationWatcherInstalled = false;
 let lastKnownPageUrl = typeof location !== "undefined" ? location.href : "";
 let contentBus: RewriteSignalBus | null = null;
@@ -356,14 +358,6 @@ function ensureContentSignalPolling(): void {
   }, CONTENT_SIGNAL_POLL_MS);
 }
 
-function refreshActiveMarking(): void {
-  if (!markingActive || !markingEngine) {
-    return;
-  }
-  markingEngine.refresh();
-  markingEngine.renderReadOnly();
-}
-
 type StabilizationPageCommand = "ARM" | "SET_LAZY_LOADING_SUPPRESSED" | "SET_MOTION_PAUSED";
 let stabilizationPageRequestSequence = 0;
 
@@ -606,12 +600,10 @@ function setSpacePassthrough(event: KeyboardEvent, active: boolean): void {
   if (event.code === "Space" || event.key === " ") {
     const wasActive = spacePassthroughActive;
     spacePassthroughActive = active;
+    markingEngine?.setPassthrough?.(active);
     syncMarkingCursor();
     if (!wasActive && active) {
       showContentToast("Page interaction mode");
-    }
-    if (wasActive && !active) {
-      refreshActiveMarking();
     }
   }
 }
@@ -1300,6 +1292,48 @@ function ensureMarkingListeners(): void {
   let lastPointer: Readonly<{ x: number; y: number; altKey: boolean; shiftKey: boolean }> | null = null;
   let hoverFrame = 0;
   let shiftHeld = false;
+  let physicalSequence = 0;
+  let lastPointerDown: Readonly<{
+    id: number;
+    x: number;
+    y: number;
+    button: number;
+    at: number;
+  }> | null = null;
+  let closeMarkingMenu: (() => void) | null = null;
+  const deduper = createPhysicalActionDeduper();
+  const physicalIdFor = (event: MouseEvent): number => {
+    const down = lastPointerDown;
+    if (
+      down &&
+      down.button === event.button &&
+      Math.abs(down.x - event.clientX) <= 2 &&
+      Math.abs(down.y - event.clientY) <= 2 &&
+      Math.abs(down.at - event.timeStamp) <= 1_000
+    ) {
+      return down.id;
+    }
+    physicalSequence += 1;
+    return physicalSequence;
+  };
+  const commit = (
+    physicalId: number,
+    target: NonNullable<ReturnType<NonNullable<typeof markingEngine>["resolveAtPoint"]>>,
+    mode: "include" | "exclude" | "clear",
+  ): void => {
+    if (!markingEngine || !deduper.accept(physicalId, target.xpath, mode)) {
+      return;
+    }
+    const changed = mode === "clear"
+      ? markingEngine.clear?.(target) ?? false
+      : markingEngine.toggle(target, mode);
+    if (changed === false) {
+      markingEngine.rejectAtPoint?.(lastPointer?.x ?? 0, lastPointer?.y ?? 0);
+      return;
+    }
+    userToggleCount += 1;
+    reportMarkingToggle();
+  };
   const scheduleHover = (): void => {
     if (hoverFrame || !lastPointer || typeof window === "undefined") {
       return;
@@ -1325,6 +1359,15 @@ function ensureMarkingListeners(): void {
     if (!markingActive || !markingEngine) {
       return;
     }
+    const eventTarget = event.target as Element | null;
+    if (
+      eventTarget?.closest?.('[data-uf-extension-ui="true"]') &&
+      !eventTarget.closest?.(".uf-marking-layer-root")
+    ) {
+      return;
+    }
+    closeMarkingMenu?.();
+    closeMarkingMenu = null;
     altIncludeActive = event.altKey;
     syncMarkingCursor();
     const mode = markModeForClick(event);
@@ -1335,11 +1378,70 @@ function ensureMarkingListeners(): void {
     event.stopPropagation();
     const target = markingEngine.resolveAtPoint(event.clientX, event.clientY, mode, event.shiftKey);
     if (!target) {
+      markingEngine.rejectAtPoint?.(event.clientX, event.clientY);
+      const debugDetail = typeof __UF_DEBUG_BUILD__ !== "undefined" && __UF_DEBUG_BUILD__
+        ? ` (${Math.round(event.clientX)}, ${Math.round(event.clientY)})`
+        : "";
+      showContentToast(`That area can't be marked${debugDetail}.`);
       return;
     }
-    markingEngine.toggle(target, mode);
-    userToggleCount += 1;
-    reportMarkingToggle();
+    commit(physicalIdFor(event), target, mode);
+  };
+  const handlePointerDown = (event: PointerEvent): void => {
+    physicalSequence += 1;
+    lastPointerDown = {
+      id: physicalSequence,
+      x: event.clientX,
+      y: event.clientY,
+      button: event.button,
+      at: event.timeStamp,
+    };
+  };
+  const handleContextMenu = (event: MouseEvent): void => {
+    if (!markingActive || !markingEngine || spacePassthroughActive) {
+      return;
+    }
+    const eventTarget = event.target as Element | null;
+    if (
+      eventTarget?.closest?.('[data-uf-extension-ui="true"]') &&
+      !eventTarget.closest?.(".uf-marking-layer-root")
+    ) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    closeMarkingMenu?.();
+    const physicalId = physicalIdFor(event);
+    const include = markingEngine.resolveAtPoint(event.clientX, event.clientY, "include", false);
+    const exclude = markingEngine.resolveAtPoint(event.clientX, event.clientY, "exclude", false);
+    const widen = markingEngine.resolveAtPoint(event.clientX, event.clientY, "exclude", true);
+    const clearTarget = exclude ?? include;
+    if (!include && !exclude) {
+      markingEngine.rejectAtPoint?.(event.clientX, event.clientY);
+      showContentToast("That area can't be marked.");
+      return;
+    }
+    closeMarkingMenu = openMarkingContextMenu({
+      document,
+      x: event.clientX,
+      y: event.clientY,
+      actions: [
+        { id: "include", label: "Include", enabled: Boolean(include), run: () => include && commit(physicalId, include, "include") },
+        { id: "exclude", label: "Exclude", enabled: Boolean(exclude), run: () => exclude && commit(physicalId, exclude, "exclude") },
+        {
+          id: "widen",
+          label: "Widen exclusion",
+          enabled: Boolean(widen && widen.xpath !== exclude?.xpath),
+          run: () => widen && commit(physicalId, widen, "exclude"),
+        },
+        {
+          id: "clear",
+          label: "Clear mark",
+          enabled: Boolean(clearTarget && markingEngine?.hasExplicitMark?.(clearTarget)),
+          run: () => clearTarget && commit(physicalId, clearTarget, "clear"),
+        },
+      ],
+    });
   };
   const handleMouseMove = (event: MouseEvent): void => {
     if (!markingActive || !markingEngine) {
@@ -1394,10 +1496,12 @@ function ensureMarkingListeners(): void {
     }
     syncMarkingCursor();
     if (refreshNeeded) {
-      refreshActiveMarking();
+      markingEngine?.setPassthrough?.(false);
     }
   };
+  document.addEventListener("pointerdown", handlePointerDown, true);
   document.addEventListener("click", handleClick, true);
+  document.addEventListener("contextmenu", handleContextMenu, true);
   document.addEventListener("mousemove", handleMouseMove, true);
   document.addEventListener("mouseleave", handleMouseLeave, true);
   document.addEventListener("keydown", handleKeyDown, true);
@@ -1409,6 +1513,8 @@ function ensureMarkingListeners(): void {
   syncMarkingCursor();
   removeMarkingListeners = () => {
     document.removeEventListener("click", handleClick, true);
+    document.removeEventListener("pointerdown", handlePointerDown, true);
+    document.removeEventListener("contextmenu", handleContextMenu, true);
     document.removeEventListener("mousemove", handleMouseMove, true);
     document.removeEventListener("mouseleave", handleMouseLeave, true);
     document.removeEventListener("keydown", handleKeyDown, true);
@@ -1426,8 +1532,12 @@ function ensureMarkingListeners(): void {
       hoverFrame = 0;
     }
     lastPointer = null;
+    lastPointerDown = null;
+    closeMarkingMenu?.();
+    closeMarkingMenu = null;
     removeMarkingListeners = null;
     spacePassthroughActive = false;
+    markingEngine?.setPassthrough?.(false);
     altIncludeActive = false;
     syncMarkingCursor();
   };
@@ -1441,6 +1551,7 @@ function deactivateMarking(): void {
   markingInteractionsPaused = false;
   spaGuard.disarm();
   destroyPageWorldSession();
+  removeSilentDebugCopyListener?.();
   removeMarkingListeners?.();
   markingEngine?.dispose();
   markingEngine = null;
@@ -1456,6 +1567,7 @@ function deactivateMarking(): void {
 
 function pauseMarkingInteractions(): boolean {
   markingInteractionsPaused = true;
+  markingEngine?.setSuspended?.(true);
   if (!markingActive) {
     syncMarkingCursor();
     return false;
@@ -1472,6 +1584,7 @@ function resumeMarkingInteractions(): boolean {
     return false;
   }
   markingInteractionsPaused = false;
+  markingEngine?.setSuspended?.(false);
   if (!markingActive) {
     return false;
   }
@@ -1537,6 +1650,7 @@ function resetMarking(): boolean {
     return false;
   }
   markingEngine?.dispose();
+  removeSilentDebugCopyListener?.();
   destroyPageWorldSession();
   markingEngine = createMarkingEngine(document.documentElement);
   userToggleCount = 0;
@@ -1570,6 +1684,7 @@ function activateContentMain(payload: unknown): Record<string, unknown> {
   // be walked again because marking was then armed on it.
   runPageVisitRitual(nextPageUrl, "marking-activation");
   if (typeof document !== "undefined" && document.documentElement) {
+    removeSilentDebugCopyListener?.();
     lastKnownPageUrl = nextPageUrl || lastKnownPageUrl;
     if (!markingActive) {
       userToggleCount = 0;
@@ -1596,6 +1711,38 @@ function activateContentMain(payload: unknown): Record<string, unknown> {
   return { ok: true, initialized: true, tree: "rewrite" };
 }
 
+function installSilentDebugCopy(): void {
+  removeSilentDebugCopyListener?.();
+  removeSilentDebugCopyListener = null;
+  const debugBuild = typeof __UF_DEBUG_BUILD__ !== "undefined" && __UF_DEBUG_BUILD__;
+  markingEngine?.setSilentDebugAnnotations(debugBuild);
+  if (!debugBuild || typeof document === "undefined") {
+    return;
+  }
+  const handleCopy = (event: MouseEvent): void => {
+    const copyTarget = (event.target as Element | null)?.closest?.('[data-uf-silent-copy="true"]');
+    if (!copyTarget || !markingEngine) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const inspected = markingEngine.inspectAtPoint(event.clientX, event.clientY);
+    if (!inspected) {
+      return;
+    }
+    void navigator.clipboard.writeText(inspected.annotation).then(() => {
+      showContentToast("Highlight details copied.");
+    }).catch(() => {
+      showContentToast("Unable to copy highlight details.");
+    });
+  };
+  document.addEventListener("click", handleCopy, true);
+  removeSilentDebugCopyListener = () => {
+    document.removeEventListener("click", handleCopy, true);
+    removeSilentDebugCopyListener = null;
+  };
+}
+
 /** Silent mode: show what the stored selectors keep, without arming marking.
  *  Read-only by construction — no listeners, no dirty flag, no navigation gate —
  *  so nothing here is a user marking. */
@@ -1613,6 +1760,7 @@ function applySilentSelectors(payload: unknown): Record<string, unknown> {
   markingEngine.refresh();
   const seeded = selectors ? markingEngine.seedFromSelectors(selectors) : false;
   const highlighted = markingEngine.renderSilentHighlights();
+  installSilentDebugCopy();
   return { ok: true, seeded, highlighted: highlighted.length, tree: "rewrite" };
 }
 
@@ -1621,6 +1769,7 @@ function clearSilentSelectors(): Record<string, unknown> {
     return { ok: false, reason: "marking-active", tree: "rewrite" };
   }
   markingEngine?.clearOverlays();
+  removeSilentDebugCopyListener?.();
   markingEngine?.dispose();
   markingEngine = null;
   return { ok: true, tree: "rewrite" };

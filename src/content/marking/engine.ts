@@ -15,6 +15,7 @@ import type { RenderMode } from "../../domain/schema/property";
 import { isToggleableDefaultTag } from "../../domain/taxonomy";
 import type { VisibilityGeometry } from "../../domain/visibility";
 import { isToggleableBoundary } from "../../domain/boundary";
+import { createGeometryStabilizer } from "./stabilizer";
 
 function evaluationNodeFingerprint(node: EvaluationNode): string {
   return [
@@ -298,6 +299,39 @@ export function createMarkingEngine(rootElement: Element) {
   const installObservers = (): (() => void) => {
     const view = rootElement.ownerDocument.defaultView;
     const cleanups: Array<() => void> = [];
+    let observerGeometryWork: RenderWork = "geometry";
+    const geometryStabilizer = createGeometryStabilizer({
+      sample: () => {
+        const documentElement = rootElement.ownerDocument.documentElement;
+        const rect = rootElement.getBoundingClientRect();
+        return [
+          documentElement.clientWidth,
+          documentElement.clientHeight,
+          view?.devicePixelRatio ?? 1,
+          rect.width,
+          rect.height,
+        ].join(":");
+      },
+      onSample: () => scheduleRender(observerGeometryWork),
+      onSettled: () => {
+        observerGeometryWork = "geometry";
+      },
+      requestFrame: (callback) => view?.requestAnimationFrame
+        ? view.requestAnimationFrame(callback)
+        : (setTimeout(() => callback(Date.now()), 0) as unknown as number),
+      cancelFrame: (handle) => view?.cancelAnimationFrame
+        ? view.cancelAnimationFrame(handle)
+        : clearTimeout(handle),
+      maxSamples: 4,
+      requiredStableSamples: 2,
+    });
+    const stabilizeGeometry = (work: Exclude<RenderWork, "structural">): void => {
+      if (work === "silent-geometry") {
+        observerGeometryWork = work;
+      }
+      geometryStabilizer.request();
+    };
+    cleanups.push(() => geometryStabilizer.cancel());
     let structuralRefreshHandle: ReturnType<typeof setTimeout> | null = null;
     let lastStructuralRefreshAt = 0;
     const scheduleStructuralRefresh = (): void => {
@@ -347,12 +381,12 @@ export function createMarkingEngine(rootElement: Element) {
       cleanups.push(() => observer.disconnect());
     }
     if (view?.ResizeObserver) {
-      const observer = new view.ResizeObserver(() => scheduleRender("silent-geometry"));
+      const observer = new view.ResizeObserver(() => stabilizeGeometry("silent-geometry"));
       observer.observe(rootElement);
       cleanups.push(() => observer.disconnect());
     }
     if (view?.IntersectionObserver) {
-      const observer = new view.IntersectionObserver(() => scheduleRender("geometry"));
+      const observer = new view.IntersectionObserver(() => stabilizeGeometry("geometry"));
       observer.observe(rootElement);
       cleanups.push(() => observer.disconnect());
     }
@@ -360,7 +394,7 @@ export function createMarkingEngine(rootElement: Element) {
     const finishViewportScroll = (): void => {
       viewportScrollHandle = null;
       renderer.setScrolling(false);
-      scheduleRender("geometry");
+      stabilizeGeometry("geometry");
     };
     const scheduleGeometryRender = (event?: Event): void => {
       const target = event?.target;
@@ -378,9 +412,9 @@ export function createMarkingEngine(rootElement: Element) {
         viewportScrollHandle = setTimeout(finishViewportScroll, 250);
         return;
       }
-      scheduleRender("geometry");
+      stabilizeGeometry("geometry");
     };
-    const scheduleResizeRender = (): void => scheduleRender("silent-geometry");
+    const scheduleResizeRender = (): void => stabilizeGeometry("silent-geometry");
     view?.addEventListener?.("scroll", scheduleGeometryRender, true);
     view?.addEventListener?.("resize", scheduleResizeRender);
     cleanups.push(() => {
@@ -508,6 +542,70 @@ export function createMarkingEngine(rootElement: Element) {
       } finally {
         toggleInProgress = false;
       }
+    },
+    clear(node: EvaluationNode): boolean {
+      const current = bridge.byXpath.get(node.xpath);
+      const element = current?.element as (Element & { isConnected?: boolean }) | undefined;
+      if (
+        toggleInProgress ||
+        current?.evaluationNode !== node ||
+        generationByNode.get(node) !== bridgeGeneration ||
+        fingerprintByNode.get(node) !== evaluationNodeFingerprint(node) ||
+        element?.isConnected === false
+      ) {
+        return false;
+      }
+      const existing = store.canonicalSet().rows.find((row) => row.xpath === node.xpath && row.explicit === true);
+      if (!existing) {
+        return false;
+      }
+      toggleInProgress = true;
+      hoverResolution = null;
+      try {
+        if (element) {
+          renderer.acknowledge(element, node.xpath, existing.excluded ? "exclude" : "include");
+        }
+        const cleared = store.clear(node);
+        if (!cleared) {
+          return false;
+        }
+        candidateByXpath = null;
+        renderer.renderBranch(cleared, byXpathElementsForBranch(cleared.branchRoot));
+        if (silentHighlightsArmed) {
+          renderSilent();
+        }
+        return true;
+      } finally {
+        toggleInProgress = false;
+      }
+    },
+    hasExplicitMark(node: EvaluationNode): boolean {
+      return store.canonicalSet().rows.some((row) => row.xpath === node.xpath && row.explicit === true);
+    },
+    rejectAtPoint(x: number, y: number): void {
+      renderer.rejectAtPoint(x, y);
+    },
+    setPassthrough(active: boolean): void {
+      renderer.setPassthrough(active);
+      if (!active) {
+        scheduleRender(silentHighlightsArmed ? "silent-geometry" : "geometry");
+      }
+    },
+    setSuspended(active: boolean): void {
+      renderer.setSuspended(active);
+    },
+    setSilentDebugAnnotations(active: boolean): void {
+      renderer.setSilentDebugAnnotations(active);
+    },
+    inspectAtPoint(x: number, y: number): Readonly<{ xpath: string; annotation: string }> | null {
+      for (const element of getComposedHitElements(rootElement.ownerDocument, x, y)) {
+        const entry = bridge.byElement.get(element);
+        if (entry) {
+          const xpath = entry.evaluationNode.xpath;
+          return { xpath, annotation: `XPath: ${xpath}` };
+        }
+      }
+      return null;
     },
     renderReadOnly(): void {
       renderCurrent();

@@ -272,6 +272,8 @@ describe("C4 rewrite content entrypoints", () => {
       dispose: vi.fn(),
       resolveAtPoint: vi.fn(() => ({ xpath: "/html[1]/body[1]/p[1]" })),
       toggle: vi.fn(),
+      setPassthrough: vi.fn(),
+      setSuspended: vi.fn(),
       rows: vi.fn(() => [{ xpath: "/html[1]/body[1]/p[1]", excluded: true }]),
     };
     const createMarkingEngine = vi.fn(() => engine);
@@ -479,8 +481,10 @@ describe("C4 rewrite content entrypoints", () => {
     )).toBe(true);
     documentListeners.get("keyup")?.({ code: "Space" } as unknown as Event);
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
-    expect(engine.refresh).toHaveBeenCalledTimes(3);
-    expect(engine.renderReadOnly).toHaveBeenCalledTimes(3);
+    expect(engine.refresh).toHaveBeenCalledTimes(2);
+    expect(engine.renderReadOnly).toHaveBeenCalledTimes(2);
+    expect(engine.setPassthrough).toHaveBeenNthCalledWith(1, true);
+    expect(engine.setPassthrough).toHaveBeenNthCalledWith(2, false);
     await dispatchContentCommand(listener, "pauseContentMainInteractions");
     expect(contentRoot?.children.some((element) =>
       element.attributes["data-uf-marking-paused-notice"] === "true"
