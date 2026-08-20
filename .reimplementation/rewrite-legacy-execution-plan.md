@@ -471,7 +471,16 @@ in the owning phase and rerun its focused gate plus P9–P11.
     consumed-once cursors, popup root remount/rehydration, scoped SHA-256 payload
     transfer, and stale generated-page-world rejection are covered by the phase
     evidence above.
-- [ ] P2 — Canonical marking and composed document
+- [x] P2 — Canonical marking and composed document
+  - Commit: `0a13b7b3` (`Reconcile composed marking semantics`).
+  - `pnpm vitest run tests/src/domain/boundary.test.ts tests/src/domain/evaluate.test.ts tests/src/domain/selector-seed.test.ts tests/src/domain/widening.test.ts tests/src/content/marking/dom-bridge.test.ts tests/src/content/marking/marking.test.ts tests/src/page-world/program.test.ts tests/page-world-source-parity.test.ts tests/golden/ai-snapshot.test.ts`
+    — 9 files / 117 tests passed.
+  - `pnpm lint && pnpm check` passed; `pnpm test` — 79 files / 637 tests
+    passed.
+  - Evidence covers one-shot selector-as-user rows, branch-only evaluation and
+    splice invariants, WeakMap identity, stale generation/fingerprint rejection,
+    collapsed-wrapper geometry, open/captured-closed/nested/slotted/inaccessible
+    shadow cases, and artifact-free rendered/static submission HTML.
 - [ ] P3 — Fast interaction and visual grammar
 - [ ] P4 — Reveal/freeze and emulation
 - [ ] P5 — Authority/config/auth/persistence

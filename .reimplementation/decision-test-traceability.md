@@ -8,7 +8,7 @@ rows again through the integrated and live matrices.
 
 | Decision | Primary phase | Automated evidence | Live/build evidence |
 |---|---|---|---|
-| I-01 | P2 | `tests/dirty-baseline.test.ts`; `tests/src/domain/selector-seed.test.ts` | P9 marking scenario |
+| I-01 | P2 | `tests/src/domain/selector-seed.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P9 marking scenario |
 | I-02 | P1 | `tests/src/domain/import-boundary.test.ts`; `tests/integration/rewrite-cutover.test.ts` | `pnpm check` |
 | I-03 | P1 | `tests/src/background/brain.test.ts`; `tests/src/popup/signal-cursor.test.ts` | P9 worker-restart scenario |
 | I-04 | P1 | `tests/src/messaging/bus.test.ts`; `tests/src/messaging/contracts.test.ts`; `tests/src/messaging/transports/runtime.test.ts` | `pnpm check` |
@@ -26,10 +26,10 @@ rows again through the integrated and live matrices.
 | I-16 | P6 | `tests/property-lock-background.test.ts`; `tests/property-lock-port-client.test.ts` | P11 hidden/unselected-tab lock run |
 | I-17 | P6 | `tests/property-lock.test.ts`; planned destructive-transfer integration case | P11 same-user transfer |
 | I-18 | P5 | `tests/src/domain/publication.test.ts`; `tests/src/lynx/ai-job.test.ts` | P11 publication-unknown retry |
-| I-19 | P2 | `tests/src/domain/evaluate.test.ts`; `tests/src/content/marking/marking.test.ts` | P9 marking/output comparison |
-| I-20 | P2 | `tests/src/domain/evaluate.test.ts`; planned canonical branch-equivalence corpus | P9 marking scenario |
+| I-19 | P2 | `tests/src/domain/evaluate.test.ts`; `tests/src/content/marking/marking.test.ts`; `tests/src/domain/selector-seed.test.ts` | P9 marking/output comparison |
+| I-20 | P2 | `tests/src/domain/evaluate.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P9 marking scenario |
 | I-21 | P2 | `tests/src/domain/widening.test.ts`; `tests/src/content/marking/marking.test.ts` | P11 Shift marking |
-| I-22 | P2 | `tests/dirty-baseline.test.ts`; `tests/page-draft-revert-handler.test.ts` | P11 Discard flow |
+| I-22 | P2 | `tests/c4-content-entrypoint.test.ts`; `tests/src/popup/entrypoint.test.ts` | P11 Discard flow |
 | I-23 | P6 | `tests/navigation-notifier.test.ts`; `tests/session-phase-decider.test.ts` | P11 SPA change |
 | I-24 | P6 | `tests/marking-no-auto-restore.test.ts`; `tests/session-facts-content-reconciliation.test.ts` | P11 reload recovery |
 | I-25 | P6 | `tests/config-updated-handler.test.ts`; `tests/config.test.ts` | P11 config-deletion onboarding |
@@ -57,8 +57,8 @@ rows again through the integrated and live matrices.
 | U-10 | P1 | `tests/src/background/brain.test.ts`; `tests/src/popup/signal-cursor.test.ts`; `tests/src/popup/entrypoint.test.ts` | P9 event/reconciliation scenario |
 | U-11 | P6 | `tests/popup-site-resolution.test.ts`; planned sticky-binding navigation case | P11 bound-tab observation |
 | U-12 | P3 | `tests/mark-mode-fsm.test.ts`; `tests/c4-content-entrypoint.test.ts` | P11 Space passthrough |
-| U-13 | P2 | `tests/src/content/marking/dom-bridge.test.ts`; planned temporary-ID cleanup case | P9 shadow/preview scenario |
-| U-14 | P2 | `tests/src/domain/boundary.test.ts`; `tests/src/domain/evaluate.test.ts` | P9 canonical marking scenario |
+| U-13 | P2 | `tests/src/content/marking/dom-bridge.test.ts` (WeakMap identity; no temporary DOM IDs) | P9 shadow/preview scenario |
+| U-14 | P2 | `tests/src/domain/boundary.test.ts`; `tests/src/domain/evaluate.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P9 canonical marking scenario |
 | U-15 | P1 | `tests/src/popup/root-recovery.test.ts`; `tests/c3-popup-entrypoint.test.ts` | `pnpm check` and bundle gate |
 | U-16 | P1 | `tests/transfer-payload-store.test.ts`; `tests/capture-page-snapshot-handler.test.ts` | P9 large-corpus scenario |
 | U-17 | P4 | `tests/device-emulation-lifecycle.test.ts`; planned manual-control absence assertion | production package inspection |
@@ -67,12 +67,12 @@ rows again through the integrated and live matrices.
 | U-18c | P6 | `tests/no-autonomous-backend-io.test.ts`; `tests/src/domain/todo.test.ts` | P11 feed-owned page types |
 | U-18d | P7 | planned production/debug preview-classification snapshots | production/debug build gates |
 | U-18e | P8 | planned debug-toolkit positive/production-negative tests | production/debug build gates |
-| D-01 | P2 | `tests/dirty-baseline.test.ts`; `tests/src/domain/evaluate.test.ts` | P9 toggle/branch scenario |
-| D-02 | P2 | `tests/src/domain/selector-seed.test.ts`; `tests/selector-suppression.test.ts` | P9 selector-vs-user equivalence |
-| D-03 | P2 | `tests/src/content/marking/dom-bridge.test.ts`; planned collapsed-wrapper geometry case | P11 overlay identity check |
-| D-04 | P2 | `tests/shadow-deep-capture.test.ts`; `tests/shadow-xpath.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P11 shadow marking/capture |
-| D-05 | P2 | `tests/capture-page-snapshot-handler.test.ts`; `tests/golden/ai-snapshot.test.ts` | P11 artifact-free payload |
-| D-06 | P2 | planned serialized-toggle/generation/branch-splice invariant tests | P9 rapid-toggle scenario |
+| D-01 | P2 | `tests/src/domain/evaluate.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P9 toggle/branch scenario |
+| D-02 | P2 | `tests/src/domain/selector-seed.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P9 selector-vs-user equivalence |
+| D-03 | P2 | `tests/src/content/marking/dom-bridge.test.ts` collapsed-wrapper identity/geometry case | P11 overlay identity check |
+| D-04 | P2 | `tests/src/page-world/program.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` captured-closed/nested/slotted/inaccessible cases | P11 shadow marking/capture |
+| D-05 | P2 | `tests/src/content/marking/dom-bridge.test.ts`; `tests/src/content/marking/marking.test.ts`; `tests/golden/ai-snapshot.test.ts` | P11 artifact-free payload |
+| D-06 | P2 | `tests/src/domain/evaluate.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` branch-splice and stale-generation cases | P9 rapid-toggle scenario |
 | D-07 | P3 | `tests/src/content/marking/dom-bridge.test.ts`; planned bounded-stabilization observer test | P11 scroll/resize alignment |
 | D-08 | P3 | planned marking-context-menu unit/integration tests | P11 right-click flow |
 | D-09 | P3 | planned physical-click deduplication test | P11 rapid-click flow |
