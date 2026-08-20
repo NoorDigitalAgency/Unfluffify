@@ -555,7 +555,16 @@ in the owning phase and rerun its focused gate plus P9–P11.
     unregister confirmation/recovery, prioritized notices and concise production
     toasts, five-state action icons, absence of manifest shortcuts, and exact
     panel scroll restoration across busy/modal teardown.
-- [ ] P9 — End-to-end integration
+- [x] P9 — End-to-end integration
+  - Evidence commit: `7019f099` (`Record P9 integration evidence`) and
+    [`p9-integration-evidence.md`](./p9-integration-evidence.md).
+  - Cross-layer seven-scenario gate — 13 files / 116 tests passed, covering
+    background, content, popup, Hub-facing fixtures, persisted authority, and
+    captured/submitted artifacts.
+  - Hub `dotnet test UnfluffifyHub.sln --no-restore --nologo` on clean `develop`
+    at `9bdce9f` — 96 tests passed.
+  - Full extension suite — 90 files / 683 tests passed. Lifecycle readiness is
+    event/condition-driven; zero-delay uses only flush already-resolved work.
 - [ ] P10 — Automated release gates
 - [ ] P11 — Witnessed live acceptance
 
