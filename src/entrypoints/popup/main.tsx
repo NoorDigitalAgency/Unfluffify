@@ -1544,7 +1544,7 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     }, requestKey);
     await pullSignals(context.tabId, requestKey);
   } else {
-    const deactivated = await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
+    const deactivated = await sendContentMessage(context.tabId, { type: "enterSilentContentMain" });
     if (!deactivated) {
       logEvent("Marking disable failed", "the content script did not confirm deactivation", "danger");
       render();
@@ -1561,6 +1561,8 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     logEvent("Marking disabled", "toggle");
     await reportPopupFact(context, "marking-deactivated", { markingEnabled: false }, requestKey);
     await pullSignals(context.tabId, requestKey);
+    silentSelectorsAppliedKey = null;
+    await refreshSilentSelectorPreview(context, requestKey);
   }
   render();
 }
@@ -2432,7 +2434,7 @@ async function saveSession(): Promise<void> {
   if (response.ok && response.data.status === "ok") {
     loadedConfig = response.data.config ?? loadedConfig;
     loadedSelectors = loadedConfig?.selectors ?? loadedSelectors;
-    await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
+    await sendContentMessage(context.tabId, { type: "enterSilentContentMain" });
     lastSubmissionSnapshot = null;
     lastSubmissionKey = null;
     contentActive = false;
@@ -2464,6 +2466,10 @@ async function saveSession(): Promise<void> {
     reconciliationPending: false,
     reconciliationReason: response.ok ? response.data.status : response.failure.code,
   }, requestKey);
+  if (response.ok && response.data.status === "ok") {
+    silentSelectorsAppliedKey = null;
+    await refreshSilentSelectorPreview(context, requestKey);
+  }
   render();
 }
 

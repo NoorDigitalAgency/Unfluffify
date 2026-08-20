@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { createKeepAliveController } from "./keepalive";
 import { createRewriteBrain } from "./rewrite-brain";
-import { BrainSensationSchema } from "./brain/fold";
+import { BrainSensationSchema, createInitialTabFacts } from "./brain/fold";
 import type { TabFacts } from "../domain/schema/facts";
 
 const RuntimeRequestSchema = z.discriminatedUnion("type", [
@@ -40,6 +40,7 @@ export type RuntimeHost = Readonly<{
 
 export function createRewriteBrainRuntime(host: RuntimeHost) {
   const brains = new Map<number, Promise<ReturnType<typeof createRewriteBrain>>>();
+  const retainedSignalHeads = new Map<number, number>();
   const keepAlive = createKeepAliveController({
     createAlarm: host.createAlarm,
     clearAlarm: host.clearAlarm,
@@ -53,10 +54,21 @@ export function createRewriteBrainRuntime(host: RuntimeHost) {
   const getBrain = (tabId: number): Promise<ReturnType<typeof createRewriteBrain>> => {
     let pending = brains.get(tabId);
     if (!pending) {
-      pending = (async () => createRewriteBrain(
-        tabId,
-        await host.rehydrateDurableFacts?.(tabId) ?? null,
-      ))();
+      pending = (async () => {
+        const durableFacts = await host.rehydrateDurableFacts?.(tabId) ?? null;
+        const signalHead = Math.max(
+          durableFacts?.lastSignalSeq ?? 0,
+          retainedSignalHeads.get(tabId) ?? 0,
+        );
+        retainedSignalHeads.set(tabId, signalHead);
+        const initialFacts = signalHead > 0
+          ? {
+              ...(durableFacts ?? createInitialTabFacts(tabId)),
+              lastSignalSeq: signalHead,
+            }
+          : durableFacts;
+        return createRewriteBrain(tabId, initialFacts);
+      })();
       brains.set(tabId, pending);
       void pending.catch(() => {
         if (brains.get(tabId) === pending) {
@@ -118,8 +130,33 @@ export function createRewriteBrainRuntime(host: RuntimeHost) {
     },
     handle,
     getBrain,
-    forgetBrain(tabId: number): void {
+    async forgetBrain(
+      tabId: number,
+      options: Readonly<{ preserveSignalHead?: boolean }> = {},
+    ): Promise<void> {
+      const pending = brains.get(tabId);
       brains.delete(tabId);
+      if (options.preserveSignalHead === false) {
+        retainedSignalHeads.delete(tabId);
+        return;
+      }
+      if (!pending) {
+        return;
+      }
+      try {
+        const brain = await pending;
+        const signalHead = brain.snapshot()?.lastSignalSeq ?? 0;
+        retainedSignalHeads.set(
+          tabId,
+          Math.max(retainedSignalHeads.get(tabId) ?? 0, signalHead),
+        );
+      } catch {
+        // A failed construction has no trustworthy head to preserve. Its
+        // original error is already surfaced by getBrain/handle.
+      }
+    },
+    retainedSignalHead(tabId: number): number {
+      return retainedSignalHeads.get(tabId) ?? 0;
     },
     keepAlive,
   };

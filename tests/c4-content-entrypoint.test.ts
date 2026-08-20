@@ -574,15 +574,27 @@ describe("C4 rewrite content entrypoints", () => {
     expect(unresolvedClick.preventDefault).toHaveBeenCalledTimes(1);
     expect(unresolvedClick.stopPropagation).toHaveBeenCalledTimes(1);
     expect(engine.toggle).toHaveBeenCalledTimes(1);
-    const deactivate = await dispatchContentCommand(listener, "deactivateContentMain");
+    const destroyCallsBeforeSilent = window.postMessage.mock.calls.filter(([message]) =>
+      (message as { command?: string }).command === "DESTROY"
+    ).length;
+    const enterSilent = await dispatchContentCommand(listener, "enterSilentContentMain");
     expect(engine.dispose).toHaveBeenCalledTimes(1);
+    expect(window.postMessage.mock.calls.filter(([message]) =>
+      (message as { command?: string }).command === "DESTROY"
+    )).toHaveLength(destroyCallsBeforeSilent);
+    expect(contentRoot?.children.some((element) =>
+      element.attributes["data-uf-motion-pause-indicator"] === "true"
+    )).toBe(true);
+    expect(documentListeners.has("click")).toBe(false);
+    expect(windowListeners.has("blur")).toBe(false);
+    expect((document.documentElement as HTMLElement).className).toBe("page-shell");
+    expect(enterSilent).toEqual({ ok: true, data: { ok: true, initialized: false, tree: "rewrite" } });
+
+    const deactivate = await dispatchContentCommand(listener, "deactivateContentMain");
     expect(window.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       command: "DESTROY",
       sessionNonce: expect.stringMatching(/^rewrite-stabilization-/),
     }), "*");
-    expect(documentListeners.has("click")).toBe(false);
-    expect(windowListeners.has("blur")).toBe(false);
-    expect((document.documentElement as HTMLElement).className).toBe("page-shell");
     expect(deactivate).toEqual({ ok: true, data: { ok: true, initialized: false, tree: "rewrite" } });
   });
 

@@ -1569,14 +1569,24 @@ function ensureMarkingListeners(): void {
   };
 }
 
-function deactivateMarking(): void {
+type MarkingDeactivationMode = "terminal" | "silent";
+
+function deactivateMarking(mode: MarkingDeactivationMode = "terminal"): void {
   markingActive = false;
   userToggleCount = 0;
   selectorsSeeded = false;
   removeNavigationGate?.();
   markingInteractionsPaused = false;
-  spaGuard.disarm();
-  destroyPageWorldSession();
+  if (mode === "terminal") {
+    silentInteractionShieldActive = false;
+    spaGuard.disarm();
+    destroyPageWorldSession();
+  } else {
+    // Silent highlighting is still an active Unfluffify posture. Keep the
+    // page-world freeze and lazy-loading suppression established for this visit,
+    // while replacing marking input with the read-only interaction shield.
+    silentInteractionShieldActive = true;
+  }
   removeSilentDebugCopyListener?.();
   removeMarkingListeners?.();
   markingEngine?.dispose();
@@ -1901,6 +1911,10 @@ function createContentRouter() {
       captureSubmissionSnapshot,
       deactivateContentMain: () => {
         deactivateMarking();
+        return { ok: true, initialized: false, tree: "rewrite" };
+      },
+      enterSilentContentMain: () => {
+        deactivateMarking("silent");
         return { ok: true, initialized: false, tree: "rewrite" };
       },
       resetContentMain: () => ({ ok: resetMarking(), initialized: true, tree: "rewrite" }),

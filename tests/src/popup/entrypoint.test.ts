@@ -509,6 +509,7 @@ describe("rewrite popup entrypoint", () => {
     expect(emulationNames().length).toBeGreaterThan(0);
     expect(emulationNames()).not.toContain("cleared");
     expect(emulationNames().every((mode) => mode === "mobile")).toBe(true);
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("enterSilentContentMain", {}));
   });
 
   it("does not adopt a render mode until the operator confirms it", async () => {
@@ -612,11 +613,11 @@ describe("rewrite popup entrypoint", () => {
 
     expect((globalThis.window as unknown as { confirm: ReturnType<typeof vi.fn> }).confirm).toHaveBeenCalled();
     // Declining must not deactivate, because deactivating is the wipe.
-    expect(commandsAfter.filter((name) => name === "deactivateContentMain"))
-      .toEqual(commandsBefore.filter((name) => name === "deactivateContentMain"));
+    expect(commandsAfter.filter((name) => name === "enterSilentContentMain"))
+      .toEqual(commandsBefore.filter((name) => name === "enterSilentContentMain"));
   });
 
-  it("binds production popup toggles to the active tab and clears content on disable", async () => {
+  it("binds production popup toggles to the active tab and returns content to silent mode on disable", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({
@@ -741,12 +742,12 @@ describe("rewrite popup entrypoint", () => {
       }),
       target: "background",
     }));
-    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("deactivateContentMain", {}));
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("enterSilentContentMain", {}));
     // Disabling comes last: the reset happens while marking is still armed.
     expect(sentCommandNames.lastIndexOf("resetContentMain"))
       .toBeLessThan(tabsSendMessage.mock.calls
         .map(([, m]) => (m as { payload?: { name?: string } }).payload?.name)
-        .lastIndexOf("deactivateContentMain"));
+        .lastIndexOf("enterSilentContentMain"));
   });
 
   it("fetches static source HTML before running AI, previewing, and saving", async () => {
@@ -945,7 +946,10 @@ describe("rewrite popup entrypoint", () => {
       .map(([frame]) => frame)
       .filter((frame) => frame.name === "lock.directive")
       .every((frame) => !("hasUnsavedChanges" in frame.payload))).toBe(true);
-    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("deactivateContentMain", {}));
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("enterSilentContentMain", {}));
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("applySilentSelectors", {
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+    }));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "config.save",
       target: "background",
@@ -1340,7 +1344,7 @@ describe("rewrite popup entrypoint", () => {
     await flushEntrypointWork();
 
     expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(false);
-    expect(tabsSendMessage).not.toHaveBeenCalledWith(77, contentCommand("deactivateContentMain", {}));
+    expect(tabsSendMessage).not.toHaveBeenCalledWith(77, contentCommand("enterSilentContentMain", {}));
   });
 
   it("does not enable Save when markings change during AI snapshot capture", async () => {

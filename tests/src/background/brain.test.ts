@@ -459,6 +459,40 @@ describe("P3 background brain", () => {
     expect(cursor.consumedThrough()).toBe(2);
   });
 
+  it("keeps signal sequencing monotonic when navigation forgets the tab brain", async () => {
+    const runtime = createRewriteBrainRuntime({
+      addMessageListener() {},
+      rehydrateDurableFacts: async () => null,
+    });
+    const cursor = createSignalCursor();
+    const observeActivation = async (pageUrl: string) => await runtime.handle({
+      type: "uf.rewriteBrain.observe",
+      sensation: {
+        tabId: 9,
+        source: "popup",
+        reason: "marking-activated",
+        facts: {
+          tabId: 9,
+          pageUrl,
+          baseUrl: "https://example.com",
+          markingEnabled: true,
+        },
+      },
+    }) as { signals: Array<{ seq: number; name: string }> };
+
+    const beforeNavigation = await observeActivation("https://example.com/a");
+    expect(beforeNavigation.signals).toMatchObject([{ seq: 1, name: "marking.enabled" }]);
+    expect(cursor.claim(beforeNavigation.signals[0].seq)).toBe(true);
+
+    await runtime.forgetBrain(9, { preserveSignalHead: true });
+    expect(runtime.retainedSignalHead(9)).toBe(1);
+
+    const afterNavigation = await observeActivation("https://example.com/b");
+    expect(afterNavigation.signals).toMatchObject([{ seq: 2, name: "marking.enabled" }]);
+    expect(cursor.claim(afterNavigation.signals[0].seq)).toBe(true);
+    expect(cursor.consumedThrough()).toBe(2);
+  });
+
   it("serves consumed-once cursor requests through the mounted runtime", async () => {
     let listener: ((message: unknown) => unknown) | null = null;
     const alarms: string[] = [];

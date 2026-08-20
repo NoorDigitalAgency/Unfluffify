@@ -21,6 +21,7 @@ import { fetchStaticPageHtml } from "./static-html";
 import { createTransferPayloadStore } from "./transfer-payload-store";
 import { actionIconStateForContext, createActionIconController } from "./action-icon";
 import { clearDomainCache } from "../storage/domain-cache";
+import { createInitialTabFacts } from "./brain/fold";
 
 export { createRewriteBrain } from "./rewrite-brain";
 
@@ -130,20 +131,35 @@ export function startRewriteBackground(): void {
       await tabTerminations.get(tabId);
     }
   };
-  const clearTabContinuation = async (tabId: number): Promise<void> => {
+  const clearTabContinuation = async (
+    tabId: number,
+    preserveSignalHead = true,
+  ): Promise<void> => {
     const latestRun = await services.repos.runRecordRepo.loadLatestForTab(tabId);
     if (latestRun.ok && latestRun.value) {
       await services.repos.runRecordRepo.clear(latestRun.value.sessionId);
     }
     await services.repos.tabStateRepo.clear(tabId);
+    const signalHead = preserveSignalHead ? runtime.retainedSignalHead(tabId) : 0;
+    if (signalHead > 0) {
+      await services.persistence.persistDurableFacts({
+        ...createInitialTabFacts(tabId),
+        lastSignalSeq: signalHead,
+      });
+    }
   };
-  const beginTabCleanup = (tabId: number, cleanup: () => Promise<void>): Promise<void> => {
-    runtime.forgetBrain(tabId);
+  const beginTabCleanup = (
+    tabId: number,
+    cleanup: () => Promise<void>,
+    preserveSignalHead = true,
+  ): Promise<void> => {
+    const forgettingBrain = runtime.forgetBrain(tabId, { preserveSignalHead });
     const previous = tabTerminations.get(tabId);
     const termination = (async () => {
       if (previous) {
         await previous;
       }
+      await forgettingBrain;
       await cleanup();
     })();
     tabTerminations.set(tabId, termination);
@@ -199,14 +215,15 @@ export function startRewriteBackground(): void {
       // Navigation/reload and tab close are draft-terminal, unlike a transient
       // network failure. A close releases immediately; navigation retains only
       // the lease while its off-candidate/cross-property deadline is resolved.
+      const preserveSignalHead = reason !== "tab-closed";
       return beginTabCleanup(tabId, async () => {
         if (reason === "tab-closed") {
           await lockRuntime.terminateTab(tabId);
         } else {
           lockRuntime.navigationCommitted(tabId);
         }
-        await clearTabContinuation(tabId);
-      });
+        await clearTabContinuation(tabId, preserveSignalHead);
+      }, preserveSignalHead);
     },
   });
   void lockBrowserLifecycle.start().catch((error) => {
