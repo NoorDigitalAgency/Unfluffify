@@ -37,7 +37,7 @@ rows again through the integrated and live matrices.
 | I-27 | P5 | `tests/src/background/property-authority.test.ts`; `tests/src/background/services.test.ts`; `tests/src/background/startup.test.ts` | P9 failure-recovery scenario |
 | I-28 | P5 | `tests/src/popup/app.test.ts`; `tests/src/popup/entrypoint.test.ts` | P11 operation blocking/recovery |
 | I-29 | P8 | `tests/src/popup/theme.test.ts`; `tests/theme-colors.test.ts` | P11 theme matrix |
-| I-30 | P8 | `tests/src/popup/app.test.ts`; `tests/popup-view-projector.test.ts` | production package UI run |
+| I-30 | P8 | `tests/src/popup/app.test.ts`; `tests/popup-view-projector.test.ts`; `tests/popup-responsive-layout.test.ts`; `tests/build-artifact-parity.test.ts` | production package UI run |
 | I-31 | P4 | `tests/src/background/emulation-policy.test.ts`; `tests/src/popup/app.test.ts` | P11 silent desktop preview |
 | I-32 | P4 | `tests/src/content/stabilization/stabilization.test.ts`; `tests/src/background/render-emulation-runtime.test.ts` | P11 CDP emulation facts |
 | I-33 | P4 | `tests/src/background/emulation-policy.test.ts`; `tests/src/background/render-emulation-runtime.test.ts` | P11 navigation/detach self-heal |
@@ -45,15 +45,15 @@ rows again through the integrated and live matrices.
 | I-35 | P4 | `tests/src/content/stabilization/stabilization.test.ts` | P11 reveal trace |
 | I-36 | P3 | `tests/src/content/marking/marking.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P11 visual border check |
 | I-37 | P6 | `tests/src/popup/app.test.ts`; `tests/src/popup/entrypoint.test.ts`; `tests/src/popup/candidate-navigation.test.ts` | P11 candidate navigation |
-| U-01 | P8 | `tests/src/popup/app.test.ts`; planned responsive-layout snapshot cases | P11 width matrix |
+| U-01 | P8 | `tests/src/popup/app.test.ts`; `tests/popup-responsive-layout.test.ts` | P11 width matrix |
 | U-02 | P3 | `tests/src/popup/app.test.ts`; `tests/build-artifact-parity.test.ts` | production asset inspection |
-| U-03 | P8 | planned kebab-navigation component test | P11 popup navigation |
-| U-04 | P8 | `tests/src/popup/app.test.ts`; planned prioritized-notice projection test | P11 context hierarchy |
-| U-05 | P8 | planned production/debug diagnostic reachability test | production/debug build gates |
-| U-06 | P8 | `tests/page-toast.test.ts`; planned production Activity-absence test | production package inspection |
+| U-03 | P8 | `tests/src/popup/app.test.ts` | P11 popup navigation |
+| U-04 | P8 | `tests/src/popup/app.test.ts` | P11 context hierarchy |
+| U-05 | P8 | `tests/src/popup/app.test.ts`; `tests/src/popup/entrypoint.test.ts`; `tests/c3-popup-entrypoint.test.ts`; `tests/build-artifact-parity.test.ts` | production/debug build gates |
+| U-06 | P8 | `tests/page-toast.test.ts`; `tests/src/popup/app.test.ts`; `tests/build-artifact-parity.test.ts` | production package inspection |
 | U-07 | P5 | `tests/src/storage/settings.test.ts`; `tests/src/background/startup.test.ts`; `tests/src/popup/app.test.ts` | P11 configuration edit |
 | U-08 | P6 | `tests/src/popup/app.test.ts`; `tests/src/popup/todo-recovery.test.ts` | P11 Todo expansion choices |
-| U-09 | P8 | `tests/property-lock-banner-mode.test.ts`; planned production-copy snapshot | P11 lock copy |
+| U-09 | P8 | `tests/property-lock-banner-mode.test.ts`; `tests/src/popup/app.test.ts`; `tests/build-artifact-parity.test.ts` | P11 lock copy |
 | U-10 | P1 | `tests/src/background/brain.test.ts`; `tests/src/popup/signal-cursor.test.ts`; `tests/src/popup/entrypoint.test.ts` | P9 event/reconciliation scenario |
 | U-11 | P6 | `tests/src/popup/entrypoint.test.ts` | P11 bound-tab observation |
 | U-12 | P3 | `tests/mark-mode-fsm.test.ts`; `tests/c4-content-entrypoint.test.ts` | P11 Space passthrough |
@@ -62,11 +62,11 @@ rows again through the integrated and live matrices.
 | U-15 | P1 | `tests/src/popup/root-recovery.test.ts`; `tests/c3-popup-entrypoint.test.ts` | `pnpm check` and bundle gate |
 | U-16 | P1 | `tests/transfer-payload-store.test.ts`; `tests/capture-page-snapshot-handler.test.ts` | P9 large-corpus scenario |
 | U-17 | P4 | `tests/src/background/emulation-policy.test.ts`; `tests/src/popup/app.test.ts` | production package inspection |
-| U-18a | P8 | planned cache/unregister action tests | P11 cache and unregister flow |
+| U-18a | P8 | `tests/src/background/domain-cache.test.ts`; `tests/src/messaging/contracts.test.ts`; `tests/src/popup/app.test.ts`; `tests/src/popup/entrypoint.test.ts` | P11 cache and unregister flow |
 | U-18b | P7 | `tests/popup-render-mode.test.ts`; `tests/render-mode-inspector.test.ts`; `tests/src/popup/render-mode-inspection.test.ts`; `tests/src/background/render-emulation-runtime.test.ts` | P11 manual inspection |
 | U-18c | P6 | `tests/src/domain/todo.test.ts`; `tests/src/lynx/context.test.ts`; `tests/src/background/page-context-runtime.test.ts` | P11 feed-owned page types |
 | U-18d | P7 | `tests/src/popup/preview-classification.test.ts`; `tests/src/popup/app.test.ts` | production/debug build gates |
-| U-18e | P8 | planned debug-toolkit positive/production-negative tests | production/debug build gates |
+| U-18e | P8 | `tests/src/popup/app.test.ts`; `tests/src/popup/entrypoint.test.ts`; `tests/c3-popup-entrypoint.test.ts`; `tests/build-artifact-parity.test.ts` | production/debug build gates |
 | D-01 | P2 | `tests/src/domain/evaluate.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P9 toggle/branch scenario |
 | D-02 | P2 | `tests/src/domain/selector-seed.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P9 selector-vs-user equivalence |
 | D-03 | P2 | `tests/src/content/marking/dom-bridge.test.ts` collapsed-wrapper identity/geometry case | P11 overlay identity check |
@@ -95,10 +95,10 @@ rows again through the integrated and live matrices.
 | D-26 | P7 | `tests/src/popup/render-mode-inspection.test.ts`; `tests/src/background/render-emulation-runtime.test.ts` | P11 stalled-inspection recovery |
 | D-27 | P6 | `tests/src/popup/candidate-navigation.test.ts`; `tests/src/popup/entrypoint.test.ts` | P11 navigation failure recovery |
 | D-28 | P5 | `tests/src/storage/settings.test.ts`; `tests/src/background/startup.test.ts`; `tests/src/lynx/token-rotation.test.ts` | P11 endpoint/token invalidation |
-| D-29 | P8 | planned dynamic-action-icon state test | production action-icon inspection |
-| D-30 | P8 | planned manifest/global-shortcut absence test; `tests/mark-mode-fsm.test.ts` | production package inspection |
+| D-29 | P8 | `tests/src/background/action-icon.test.ts`; `tests/src/background/startup.test.ts` | production action-icon inspection |
+| D-30 | P8 | `tests/manifest-permissions.test.ts`; `tests/mark-mode-fsm.test.ts` | production package inspection |
 | D-31 | P1 | `tests/src/popup/root-recovery.test.ts`; `tests/src/popup/entrypoint.test.ts` | P11 panel corruption recovery |
-| D-32 | P8 | planned popup scroll-lock lifecycle test | P11 modal/busy teardown |
+| D-32 | P8 | `tests/src/popup/scroll-lock.test.ts`; `tests/src/popup/app.test.ts` | P11 modal/busy teardown |
 
 ## Integrated evidence
 

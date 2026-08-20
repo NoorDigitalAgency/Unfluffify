@@ -542,7 +542,19 @@ in the owning phase and rerun its focused gate plus P9–P11.
     scrolling, pointer-only row behavior, production/debug classification
     projection, explicit inspection begin/end lifecycle, and popup/background
     watchdog teardown with retryable no-inference failures.
-- [ ] P8 — Popup UX/debug/recovery
+- [x] P8 — Popup UX/debug/recovery
+  - Implementation commit: `4893f3fa` (`Restore popup operations and debug boundaries`).
+  - `pnpm lint && pnpm check` passed.
+  - `pnpm vitest run tests/src/background/action-icon.test.ts tests/src/background/domain-cache.test.ts tests/src/background/startup.test.ts tests/src/popup/scroll-lock.test.ts tests/src/popup/theme.test.ts tests/src/popup/app.test.ts tests/src/popup/entrypoint.test.ts tests/src/popup/preview-classification.test.ts tests/src/messaging/contracts.test.ts tests/c3-popup-entrypoint.test.ts tests/manifest-permissions.test.ts tests/popup-responsive-layout.test.ts tests/theme-colors.test.ts tests/property-lock-banner-mode.test.ts tests/page-toast.test.ts tests/build-artifact-parity.test.ts --reporter=dot`
+    — 14 files / 139 tests passed.
+  - `pnpm test -- --reporter=dot` — 90 files / 683 tests passed.
+  - Production bundle inspection proves the callable debug API, detailed
+    Activity surface, internal classifications, traces, direct mode, and silent
+    copy annotations are absent; the debug build retains them. Evidence also
+    covers responsive property-first layout, kebab operations, scoped cache and
+    unregister confirmation/recovery, prioritized notices and concise production
+    toasts, five-state action icons, absence of manifest shortcuts, and exact
+    panel scroll restoration across busy/modal teardown.
 - [ ] P9 — End-to-end integration
 - [ ] P10 — Automated release gates
 - [ ] P11 — Witnessed live acceptance
