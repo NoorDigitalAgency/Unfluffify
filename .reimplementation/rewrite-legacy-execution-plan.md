@@ -520,7 +520,17 @@ in the owning phase and rerun its focused gate plus P9–P11.
     atomic complete-profile commit, atomic normalized backend/JWT invalidation,
     and AI completion scoped to exact editor session/run generation across panel
     closure and MV3 worker restart without automatic application.
-- [ ] P6 — Lock/candidacy/session/navigation
+- [x] P6 — Lock/candidacy/session/navigation
+  - Commit: `23aa8faa` (`Control candidate navigation and session boundaries`).
+  - `pnpm lint && pnpm check` passed; `pnpm test` — 83 files / 663 tests
+    passed.
+  - Evidence covers presence-qualified background lock retention, rotated-fence
+    destructive transfer and suspended-feed recovery, 15-second candidate
+    reconciliation, adaptive per-property Todo expansion, feed-owned page types,
+    sticky opening-tab binding, terminal SPA/reload/config-deletion/unregister
+    boundaries, inline confirmed same-tab candidate navigation, bounded
+    fail-open inspection warnings, and cleanup failure restoration without
+    unregistering the tab.
 - [ ] P7 — Preview and inspection
 - [ ] P8 — Popup UX/debug/recovery
 - [ ] P9 — End-to-end integration
