@@ -505,7 +505,21 @@ in the owning phase and rerun its focused gate plus P9–P11.
     CSS/WAAPI/SMIL/media/timer/rAF/idle freezing, semantic-hidden preservation,
     late/restarted motion sources, extension-owned teardown, and continuous fixed
     Googlebot Smartphone posture with only the held silent desktop exception.
-- [ ] P5 — Authority/config/auth/persistence
+- [x] P5 — Authority/config/auth/persistence
+  - Commit: `86a7f7dd` (`Harden backend authority and durable AI state`).
+  - `pnpm lint && pnpm check` passed.
+  - `pnpm vitest run tests/src/background/services.test.ts tests/src/background/property-authority.test.ts tests/src/background/property-snapshot-authority.test.ts tests/src/background/startup.test.ts tests/src/storage/settings.test.ts tests/src/messaging/contracts.test.ts tests/src/popup/app.test.ts tests/src/popup/entrypoint.test.ts --reporter=dot`
+    — 8 files / 156 tests passed.
+  - `pnpm test -- --reporter=dot` — 82 files / 655 tests passed.
+  - Hub audit: `dotnet test UnfluffifyHub.sln --no-restore --nologo` on clean
+    `develop` at `9bdce9f` — 96 tests passed; no Hub change was required.
+  - Evidence covers singular fenced/idempotent saves, server-owned revision and
+    timestamp contracts, full background corpus ownership, Hub-only publication,
+    authoritative-shrink adoption with durable prominent write blocking and clean
+    recovery, fail-open reads/fail-closed writes, per-field Change/Cancel with an
+    atomic complete-profile commit, atomic normalized backend/JWT invalidation,
+    and AI completion scoped to exact editor session/run generation across panel
+    closure and MV3 worker restart without automatic application.
 - [ ] P6 — Lock/candidacy/session/navigation
 - [ ] P7 — Preview and inspection
 - [ ] P8 — Popup UX/debug/recovery

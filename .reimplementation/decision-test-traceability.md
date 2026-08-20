@@ -14,18 +14,18 @@ rows again through the integrated and live matrices.
 | I-04 | P1 | `tests/src/messaging/bus.test.ts`; `tests/src/messaging/contracts.test.ts`; `tests/src/messaging/transports/runtime.test.ts` | `pnpm check` |
 | I-05 | P1 | `tests/src/background/brain.test.ts`; `tests/src/background/startup.test.ts` | P9 worker-restart scenario |
 | I-06 | P1 | `tests/page-world-source-parity.test.ts`; `tests/src/page-world/program.test.ts` | production/debug stale-artifact build gates |
-| I-07 | P5 | `tests/src/background/property-authority.test.ts`; `tests/popup-site-resolution.test.ts` | P11 property identity record |
-| I-08 | P5 | `tests/src/domain/todo.test.ts`; `tests/page-type-taxonomy.test.ts` | P11 candidate navigation |
-| I-09 | P5 | `tests/no-autonomous-backend-io.test.ts`; `tests/src/background/services.test.ts` | P11 Hub network observation |
-| I-10 | P5 | `tests/src/background/property-snapshot-authority.test.ts`; `tests/popup-background-snapshot.test.ts` | P9 corpus/save scenario |
-| I-11 | P5 | `tests/page-draft-save-handler.test.ts`; `tests/src/domain/publication.test.ts` | P11 singular save |
-| I-12 | P5 | planned `tests/authoritative-shrink-integrity.test.ts` | P9 shrink/recovery scenario |
-| I-13 | P5 | `tests/src/storage/repositories.test.ts`; planned server-revision contract case | P11 saved revision evidence |
+| I-07 | P5 | `tests/src/background/property-authority.test.ts`; `tests/src/background/services.test.ts` | P11 property identity record |
+| I-08 | P5 | `tests/src/domain/todo.test.ts`; `tests/src/messaging/contracts.test.ts` | P11 candidate navigation |
+| I-09 | P5 | `tests/src/background/services.test.ts`; Hub `ConfigSyncApiTests` / `PropertyContextApiTests` | P11 Hub network observation |
+| I-10 | P5 | `tests/src/background/property-snapshot-authority.test.ts`; `tests/src/background/startup.test.ts` | P9 corpus/save scenario |
+| I-11 | P5 | `tests/src/lynx/rest.test.ts`; Hub `ConfigSyncApiTests` / `ConfigSnapshotV2Tests` | P11 singular save |
+| I-12 | P5 | `tests/src/background/property-snapshot-authority.test.ts`; `tests/src/background/property-authority.test.ts` | P9 shrink/recovery scenario |
+| I-13 | P5 | `tests/src/storage/repositories.test.ts`; Hub `ConfigSnapshotV2Tests` / `ConfigSyncApiTests` | P11 saved revision evidence |
 | I-14 | P6 | `tests/src/domain/todo.test.ts`; `tests/popup-todo-recovery.test.ts` | P11 candidate conflict/recovery |
-| I-15 | P5 | `tests/page-draft-save-handler.test.ts`; `tests/src/lock/lock.test.ts` | P9 duplicate/stale-fence scenario |
+| I-15 | P5 | `tests/src/lynx/rest.test.ts`; `tests/src/lock/lock.test.ts`; Hub `PropertyAuthorityServiceTests` | P9 duplicate/stale-fence scenario |
 | I-16 | P6 | `tests/property-lock-background.test.ts`; `tests/property-lock-port-client.test.ts` | P11 hidden/unselected-tab lock run |
 | I-17 | P6 | `tests/property-lock.test.ts`; planned destructive-transfer integration case | P11 same-user transfer |
-| I-18 | P5 | `tests/src/domain/publication.test.ts`; `tests/src/lynx/ai-job.test.ts` | P11 publication-unknown retry |
+| I-18 | P5 | `tests/src/domain/publication.test.ts`; `tests/src/lynx/rest.test.ts`; Hub `PropertyPublicationGatewayTests` | P11 publication-unknown retry |
 | I-19 | P2 | `tests/src/domain/evaluate.test.ts`; `tests/src/content/marking/marking.test.ts`; `tests/src/domain/selector-seed.test.ts` | P9 marking/output comparison |
 | I-20 | P2 | `tests/src/domain/evaluate.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P9 marking scenario |
 | I-21 | P2 | `tests/src/domain/widening.test.ts`; `tests/src/content/marking/marking.test.ts` | P11 Shift marking |
@@ -33,9 +33,9 @@ rows again through the integrated and live matrices.
 | I-23 | P6 | `tests/navigation-notifier.test.ts`; `tests/session-phase-decider.test.ts` | P11 SPA change |
 | I-24 | P6 | `tests/marking-no-auto-restore.test.ts`; `tests/session-facts-content-reconciliation.test.ts` | P11 reload recovery |
 | I-25 | P6 | `tests/config-updated-handler.test.ts`; `tests/config.test.ts` | P11 config-deletion onboarding |
-| I-26 | P5 | `tests/ai-run-record-store.test.ts`; `tests/post-exit-ai-run-state.test.ts` | P11 panel close/reopen |
-| I-27 | P5 | `tests/background-remote-network.test.ts`; planned read/write authority matrix | P9 failure-recovery scenario |
-| I-28 | P5 | `tests/popup-ai-run-gating.test.ts`; `tests/reconciliation-fact-brain-authority.test.ts` | P11 operation blocking/recovery |
+| I-26 | P5 | `tests/src/background/services.test.ts`; `tests/src/popup/entrypoint.test.ts`; `tests/src/storage/repositories.test.ts` | P11 panel close/reopen |
+| I-27 | P5 | `tests/src/background/property-authority.test.ts`; `tests/src/background/services.test.ts`; `tests/src/background/startup.test.ts` | P9 failure-recovery scenario |
+| I-28 | P5 | `tests/src/popup/app.test.ts`; `tests/src/popup/entrypoint.test.ts` | P11 operation blocking/recovery |
 | I-29 | P8 | `tests/src/popup/theme.test.ts`; `tests/theme-colors.test.ts` | P11 theme matrix |
 | I-30 | P8 | `tests/src/popup/app.test.ts`; `tests/popup-view-projector.test.ts` | production package UI run |
 | I-31 | P4 | `tests/src/background/emulation-policy.test.ts`; `tests/src/popup/app.test.ts` | P11 silent desktop preview |
@@ -51,7 +51,7 @@ rows again through the integrated and live matrices.
 | U-04 | P8 | `tests/src/popup/app.test.ts`; planned prioritized-notice projection test | P11 context hierarchy |
 | U-05 | P8 | planned production/debug diagnostic reachability test | production/debug build gates |
 | U-06 | P8 | `tests/page-toast.test.ts`; planned production Activity-absence test | production package inspection |
-| U-07 | P5 | `tests/config.test.ts`; `tests/config-store-queue.test.ts` | P11 configuration edit |
+| U-07 | P5 | `tests/src/storage/settings.test.ts`; `tests/src/background/startup.test.ts`; `tests/src/popup/app.test.ts` | P11 configuration edit |
 | U-08 | P6 | `tests/src/popup/app.test.ts`; `tests/popup-todo-recovery.test.ts` | P11 Todo expansion choices |
 | U-09 | P8 | `tests/property-lock-banner-mode.test.ts`; planned production-copy snapshot | P11 lock copy |
 | U-10 | P1 | `tests/src/background/brain.test.ts`; `tests/src/popup/signal-cursor.test.ts`; `tests/src/popup/entrypoint.test.ts` | P9 event/reconciliation scenario |
@@ -94,7 +94,7 @@ rows again through the integrated and live matrices.
 | D-25 | P6 | planned bounded navigation-inspection fallback tests | P11 unknown/dirty navigation |
 | D-26 | P7 | planned render-inspection watchdog/retry tests | P11 stalled-inspection recovery |
 | D-27 | P6 | planned candidate-navigation cleanup/failure integration test | P11 navigation failure recovery |
-| D-28 | P5 | `tests/src/background/auth-token-monitor.test.ts`; `tests/src/lynx/token-rotation.test.ts` | P11 endpoint/token invalidation |
+| D-28 | P5 | `tests/src/storage/settings.test.ts`; `tests/src/background/startup.test.ts`; `tests/src/lynx/token-rotation.test.ts` | P11 endpoint/token invalidation |
 | D-29 | P8 | planned dynamic-action-icon state test | production action-icon inspection |
 | D-30 | P8 | planned manifest/global-shortcut absence test; `tests/mark-mode-fsm.test.ts` | production package inspection |
 | D-31 | P1 | `tests/src/popup/root-recovery.test.ts`; `tests/src/popup/entrypoint.test.ts` | P11 panel corruption recovery |
