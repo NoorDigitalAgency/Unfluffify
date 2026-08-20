@@ -51,6 +51,7 @@ import { pageTypeForCandidate } from "../../domain/todo";
 import type { PageContextResolution } from "../../domain/schema/context";
 import { todoRefreshDue } from "../../popup/todo-recovery";
 import { executeConfirmedCandidateNavigation } from "../../popup/candidate-navigation";
+import { watchRenderModeInspection } from "../../popup/render-mode-inspection";
 import { AI_RUN_TIMEOUT_MS } from "../../lynx/ai";
 import {
   evaluatePublicationChecklist,
@@ -1891,13 +1892,23 @@ async function loadRenderModeView(javascriptEnabled: boolean): Promise<void> {
   renderModeBusy = true;
   renderModeDetail = "";
   render();
+  await reportPopupFactAndPull(context, "render-mode-inspection-started", {
+    inspectionPending: true,
+  }, requestKey).catch(() => undefined);
   try {
-    const response = await getPopupBus().request("renderMode.inspect", {
-      tabId: context.tabId,
-      javascriptEnabled,
-    }, { target: "background" });
+    const watched = await watchRenderModeInspection(() => getPopupBus().request(
+      "renderMode.inspect",
+      { tabId: context.tabId, javascriptEnabled },
+      { target: "background" },
+    ));
+    if (watched.status === "timeout") {
+      renderModeDetail = "The page reload timed out. The page was restored when possible; retry this view.";
+      logEvent("Render-mode view timed out", javascriptEnabled ? "with JavaScript" : "without JavaScript", "warn");
+      return;
+    }
+    const response = watched.value;
     if (!response.ok || response.data.status !== "ok") {
-      renderModeDetail = "The page could not be reloaded in that mode.";
+      renderModeDetail = "The page could not be reloaded in that mode. Retry when the tab is ready.";
       logEvent("Render-mode view failed", response.ok ? response.data.status : response.failure.code, "warn");
       return;
     }
@@ -1907,6 +1918,15 @@ async function loadRenderModeView(javascriptEnabled: boolean): Promise<void> {
       await refreshLockDirective(context, requestKey);
     }
   } finally {
+    // Reload is a terminal tab boundary and may have cleared the first rising
+    // edge from the background brain. Reassert then lower the fact: on the old
+    // brain it is idempotent; on a fresh brain it guarantees an ended signal.
+    await reportPopupFactAndPull(context, "render-mode-inspection-settling", {
+      inspectionPending: true,
+    }, requestKey).catch(() => undefined);
+    await reportPopupFactAndPull(context, "render-mode-inspection-ended", {
+      inspectionPending: false,
+    }, requestKey).catch(() => undefined);
     renderModeBusy = false;
     await reconcileContentStatus(context, requestKey);
     render();
@@ -2391,6 +2411,27 @@ async function exitPreview(): Promise<void> {
   render();
 }
 
+async function hoverPreviewRow(xpath: string | null): Promise<void> {
+  if (!previewStateIsOpen() || boundTabId === null) {
+    return;
+  }
+  await sendContentMessage(boundTabId, {
+    type: "emphasizePreviewRow",
+    ...(xpath ? { xpath } : {}),
+  });
+}
+
+async function activatePreviewRow(xpath: string): Promise<void> {
+  if (!previewStateIsOpen() || boundTabId === null) {
+    return;
+  }
+  const result = await sendContentMessage(boundTabId, { type: "activatePreviewRow", xpath });
+  if (!result) {
+    logEvent("Preview row unavailable", xpath, "warn");
+    render();
+  }
+}
+
 async function discardMarkings(): Promise<void> {
   const context = await resolveTargetTabContext();
   if (context === null) {
@@ -2459,6 +2500,8 @@ function render(): void {
       onDiscard={() => { void discardMarkings(); }}
       onPreview={() => { void showPreview(); }}
       onExitPreview={() => { void exitPreview(); }}
+      onPreviewRowHover={(xpath) => { void hoverPreviewRow(xpath); }}
+      onPreviewRowActivate={(xpath) => { void activatePreviewRow(xpath); }}
       onRefresh={() => { void refreshPopup(); }}
       onLockAction={(action) => { void dispatchLockAction(action); }}
       onSettingsChange={updateSettingsField}

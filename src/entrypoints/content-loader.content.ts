@@ -10,6 +10,7 @@ import {
   type ContentAuthorityState,
 } from "../content/command-router";
 import { hideConsentOverlays } from "../content/consent";
+import { filterContentInput, shouldBlockPageInput } from "../content/input-firewall";
 import { createMarkingEngine } from "../content/marking";
 import { createPhysicalActionDeduper, openMarkingContextMenu } from "../content/marking/interaction";
 import {
@@ -102,6 +103,7 @@ const RITUAL_READY_TIMEOUT_MS = 8000;
 let contentSurfaceRoot: HTMLElement | null = null;
 let lastContentSurfaceSignature = "";
 let pageInspectionActive = false;
+let silentInteractionShieldActive = false;
 let contentToastText = "";
 let contentToastClearHandle: ReturnType<typeof setTimeout> | null = null;
 let contentInputBlockedReason = "";
@@ -897,19 +899,14 @@ function setContentInputBlocked(blocked: boolean, reason: string): void {
   }
   const blockInput = (event: Event): void => {
     const target = event.target;
-    if (
-      target &&
+    const targetNode = target && typeof (target as Node).nodeType === "number" ? target as Node : null;
+    const extensionOwnedTarget = Boolean(
+      targetNode &&
       contentSurfaceRoot &&
-      (target === contentSurfaceRoot || contentSurfaceRoot.contains(target as Node))
-    ) {
-      return;
-    }
-    if (event.cancelable !== false) {
-      event.preventDefault();
-    }
-    event.stopPropagation();
-    event.stopImmediatePropagation?.();
-    if (event.type === "click" && markingActive) {
+      (targetNode === contentSurfaceRoot || contentSurfaceRoot.contains(targetNode))
+    );
+    const disposition = filterContentInput(event, extensionOwnedTarget);
+    if (disposition === "blocked" && event.type === "click" && markingActive) {
       showContentToast(blockedToastCopy(contentInputBlockedReason));
     }
   };
@@ -962,13 +959,17 @@ function renderContentSurface(): void {
     ? pausedNoticeCopy(contentPresentation.blockedReason || "paused")
     : "";
   const effectiveBlockedReason = blockedReason || (pageInspectionActive ? "page-inspection" : "");
-  const signature = JSON.stringify({ effectiveBlockedReason, curtain, banner, motionPaused, pausedNotice, contentToastText });
+  const pageInputBlocked = shouldBlockPageInput(contentPresentation, silentInteractionShieldActive);
+  const signature = JSON.stringify({ effectiveBlockedReason, curtain, banner, motionPaused, pausedNotice, contentToastText, pageInputBlocked });
   const root = ensureContentSurfaceRoot();
   if (!root) {
     return;
   }
   root.style.pointerEvents = curtain.visible ? "auto" : "none";
-  setContentInputBlocked(curtain.visible, effectiveBlockedReason);
+  setContentInputBlocked(
+    pageInputBlocked,
+    effectiveBlockedReason || (silentInteractionShieldActive ? "silent-highlighting" : "preview"),
+  );
   if (signature === lastContentSurfaceSignature) {
     return;
   }
@@ -1592,7 +1593,10 @@ function deactivateMarking(): void {
 
 function pauseMarkingInteractions(): boolean {
   markingInteractionsPaused = true;
-  markingEngine?.setSuspended?.(true);
+  const previewVisible = contentState.name === "preview_open" || contentState.name === "silent_preview";
+  // Preview is read-only, but it is not a disabled/error state: retain the
+  // canonical classification colors while removing every marking listener.
+  markingEngine?.setSuspended?.(!previewVisible);
   if (!markingActive) {
     syncMarkingCursor();
     return false;
@@ -1727,6 +1731,7 @@ function activateContentMain(payload: unknown): Record<string, unknown> {
     if (activation.state().silentHighlightArmed) {
       markingEngine.renderSilentHighlights?.();
     }
+    silentInteractionShieldActive = false;
     markingActive = true;
     ensureMarkingListeners();
     lastContentSurfaceSignature = "";
@@ -1785,6 +1790,9 @@ function applySilentSelectors(payload: unknown): Record<string, unknown> {
   markingEngine.refresh();
   const seeded = selectors ? markingEngine.seedFromSelectors(selectors) : false;
   const highlighted = markingEngine.renderSilentHighlights();
+  silentInteractionShieldActive = true;
+  lastContentSurfaceSignature = "";
+  renderContentSurface();
   installSilentDebugCopy();
   return { ok: true, seeded, highlighted: highlighted.length, tree: "rewrite" };
 }
@@ -1797,7 +1805,37 @@ function clearSilentSelectors(): Record<string, unknown> {
   removeSilentDebugCopyListener?.();
   markingEngine?.dispose();
   markingEngine = null;
+  silentInteractionShieldActive = false;
+  lastContentSurfaceSignature = "";
+  renderContentSurface();
   return { ok: true, tree: "rewrite" };
+}
+
+function previewInteractionActive(): boolean {
+  return contentState.name === "preview_open" || contentState.name === "silent_preview";
+}
+
+function emphasizePreviewRow(payload: unknown): Record<string, unknown> {
+  if (!previewInteractionActive()) {
+    return { ok: false, reason: "preview-not-open", tree: "rewrite" };
+  }
+  const xpath = payloadObject(payload).xpath;
+  if (typeof xpath !== "string" || xpath === "") {
+    markingEngine?.clearHover();
+    return { ok: true, targeted: false, tree: "rewrite" };
+  }
+  return { ok: true, targeted: markingEngine?.emphasizeXpath(xpath) ?? false, tree: "rewrite" };
+}
+
+function activatePreviewRow(payload: unknown): Record<string, unknown> {
+  if (!previewInteractionActive()) {
+    return { ok: false, reason: "preview-not-open", tree: "rewrite" };
+  }
+  const xpath = payloadObject(payload).xpath;
+  if (typeof xpath !== "string" || xpath === "") {
+    return { ok: false, reason: "invalid-xpath", tree: "rewrite" };
+  }
+  return { ok: true, targeted: markingEngine?.scrollXpathIntoView(xpath) ?? false, tree: "rewrite" };
 }
 
 function contentStatus(): Record<string, unknown> {
@@ -1868,6 +1906,8 @@ function createContentRouter() {
       resetContentMain: () => ({ ok: resetMarking(), initialized: true, tree: "rewrite" }),
       applySilentSelectors,
       clearSilentSelectors: () => clearSilentSelectors(),
+      emphasizePreviewRow,
+      activatePreviewRow,
       /** Asked for by the popup when a render mode has just been established and the
        *  operator has left the inspection: until then there was nothing worth
        *  preparing, and the inspection's own reloads would have wasted the one

@@ -895,6 +895,16 @@ describe("rewrite popup entrypoint", () => {
     await flushEntrypointWork();
     expect(render.mock.calls.at(-1)?.[0].props.presentation.temporarilyDisabledOverlay).toBe(true);
 
+    render.mock.calls.at(-1)?.[0].props.onPreviewRowHover("/html[1]/body[1]/main[1]");
+    render.mock.calls.at(-1)?.[0].props.onPreviewRowActivate("/html[1]/body[1]/main[1]");
+    await flushEntrypointWork();
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("emphasizePreviewRow", {
+      xpath: "/html[1]/body[1]/main[1]",
+    }));
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("activatePreviewRow", {
+      xpath: "/html[1]/body[1]/main[1]",
+    }));
+
     const previewDraft = {
       selectors: render.mock.calls.at(-1)?.[0].props.presentation.selectors,
       contentRows: render.mock.calls.at(-1)?.[0].props.presentation.contentRows,

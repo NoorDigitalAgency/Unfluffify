@@ -512,6 +512,32 @@ describe("P6 DOM bridge", () => {
     expect(renderer.root.children.every((layer) => layer.children.length === 0)).toBe(true);
   });
 
+  it("links preview rows back to the exact composed element without rebuilding the model", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const paragraph = new FakeElement("P", rect(0, 0, 120, 20), "Content");
+    const scrollIntoView = vi.fn();
+    Object.assign(paragraph, { scrollIntoView });
+    root.ownerDocument = doc;
+    paragraph.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(paragraph);
+
+    const engine = createMarkingEngine(root as unknown as Element);
+    const xpath = "/main[1]/p[1]";
+
+    expect(engine.emphasizeXpath(xpath)).toBe(true);
+    expect(engine.scrollXpathIntoView(xpath)).toBe(true);
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "center",
+      inline: "nearest",
+    });
+    expect(engine.emphasizeXpath("/main[1]/missing[1]")).toBe(false);
+    expect(engine.scrollXpathIntoView("/main[1]/missing[1]")).toBe(false);
+  });
+
   it("keeps a collapsed wrapper XPath while drawing its visible descendant geometry", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));

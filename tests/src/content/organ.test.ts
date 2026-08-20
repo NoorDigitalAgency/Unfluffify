@@ -30,6 +30,7 @@ describe("content signal organ", () => {
     expect(state.name).toBe("running");
     expect(memoryForContent(state)).toEqual({
       markingEditsBlocked: true,
+      pageInputBlocked: true,
       blockedReason: "post_ai",
       curtain: { visible: true, text: "Computing selectors" },
       reconciliationPending: false,
@@ -54,6 +55,11 @@ describe("content signal organ", () => {
     marking = transitionContentState(marking, signal(2, "run.started", { sessionId: "run-1" }));
     marking = transitionContentState(marking, signal(3, "run.completed", { sessionId: "run-1" }));
     marking = transitionContentState(marking, signal(4, "preview.opened", { origin: "post_ai" }));
+    expect(memoryForContent(marking)).toMatchObject({
+      markingEditsBlocked: true,
+      pageInputBlocked: true,
+      curtain: { visible: false, text: "" },
+    });
     marking = transitionContentState(marking, signal(5, "preview.exit.requested", { restore: true }));
     expect(marking).toMatchObject({ name: "exit_restoring", priorState: "post_ai_clean" });
     expect(memoryForContent(marking).markingEditsBlocked).toBe(true);
@@ -64,6 +70,11 @@ describe("content signal organ", () => {
       { name: "silent", lastConsumedSeq: 6, reconciliationReason: "" },
       signal(7, "preview.opened", { origin: "silent" }),
     );
+    expect(memoryForContent(silent)).toMatchObject({
+      markingEditsBlocked: true,
+      pageInputBlocked: true,
+      curtain: { visible: false, text: "" },
+    });
     silent = transitionContentState(silent, signal(8, "preview.exit.requested", { restore: true }));
     silent = transitionContentState(silent, signal(9, "preview.exited", { restored: true }));
     expect(silent).toMatchObject({ name: "silent", priorState: undefined });
@@ -79,6 +90,7 @@ describe("content signal organ", () => {
 
     expect(memoryForContent(state)).toEqual({
       markingEditsBlocked: false,
+      pageInputBlocked: true,
       blockedReason: "editor_preparing",
       curtain: { visible: true, text: "Preparing page" },
       reconciliationPending: true,
@@ -106,6 +118,7 @@ describe("content signal organ", () => {
         reconciliationReason: name === "reconciling" ? "saving" : "",
       })).toMatchObject({
         markingEditsBlocked: expect.any(Boolean),
+        pageInputBlocked: expect.any(Boolean),
         blockedReason: expect.any(String),
         curtain: { visible: expect.any(Boolean), text: expect.any(String) },
         reconciliationPending: expect.any(Boolean),

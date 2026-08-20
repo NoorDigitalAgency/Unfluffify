@@ -265,7 +265,11 @@ describe("popup App surface", () => {
       priorState: "post_ai_clean",
       reconciliationReason: "post_ai",
       selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
-      contentRows: EDITING.contentRows,
+      contentRows: [
+        ...(EDITING.contentRows ?? []),
+        { xpath: "/html[1]/body[1]/img[1]", classification: "immutable" },
+        { xpath: "/html[1]/body[1]/x-card[1]", classification: "closed-shadow" },
+      ],
     };
     const markup = renderApp(state, { ...SIGNED_IN, stateName: "preview_open", renderMode: "rendered" });
 
@@ -275,9 +279,13 @@ describe("popup App surface", () => {
     expect(markup).toContain('aria-label="Exit Preview"');
     expect(markup).toContain("Exit preview to resume editing.");
     expect(markup).toContain("/html[1]/body[1]/div[1]/nav[1]");
-    expect(markup).toContain('class="preview-sidebar__item-button" aria-disabled="true"');
+    expect(markup).toContain('class="preview-sidebar__item-button"');
     expect(markup).not.toContain('class="preview-sidebar__item-button" tabindex=');
     expect(markup).not.toContain('<button class="preview-sidebar__item-button"');
+    expect(markup).not.toContain('data-row-classification="immutable"');
+    expect(markup).not.toContain('data-row-classification="closed-shadow"');
+    expect(markup.match(/data-row-classification="excluded"/g)).toHaveLength(3);
+    expect(markup).not.toContain("data-row-internal-classification");
     for (const id of ["toggle-enabled", "page-save", "page-revert", "marking-preview", "config-header-open"]) {
       expect(markup, `#${id} must not remain interactive behind preview`).not.toContain(`id="${id}"`);
     }

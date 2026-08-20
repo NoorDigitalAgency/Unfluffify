@@ -47,6 +47,24 @@ function callbackToPromise<T>(invoke: (callback: (value?: T) => void) => Promise
   });
 }
 
+export const RENDER_MODE_BACKGROUND_TIMEOUT_MS = 15_000;
+
+async function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new Error("Render-mode reload timed out")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== null) {
+      clearTimeout(timer);
+    }
+  }
+}
+
 export function createRenderEmulationRuntime(input: Readonly<{
   debuggerApi?: DebuggerApi;
   tabs?: TabsApi;
@@ -242,10 +260,13 @@ export function createRenderEmulationRuntime(input: Readonly<{
         return { status: "unavailable" as const, reclaimLockAfterReload: false };
       }
       try {
-        await loadPageWithJavascript(
-          { send: (method, params) => send(inputRequest.tabId, method, params) },
-          () => callbackToPromise<void>((callback) => tabs.reload(inputRequest.tabId, { bypassCache: true }, callback)),
-          inputRequest.javascriptEnabled,
+        await withTimeout(
+          loadPageWithJavascript(
+            { send: (method, params) => send(inputRequest.tabId, method, params) },
+            () => callbackToPromise<void>((callback) => tabs.reload(inputRequest.tabId, { bypassCache: true }, callback)),
+            inputRequest.javascriptEnabled,
+          ),
+          RENDER_MODE_BACKGROUND_TIMEOUT_MS,
         );
         return { status: "ok" as const, reclaimLockAfterReload: true };
       } catch {

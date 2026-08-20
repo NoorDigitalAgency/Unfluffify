@@ -627,6 +627,24 @@ export function createMarkingEngine(rootElement: Element) {
     clearHover(): void {
       renderer.setHover(null);
     },
+    emphasizeXpath(xpath: string): boolean {
+      const target = byXpathElements().get(xpath);
+      if (!target) {
+        renderer.setHover(null);
+        return false;
+      }
+      renderer.setHover(target.element, xpath);
+      return true;
+    },
+    scrollXpathIntoView(xpath: string): boolean {
+      const target = byXpathElements().get(xpath);
+      if (!target) {
+        return false;
+      }
+      renderer.setHover(target.element, xpath);
+      target.element.scrollIntoView?.({ block: "center", inline: "nearest", behavior: "smooth" });
+      return true;
+    },
     renderSilentHighlights(): readonly string[] {
       silentHighlightsArmed = true;
       return renderSilent();

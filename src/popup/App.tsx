@@ -1,5 +1,6 @@
 import React from "react";
 import { todoSectionExpanded } from "./todo-recovery";
+import { previewDebugDetailEnabled, projectPreviewClassification } from "./preview-classification";
 
 import type { RenderMode } from "../domain/schema/property";
 import { DEFAULT_POPUP_VIEW, type PopupView } from "./view";
@@ -379,6 +380,8 @@ export function App({
   onDiscard,
   onPreview,
   onExitPreview,
+  onPreviewRowHover,
+  onPreviewRowActivate,
   onRefresh,
   onLockAction,
   onSettingsChange,
@@ -415,6 +418,8 @@ export function App({
   onDiscard?: () => void;
   onPreview?: () => void;
   onExitPreview?: () => void;
+  onPreviewRowHover?: (xpath: string | null) => void;
+  onPreviewRowActivate?: (xpath: string) => void;
   onRefresh?: () => void;
   onLockAction?: (action: LockAction) => void;
   onSettingsChange?: (field: PopupSettingsField, value: string) => void;
@@ -445,6 +450,7 @@ export function App({
   >({});
   const [todoExpandedOverrides, setTodoExpandedOverrides] = React.useState<Record<string, boolean>>({});
   const [pendingCandidatePageKey, setPendingCandidatePageKey] = React.useState<string | null>(null);
+  const [previewHoveredXpath, setPreviewHoveredXpath] = React.useState<string | null>(null);
   React.useEffect(() => {
     if (!diagnostics.settingsDirty && Object.keys(settingsFieldOriginals).length > 0) {
       setSettingsFieldOriginals({});
@@ -621,23 +627,39 @@ export function App({
             <p className="preview-sidebar__empty">No content detected</p>
           ) : (
             <ul className="preview-sidebar__list">
-              {presentation.contentRows.map((row, index) => (
+              {presentation.contentRows.map((row, index) => {
+                const classification = projectPreviewClassification(row.classification);
+                return (
                 <li
                   key={row.xpath}
-                  className={`preview-sidebar__item preview-sidebar__item--${row.classification}`}
-                  data-row-classification={row.classification}
+                  className={`preview-sidebar__item preview-sidebar__item--${classification} ${previewHoveredXpath === row.xpath ? "preview-sidebar__item--active" : ""}`}
+                  data-row-classification={classification}
+                  {...(previewDebugDetailEnabled() ? { "data-row-internal-classification": row.classification } : {})}
+                  onPointerEnter={() => {
+                    setPreviewHoveredXpath(row.xpath);
+                    onPreviewRowHover?.(row.xpath);
+                  }}
+                  onPointerLeave={() => {
+                    setPreviewHoveredXpath((current) => current === row.xpath ? null : current);
+                    onPreviewRowHover?.(null);
+                  }}
+                  onClick={() => onPreviewRowActivate?.(row.xpath)}
                 >
-                  <div className="preview-sidebar__item-button" aria-disabled="true">
+                  {/* Deliberately not a button and not focusable: this is mouse
+                      correspondence for non-technical operators, not a new
+                      keyboard interaction model. */}
+                  <div className="preview-sidebar__item-button">
                     <span className="preview-sidebar__item-index">{index + 1}.</span>
                     <span className="preview-sidebar__item-text">
-                      <span className={`u-d-block ${CLASSIFICATION_TONE[row.classification] ?? "u-color-muted"}`}>
-                        {CLASSIFICATION_LABEL[row.classification] ?? row.classification}
+                      <span className={`u-d-block ${CLASSIFICATION_TONE[classification] ?? "u-color-muted"}`}>
+                        {CLASSIFICATION_LABEL[classification] ?? classification}
                       </span>
                       <span className="u-font-mono">{row.xpath}</span>
                     </span>
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </section>
