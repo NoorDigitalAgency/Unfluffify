@@ -188,11 +188,26 @@ export function evaluateBranch(
     overlay.set(key, value);
   }
 
-  const outsideRows = previous.rows.filter((row) => !isXPathInSubtree(row.xpath, branch.root.xpath));
+  // `previous.rows` is already in document order and a DOM subtree occupies one
+  // contiguous range. Preserve that order and splice the freshly walked branch
+  // once instead of sorting the full page after every physical click.
+  const rows: MarkRow[] = [];
+  let branchInserted = false;
+  for (const row of previous.rows) {
+    if (isXPathInSubtree(row.xpath, branch.root.xpath)) {
+      continue;
+    }
+    if (!branchInserted && compareXpathsInDocumentOrder(row.xpath, branch.root.xpath) > 0) {
+      rows.push(...branchRows);
+      branchInserted = true;
+    }
+    rows.push(row);
+  }
+  if (!branchInserted) {
+    rows.push(...branchRows);
+  }
   return {
     overlay,
-    rows: [...outsideRows, ...branchRows].sort((left, right) =>
-      compareXpathsInDocumentOrder(left.xpath, right.xpath),
-    ),
+    rows,
   };
 }
