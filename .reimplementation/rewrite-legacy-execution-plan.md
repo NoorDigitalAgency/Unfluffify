@@ -454,7 +454,12 @@ in the owning phase and rerun its focused gate plus P9–P11.
 
 ## 5. Resume checklist
 
-- [ ] P0 — Contract alignment and baseline
+- [x] P0 — Contract alignment and baseline
+  - Commit: `8cde4c49` (`Align rewrite contract decisions`)
+  - `pnpm vitest run tests/decision-traceability.test.ts` — 1 file / 2 tests passed.
+  - `pnpm lint && pnpm check && pnpm test` — lint and all TypeScript checks passed;
+    75 files / 622 tests passed.
+  - Baseline/push evidence: [`p0-baseline.md`](./p0-baseline.md).
 - [ ] P1 — Runtime and architecture
 - [ ] P2 — Canonical marking and composed document
 - [ ] P3 — Fast interaction and visual grammar
