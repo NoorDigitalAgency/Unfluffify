@@ -17,6 +17,7 @@ import { canonicalPageKey, PropertySnapshotIntegrityError } from "../storage/pro
 import { projectTodoCoverage } from "../domain/todo";
 import type { ConfigSnapshot } from "../storage/config";
 import { fetchStaticPageHtml } from "./static-html";
+import { createTransferPayloadStore } from "./transfer-payload-store";
 
 export { createRewriteBrain } from "./rewrite-brain";
 
@@ -75,6 +76,7 @@ export function startRewriteBackground(): void {
   }
   rewriteBackgroundStarted = true;
   const services = createRewriteBackgroundServices();
+  const transferPayloads = createTransferPayloadStore();
   const runtime = createRewriteBrainRuntime({
     addMessageListener() {},
     rehydrateDurableFacts: services.persistence.rehydrateDurableFacts,
@@ -346,6 +348,21 @@ export function startRewriteBackground(): void {
     return { ...context, renderModeSet, todo };
   });
   bus.onCommand("renderMode.inspect", (request) => renderEmulation.inspect(request));
+  bus.onCommand("transferPayload.put", async (request) => ({
+    handle: await transferPayloads.put(request.scope, request.value),
+  }));
+  bus.onCommand("transferPayload.get", async (request, meta) => {
+    if (meta.source !== "offscreen") {
+      return { status: "missing" as const };
+    }
+    const value = await transferPayloads.get(request.handle);
+    return value === null
+      ? { status: "missing" as const }
+      : { status: "ok" as const, value };
+  });
+  bus.onCommand("transferPayload.release", (request) => ({
+    released: transferPayloads.releaseScope(request.scope),
+  }));
   bus.onCommand("offscreen.refineXpaths", async (request) => {
     await ensureOffscreenDocument(api);
     const response = await bus.request("offscreen.refineXpaths", request, { target: "offscreen" });

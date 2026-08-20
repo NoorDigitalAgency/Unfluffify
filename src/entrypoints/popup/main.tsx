@@ -5,7 +5,6 @@ import "../../popup.css";
 import "../../theme-utilities.css";
 import "../../public/assets/materialdesignicons.min.css";
 import React from "react";
-import { createRoot } from "react-dom/client";
 
 import {
   App,
@@ -24,6 +23,7 @@ import {
   type LynxChecklistState,
 } from "../../popup/App";
 import { createPopupStore } from "../../popup/store";
+import { createPopupRootRecovery } from "../../popup/root-recovery";
 import type { BrainSignal } from "../../domain/schema/signals";
 import type { AiRunPayloadSnapshot } from "../../domain/schema/submission";
 import {
@@ -85,7 +85,20 @@ declare global {
 const rootElement = document.getElementById("app") ?? document.getElementById("root") ?? document.body.appendChild(document.createElement("div"));
 let store = createPopupStore({ name: "silent", lastConsumedSeq: 0, reconciliationReason: "" });
 let unsubscribeStore: (() => void) | null = null;
-const root = createRoot(rootElement);
+const rootRecovery = createPopupRootRecovery({
+  document,
+  initialHost: rootElement,
+  onRecover(reason) {
+    console.warn(`[Unfluffify][rewrite] Popup root recovered (${reason})`);
+    render();
+    void refreshPopup().catch((error: unknown) => {
+      console.error("[Unfluffify][rewrite] Popup rehydration failed", error);
+    });
+  },
+  onError(error, info) {
+    console.error("[Unfluffify][rewrite] Popup render failed", error, info.componentStack);
+  },
+});
 let popupFactSequence = 0;
 let boundTabId: number | null = null;
 let boundTabKey: string | null = null;
@@ -1094,21 +1107,43 @@ async function refineSubmissionXpaths(snapshot: AiRunPayloadSnapshot): Promise<A
   if (!page) {
     return snapshot;
   }
-  const response = await getPopupBus().request("offscreen.refineXpaths", {
-    renderedHtml: page.renderedHtml,
-    ...(page.rawHtml === undefined ? {} : { rawHtml: page.rawHtml }),
-    rows: page.renderedXPaths,
-  }, { target: "background" });
-  if (!response.ok) {
-    return snapshot;
+  const bus = getPopupBus();
+  const scope = `xpath-refinement:${globalThis.crypto.randomUUID()}`;
+  try {
+    const rendered = await bus.request("transferPayload.put", {
+      scope,
+      value: page.renderedHtml,
+    }, { target: "background" });
+    if (!rendered.ok) {
+      return snapshot;
+    }
+    const raw = page.rawHtml === undefined
+      ? null
+      : await bus.request("transferPayload.put", {
+          scope,
+          value: page.rawHtml,
+        }, { target: "background" });
+    if (raw && !raw.ok) {
+      return snapshot;
+    }
+    const response = await bus.request("offscreen.refineXpaths", {
+      renderedHtmlRef: rendered.data.handle,
+      ...(raw?.ok ? { rawHtmlRef: raw.data.handle } : {}),
+      rows: page.renderedXPaths,
+    }, { target: "background" });
+    if (!response.ok) {
+      return snapshot;
+    }
+    return {
+      ...snapshot,
+      pages: [{
+        ...page,
+        renderedXPaths: response.data.rows,
+      }],
+    };
+  } finally {
+    await bus.request("transferPayload.release", { scope }, { target: "background" });
   }
-  return {
-    ...snapshot,
-    pages: [{
-      ...page,
-      renderedXPaths: response.data.rows,
-    }],
-  };
 }
 
 type LockDirectiveResponse = Readonly<{
@@ -2255,7 +2290,7 @@ function getDebugViewState(): Record<string, unknown> {
 }
 
 function render(): void {
-  root.render(
+  rootRecovery.render(
     <App
       presentation={store.getPresentation()}
       view={currentView()}

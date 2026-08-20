@@ -19,7 +19,8 @@ describe("C3 popup contract", () => {
     expect(appImport).not.toBeNull();
     expect(appImport?.[1]).toMatch(/\bApp\b/);
     expect(appImport?.[1]).toMatch(/\bresolvePopupActionButtons\b/);
-    expect(entrypointSource).toContain("createRoot(rootElement)");
+    expect(entrypointSource).toContain("createPopupRootRecovery({");
+    expect(entrypointSource).toContain("rootRecovery.render(");
     expect(entrypointSource).not.toContain("../../popup.js");
     expect(popupHtml).toContain('<script type="module" src="./main.tsx"></script>');
   });

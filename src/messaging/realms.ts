@@ -139,9 +139,17 @@ const StaticHtmlFetchResponseSchema = z.discriminatedUnion("ok", [
   }),
 ]);
 
+export const TransferPayloadHandleSchema = z.object({
+  id: z.string().min(1),
+  scope: z.string().min(1).max(256),
+  sha256: z.string().regex(/^[a-f\d]{64}$/),
+  byteLength: z.number().int().nonnegative(),
+});
+export type TransferPayloadHandle = z.infer<typeof TransferPayloadHandleSchema>;
+
 const OffscreenRefineXpathsRequestSchema = z.object({
-  renderedHtml: z.string(),
-  rawHtml: z.string().optional(),
+  renderedHtmlRef: TransferPayloadHandleSchema,
+  rawHtmlRef: TransferPayloadHandleSchema.optional(),
   rows: z.array(MarkRowSchema),
 });
 
@@ -353,6 +361,24 @@ export const applicationContract = defineContract({
     "renderMode.inspect": {
       request: RenderModeInspectRequestSchema,
       response: RenderModeInspectResponseSchema,
+    },
+    "transferPayload.put": {
+      request: z.object({
+        scope: z.string().min(1).max(256),
+        value: z.string(),
+      }),
+      response: z.object({ handle: TransferPayloadHandleSchema }),
+    },
+    "transferPayload.get": {
+      request: z.object({ handle: TransferPayloadHandleSchema }),
+      response: z.discriminatedUnion("status", [
+        z.object({ status: z.literal("ok"), value: z.string() }),
+        z.object({ status: z.literal("missing") }),
+      ]),
+    },
+    "transferPayload.release": {
+      request: z.object({ scope: z.string().min(1).max(256) }),
+      response: z.object({ released: z.number().int().nonnegative() }),
     },
     "offscreen.refineXpaths": {
       request: OffscreenRefineXpathsRequestSchema,

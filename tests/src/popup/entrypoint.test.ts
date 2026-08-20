@@ -40,9 +40,9 @@ function installEntrypointDom(href: string): void {
     configurable: true,
     value: {
       documentElement: { dataset: {}, style: {} },
-      getElementById: vi.fn(() => ({ id: "root" })),
+      getElementById: vi.fn(() => ({ id: "root", dataset: {}, isConnected: true })),
       body: {
-        appendChild: vi.fn(() => ({ id: "root" })),
+        appendChild: vi.fn(() => ({ id: "root", dataset: {}, isConnected: true })),
       },
     },
   });
@@ -60,6 +60,24 @@ function installEntrypointDom(href: string): void {
       confirm: vi.fn(() => true),
     },
   });
+}
+
+function createReactRenderProbe() {
+  const render = vi.fn((node: unknown) => {
+    const element = node as {
+      props?: { children?: unknown; onRecover?: unknown; onError?: unknown };
+    };
+    if (
+      typeof element.props?.onRecover === "function" &&
+      typeof element.props?.onError === "function"
+    ) {
+      const currentCall = render.mock.calls.at(-1);
+      if (currentCall) {
+        currentCall[0] = element.props.children;
+      }
+    }
+  });
+  return render;
 }
 
 /** Establishing the render mode is two acts, as legacy had it: pick, then
@@ -317,7 +335,7 @@ describe("rewrite popup entrypoint", () => {
     // crawler reads the mobile render, so that is the render every decision has to
     // be made against. Before, emulation only arrived with an armed session.
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
     const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
@@ -345,7 +363,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("routes lock banner actions through the background-owned transfer path", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
     const runtime = makeRuntime(async (message) => replyFrame(message, message.name === "lock.action"
@@ -378,7 +396,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("loads, applies, persists, and live-syncs the global appearance", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
     const runtime = makeRuntime(async (message) => replyFrame(message, []));
@@ -435,7 +453,7 @@ describe("rewrite popup entrypoint", () => {
     // posture holds. Releasing emulation there left the page at desktop width while
     // the operator was still looking at it through the extension.
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
     const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
@@ -480,7 +498,7 @@ describe("rewrite popup entrypoint", () => {
     // click relabels every later capture, and there is no way to look at both
     // loads before committing.
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
     const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
@@ -530,7 +548,7 @@ describe("rewrite popup entrypoint", () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     // The operator says no to the discard prompt.
     (globalThis.window as unknown as { confirm: () => boolean }).confirm = vi.fn(() => false);
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
     const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, dirty: true, tree: "rewrite" }));
@@ -582,7 +600,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("binds production popup toggles to the active tab and clears content on disable", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({
       createRoot: vi.fn(() => ({ render })),
     }));
@@ -715,7 +733,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("fetches static source HTML before running AI, previewing, and saving", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({
       createRoot: vi.fn(() => ({ render })),
     }));
@@ -776,6 +794,25 @@ describe("rewrite popup entrypoint", () => {
           html: "<html><body>server source</body></html>",
         });
       }
+      if (message.name === "transferPayload.put") {
+        const payload = message.payload as { scope: string; value: string };
+        return replyFrame(message, {
+          handle: {
+            id: payload.value === "<html></html>" ? "rendered-1" : "raw-1",
+            scope: payload.scope,
+            sha256: (payload.value === "<html></html>" ? "a" : "b").repeat(64),
+            byteLength: new TextEncoder().encode(payload.value).byteLength,
+          },
+        });
+      }
+      if (message.name === "offscreen.refineXpaths") {
+        return replyFrame(message, {
+          rows: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
+        });
+      }
+      if (message.name === "transferPayload.release") {
+        return replyFrame(message, { released: 2 });
+      }
       if (message.name === "config.save") {
         return replyFrame(message, { status: "ok", config: backendConfig() });
       }
@@ -811,13 +848,18 @@ describe("rewrite popup entrypoint", () => {
     }));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "offscreen.refineXpaths",
-      payload: {
-        renderedHtml: "<html></html>",
-        rawHtml: "<html><body>server source</body></html>",
+      payload: expect.objectContaining({
+        renderedHtmlRef: expect.objectContaining({ id: "rendered-1", sha256: "a".repeat(64) }),
+        rawHtmlRef: expect.objectContaining({ id: "raw-1", sha256: "b".repeat(64) }),
         rows: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
-      },
+      }),
       target: "background",
     }));
+    const refinementFrame = runtime.sendMessage.mock.calls
+      .map(([message]) => message)
+      .find((message) => message.name === "offscreen.refineXpaths");
+    expect(refinementFrame?.payload).not.toHaveProperty("renderedHtml");
+    expect(refinementFrame?.payload).not.toHaveProperty("rawHtml");
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "ai.run",
       payload: expect.objectContaining({
@@ -890,7 +932,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("surfaces a background-completed AI run when the side panel opens again", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
     const tabsSendMessage = makeTabsSendMessage((_tabId, message) => {
@@ -982,7 +1024,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("does not reuse a captured AI snapshot after rebinding to another page", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({
       createRoot: vi.fn(() => ({ render })),
     }));
@@ -1107,7 +1149,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("drains pending dirty signals and aborts stale Save", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({
       createRoot: vi.fn(() => ({ render })),
     }));
@@ -1191,7 +1233,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("does not let session.saved skip an intervening dirty signal", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({
       createRoot: vi.fn(() => ({ render })),
     }));
@@ -1268,7 +1310,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("does not enable Save when markings change during AI snapshot capture", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({
       createRoot: vi.fn(() => ({ render })),
     }));
@@ -1349,7 +1391,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("does not treat already-pending dirty signals as edits during the AI run", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
     const snapshot = {
@@ -1426,7 +1468,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("does not let an older AI run clear a newer active run", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
     const snapshot = {
@@ -1489,7 +1531,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("opens silent preview with silent origin", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({
       createRoot: vi.fn(() => ({ render })),
     }));
@@ -1600,7 +1642,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("drains pending dirty signals and aborts stale Preview", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({
       createRoot: vi.fn(() => ({ render })),
     }));
@@ -1711,7 +1753,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("does not enable Save when markings change while an AI run is in flight", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({
       createRoot: vi.fn(() => ({ render })),
     }));
@@ -1800,7 +1842,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("reconciles startup state from active content when the signal log is empty", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({
       createRoot: vi.fn(() => ({ render })),
     }));
@@ -1916,7 +1958,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("reconciles clean active content without marking it dirty", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({
       createRoot: vi.fn(() => ({ render })),
     }));
@@ -2003,7 +2045,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("does not call a seeded session dirty, however many rows it has", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({
       createRoot: vi.fn(() => ({ render })),
     }));
@@ -2067,7 +2109,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("deactivates content and emits navigation when the bound tab URL changes", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({
       createRoot: vi.fn(() => ({ render })),
     }));
@@ -2125,7 +2167,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("retries a publication-unknown outcome with the exact same fenced Hub operation", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
     const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
@@ -2218,7 +2260,7 @@ describe("rewrite popup entrypoint", () => {
 
   it("keeps debugTabId as an explicit live-browser override", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html?debugTabId=123");
-    const render = vi.fn();
+    const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({
       createRoot: vi.fn(() => ({ render })),
     }));

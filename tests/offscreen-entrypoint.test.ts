@@ -12,8 +12,18 @@ function frame(): BusFrame {
     sourceInstance: "background:test",
     target: "offscreen",
     payload: {
-      renderedHtml: "<html><body><main>Browser render</main></body></html>",
-      rawHtml: "<html><body><main>Server source</main></body></html>",
+      renderedHtmlRef: {
+        id: "rendered-1",
+        scope: "xpath-refinement:test",
+        sha256: "a".repeat(64),
+        byteLength: 53,
+      },
+      rawHtmlRef: {
+        id: "raw-1",
+        scope: "xpath-refinement:test",
+        sha256: "b".repeat(64),
+        byteLength: 52,
+      },
       rows: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
     },
   };
@@ -33,9 +43,26 @@ describe("offscreen rewrite entrypoint", () => {
       excluded: false,
     }]);
     vi.doMock("../src/offscreen/xpath-refinement", () => ({ refineXPathEntries }));
+    const sendMessage = vi.fn(async (message: BusFrame) => ({
+      kind: "uf-bus/1" as const,
+      frameType: "reply" as const,
+      id: message.id,
+      seq: message.seq,
+      name: message.name,
+      source: "background" as const,
+      sourceInstance: "background:test",
+      target: "offscreen" as const,
+      payload: {
+        status: "ok",
+        value: (message.payload as { handle: { id: string } }).handle.id === "rendered-1"
+          ? "<html><body><main>Browser render</main></body></html>"
+          : "<html><body><main>Server source</main></body></html>",
+      },
+      ok: true,
+    }));
     globalThis.chrome = {
       runtime: {
-        sendMessage: vi.fn().mockResolvedValue(undefined),
+        sendMessage,
         onMessage: { addListener, removeListener: vi.fn() },
       },
     } as unknown as typeof chrome;
