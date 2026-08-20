@@ -481,7 +481,19 @@ in the owning phase and rerun its focused gate plus P9–P11.
     splice invariants, WeakMap identity, stale generation/fingerprint rejection,
     collapsed-wrapper geometry, open/captured-closed/nested/slotted/inaccessible
     shadow cases, and artifact-free rendered/static submission HTML.
-- [ ] P3 — Fast interaction and visual grammar
+- [x] P3 — Fast interaction and visual grammar
+  - Commits: `ba91b542` (`Harden marking interaction and overlays`) and
+    `57ef9015` (`Complete P3 interaction evidence`).
+  - `pnpm vitest run tests/c4-content-entrypoint.test.ts tests/src/content/marking/interaction.test.ts tests/src/content/marking/marking.test.ts tests/src/content/marking/dom-bridge.test.ts tests/src/popup/app.test.ts --reporter=dot`
+    — 5 files / 146 tests passed.
+  - `pnpm lint && pnpm check` passed; `pnpm test -- --reporter=dot` — 80 files /
+    643 tests passed.
+  - Evidence covers pointer-capturing overlays with Space release/recovery,
+    right-click Include/Exclude/Widen/Clear, physical-gesture deduplication,
+    invalid-target acknowledgement and production-safe copy, bounded geometry
+    stabilization, branch-only repainting, RTL/zoom/scrollbar client geometry,
+    suspended animation state, exact border grammar, debug-only silent XPath
+    copy affordances, logo/icon assets, and pointer-only preview rows.
 - [ ] P4 — Reveal/freeze and emulation
 - [ ] P5 — Authority/config/auth/persistence
 - [ ] P6 — Lock/candidacy/session/navigation

@@ -73,16 +73,16 @@ rows again through the integrated and live matrices.
 | D-04 | P2 | `tests/src/page-world/program.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` captured-closed/nested/slotted/inaccessible cases | P11 shadow marking/capture |
 | D-05 | P2 | `tests/src/content/marking/dom-bridge.test.ts`; `tests/src/content/marking/marking.test.ts`; `tests/golden/ai-snapshot.test.ts` | P11 artifact-free payload |
 | D-06 | P2 | `tests/src/domain/evaluate.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` branch-splice and stale-generation cases | P9 rapid-toggle scenario |
-| D-07 | P3 | `tests/src/content/marking/dom-bridge.test.ts`; planned bounded-stabilization observer test | P11 scroll/resize alignment |
-| D-08 | P3 | planned marking-context-menu unit/integration tests | P11 right-click flow |
-| D-09 | P3 | planned physical-click deduplication test | P11 rapid-click flow |
-| D-10 | P3 | planned invalid-target feedback/toast test | P11 invalid-target flow |
+| D-07 | P3 | `tests/src/content/marking/dom-bridge.test.ts`; `tests/src/content/marking/interaction.test.ts` | P11 scroll/resize alignment |
+| D-08 | P3 | `tests/src/content/marking/interaction.test.ts`; `tests/c4-content-entrypoint.test.ts` | P11 right-click flow |
+| D-09 | P3 | `tests/src/content/marking/interaction.test.ts` | P11 rapid-click flow |
+| D-10 | P3 | `tests/c4-content-entrypoint.test.ts`; `tests/src/content/marking/marking.test.ts` | P11 invalid-target flow |
 | D-11 | P3 | `tests/mark-mode-fsm.test.ts`; `tests/c4-content-entrypoint.test.ts` | P11 Space recovery paths |
-| D-12 | P3 | planned suspension-style wiring test | P11 passthrough/busy visuals |
+| D-12 | P3 | `tests/c4-content-entrypoint.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P11 passthrough/busy visuals |
 | D-13 | P7 | `tests/render-mode-inspection-handlers.test.ts`; planned overlay lifecycle test | P11 inspection teardown |
-| D-14 | P3 | `tests/silent-highlight-annotations.test.ts`; planned production-negative package test | production/debug build gates |
-| D-15 | P3 | planned client-area/RTL/zoom geometry tests | P11 geometry matrix |
-| D-16 | P3 | planned preview-row no-focus assertion | production popup inspection |
+| D-14 | P3 | `tests/src/content/marking/dom-bridge.test.ts`; production-negative bundle rechecked in P10 | production/debug build gates |
+| D-15 | P3 | `tests/src/content/marking/dom-bridge.test.ts` | P11 geometry matrix |
+| D-16 | P3 | `tests/src/popup/app.test.ts` | production popup inspection |
 | D-17 | P7 | `tests/preview-tooltip.test.ts`; planned hover/scroll correspondence test | P11 preview-list interaction |
 | D-18 | P7 | planned internal-to-production classification mapping snapshots | production/debug build gates |
 | D-19 | P7 | planned constrained-preview event firewall tests | P11 blocked-actions/allowed-scroll matrix |
