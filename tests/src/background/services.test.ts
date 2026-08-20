@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createFetchJsonTransport, createRewriteBackgroundServices } from "../../../src/background/services";
 import { createPropertyLockRuntime } from "../../../src/background/lock-runtime";
 import type { JsonRequest, JsonResponse } from "../../../src/lynx";
+import { createMemoryStore } from "../../../src/storage";
 import {
   PROPERTY_CONTEXT_RECOVERY_POLL_MS,
   PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS,
@@ -461,6 +462,7 @@ describe("rewrite background services", () => {
     await expect(services.lynx.runAiJob(snapshot, {
       tabId: 77,
       clientRunId: "popup-run-1",
+      editorSessionId: "editor-1",
       environmentKey: "stage.example.com",
       siteId: 42,
       pageKey: "/page",
@@ -479,6 +481,7 @@ describe("rewrite background services", () => {
       value: expect.objectContaining({
         sessionId: "session-1",
         clientRunId: "popup-run-1",
+        editorSessionId: "editor-1",
         environmentKey: "stage.example.com",
         siteId: 42,
         pageKey: "/page",
@@ -491,11 +494,69 @@ describe("rewrite background services", () => {
       environmentKey: "stage.example.com",
       siteId: 42,
       pageKey: "/page",
+      clientRunId: "popup-run-1",
+      editorSessionId: "editor-1",
     })).resolves.toMatchObject({
       status: "fresh",
       sessionId: "session-1",
       clientRunId: "popup-run-1",
       selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+    });
+    await expect(services.lynx.resumeAiJob({
+      tabId: 77,
+      environmentKey: "stage.example.com",
+      siteId: 42,
+      pageKey: "/page",
+      clientRunId: "popup-run-1",
+      editorSessionId: "new-editor-session",
+    })).resolves.toEqual({ status: "not_found" });
+  });
+
+  it("resumes a durable running AI record after a service-worker restart", async () => {
+    const store = createMemoryStore();
+    const beforeRestart = createRewriteBackgroundServices({ store, transport: async () => ({ status: 500, body: null }) });
+    const now = Date.now();
+    await beforeRestart.repos.runRecordRepo.save({
+      sessionId: "backend-run-restart",
+      tabId: 77,
+      clientRunId: "popup-generation-1",
+      editorSessionId: "editor-session-1",
+      environmentKey: "stage.example.com",
+      siteId: 42,
+      pageKey: "/page",
+      phase: "running",
+      startedAt: now,
+      updatedAt: now,
+      deadlineAt: now + 10_000,
+    }, { makeLatest: true });
+
+    const afterRestart = createRewriteBackgroundServices({
+      store,
+      transport: async (request) => request.path.includes("/status/")
+        ? { status: 200, body: { session_id: "backend-run-restart", status: "done" } }
+        : request.path.includes("/result/")
+          ? { status: 200, body: { inclusionSelectors: ["article"], exclusionSelectors: ["aside"] } }
+          : { status: 500, body: null },
+    });
+    const exactScope = {
+      tabId: 77,
+      clientRunId: "popup-generation-1",
+      editorSessionId: "editor-session-1",
+      environmentKey: "stage.example.com",
+      siteId: 42,
+      pageKey: "/page",
+    };
+
+    await expect(afterRestart.lynx.resumeAiJob(exactScope)).resolves.toMatchObject({ status: "running" });
+    for (let tick = 0; tick < 20; tick += 1) {
+      const record = await afterRestart.repos.runRecordRepo.loadLatestForTab(77);
+      if (record.ok && record.value?.phase === "fresh") break;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    await expect(afterRestart.lynx.resumeAiJob(exactScope)).resolves.toMatchObject({
+      status: "fresh",
+      clientRunId: "popup-generation-1",
+      selectors: { inclusionSelectors: ["article"], exclusionSelectors: ["aside"] },
     });
   });
 

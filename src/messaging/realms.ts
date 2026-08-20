@@ -173,6 +173,7 @@ export const applicationContract = defineContract({
         siteId: z.number().int().positive(),
         pageKey: PageKeySchema,
         clientRunId: z.string().min(1),
+        editorSessionId: z.string().min(1),
         snapshot: AiRunPayloadSnapshotSchema,
       }),
       response: z.object({
@@ -187,6 +188,8 @@ export const applicationContract = defineContract({
         tabId: z.number().int().positive(),
         siteId: z.number().int().positive(),
         pageKey: PageKeySchema,
+        clientRunId: z.string().min(1),
+        editorSessionId: z.string().min(1),
       }),
       response: z.discriminatedUnion("status", [
         z.object({
@@ -224,11 +227,17 @@ export const applicationContract = defineContract({
           renderModeSource: z.literal("backend"),
         }),
         z.object({
+          status: z.literal("integrity_shrink"),
+          config: ConfigSnapshotSchema,
+          reason: z.string().min(1),
+          renderMode: RenderModeSchema.optional(),
+          renderModeSource: z.literal("backend"),
+        }),
+        z.object({
           status: z.enum([
             "auth_error",
             "not_found",
             "invalid",
-            "integrity_shrink",
             "environment_unconfigured",
             "error",
           ]),

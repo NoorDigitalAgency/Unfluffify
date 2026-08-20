@@ -9,7 +9,7 @@ import {
   createLockBrowserLifecycle,
   type LockBrowserApi,
 } from "./lock-browser-lifecycle";
-import { connectionSettingsOf } from "../storage/settings";
+import { connectionSettingsOf, replaceConnectionProfile } from "../storage/settings";
 import { getInstalledBrowserApi } from "../common/browser";
 import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
@@ -390,6 +390,7 @@ export function startRewriteBackground(): void {
       const result = await services.lynx.runAiJob(snapshot, {
         tabId: request.tabId,
         clientRunId: request.clientRunId,
+        editorSessionId: request.editorSessionId,
         environmentKey,
         siteId: request.siteId,
         pageKey: request.pageKey,
@@ -411,6 +412,8 @@ export function startRewriteBackground(): void {
       environmentKey,
       siteId: request.siteId,
       pageKey: request.pageKey,
+      clientRunId: request.clientRunId,
+      editorSessionId: request.editorSessionId,
     });
   });
   bus.onCommand("config.load", async (request) => {
@@ -428,9 +431,22 @@ export function startRewriteBackground(): void {
           request.siteId,
           { status: "ok", config: result.data },
         );
+        const snapshot = applied.snapshot;
+        if (!snapshot) {
+          throw new PropertySnapshotIntegrityError("Validated backend load did not produce a snapshot.");
+        }
+        if (applied.integrityWarning) {
+          return {
+            status: "integrity_shrink" as const,
+            config: snapshot,
+            renderMode: applied.renderMode,
+            renderModeSource: "backend" as const,
+            reason: applied.integrityWarning.message,
+          };
+        }
         return {
           status: "ok" as const,
-          config: result.data,
+          config: snapshot,
           ...(applied.renderMode ? { renderMode: applied.renderMode } : {}),
           renderModeSource: "backend" as const,
         };
@@ -448,7 +464,7 @@ export function startRewriteBackground(): void {
       };
     } catch (error) {
       if (error instanceof PropertySnapshotIntegrityError) {
-        return { status: "integrity_shrink" as const, renderModeSource: "local" as const };
+        return { status: "invalid" as const, renderModeSource: "local" as const };
       }
       throw error;
     }
@@ -464,6 +480,10 @@ export function startRewriteBackground(): void {
     if (!environmentKey || environmentKey !== request.environmentKey) {
       return { status: "environment_unconfigured" as const };
     }
+    const integrity = await services.property.mutationGate(request.environmentKey, request.siteId);
+    if (!integrity.ok) {
+      return { status: integrity.status, reason: integrity.reason };
+    }
     const authorization = lockRuntime.authorizeMutation(request);
     if (!authorization.ok) {
       return {
@@ -475,12 +495,18 @@ export function startRewriteBackground(): void {
     const result = await services.lynx.saveConfigSnapshot(authorization.request);
     if (result.status === "ok") {
       try {
-        const config = await services.property.applyBackendSave(
+        const adoption = await services.property.applyBackendSave(
           request.environmentKey,
           request.siteId,
           result.data,
         );
-        return { status: "ok" as const, config };
+        return adoption.integrityWarning
+          ? {
+              status: "integrity_shrink" as const,
+              config: adoption.snapshot,
+              reason: adoption.integrityWarning.message,
+            }
+          : { status: "ok" as const, config: adoption.snapshot };
       } catch (error) {
         if (error instanceof PropertySnapshotIntegrityError) {
           return { status: "integrity_shrink" as const };
@@ -501,6 +527,10 @@ export function startRewriteBackground(): void {
     if (!environmentKey || environmentKey !== request.environmentKey) {
       return { status: "environment_unconfigured" as const };
     }
+    const integrity = await services.property.mutationGate(request.environmentKey, request.siteId);
+    if (!integrity.ok) {
+      return { status: integrity.status, reason: integrity.reason };
+    }
     const authorization = lockRuntime.authorizeMutation(request);
     if (!authorization.ok) {
       return {
@@ -512,15 +542,22 @@ export function startRewriteBackground(): void {
     const result = await services.lynx.publishConfigSnapshot(authorization.request);
     if ("data" in result) {
       try {
-        const config = await services.property.applyBackendSave(
+        const adoption = await services.property.applyBackendSave(
           request.environmentKey,
           request.siteId,
           result.data,
         );
+        if (adoption.integrityWarning) {
+          return {
+            status: "integrity_shrink" as const,
+            config: adoption.snapshot,
+            reason: adoption.integrityWarning.message,
+          };
+        }
         return {
           status: result.status,
           httpStatus: result.httpStatus,
-          config,
+          config: adoption.snapshot,
         };
       } catch (error) {
         if (error instanceof PropertySnapshotIntegrityError) {
@@ -543,14 +580,11 @@ export function startRewriteBackground(): void {
     };
   });
   bus.onCommand("settings.save", async (settings) => {
-    // Endpoints come wholly from the request so clearing a field clears it, but
-    // the token is carried forward — the popup has no way to supply one. Going
-    // through services.settings.update keeps this from racing a rotation that
-    // lands mid-save.
-    const saved = await services.settings.update((current) => ({
-      ...settings,
-      ...(current.token?.trim() ? { token: current.token } : {}),
-    }));
+    // The parsed request is the complete profile: clearing a field clears it.
+    // Profile and credential land in one repository write, so no request can
+    // observe a new backend paired with the old backend's JWT. Formatting-only
+    // edits retain the credential because comparison uses normalized identity.
+    const saved = await services.settings.update((current) => replaceConnectionProfile(current, settings));
     return {
       status: "ok" as const,
       settings: connectionSettingsOf(saved),

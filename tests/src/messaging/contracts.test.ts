@@ -104,14 +104,19 @@ describe("corrective messaging application contracts", () => {
     });
   });
 
-  it("scopes AI resume to environment-authoritative site identity and a relative page key", () => {
+  it("scopes AI resume to exact editor session, run generation, property, and page", () => {
     const resume = applicationContract.commands["ai.resume"];
 
-    expect(resume.request.parse({ tabId: 7, siteId: 42, pageKey: "/jobs/123?lang=sv" }))
-      .toEqual({ tabId: 7, siteId: 42, pageKey: "/jobs/123?lang=sv" });
-    expect(resume.request.safeParse({
+    const scope = {
       tabId: 7,
       siteId: 42,
+      pageKey: "/jobs/123?lang=sv",
+      clientRunId: "popup-generation-1",
+      editorSessionId: "editor-session-1",
+    };
+    expect(resume.request.parse(scope)).toEqual(scope);
+    expect(resume.request.safeParse({
+      ...scope,
       pageKey: "https://www.example.com/jobs/123",
     }).success).toBe(false);
     expect(resume.response.safeParse({

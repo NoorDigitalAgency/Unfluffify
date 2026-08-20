@@ -148,7 +148,7 @@ describe("the backend is the single source of truth", () => {
     const applied = await svc.property.applyBackendLoad(ENVIRONMENT_KEY, SITE_ID, { status: "ok", config: BACKEND_CONFIG });
 
     // The backend's mode wins and the local copy is gone, not merged.
-    expect(applied).toEqual({ renderMode: "rendered", source: "backend" });
+    expect(applied).toMatchObject({ renderMode: "rendered", source: "backend" });
     const stored = await svc.repos.localPropertyRepo.load(ENVIRONMENT_KEY, SITE_ID);
     expect(stored.ok && stored.value).toMatchObject({ backendConfigPresent: true });
     expect(stored.ok ? stored.value?.renderMode : "read-failed").toBeUndefined();
@@ -220,6 +220,51 @@ describe("the backend is the single source of truth", () => {
     // And a later choice is refused, since the backend now owns it.
     await expect(svc.property.rememberRenderMode(ENVIRONMENT_KEY, SITE_ID, "rendered"))
       .resolves.toEqual({ stored: false, reason: "backend-config-present" });
+  });
+
+  it("adopts an authoritative shrink, persists its warning, and blocks writes until a clean refresh", async () => {
+    const svc = services();
+    const page: ConfigSnapshot["pages"][string] = {
+      timestamp: "2026-08-20T10:00:00Z",
+      pageType: "detail",
+      renderedHtml: "<html><main>page</main></html>",
+      rows: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
+    };
+    const full = {
+      ...BACKEND_CONFIG,
+      pages: { "/a": page, "/b": page },
+    };
+    await svc.property.applyBackendLoad(ENVIRONMENT_KEY, SITE_ID, { status: "ok", config: full });
+
+    const shrunken = {
+      ...full,
+      propertyRevision: 2,
+      pages: { "/b": page },
+    };
+    const adopted = await svc.property.applyBackendLoad(
+      ENVIRONMENT_KEY,
+      SITE_ID,
+      { status: "ok", config: shrunken },
+    );
+
+    expect(adopted).toMatchObject({
+      snapshot: shrunken,
+      integrityWarning: { code: "integrity_shrink", removedPageKeys: ["/a"] },
+    });
+    await expect(svc.repos.configRepo.load(ENVIRONMENT_KEY, SITE_ID)).resolves.toMatchObject({
+      ok: true,
+      value: { pages: { "/b": page } },
+    });
+    await expect(svc.property.mutationGate(ENVIRONMENT_KEY, SITE_ID)).resolves.toMatchObject({
+      ok: false,
+      status: "integrity_shrink",
+    });
+
+    await svc.property.applyBackendLoad(ENVIRONMENT_KEY, SITE_ID, {
+      status: "ok",
+      config: { ...shrunken, propertyRevision: 3 },
+    });
+    await expect(svc.property.mutationGate(ENVIRONMENT_KEY, SITE_ID)).resolves.toEqual({ ok: true });
   });
 
   it("keeps properties independent", async () => {

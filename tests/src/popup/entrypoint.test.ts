@@ -1009,7 +1009,13 @@ describe("rewrite popup entrypoint", () => {
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "ai.resume",
       target: "background",
-      payload: { tabId: 77, siteId: 1, pageKey: "/page" },
+      payload: {
+        tabId: 77,
+        siteId: 1,
+        pageKey: "/page",
+        clientRunId: "popup-run-1",
+        editorSessionId: "editor-1",
+      },
     }));
     expect(render.mock.calls.at(-1)?.[0].props.presentation.selectors).toEqual({
       inclusionSelectors: ["article"],

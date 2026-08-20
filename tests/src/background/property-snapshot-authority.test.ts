@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   PropertySnapshotIntegrityError,
   adoptAuthoritativeSnapshot,
+  assessAuthoritativeSnapshot,
   overlayLivePageOnAuthoritativeCorpus,
 } from "../../../src/storage/property-snapshot-authority";
 import { DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS } from "../../../src/domain/constants";
@@ -75,15 +76,22 @@ describe("authoritative property snapshot adoption", () => {
     })).toThrow(PropertySnapshotIntegrityError);
   });
 
-  it("rejects unexplained shrink so the caller can preserve its baseline and draft", () => {
+  it("adopts unexplained shrink while returning a write-blocking integrity warning", () => {
     const previous = snapshot();
     const response = snapshot({
       propertyRevision: 5,
       pages: { "/b?view=full": previous.pages["/b?view=full"] },
     });
 
-    expect(() => adoptAuthoritativeSnapshot(previous, response)).toThrow(PropertySnapshotIntegrityError);
-    expect(Object.keys(previous.pages)).toEqual(["/a", "/b?view=full"]);
+    expect(assessAuthoritativeSnapshot(previous, response)).toEqual({
+      snapshot: response,
+      integrityWarning: {
+        code: "integrity_shrink",
+        removedPageKeys: ["/a"],
+        message: "Authoritative response removed /a without exact reconciliation proof.",
+      },
+    });
+    expect(adoptAuthoritativeSnapshot(previous, response)).toEqual(response);
   });
 
   it("accepts shrink only with exact, newer reconciliation proof", () => {
@@ -100,7 +108,10 @@ describe("authoritative property snapshot adoption", () => {
       },
     });
 
-    expect(adoptAuthoritativeSnapshot(previous, response)).toEqual(response);
+    expect(assessAuthoritativeSnapshot(previous, response)).toEqual({
+      snapshot: response,
+      integrityWarning: null,
+    });
   });
 });
 

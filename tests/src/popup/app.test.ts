@@ -385,6 +385,20 @@ describe("popup App surface", () => {
     expect(dirty).toContain("Unsaved changes");
   });
 
+  it("starts every connection field behind an explicit per-field Change action", () => {
+    const markup = renderConfigurationView(SIGNED_IN, {
+      configEndpoint: "https://hub.example.com",
+      aiEndpoint: "https://ai.example.com",
+      stageBase: "stage.example.com",
+    });
+
+    for (const field of ["configEndpoint", "aiEndpoint", "stageBase"]) {
+      expect(markup).toContain(`data-settings-change="${field}"`);
+      expect(markup).toMatch(new RegExp(`id="settings-${field}"[^>]*readOnly`));
+    }
+    expect(markup.match(/>Change<\/button>/g)).toHaveLength(3);
+  });
+
   it("asks for a stage base first, since sign-in is derived from it", () => {
     const markup = renderConfigurationView({ settingsLoaded: true, stageBaseSet: false });
 

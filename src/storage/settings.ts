@@ -18,6 +18,58 @@ export const SettingsSchema = ConnectionSettingsSchema.extend({
 export type ConnectionSettings = z.infer<typeof ConnectionSettingsSchema>;
 export type Settings = z.infer<typeof SettingsSchema>;
 
+function normalizeUrlIdentity(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    const url = new URL(trimmed);
+    url.hash = "";
+    url.hostname = url.hostname.toLowerCase();
+    if (url.pathname !== "/") {
+      url.pathname = url.pathname.replace(/\/+$/, "");
+    }
+    return url.toString();
+  } catch {
+    return trimmed.toLowerCase();
+  }
+}
+
+function normalizeStageIdentity(value: string | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  try {
+    const candidate = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    return new URL(candidate).hostname.replace(/\.$/, "").toLowerCase() || null;
+  } catch {
+    return trimmed.replace(/\.$/, "").toLowerCase();
+  }
+}
+
+/** Stable identity of every service that may receive the delegated JWT.
+ * Formatting-only edits do not sign the operator out, while changing the Hub,
+ * AI service, environment/GraphQL host, protocol, port, or path does. */
+export function connectionProfileIdentity(settings: ConnectionSettings): string {
+  return JSON.stringify({
+    configEndpoint: normalizeUrlIdentity(settings.configEndpoint),
+    aiEndpoint: normalizeUrlIdentity(settings.aiEndpoint),
+    environmentKey: normalizeStageIdentity(settings.stageBase),
+  });
+}
+
+/** Builds the one atomic settings value for a complete profile commit. */
+export function replaceConnectionProfile(current: Settings, next: ConnectionSettings): Settings {
+  const sameBackend = connectionProfileIdentity(connectionSettingsOf(current)) ===
+    connectionProfileIdentity(next);
+  return {
+    ...ConnectionSettingsSchema.parse(next),
+    ...(sameBackend && current.token?.trim() ? { token: current.token } : {}),
+  };
+}
+
 /** Drops the token and any unset key, so the result round-trips through
  *  storage and equality checks without phantom `undefined` entries. */
 export function connectionSettingsOf(settings: Settings): ConnectionSettings {

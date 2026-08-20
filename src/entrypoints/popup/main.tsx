@@ -168,6 +168,7 @@ let silentSelectorsAppliedKey: string | null = null;
 let boundTabUrl = "";
 let lockStatus = "";
 let lockRole = "";
+let activeEditorSessionId: string | null = null;
 let configPresent = false;
 let contentActive = false;
 let contentDirty = false;
@@ -483,6 +484,7 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   activeRunSessionId = null;
   aiResumeRequestKey = null;
   activeSiteId = null;
+  activeEditorSessionId = null;
   lockStatus = "";
   lockRole = "";
   configPresent = false;
@@ -818,7 +820,7 @@ async function sendToLynx(): Promise<void> {
     loadedSelectors = result.config.selectors;
     silentSelectorsAppliedKey = null;
     renderModeSource = "backend";
-    configStatus = "ok";
+    configStatus = result.status === "integrity_shrink" ? "integrity_shrink" : "ok";
   }
   if (result.status === "published" || result.status === "already_published") {
     pendingPublicationRequest = null;
@@ -908,6 +910,7 @@ async function maybeResumeAiRun(context: TargetTabContext, requestKey = boundTab
     state.name !== "running" ||
     !state.runSessionId ||
     activeSiteId === null ||
+    activeEditorSessionId === null ||
     !pageKey
   ) {
     return;
@@ -922,6 +925,8 @@ async function maybeResumeAiRun(context: TargetTabContext, requestKey = boundTab
       tabId: context.tabId,
       siteId: activeSiteId,
       pageKey,
+      clientRunId: state.runSessionId,
+      editorSessionId: activeEditorSessionId,
     }, { target: "background" });
     if (
       !response.ok ||
@@ -1207,6 +1212,7 @@ async function refreshLockDirective(context: TargetTabContext, requestKey = boun
     return null;
   }
   activeSiteId = lock.siteId;
+  activeEditorSessionId = lock.authority?.editorSessionId ?? null;
   lockStatus = lock.status;
   lockRole = lock.lockRole;
   configPresent = lock.configPresent;
@@ -1668,7 +1674,7 @@ async function loadPropertyConfig(siteId: number): Promise<void> {
     return;
   }
   configStatus = response.data.status;
-  if (response.data.status !== "ok" || !response.data.config) {
+  if (!["ok", "integrity_shrink"].includes(response.data.status) || !("config" in response.data)) {
     // On a 404 the backend has nothing, and the render mode is the one thing the
     // authority rule lets survive locally — the reply carries whatever did.
     confirmedRenderMode = response.data.renderMode ?? null;
@@ -1706,6 +1712,13 @@ async function loadPropertyConfig(siteId: number): Promise<void> {
     // nothing to adopt — and per the authority rule any local copy is gone.
     confirmedRenderMode = null;
     logEvent("Render mode not stored", "choose one for this property", "info");
+  }
+  if (response.data.status === "integrity_shrink") {
+    logEvent(
+      "Configuration integrity warning",
+      response.data.reason,
+      "danger",
+    );
   }
   render();
 }
@@ -1765,7 +1778,7 @@ async function loadRenderModeView(javascriptEnabled: boolean): Promise<void> {
   }
   const requestKey = await handleBoundContext(context);
   const lock = await refreshLockDirective(context, requestKey);
-  if (!lock || !lockAllowsEditing(lock)) {
+  if (!lock || !lockAllowsEditing(lock) || !lock.authority) {
     renderModeDetail = "Editing is blocked, so the page cannot be reloaded.";
     render();
     return;
@@ -1971,10 +1984,11 @@ async function runAi(): Promise<void> {
     return;
   }
   const lock = await refreshLockDirective(context, requestKey);
-  if (!lock || !lockAllowsEditing(lock)) {
+  if (!lock || !lockAllowsEditing(lock) || !lock.authority) {
     render();
     return;
   }
+  const editorSessionId = lock.authority.editorSessionId;
   await pullSignals(context.tabId, requestKey);
   const localRunId = `local-run-${globalThis.crypto.randomUUID()}`;
   activeRunSessionId = localRunId;
@@ -2014,6 +2028,7 @@ async function runAi(): Promise<void> {
     siteId: activeSiteId,
     pageKey: runPageKey,
     clientRunId: localRunId,
+    editorSessionId,
     snapshot,
   }, { target: "background" });
   if (!response.ok || response.data.status !== "ok") {
@@ -2163,6 +2178,12 @@ async function saveSession(): Promise<void> {
     }, requestKey);
     await refreshTodoContext(context, requestKey, { force: true });
   } else {
+    if (response.ok && response.data.status === "integrity_shrink" && response.data.config) {
+      loadedConfig = response.data.config;
+      loadedSelectors = response.data.config.selectors;
+      silentSelectorsAppliedKey = null;
+      configStatus = "integrity_shrink";
+    }
     logEvent("Save failed", response.ok ? response.data.status : response.failure.code, "danger");
     await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
   }

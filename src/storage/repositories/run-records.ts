@@ -20,6 +20,7 @@ export const RunRecordSchema = z.object({
    * optional so an installed extension can read (and safely ignore) its older
    * records instead of corrupting the whole repository on upgrade. */
   clientRunId: z.string().min(1).optional(),
+  editorSessionId: z.string().min(1).optional(),
   environmentKey: EnvironmentKeySchema.optional(),
   siteId: SiteIdSchema.optional(),
   pageKey: PageKeySchema.optional(),

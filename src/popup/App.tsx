@@ -439,6 +439,14 @@ export function App({
 }>) {
   const [themeMenuOpen, setThemeMenuOpen] = React.useState(false);
   const [pendingLockAction, setPendingLockAction] = React.useState<LockAction | null>(null);
+  const [settingsFieldOriginals, setSettingsFieldOriginals] = React.useState<
+    Partial<Record<PopupSettingsField, string>>
+  >({});
+  React.useEffect(() => {
+    if (!diagnostics.settingsDirty && Object.keys(settingsFieldOriginals).length > 0) {
+      setSettingsFieldOriginals({});
+    }
+  }, [diagnostics.settingsDirty, settingsFieldOriginals]);
   const lockActions = presentation.lockBanner.actions ?? [];
   const pendingLockActionIsCurrent = pendingLockAction !== null && lockActions.some((action) =>
     action.kind === pendingLockAction.kind && action.suggestionId === pendingLockAction.suggestionId
@@ -767,6 +775,18 @@ export function App({
                 ? "Sign in below. Without a token the site lookup, AI run and save all fail."
                 : "The saved endpoints did not answer the site lookup. Check the stage base host below."}
         </div>
+      ) : null}
+
+      {diagnostics.configStatus === "integrity_shrink" ? (
+        <section
+          className="u-alert u-alert-danger integrity-warning"
+          role="alert"
+          aria-label="Configuration integrity warning"
+          data-integrity-write-block="true"
+        >
+          <strong>Configuration changed unexpectedly.</strong>{" "}
+          The newest Hub data is shown, but Save and Send to Lynx are blocked until a clean refresh verifies it.
+        </section>
       ) : null}
 
       {sessionView ? (
@@ -1325,17 +1345,50 @@ export function App({
               <label className="control-label" htmlFor={`settings-${field}`}>
                 <span className="control-label-text">{label}</span>
               </label>
-              <input
-                id={`settings-${field}`}
-                name={field}
-                type="text"
-                value={settings[field]}
-                placeholder={placeholder}
-                autoComplete="off"
-                spellCheck={false}
-                disabled={!onSettingsChange || !diagnostics.settingsLoaded}
-                onChange={(event) => onSettingsChange?.(field, event.currentTarget.value)}
-              />
+              <div className="endpoint-row">
+                <input
+                  id={`settings-${field}`}
+                  name={field}
+                  type="text"
+                  value={settings[field]}
+                  placeholder={placeholder}
+                  autoComplete="off"
+                  spellCheck={false}
+                  readOnly={!Object.hasOwn(settingsFieldOriginals, field)}
+                  disabled={!onSettingsChange || !diagnostics.settingsLoaded || diagnostics.settingsBusy}
+                  onChange={(event) => onSettingsChange?.(field, event.currentTarget.value)}
+                />
+                {Object.hasOwn(settingsFieldOriginals, field) ? (
+                  <button
+                    type="button"
+                    className="u-btn-secondary"
+                    data-settings-cancel={field}
+                    disabled={diagnostics.settingsBusy}
+                    onClick={() => {
+                      onSettingsChange?.(field, settingsFieldOriginals[field] ?? "");
+                      setSettingsFieldOriginals((current) => {
+                        const { [field]: _removed, ...remaining } = current;
+                        return remaining;
+                      });
+                    }}
+                  >
+                    Cancel
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="u-btn-secondary"
+                    data-settings-change={field}
+                    disabled={!onSettingsChange || !diagnostics.settingsLoaded || diagnostics.settingsBusy}
+                    onClick={() => setSettingsFieldOriginals((current) => ({
+                      ...current,
+                      [field]: settings[field],
+                    }))}
+                  >
+                    Change
+                  </button>
+                )}
+              </div>
             </div>
           ))}
           <div className="endpoint-row">

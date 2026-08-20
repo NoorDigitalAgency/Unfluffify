@@ -21,6 +21,15 @@ export const LocalPropertyStateSchema = z.object({
   siteId: z.number().int().positive(),
   backendConfigPresent: z.boolean(),
   renderMode: RenderModeSchema.optional(),
+  /** Set when valid backend authority unexpectedly drops pages without exact
+   * reconciliation proof. The authoritative snapshot is still adopted, but
+   * mutations stay closed until a later clean/proven refresh clears this. */
+  integrityWarning: z.object({
+    code: z.literal("integrity_shrink"),
+    removedPageKeys: z.array(z.string().min(1)),
+    message: z.string().min(1),
+    detectedAt: z.string().min(1),
+  }).optional(),
   updatedAt: z.string().min(1),
 });
 

@@ -10,6 +10,17 @@ export class PropertySnapshotIntegrityError extends Error {
   }
 }
 
+export type PropertySnapshotIntegrityWarning = Readonly<{
+  code: "integrity_shrink";
+  removedPageKeys: readonly string[];
+  message: string;
+}>;
+
+export type AuthoritativeSnapshotAdoption = Readonly<{
+  snapshot: ConfigSnapshot;
+  integrityWarning: PropertySnapshotIntegrityWarning | null;
+}>;
+
 export function normalizeEnvironmentKey(value: string | undefined): string | null {
   const trimmed = value?.trim();
   if (!trimmed) {
@@ -43,14 +54,15 @@ function sorted(values: Iterable<string>): string[] {
   return [...values].sort((left, right) => left < right ? -1 : left > right ? 1 : 0);
 }
 
-/** Validates an authoritative replacement before the background adopts it.
- *  Ordinary responses may add/relabel pages, but a smaller corpus needs the
- *  exact newer reconciliation proof required by D19. */
-export function adoptAuthoritativeSnapshot(
+/** Validates an authoritative replacement and classifies an unexpected shrink.
+ * Structurally valid authority is always adopted. Missing reconciliation proof
+ * is remembered as a durable write block rather than used to keep stale local
+ * data as a competing authority. */
+export function assessAuthoritativeSnapshot(
   previousValue: ConfigSnapshot | null | undefined,
   nextValue: unknown,
   expectedScope?: Readonly<{ environmentKey: string; siteId: number }>,
-): ConfigSnapshot {
+): AuthoritativeSnapshotAdoption {
   const next = ConfigSnapshotSchema.parse(nextValue);
   if (expectedScope && (
     next.environmentKey !== expectedScope.environmentKey ||
@@ -59,7 +71,7 @@ export function adoptAuthoritativeSnapshot(
     throw new PropertySnapshotIntegrityError("Authoritative response does not match the requested property scope.");
   }
   if (!previousValue) {
-    return next;
+    return { snapshot: next, integrityWarning: null };
   }
   const previous = ConfigSnapshotSchema.parse(previousValue);
   if (previous.environmentKey !== next.environmentKey || previous.siteId !== next.siteId) {
@@ -75,7 +87,7 @@ export function adoptAuthoritativeSnapshot(
 
   const removed = sorted(Object.keys(previous.pages).filter((pageKey) => !(pageKey in next.pages)));
   if (removed.length === 0) {
-    return next;
+    return { snapshot: next, integrityWarning: null };
   }
   const provedRemoved = sorted(next.reconciliation.removedPageKeys);
   const proofMatches =
@@ -85,11 +97,22 @@ export function adoptAuthoritativeSnapshot(
     removed.length === provedRemoved.length &&
     removed.every((pageKey, index) => pageKey === provedRemoved[index]);
   if (!proofMatches) {
-    throw new PropertySnapshotIntegrityError(
-      `Authoritative response removed ${removed.join(", ")} without exact reconciliation proof.`,
-    );
+    const message = `Authoritative response removed ${removed.join(", ")} without exact reconciliation proof.`;
+    return {
+      snapshot: next,
+      integrityWarning: { code: "integrity_shrink", removedPageKeys: removed, message },
+    };
   }
-  return next;
+  return { snapshot: next, integrityWarning: null };
+}
+
+/** Compatibility helper for consumers that need only the adopted snapshot. */
+export function adoptAuthoritativeSnapshot(
+  previousValue: ConfigSnapshot | null | undefined,
+  nextValue: unknown,
+  expectedScope?: Readonly<{ environmentKey: string; siteId: number }>,
+): ConfigSnapshot {
+  return assessAuthoritativeSnapshot(previousValue, nextValue, expectedScope).snapshot;
 }
 
 function storedPageForAi(

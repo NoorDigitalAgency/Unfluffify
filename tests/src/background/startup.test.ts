@@ -257,6 +257,7 @@ describe("rewrite background startup", () => {
         siteId: 42,
         pageKey: "/page",
         clientRunId: "popup-run-1",
+        editorSessionId: "editor-1",
         snapshot: {
           baseUrl: "https://example.com",
           renderMode: "rendered",
@@ -548,7 +549,7 @@ describe("rewrite background startup", () => {
     });
   });
 
-  it("carries the stored JWT through an endpoint save", async () => {
+  it("retains a JWT for normalized formatting edits and clears it for a backend change", async () => {
     const addMessageListener = vi.fn();
     globalThis.chrome = {
       runtime: {
@@ -588,20 +589,37 @@ describe("rewrite background startup", () => {
         return response;
       };
 
-      await call("settings.save", { stageBase: "a.example.com" }, "s-1", 1);
+      await call("settings.save", {
+        stageBase: "a.example.com",
+        configEndpoint: "https://hub.example.com/api",
+        aiEndpoint: "https://ai.example.com",
+      }, "s-1", 1);
       await call("accounts.login", { email: "a@b.c", password: "pw" }, "s-2", 2);
       expect(await call("settings.load", {}, "s-3", 3)).toMatchObject({
         ok: true,
         payload: { hasToken: true },
       });
 
-      // Saving endpoints again must not clear the token the login just stored.
-      await call("settings.save", { stageBase: "a.example.com", aiEndpoint: "https://ai.example.com" }, "s-4", 4);
+      await call("settings.save", {
+        stageBase: "https://A.example.com.",
+        configEndpoint: "https://HUB.example.com/api/",
+        aiEndpoint: "https://AI.example.com/",
+      }, "s-4", 4);
       expect(await call("settings.load", {}, "s-5", 5)).toMatchObject({
         ok: true,
+        payload: { hasToken: true },
+      });
+
+      await call("settings.save", {
+        stageBase: "a.example.com",
+        configEndpoint: "https://hub.example.com/api",
+        aiEndpoint: "https://other-ai.example.com",
+      }, "s-6", 6);
+      expect(await call("settings.load", {}, "s-7", 7)).toMatchObject({
+        ok: true,
         payload: {
-          settings: { stageBase: "a.example.com", aiEndpoint: "https://ai.example.com" },
-          hasToken: true,
+          settings: { aiEndpoint: "https://other-ai.example.com" },
+          hasToken: false,
         },
       });
     } finally {

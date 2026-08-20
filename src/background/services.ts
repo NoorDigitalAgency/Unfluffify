@@ -35,7 +35,7 @@ import { pollAiJob } from "../lynx/ai-job";
 import { loadConfigSnapshot, publishConfigSnapshot, saveConfigSnapshot } from "../lynx/rest";
 import { persistDurableFacts, rehydrateDurableFacts, reDeriveVolatile } from "./persistence";
 import {
-  adoptAuthoritativeSnapshot,
+  assessAuthoritativeSnapshot,
   normalizeEnvironmentKey,
   overlayLivePageOnAuthoritativeCorpus,
 } from "../storage/property-snapshot-authority";
@@ -43,12 +43,13 @@ import {
 export type AiRunContext = Readonly<{
   tabId: number;
   clientRunId: string;
+  editorSessionId: string;
   environmentKey: string;
   siteId: number;
   pageKey: string;
 }>;
 
-export type AiRunScope = Readonly<Pick<AiRunContext, "tabId" | "environmentKey" | "siteId" | "pageKey">>;
+export type AiRunScope = Readonly<AiRunContext>;
 
 /** The subset createFetchJsonTransport needs to resolve a base URL and auth. */
 type EndpointSettings = Readonly<{
@@ -187,6 +188,71 @@ export function createRewriteBackgroundServices(input: Readonly<{
       console.error("[Unfluffify][rewrite] Unable to persist a rotated token", error);
     },
   });
+  type DurableAiScope = Readonly<{
+    sessionId: string;
+    tabId: number;
+    clientRunId: string;
+    editorSessionId: string;
+    environmentKey: string;
+    siteId: number;
+    pageKey: string;
+    startedAt: number;
+    deadlineAt: number;
+  }>;
+  const aiContinuations = new Map<string, Promise<Awaited<ReturnType<typeof pollAiJob>>>>();
+  const continueAiJob = (scope: DurableAiScope) => {
+    const existing = aiContinuations.get(scope.sessionId);
+    if (existing) {
+      return existing;
+    }
+    const remainingMs = Math.max(1, scope.deadlineAt - Date.now());
+    const continuation = pollAiJob(scope.sessionId, {
+      now: Date.now,
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      getStatus: (sessionId) => getAiRunStatus(transport, sessionId),
+      getResult: (sessionId) => getAiRunResult(transport, sessionId),
+      heartbeat: (state) => runRecordRepo.save({
+        ...scope,
+        sessionId: state.sessionId,
+        phase: "running",
+        updatedAt: state.updatedAt,
+        deadlineAt: state.deadlineAt,
+      }),
+      acquireComputeLock: async () => () => undefined,
+    }, { timeoutMs: remainingMs }).then(async (polled) => {
+      if (polled.status === "fresh") {
+        const selectors = SelectorSetSchema.parse(polled.selectors);
+        await runRecordRepo.save({
+          ...scope,
+          phase: "fresh",
+          updatedAt: Date.now(),
+          selectors,
+        });
+        return { ...polled, selectors };
+      }
+      await runRecordRepo.save({
+        ...scope,
+        phase: "failed",
+        updatedAt: Date.now(),
+        error: polled.status,
+      });
+      return polled;
+    }).catch(async (error: unknown) => {
+      await runRecordRepo.save({
+        ...scope,
+        phase: "failed",
+        updatedAt: Date.now(),
+        error: error instanceof Error ? error.message : "continuation-error",
+      });
+      return { status: "error" as const, polls: 0 };
+    }).finally(() => {
+      if (aiContinuations.get(scope.sessionId) === continuation) {
+        aiContinuations.delete(scope.sessionId);
+      }
+    });
+    aiContinuations.set(scope.sessionId, continuation);
+    return continuation;
+  };
 
   return {
     repos: {
@@ -218,19 +284,31 @@ export function createRewriteBackgroundServices(input: Readonly<{
           }
           if (outcome.status === "ok") {
             const stored = await configRepo.load(environmentKey, siteId);
-            const adopted = adoptAuthoritativeSnapshot(
+            const adoption = assessAuthoritativeSnapshot(
               stored.ok ? stored.value : null,
               outcome.config,
               { environmentKey, siteId },
             );
-            await configRepo.save(adopted);
+            await configRepo.save(adoption.snapshot);
             await localPropertyRepo.save({
               environmentKey,
               siteId,
               backendConfigPresent: true,
+              ...(adoption.integrityWarning ? {
+                integrityWarning: {
+                  ...adoption.integrityWarning,
+                  removedPageKeys: [...adoption.integrityWarning.removedPageKeys],
+                  detectedAt: new Date().toISOString(),
+                },
+              } : {}),
               updatedAt: new Date().toISOString(),
             });
-            return { renderMode: adopted.renderMode, source: "backend" as const };
+            return {
+              renderMode: adoption.snapshot.renderMode,
+              source: "backend" as const,
+              snapshot: adoption.snapshot,
+              integrityWarning: adoption.integrityWarning,
+            };
           }
           await configRepo.clear(environmentKey, siteId);
           const existing = await localPropertyRepo.load(environmentKey, siteId);
@@ -246,23 +324,53 @@ export function createRewriteBackgroundServices(input: Readonly<{
         });
       },
       /** A validated successful save response atomically replaces the durable
-       *  background baseline. Any unexplained shrink throws before storage. */
+       * background baseline. Unexpected shrink is adopted but leaves a durable
+       * warning that closes subsequent mutations. */
       applyBackendSave(environmentKey: string, siteId: number, snapshot: ConfigSnapshot) {
         return withPropertyOperation(environmentKey, siteId, async () => {
           const stored = await configRepo.load(environmentKey, siteId);
-          const adopted = adoptAuthoritativeSnapshot(
+          const adoption = assessAuthoritativeSnapshot(
             stored.ok ? stored.value : null,
             snapshot,
             { environmentKey, siteId },
           );
-          await configRepo.save(adopted);
+          await configRepo.save(adoption.snapshot);
           await localPropertyRepo.save({
             environmentKey,
             siteId,
             backendConfigPresent: true,
+            ...(adoption.integrityWarning ? {
+              integrityWarning: {
+                ...adoption.integrityWarning,
+                removedPageKeys: [...adoption.integrityWarning.removedPageKeys],
+                detectedAt: new Date().toISOString(),
+              },
+            } : {}),
             updatedAt: new Date().toISOString(),
           });
-          return adopted;
+          return adoption;
+        });
+      },
+      /** Writes require readable, clean local integrity facts. Reads remain
+       * fail-open and may continue projecting the last adopted authority. */
+      mutationGate(environmentKey: string, siteId: number) {
+        return withPropertyOperation(environmentKey, siteId, async () => {
+          const local = await localPropertyRepo.load(environmentKey, siteId);
+          if (!local.ok) {
+            return {
+              ok: false as const,
+              status: "invalid_request" as const,
+              reason: "property-integrity-state-unreadable",
+            };
+          }
+          if (local.value?.integrityWarning) {
+            return {
+              ok: false as const,
+              status: "integrity_shrink" as const,
+              reason: local.value.integrityWarning.message,
+            };
+          }
+          return { ok: true as const };
         });
       },
       overlayAiCorpus(environmentKey: string, siteId: number, live: Parameters<typeof overlayLivePageOnAuthoritativeCorpus>[1]) {
@@ -321,47 +429,26 @@ export function createRewriteBackgroundServices(input: Readonly<{
           sessionId: started.sessionId,
           tabId: context.tabId,
           clientRunId: context.clientRunId,
+          editorSessionId: context.editorSessionId,
           environmentKey: context.environmentKey,
           siteId: context.siteId,
           pageKey: context.pageKey,
           startedAt,
+          deadlineAt: startedAt + AI_RUN_TIMEOUT_MS,
         };
         await runRecordRepo.save({
           ...recordScope,
           phase: "running",
           updatedAt: startedAt,
-          deadlineAt: startedAt + AI_RUN_TIMEOUT_MS,
         }, { makeLatest: true });
-        const polled = await pollAiJob(started.sessionId, {
-          now: Date.now,
-          sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-          getStatus: (sessionId) => getAiRunStatus(transport, sessionId),
-          getResult: (sessionId) => getAiRunResult(transport, sessionId),
-          heartbeat: (state) => runRecordRepo.save({
-            ...recordScope,
-            sessionId: state.sessionId,
-            phase: state.phase,
-            updatedAt: state.updatedAt,
-            deadlineAt: state.deadlineAt,
-          }),
-          acquireComputeLock: async () => () => undefined,
-        });
+        const polled = await continueAiJob(recordScope);
         if (polled.status === "fresh") {
-          const selectors = SelectorSetSchema.parse(polled.selectors);
-          await runRecordRepo.save({
-            ...recordScope,
-            phase: "fresh",
-            updatedAt: Date.now(),
-            selectors,
-          });
-          return { status: "ok" as const, sessionId: started.sessionId, selectors };
+          return {
+            status: "ok" as const,
+            sessionId: started.sessionId,
+            selectors: SelectorSetSchema.parse(polled.selectors),
+          };
         }
-        await runRecordRepo.save({
-          ...recordScope,
-          phase: "failed",
-          updatedAt: Date.now(),
-          error: polled.status,
-        });
         return { status: polled.status, sessionId: started.sessionId };
       },
       /** Returns only the newest run for the exact property/page scope. The
@@ -378,13 +465,15 @@ export function createRewriteBackgroundServices(input: Readonly<{
           record.environmentKey !== scope.environmentKey ||
           record.siteId !== scope.siteId ||
           record.pageKey !== scope.pageKey ||
-          !record.clientRunId
+          record.clientRunId !== scope.clientRunId ||
+          record.editorSessionId !== scope.editorSessionId
         ) {
           return { status: "not_found" as const };
         }
         const common = {
           sessionId: record.sessionId,
           clientRunId: record.clientRunId,
+          editorSessionId: record.editorSessionId,
           deadlineAt: record.deadlineAt,
         };
         if (record.phase === "fresh") {
@@ -393,6 +482,20 @@ export function createRewriteBackgroundServices(input: Readonly<{
             : { status: "invalid" as const };
         }
         if (record.phase === "running") {
+          if (!record.deadlineAt) {
+            return { status: "invalid" as const };
+          }
+          void continueAiJob({
+            sessionId: record.sessionId,
+            tabId: record.tabId,
+            clientRunId: record.clientRunId,
+            editorSessionId: record.editorSessionId,
+            environmentKey: record.environmentKey,
+            siteId: record.siteId,
+            pageKey: record.pageKey,
+            startedAt: record.startedAt,
+            deadlineAt: record.deadlineAt,
+          }).catch(() => undefined);
           return { status: "running" as const, ...common };
         }
         return {
