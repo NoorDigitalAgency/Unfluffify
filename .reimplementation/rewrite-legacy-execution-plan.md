@@ -565,7 +565,15 @@ in the owning phase and rerun its focused gate plus P9–P11.
     at `9bdce9f` — 96 tests passed.
   - Full extension suite — 90 files / 683 tests passed. Lifecycle readiness is
     event/condition-driven; zero-delay uses only flush already-resolved work.
-- [ ] P10 — Automated release gates
+- [x] P10 — Automated release gates
+  - Performance implementation: `56fb4a8f` (`Benchmark and optimize branch repaint`).
+  - [`p10-release-evidence.md`](./p10-release-evidence.md) records the exact
+    command results and production tree digest.
+  - `pnpm lint`, `pnpm check`, `pnpm build:debug`, and `pnpm verify` passed;
+    `pnpm test` passed 91 files / 684 tests.
+  - Cutover reachability, generated page-world parity, production debug
+    exclusion, output-equivalence corpus, and the 2,000-node p95 marking
+    benchmark are green. Hub remained unchanged and its 96-test P9 gate passed.
 - [ ] P11 — Witnessed live acceptance
 
 For each completed item, append the commit SHA(s), exact test command, result,
