@@ -1,5 +1,12 @@
 # Marking And Highlighting Logic
 
+> **Authority amendment (2026-08-20):**
+> [`.reimplementation/rewrite-legacy-decision-spec.md`](./.reimplementation/rewrite-legacy-decision-spec.md)
+> supersedes conflicting behavior in this document. In particular, selector influence is now a
+> one-shot simulated-user seeding phase, retrievable closed shadow roots are flattened and markable,
+> and silent/post-AI preview blocks underlying page actions while allowing scrolling. Phase P0 of the
+> active execution plan must reconcile the remaining prose before implementation is accepted.
+
 This document is the source of truth for the marking rules restored from
 `052c164b077d459fa7a6e79b306f01144336719c`, with deliberate current safeguards
 kept in place: `BUTTON` remains toggleable, the redundant void `LINK` tag is

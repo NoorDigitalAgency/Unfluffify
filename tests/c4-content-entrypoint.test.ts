@@ -7,6 +7,48 @@ import type { BusFrame } from "../src/messaging/contract";
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 let commandSeq = 0;
 
+type TestListenerRegistry = Map<string, Set<EventListener>>;
+
+function addTestListener(registry: TestListenerRegistry, type: string, listener: EventListener): void {
+  const listeners = registry.get(type) ?? new Set<EventListener>();
+  listeners.add(listener);
+  registry.set(type, listeners);
+}
+
+function removeTestListener(registry: TestListenerRegistry, type: string, listener: EventListener): void {
+  const listeners = registry.get(type);
+  listeners?.delete(listener);
+  if (listeners?.size === 0) {
+    registry.delete(type);
+  }
+}
+
+function dispatchTestEvent(registry: TestListenerRegistry, type: string, event: Event): void {
+  for (const listener of [...(registry.get(type) ?? [])]) {
+    listener(event);
+  }
+}
+
+function mockFastRevealVisit(): void {
+  vi.doMock("../src/content/stabilization", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("../src/content/stabilization")>();
+    return {
+      ...actual,
+      createRevealVisitController: () => ({
+        resetForNavigation: vi.fn(),
+        async run(input: {
+          suppressLazyLoading: () => Promise<void>;
+          freezeAtBottom: () => Promise<void>;
+        }) {
+          await input.suppressLazyLoading();
+          await input.freezeAtBottom();
+          return { skipped: false, lazyExpansions: 0, frozenAtBottom: true };
+        },
+      }),
+    };
+  });
+}
+
 function commandFrame(name: string, payload: Record<string, unknown> = {}, tabId = 77): BusFrame {
   commandSeq += 1;
   return {
@@ -75,6 +117,7 @@ async function applyLockState(
 
 describe("C4 rewrite content entrypoints", () => {
   afterEach(() => {
+    vi.doUnmock("../src/content/stabilization");
     vi.resetModules();
     vi.clearAllMocks();
     delete globalThis.chrome;
@@ -222,7 +265,7 @@ describe("C4 rewrite content entrypoints", () => {
   it("reuses one marking engine while enabled and disposes overlays on deactivate", async () => {
     const addListener = vi.fn();
     const documentListeners = new Map<string, EventListener>();
-    const windowListeners = new Map<string, EventListener>();
+    const windowListeners: TestListenerRegistry = new Map();
     const engine = {
       refresh: vi.fn(),
       renderReadOnly: vi.fn(),
@@ -302,30 +345,44 @@ describe("C4 rewrite content entrypoints", () => {
         }),
       },
     });
-    const scrollTo = vi.fn((_x: number, y: number) => {
-      if (y === 500) {
-        (document.documentElement as unknown as { scrollHeight: number }).scrollHeight = 1500;
-      }
-    });
-    const requestAnimationFrame = vi.fn((callback: FrameRequestCallback) => {
-      callback(0);
-      return 1;
-    });
+    const scrollTo = vi.fn();
+    const requestAnimationFrame = vi.fn();
+    const windowObject = {
+      innerHeight: 500,
+      scrollY: 123,
+      scrollTo,
+      requestAnimationFrame,
+      postMessage: vi.fn((message: {
+        kind?: string;
+        type?: string;
+        nonce?: string;
+        command?: string;
+      }) => {
+        if (message.kind !== "uf-page-bus/1" || message.type !== "request") {
+          return;
+        }
+        queueMicrotask(() => dispatchTestEvent(windowListeners, "message", {
+          source: windowObject,
+          data: {
+            kind: "uf-page-bus/1",
+            type: "response",
+            nonce: message.nonce,
+            command: message.command,
+            ok: true,
+            payload: {},
+          },
+        } as unknown as Event));
+      }),
+      addEventListener: vi.fn((type: string, listener: EventListener) => {
+        addTestListener(windowListeners, type, listener);
+      }),
+      removeEventListener: vi.fn((type: string, listener: EventListener) => {
+        removeTestListener(windowListeners, type, listener);
+      }),
+    };
     Object.defineProperty(globalThis, "window", {
       configurable: true,
-      value: {
-        innerHeight: 500,
-        scrollY: 123,
-        scrollTo,
-        requestAnimationFrame,
-        postMessage: vi.fn(),
-        addEventListener: vi.fn((type: string, listener: EventListener) => {
-          windowListeners.set(type, listener);
-        }),
-        removeEventListener: vi.fn((type: string) => {
-          windowListeners.delete(type);
-        }),
-      },
+      value: windowObject,
     });
     vi.doMock("wxt/utils/define-content-script", () => ({
       defineContentScript: (config: unknown) => config,
@@ -334,6 +391,7 @@ describe("C4 rewrite content entrypoints", () => {
       createMarkingEngine,
       installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()),
     }));
+    mockFastRevealVisit();
 
     const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
     const contentScript = entrypoint.default as {
@@ -348,6 +406,11 @@ describe("C4 rewrite content entrypoints", () => {
 
     await applyLockState(listener);
     await dispatchContentCommand(listener, "activateContentMain");
+    for (let index = 0; index < 20 && !windowObject.postMessage.mock.calls.some(
+      ([message]) => message.command === "SET_MOTION_PAUSED"
+    ); index += 1) {
+      await Promise.resolve();
+    }
     const contentRoot = contentElements.find((element) => element.attributes["data-uf-content-surface-root"] === "true");
     const pauseIndicator = contentRoot?.children.find((element) =>
       element.attributes["data-uf-motion-pause-indicator"] === "true"
@@ -402,9 +465,8 @@ describe("C4 rewrite content entrypoints", () => {
       command: "SET_MOTION_PAUSED",
       sessionNonce: expect.stringMatching(/^rewrite-stabilization-/),
     }), "*");
-    expect(requestAnimationFrame).toHaveBeenCalledTimes(12);
-    expect(scrollTo).toHaveBeenCalledWith(0, 1500);
-    expect(window.scrollTo).toHaveBeenCalledWith(0, 123);
+    expect(requestAnimationFrame).not.toHaveBeenCalled();
+    expect(scrollTo).not.toHaveBeenCalled();
     documentListeners.get("keydown")?.({ code: "AltLeft", key: "Alt" } as unknown as Event);
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-include");
     documentListeners.get("keyup")?.({ code: "AltLeft", key: "Alt" } as unknown as Event);
@@ -593,7 +655,7 @@ describe("C4 rewrite content entrypoints", () => {
 
   it("deactivates active marking on same-document URL changes without popup polling", async () => {
     const addListener = vi.fn();
-    const windowListeners = new Map<string, EventListener>();
+    const windowListeners: TestListenerRegistry = new Map();
     const engine = {
       refresh: vi.fn(),
       renderReadOnly: vi.fn(),
@@ -627,9 +689,11 @@ describe("C4 rewrite content entrypoints", () => {
         replaceState: vi.fn(),
       },
       addEventListener: vi.fn((type: string, listener: EventListener) => {
-        windowListeners.set(type, listener);
+        addTestListener(windowListeners, type, listener);
       }),
-      removeEventListener: vi.fn(),
+      removeEventListener: vi.fn((type: string, listener: EventListener) => {
+        removeTestListener(windowListeners, type, listener);
+      }),
     };
     Object.defineProperty(globalThis, "window", {
       configurable: true,
@@ -651,14 +715,14 @@ describe("C4 rewrite content entrypoints", () => {
       sender: unknown,
       sendResponse: (value: unknown) => void
     ) => unknown;
-    windowListeners.get("message")?.({
+    dispatchTestEvent(windowListeners, "message", {
       source: windowObject,
       data: { kind: "uf-page-url-changed/1", toUrl: "https://example.com/b" },
     } as unknown as Event);
     await applyLockState(listener);
     await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/a" });
     locationValue.href = "https://example.com/b";
-    windowListeners.get("message")?.({
+    dispatchTestEvent(windowListeners, "message", {
       source: windowObject,
       data: { kind: "uf-page-url-changed/1", toUrl: "https://example.com/b" },
     } as unknown as Event);

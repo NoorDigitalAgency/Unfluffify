@@ -7,13 +7,10 @@ export type MarkingCandidate = Readonly<{
   excluded?: boolean;
   explicitInclude?: boolean;
   closedShadow?: boolean;
+  ownsDirectText?: boolean;
   children?: readonly MarkingCandidate[];
   parent?: MarkingCandidate | null;
 }>;
-
-function descendants(node: MarkingCandidate): readonly MarkingCandidate[] {
-  return (node.children ?? []).flatMap((child) => [child, ...descendants(child)]);
-}
 
 export function resolveTarget(
   hitPath: readonly MarkingCandidate[],
@@ -34,13 +31,17 @@ export function resolveTarget(
     if (!excludedContext) {
       return null;
     }
-    for (const hit of hitPath) {
-      const candidate = [hit, ...descendants(hit)].find((node) => node.selfMarkable);
-      if (candidate) {
-        return candidate;
-      }
+    const directTargetIndex = hitPath.findIndex((hit) => hit.selfMarkable);
+    if (directTargetIndex < 0) {
+      return null;
     }
-    return null;
+    // Legacy include targeting promotes the nearest eligible mixed-text ancestor
+    // before falling back to the deepest hit. It never searches unrelated
+    // descendants elsewhere in the clicked subtree.
+    const mixedTextAncestor = hitPath
+      .slice(directTargetIndex + 1)
+      .find((hit) => hit.selfMarkable && hit.ownsDirectText);
+    return mixedTextAncestor ?? hitPath[directTargetIndex] ?? null;
   }
   const includeBoundary = hitPath.find((hit) => hit.explicitInclude);
   if (includeBoundary) {
@@ -48,18 +49,10 @@ export function resolveTarget(
   }
   for (const hit of hitPath) {
     if (hit.selfMarkable && hit.excluded && hitPath[0] === hit) {
-      const drilled = descendants(hit).find((node) => node.selfMarkable && !node.excluded);
-      if (drilled) {
-        return drilled;
-      }
       return hit;
     }
     if (hit.selfMarkable && !hit.excluded) {
       return hit;
-    }
-    const drilled = descendants(hit).find((node) => node.selfMarkable && !node.excluded);
-    if (drilled) {
-      return drilled;
     }
   }
   return null;

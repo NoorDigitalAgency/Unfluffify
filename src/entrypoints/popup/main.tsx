@@ -538,19 +538,22 @@ async function pullSignals(tabId: number, requestKey = boundTabKey): Promise<num
 
 async function handleBoundContext(context: TargetTabContext): Promise<string> {
   const binding = bindToTab(context);
-  // The standing posture applies from the moment the extension is active on the
-  // tab. bindToTab cleared the record, so this re-applies after a navigation too.
-  void ensureSessionEmulation(context).then((active) => {
-    if (!active) {
-      logEvent("Device emulation failed", "the page is not in mobile simulation", "warn");
-      render();
-    }
-  }).catch(() => undefined);
   if (binding.sameTabNavigation) {
+    // Navigation invalidates the prior document posture. Clear it before the
+    // standing posture is re-applied; clearing after a fire-and-forget apply was
+    // the race that left the new document in desktop mode until the toggle moved.
     await clearSessionEmulation(context);
     await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
     await reportPopupFact(context, "navigation-observed", {}, binding.key);
     await pullSignals(context.tabId, binding.key);
+  }
+  // Activation, inspection, and marking all continue only after the managed tab
+  // has the correct posture. The background retains it across later reloads and
+  // debugger detach events even when the popup is closed.
+  const active = await ensureSessionEmulation(context).catch(() => false);
+  if (!active) {
+    logEvent("Device emulation failed", "the page is not in mobile simulation", "warn");
+    render();
   }
   return binding.key;
 }
@@ -683,7 +686,7 @@ function closeLynxChecklist(): void {
   render();
 }
 
-async function navigateFromLynxChecklist(pageKey: string): Promise<void> {
+async function navigateToCandidate(pageKey: string): Promise<void> {
   const context = await resolveTargetTabContext();
   if (!context) {
     return;
@@ -1077,6 +1080,7 @@ async function ensureSessionEmulation(context: TargetTabContext): Promise<boolea
 
 async function clearSessionEmulation(context: TargetTabContext): Promise<void> {
   await getPopupBus().request("emulation.clear", { tabId: context.tabId }, { target: "background" });
+  appliedEmulationMode = null;
 }
 
 async function refineSubmissionXpaths(snapshot: AiRunPayloadSnapshot): Promise<AiRunPayloadSnapshot> {
@@ -2285,7 +2289,7 @@ function render(): void {
       onOpenLynxChecklist={() => { void openLynxChecklist(); }}
       onCloseLynxChecklist={closeLynxChecklist}
       onSendToLynx={() => { void sendToLynx(); }}
-      onChecklistCandidateNavigate={(pageKey) => { void navigateFromLynxChecklist(pageKey); }}
+      onCandidateNavigate={(pageKey) => { void navigateToCandidate(pageKey); }}
       onThemeChange={updateTheme}
       onThemeModeChange={updateThemeMode}
     />,

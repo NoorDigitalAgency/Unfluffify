@@ -396,7 +396,7 @@ export function App({
   onOpenLynxChecklist,
   onCloseLynxChecklist,
   onSendToLynx,
-  onChecklistCandidateNavigate,
+  onCandidateNavigate,
   onThemeChange,
   onThemeModeChange,
 }: Readonly<{
@@ -433,7 +433,7 @@ export function App({
   onOpenLynxChecklist?: () => void;
   onCloseLynxChecklist?: () => void;
   onSendToLynx?: () => void;
-  onChecklistCandidateNavigate?: (pageKey: string) => void;
+  onCandidateNavigate?: (pageKey: string) => void;
   onThemeChange?: (theme: ThemeId) => void;
   onThemeModeChange?: (mode: ThemeMode) => void;
 }>) {
@@ -1020,10 +1020,16 @@ export function App({
                   </div>
                   <div className="todo-subsection-body">
                     {pageType.candidates.map((candidate) => (
-                      <div
+                      <button
                         key={candidate.pageKey}
+                        type="button"
                         className={`todo-candidate ${candidate.current ? "todo-candidate--current" : ""}`}
                         data-todo-candidate={candidate.pageKey}
+                        disabled={!onCandidateNavigate || candidate.current}
+                        onClick={() => onCandidateNavigate?.(candidate.pageKey)}
+                        aria-label={candidate.current
+                          ? `${candidate.pageKey}, current page`
+                          : `Navigate to candidate ${candidate.pageKey}`}
                       >
                         <i
                           className={`mdi ${candidate.marked ? "mdi-checkbox-marked-circle" : "mdi-checkbox-blank-circle-outline"} ${candidate.marked ? "u-color-success" : "u-color-muted"}`}
@@ -1041,7 +1047,7 @@ export function App({
                             <span className="todo-candidate-badge todo-candidate-badge--marked">Marked</span>
                           ) : null}
                         </span>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </section>
@@ -1667,8 +1673,8 @@ export function App({
                               key={candidate.pageKey}
                               type="button"
                               className="lynx-checklist-popover__candidate-hint"
-                              disabled={!onChecklistCandidateNavigate}
-                              onClick={() => onChecklistCandidateNavigate?.(candidate.pageKey)}
+                              disabled={!onCandidateNavigate || candidate.current}
+                              onClick={() => onCandidateNavigate?.(candidate.pageKey)}
                             >
                               {candidate.pageKey}
                             </button>

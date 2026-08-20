@@ -364,79 +364,205 @@ function refreshActiveMarking(): void {
   markingEngine.renderReadOnly();
 }
 
+type StabilizationPageCommand = "ARM" | "SET_LAZY_LOADING_SUPPRESSED" | "SET_MOTION_PAUSED";
+let stabilizationPageRequestSequence = 0;
+
+async function requestStabilizationPageCommand(
+  command: StabilizationPageCommand,
+  payload: Record<string, unknown>,
+  sessionNonce = "",
+): Promise<{ nonce: string; payload: Record<string, unknown> }> {
+  if (typeof window === "undefined") {
+    throw new Error(`Page-world command unavailable: ${command}`);
+  }
+  stabilizationPageRequestSequence += 1;
+  const nonce = `rewrite-stabilization-${Date.now()}-${stabilizationPageRequestSequence}`;
+  return await new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (
+      result?: { nonce: string; payload: Record<string, unknown> },
+      error?: Error,
+    ): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeoutHandle);
+      window.removeEventListener("message", handleMessage);
+      if (error) {
+        reject(error);
+      } else if (result) {
+        resolve(result);
+      }
+    };
+    const handleMessage = (event: MessageEvent): void => {
+      if (event.source && event.source !== window) {
+        return;
+      }
+      const response = event.data as {
+        kind?: string;
+        type?: string;
+        nonce?: string;
+        command?: string;
+        ok?: boolean;
+        payload?: unknown;
+        failure?: { message?: string };
+      } | null;
+      if (
+        !response ||
+        response.kind !== "uf-page-bus/1" ||
+        response.type !== "response" ||
+        response.nonce !== nonce ||
+        response.command !== command
+      ) {
+        return;
+      }
+      if (!response.ok) {
+        finish(undefined, new Error(response.failure?.message ?? `Page-world command failed: ${command}`));
+        return;
+      }
+      finish({
+        nonce,
+        payload: response.payload && typeof response.payload === "object"
+          ? response.payload as Record<string, unknown>
+          : {},
+      });
+    };
+    const timeoutHandle = setTimeout(() => {
+      finish(undefined, new Error(`Page-world command timed out: ${command}`));
+    }, 3_000);
+    window.addEventListener("message", handleMessage);
+    window.postMessage?.({
+      kind: "uf-page-bus/1",
+      type: "request",
+      nonce,
+      sessionNonce: command === "ARM" ? undefined : sessionNonce,
+      command,
+      payload,
+    }, "*");
+  });
+}
+
+function currentDocumentScrollHeight(): number {
+  if (typeof document === "undefined") {
+    return 0;
+  }
+  return Math.max(
+    document.documentElement?.scrollHeight ?? 0,
+    document.body?.scrollHeight ?? 0,
+    document.documentElement?.offsetHeight ?? 0,
+    document.body?.offsetHeight ?? 0,
+  );
+}
+
+function waitForWindowScrollEnd(targetY: number, isStale: () => boolean): Promise<void> {
+  if (typeof window === "undefined") {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    let reachedAt = Math.abs(window.scrollY - targetY) <= 2 ? startedAt : 0;
+    let rafHandle = 0;
+    let timerHandle: ReturnType<typeof setTimeout> | null = null;
+    let settled = false;
+    const finish = (): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (rafHandle && typeof window.cancelAnimationFrame === "function") {
+        window.cancelAnimationFrame(rafHandle);
+      }
+      if (timerHandle !== null) {
+        clearTimeout(timerHandle);
+      }
+      resolve();
+    };
+    const sample = (): void => {
+      if (isStale() || Date.now() - startedAt >= 8_000) {
+        finish();
+        return;
+      }
+      if (Math.abs(window.scrollY - targetY) <= 2) {
+        reachedAt ||= Date.now();
+        if (Date.now() - reachedAt >= 220) {
+          finish();
+          return;
+        }
+      } else {
+        reachedAt = 0;
+      }
+      if (typeof window.requestAnimationFrame === "function") {
+        rafHandle = window.requestAnimationFrame(sample);
+      } else {
+        timerHandle = setTimeout(sample, 16);
+      }
+    };
+    sample();
+  });
+}
+
 async function runActivationStabilization(pageUrl: string): Promise<{ skipped: boolean } | null> {
   spaGuard.arm(pageUrl);
   destroyPageWorldSession();
   pageInspectionActive = true;
   lastContentSurfaceSignature = "";
   renderContentSurface();
-  const sessionNonce = `rewrite-stabilization-${Date.now()}`;
-  pageWorldSessionNonce = sessionNonce;
   const initialScrollY = typeof window !== "undefined" ? window.scrollY : 0;
-  const postPageCommand = (command: "ARM" | "SET_LAZY_LOADING_SUPPRESSED" | "SET_MOTION_PAUSED", payload: Record<string, unknown>): void => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    window.postMessage?.({
-      kind: "uf-page-bus/1",
-      type: "request",
-      nonce: sessionNonce,
-      sessionNonce: command === "ARM" ? undefined : sessionNonce,
-      command,
-      payload,
-    }, "*");
-  };
-  const waitForPaint = (): Promise<void> => new Promise((resolve) => {
-    if (typeof window === "undefined" || typeof window.requestAnimationFrame !== "function") {
-      setTimeout(resolve, 0);
-      return;
-    }
-    let settled = false;
-    const fallback = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        resolve();
-      }
-    }, 100);
-    const finish = (): void => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(fallback);
-      resolve();
-    };
-    window.requestAnimationFrame(() => window.requestAnimationFrame(finish));
-  });
-  postPageCommand("ARM", {});
+  const isStale = (): boolean => pageUrl !== (typeof location !== "undefined" ? location.href : pageUrl);
+  const waitForSettle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 1_000));
   try {
+    const armed = await requestStabilizationPageCommand("ARM", {});
+    pageWorldSessionNonce = armed.nonce;
     return await revealController.run({
       hasVerticalScrollRoom: typeof document !== "undefined" && typeof window !== "undefined"
-        ? document.documentElement.scrollHeight > window.innerHeight
+        ? currentDocumentScrollHeight() > window.innerHeight + 2
         : false,
-      activationStale: pageUrl !== (typeof location !== "undefined" ? location.href : pageUrl),
-      initialScrollHeight: typeof document !== "undefined" ? document.documentElement.scrollHeight : 0,
-      measureExpandedScrollHeight: () => typeof document !== "undefined"
-        ? document.documentElement.scrollHeight
-        : 0,
-      scrollTo(position, measuredScrollHeight) {
+      activationStale: isStale,
+      initialScrollHeight: currentDocumentScrollHeight(),
+      measureExpandedScrollHeight: currentDocumentScrollHeight,
+      async scrollTo(position, measuredScrollHeight) {
         if (typeof window === "undefined") {
           return;
         }
-        if (position === "top") window.scrollTo(0, 0);
-        if (position === "half") window.scrollTo(0, Math.floor(measuredScrollHeight / 2));
-        if (position === "bottom") window.scrollTo(0, measuredScrollHeight);
-        if (position === "restore") window.scrollTo(0, initialScrollY);
+        const bottomY = Math.max(0, measuredScrollHeight - window.innerHeight);
+        const targetY = position === "top"
+          ? 0
+          : position === "lazy-threshold"
+            ? Math.round(bottomY * 0.5)
+            : position === "bottom"
+              ? bottomY
+              : initialScrollY;
+        window.scrollTo({ top: targetY, behavior: "smooth" });
+        await waitForWindowScrollEnd(targetY, isStale);
       },
-      waitForPaint,
-      suppressLazyLoading() {
-        postPageCommand("SET_LAZY_LOADING_SUPPRESSED", { suppressed: true });
+      waitForSettle,
+      async suppressLazyLoading() {
+        await requestStabilizationPageCommand(
+          "SET_LAZY_LOADING_SUPPRESSED",
+          { suppressed: true },
+          pageWorldSessionNonce,
+        );
       },
-      freezeAtBottom() {
+      async restoreLazyLoading() {
+        if (!pageWorldSessionNonce) {
+          return;
+        }
+        await requestStabilizationPageCommand(
+          "SET_LAZY_LOADING_SUPPRESSED",
+          { suppressed: false },
+          pageWorldSessionNonce,
+        );
+      },
+      async freezeAtBottom() {
+        await requestStabilizationPageCommand(
+          "SET_MOTION_PAUSED",
+          { paused: true },
+          pageWorldSessionNonce,
+        );
         freezeController.pause("page-visit");
         lastContentSurfaceSignature = "";
         renderContentSurface();
-        postPageCommand("SET_MOTION_PAUSED", { paused: true });
       },
     });
   } catch (error) {
@@ -1171,6 +1297,30 @@ function ensureMarkingListeners(): void {
   ) {
     return;
   }
+  let lastPointer: Readonly<{ x: number; y: number; altKey: boolean; shiftKey: boolean }> | null = null;
+  let hoverFrame = 0;
+  let shiftHeld = false;
+  const scheduleHover = (): void => {
+    if (hoverFrame || !lastPointer || typeof window === "undefined") {
+      return;
+    }
+    const run = (): void => {
+      hoverFrame = 0;
+      const pointer = lastPointer;
+      if (!markingActive || !markingEngine || !pointer) {
+        return;
+      }
+      const mode = spacePassthroughActive
+        ? "passthrough"
+        : pointer.altKey
+          ? "include"
+          : "exclude";
+      markingEngine.hoverAtPoint(pointer.x, pointer.y, mode, pointer.shiftKey);
+    };
+    hoverFrame = typeof window.requestAnimationFrame === "function"
+      ? window.requestAnimationFrame(run)
+      : window.setTimeout(run, 0);
+  };
   const handleClick = (event: MouseEvent): void => {
     if (!markingActive || !markingEngine) {
       return;
@@ -1199,21 +1349,49 @@ function ensureMarkingListeners(): void {
       altIncludeActive = event.altKey;
       syncMarkingCursor();
     }
-    markingEngine.hoverAtPoint(event.clientX, event.clientY);
+    shiftHeld = event.shiftKey;
+    lastPointer = {
+      x: event.clientX,
+      y: event.clientY,
+      altKey: event.altKey,
+      shiftKey: event.shiftKey,
+    };
+    scheduleHover();
   };
-  const handleMouseLeave = (): void => markingEngine?.clearHover();
+  const handleMouseLeave = (): void => {
+    lastPointer = null;
+    markingEngine?.clearHover();
+  };
   const handleKeyDown = (event: KeyboardEvent): void => {
     setAltInclude(event, true);
     setSpacePassthrough(event, true);
+    if (event.key === "Shift") {
+      shiftHeld = true;
+    }
+    if (lastPointer) {
+      lastPointer = { ...lastPointer, altKey: altIncludeActive, shiftKey: shiftHeld };
+      scheduleHover();
+    }
   };
   const handleKeyUp = (event: KeyboardEvent): void => {
     setAltInclude(event, false);
     setSpacePassthrough(event, false);
+    if (event.key === "Shift") {
+      shiftHeld = false;
+    }
+    if (lastPointer) {
+      lastPointer = { ...lastPointer, altKey: altIncludeActive, shiftKey: shiftHeld };
+      scheduleHover();
+    }
   };
   const resetModifiers = (): void => {
     const refreshNeeded = spacePassthroughActive;
     spacePassthroughActive = false;
     altIncludeActive = false;
+    shiftHeld = false;
+    if (lastPointer) {
+      lastPointer = { ...lastPointer, altKey: false, shiftKey: false };
+    }
     syncMarkingCursor();
     if (refreshNeeded) {
       refreshActiveMarking();
@@ -1239,6 +1417,15 @@ function ensureMarkingListeners(): void {
       window.removeEventListener("blur", resetModifiers);
     }
     document.removeEventListener("visibilitychange", resetModifiers, true);
+    if (hoverFrame && typeof window !== "undefined") {
+      if (typeof window.cancelAnimationFrame === "function") {
+        window.cancelAnimationFrame(hoverFrame);
+      } else {
+        window.clearTimeout(hoverFrame);
+      }
+      hoverFrame = 0;
+    }
+    lastPointer = null;
     removeMarkingListeners = null;
     spacePassthroughActive = false;
     altIncludeActive = false;

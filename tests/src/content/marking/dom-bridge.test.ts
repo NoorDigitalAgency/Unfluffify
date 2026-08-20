@@ -494,8 +494,71 @@ describe("P6 DOM bridge", () => {
 
     const renderer = createOverlayRenderer({ document: doc as unknown as Document });
     renderer.clear();
-    expect(renderer.root.children).toHaveLength(11);
+    expect(renderer.root.children).toHaveLength(13);
     expect(renderer.root.children.every((layer) => layer.children.length === 0)).toBe(true);
+  });
+
+  it("renders the three legacy silent border classes on separate reusable layers", () => {
+    const doc = new FakeDocument();
+    const content = new FakeElement("P", rect(0, 0, 120, 20), "Content");
+    const immutable = new FakeElement("IMG", rect(0, 30, 120, 20));
+    const excluded = new FakeElement("FOOTER", rect(0, 60, 120, 20), "Footer");
+    for (const element of [content, immutable, excluded]) {
+      element.ownerDocument = doc;
+    }
+    doc.pointHits = (_x, y) => y < 25
+      ? [content]
+      : y < 55
+        ? [immutable]
+        : [excluded];
+    const renderer = createOverlayRenderer({ document: doc as unknown as Document });
+    const targets = new Map([
+      ["/p[1]", { element: content as unknown as Element, visible: true }],
+      ["/img[1]", { element: immutable as unknown as Element, visible: true }],
+      ["/footer[1]", { element: excluded as unknown as Element, visible: true }],
+    ]);
+
+    renderer.renderSilentHighlights(["/p[1]"], targets, {
+      immutableXpaths: ["/img[1]"],
+      excludedXpaths: ["/footer[1]"],
+    });
+
+    const classes = renderer.root.children.flatMap((layer) => layer.children).map((box) => box.className);
+    expect(classes).toContain("uf-silent-rect uf-silent-content");
+    expect(classes).toContain("uf-silent-rect uf-silent-immutable");
+    expect(classes).toContain("uf-silent-rect uf-silent-excluded");
+    renderer.dispose();
+  });
+
+  it("uses the animated legacy selector border without changing selector-seeded rows", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 200));
+    const paragraph = new FakeElement("P", rect(10, 10, 120, 20), "Selected content");
+    root.ownerDocument = doc;
+    paragraph.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(paragraph);
+    doc.hits = [paragraph, root];
+    Object.assign(doc, {
+      querySelectorAll(selector: string) {
+        return selector === "p" ? [paragraph] : [];
+      },
+    });
+    const engine = createMarkingEngine(root as unknown as Element);
+
+    expect(engine.seedFromSelectors({ inclusionSelectors: ["p"], exclusionSelectors: [] })).toBe(true);
+
+    const selectorBox = engine.overlayRoot().children
+      .flatMap((layer) => layer.children)
+      .find((box) => box.getAttribute("data-uf-overlay-xpath") === "/main[1]/p[1]");
+    expect(selectorBox?.className).toBe("uf-rect uf-ai-content");
+    expect(engine.rows()).toContainEqual({
+      xpath: "/main[1]/p[1]",
+      excluded: false,
+      explicit: true,
+    });
+    engine.dispose();
   });
 
   it("projects one exclusion boundary instead of stacking boxes for every descendant", () => {
@@ -631,6 +694,7 @@ describe("P6 DOM bridge", () => {
   });
 
   it("rebuilds for page mutations but not extension chrome mutations", () => {
+    vi.useFakeTimers();
     const doc = new FakeDocument();
     const callbacks: Array<(records: MutationRecord[]) => void> = [];
     const animationFrames: Array<() => void> = [];
@@ -691,12 +755,17 @@ describe("P6 DOM bridge", () => {
       removedNodes: [],
     } as unknown as MutationRecord]);
 
+    expect(animationFrames).toHaveLength(0);
+    vi.advanceTimersByTime(1_200);
     expect(animationFrames).toHaveLength(1);
     animationFrames[0]?.();
     expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[2]", excluded: false });
+    engine.dispose();
+    vi.useRealTimers();
   });
 
   it("coalesces a scroll storm into geometry-only work", () => {
+    vi.useFakeTimers();
     const doc = new FakeDocument();
     const animationFrames: Array<() => void> = [];
     const listeners = new Map<string, () => void>();
@@ -730,11 +799,14 @@ describe("P6 DOM bridge", () => {
       listeners.get("scroll")?.();
     }
 
+    expect(animationFrames).toHaveLength(0);
+    vi.advanceTimersByTime(250);
     expect(animationFrames).toHaveLength(1);
     animationFrames[0]?.();
     expect(second.rectReadCount).toBe(0);
     expect(engine.rows()).not.toContainEqual({ xpath: "/main[1]/p[2]", excluded: false });
     engine.dispose();
+    vi.useRealTimers();
   });
 
   it("hides layers only for viewport scroll and redraws after the 250 ms debounce", () => {
@@ -874,6 +946,7 @@ describe("P6 DOM bridge", () => {
     doc.documentElement.ownerDocument = doc;
     doc.documentElement.appendChild(root);
     root.appendChild(footer);
+    doc.hits = [footer, root];
 
     const engine = createMarkingEngine(root as unknown as Element);
     engine.renderReadOnly();
@@ -883,6 +956,11 @@ describe("P6 DOM bridge", () => {
 
     expect(engine.rows()).toContainEqual({ xpath: "/main[1]/footer[1]", excluded: true });
     expect(footerOverlay?.className).toBe("uf-rect uf-explicit-exclude");
+
+    const boundary = engine.resolveAtPoint(10, 250, "exclude");
+    expect(boundary?.xpath).toBe("/main[1]/footer[1]");
+    engine.toggle(boundary!, "exclude");
+    expect(engine.rows()).toContainEqual({ xpath: "/main[1]/footer[1]", excluded: false });
   });
 
   it("seeds a landmark-bearing full-width footer and suppresses descendant includes", () => {

@@ -33,6 +33,7 @@ type ClassificationBox = Readonly<{
 type SilentBox = Readonly<{
   overlay: HTMLElement;
   xpath: string;
+  presentation: string;
 }>;
 
 const LAYER_KEYS = [
@@ -43,7 +44,9 @@ const LAYER_KEYS = [
   "ai-content",
   "session-explicit-exclude",
   "session-explicit-include",
-  "silent",
+  "silent-immutable",
+  "silent-content",
+  "silent-excluded",
   "focus",
   "hover",
   "interaction",
@@ -164,8 +167,8 @@ function classificationKey(xpath: string, classification: Classification, presen
   return `${xpath}\u0000${classification}\u0000${presentation}\u0000${index}`;
 }
 
-function silentKey(xpath: string, index: number): string {
-  return `${xpath}\u0000${index}`;
+function silentKey(xpath: string, presentation: string, index: number): string {
+  return `${xpath}\u0000${presentation}\u0000${index}`;
 }
 
 function hasProjectedExceptionAncestor(
@@ -187,8 +190,9 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   const root = options.root ?? options.document.createElement("div");
   const classificationByXpath = new Map<string, Classification>();
   const classificationBoxes = new Map<string, ClassificationBox>();
-  const silentXpaths = new Set<string>();
+  const silentPresentationByXpath = new Map<string, string>();
   const silentBoxes = new Map<string, SilentBox>();
+  const aiContentXpaths = new Set<string>();
   const hoverBoxes = new Map<string, HTMLElement>();
   let hoverElement: Element | null = null;
   let hoverXpath = "";
@@ -238,7 +242,16 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     let layerKey = LAYER_BY_CLASSIFICATION[classification];
     let presentation = overlayClassFor(classification);
     let rects = clientRectsFor(target.element, options.document);
-    if (rects.length === 0 && classification === "explicit-include") {
+    if (classification === "explicit-include" && aiContentXpaths.has(xpath)) {
+      layerKey = "ai-content";
+      presentation = "uf-ai-content";
+      if (rects.length === 0) {
+        rects = rawClientRectsFor(target.element);
+        if (!target.visible) {
+          presentation = "uf-ai-content uf-ai-content-ghost";
+        }
+      }
+    } else if (rects.length === 0 && classification === "explicit-include") {
       rects = rawClientRectsFor(target.element);
       if (!target.visible) {
         presentation = "uf-explicit-include-ghost";
@@ -297,26 +310,37 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
 
   const drawSilent = (byXpath: ReadonlyMap<string, OverlayRenderTarget>): void => {
     const used = new Set<string>();
-    const layer = layers.get("silent");
-    if (!layer) {
-      return;
-    }
-    for (const xpath of silentXpaths) {
+    for (const [xpath, requestedPresentation] of silentPresentationByXpath) {
       const target = byXpath.get(xpath);
       if (!target) {
         continue;
       }
-      const rects = clientRectsFor(target.element, options.document);
+      const presentation = requestedPresentation === "uf-silent-content" && !target.visible
+        ? "uf-silent-content uf-silent-content-ghost"
+        : requestedPresentation;
+      const layerKey: LayerKey = presentation.includes("uf-silent-immutable")
+        ? "silent-immutable"
+        : presentation.includes("uf-silent-excluded")
+          ? "silent-excluded"
+          : "silent-content";
+      const layer = layers.get(layerKey);
+      if (!layer) {
+        continue;
+      }
+      let rects = clientRectsFor(target.element, options.document);
+      if (rects.length === 0 && presentation.includes("uf-silent-content-ghost")) {
+        rects = rawClientRectsFor(target.element);
+      }
       for (let index = 0; index < rects.length; index += 1) {
-        const key = silentKey(xpath, index);
+        const key = silentKey(xpath, presentation, index);
         let record = silentBoxes.get(key);
         if (!record) {
           const overlay = options.document.createElement("div");
           overlay.setAttribute("data-uf-extension-ui", "true");
           overlay.setAttribute("data-uf-silent-highlight", xpath);
           overlay.setAttribute("data-uf-overlay-rect", String(index));
-          overlay.className = "uf-silent-rect uf-silent-content";
-          record = { overlay, xpath };
+          overlay.className = `uf-silent-rect ${presentation}`;
+          record = { overlay, xpath, presentation };
           silentBoxes.set(key, record);
           layer.appendChild(overlay);
         }
@@ -386,7 +410,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     }
     classificationByXpath.clear();
     classificationBoxes.clear();
-    silentXpaths.clear();
+    silentPresentationByXpath.clear();
     silentBoxes.clear();
     hoverBoxes.clear();
     hoverElement = null;
@@ -426,9 +450,14 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       }
       finalizeClassification(used, affected);
     },
-    reposition(byXpath: ReadonlyMap<string, OverlayRenderTarget>): void {
+    reposition(
+      byXpath: ReadonlyMap<string, OverlayRenderTarget>,
+      renderOptions: Readonly<{ includeSilent?: boolean }> = {},
+    ): void {
       drawCurrentClassifications(byXpath);
-      drawSilent(byXpath);
+      if (renderOptions.includeSilent !== false) {
+        drawSilent(byXpath);
+      }
       drawHover();
     },
     setHover(element: Element | null, xpath = ""): void {
@@ -436,12 +465,31 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       hoverXpath = element ? xpath : "";
       drawHover();
     },
-    renderSilentHighlights(xpaths: readonly string[], byXpath: ReadonlyMap<string, OverlayRenderTarget>): void {
-      silentXpaths.clear();
+    renderSilentHighlights(
+      xpaths: readonly string[],
+      byXpath: ReadonlyMap<string, OverlayRenderTarget>,
+      categories: Readonly<{
+        immutableXpaths?: readonly string[];
+        excludedXpaths?: readonly string[];
+      }> = {},
+    ): void {
+      silentPresentationByXpath.clear();
+      for (const xpath of categories.immutableXpaths ?? []) {
+        silentPresentationByXpath.set(xpath, "uf-silent-immutable");
+      }
       for (const xpath of xpaths) {
-        silentXpaths.add(xpath);
+        silentPresentationByXpath.set(xpath, "uf-silent-content");
+      }
+      for (const xpath of categories.excludedXpaths ?? []) {
+        silentPresentationByXpath.set(xpath, "uf-silent-excluded");
       }
       drawSilent(byXpath);
+    },
+    setAiContentXpaths(xpaths: ReadonlySet<string>): void {
+      aiContentXpaths.clear();
+      for (const xpath of xpaths) {
+        aiContentXpaths.add(xpath);
+      }
     },
     acknowledge(element: Element, xpath: string, mode: "include" | "exclude"): void {
       clearAcknowledgement();

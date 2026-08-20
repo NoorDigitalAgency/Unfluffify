@@ -194,6 +194,9 @@ export function createRenderEmulationRuntime(input: Readonly<{
   });
 
   return {
+    heldMode(tabId: number): EmulationMode | null {
+      return heldPostures.get(tabId)?.mode ?? null;
+    },
     async apply(tabId: number, mode: EmulationMode, scale: number, allowReload = false) {
       heldPostures.set(tabId, { mode, scale });
       const realUserAgent = await realUserAgentFor(tabId);

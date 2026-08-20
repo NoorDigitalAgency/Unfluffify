@@ -1,8 +1,10 @@
 # Contract & Invariant Register — Unfluffify (Verified)
 
-**Status:** Authoritative spec for the big-bang rewrite. This is the "what must never regress" bible.
+**Status:** Foundational invariant register. The later 91-decision specification below is authoritative
+where it changes or narrows a rule in this document.
 
-**Source of truth:** the verified decisions log (`decisions-log.md`, T1–T12), as amended by
+**Latest source of truth:** [`rewrite-legacy-decision-spec.md`](./rewrite-legacy-decision-spec.md),
+followed by the verified decisions log (`decisions-log.md`, T1–T12), as amended by
 [`study/qa-decisions-save-contract.md`](./study/qa-decisions-save-contract.md), which wins over
 conflicting older rows in this register. Where this register cites the legacy docs
 `MARKING_AND_HIGHLIGHTING_LOGIC.md` and `PROPERTY_LOCK.md`, the register's **CORRECTED** items override them.

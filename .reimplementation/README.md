@@ -11,24 +11,27 @@ and for isolated reusable snippets — **no logic or contracts are carried over 
 
 ## Read in this order
 
-1. **[study/qa-decisions-save-contract.md](./study/qa-decisions-save-contract.md)** — latest binding
-   D13–D24 amendment for save, GraphQL/feed reconciliation, locks, drafts, and Lynx publication.
-2. **[contract-invariants.md](./contract-invariants.md)** — the behavioral contract the rewrite must
+1. **[rewrite-legacy-decision-spec.md](./rewrite-legacy-decision-spec.md)** — the latest binding
+   91-decision rewrite-versus-legacy specification. It supersedes conflicting older behavior text.
+2. **[rewrite-legacy-execution-plan.md](./rewrite-legacy-execution-plan.md)** — **the ACTIVE plan**
+   and sole resume pointer, with dependency order, acceptance evidence, and the live QA matrix.
+3. **[study/qa-decisions-save-contract.md](./study/qa-decisions-save-contract.md)** — binding
+   D13–D24 detail for save, GraphQL/feed reconciliation, locks, drafts, and Lynx publication where
+   the latest specification does not change it.
+4. **[contract-invariants.md](./contract-invariants.md)** — the behavioral contract the rewrite must
    honor (what must never regress), with corrections marked.
-3. **[decisions-log.md](./decisions-log.md)** — the original verified Q&A provenance plus amendments.
-4. **[architecture.md](./architecture.md)** — the target architecture: the reflex-arc model, the realms,
+5. **[decisions-log.md](./decisions-log.md)** — the original verified Q&A provenance plus amendments.
+6. **[architecture.md](./architecture.md)** — the target architecture: the reflex-arc model, the realms,
    the module/layer layout, the signal/data/derivation models.
-5. **[remote-api.md](./remote-api.md)** — the remote API contract. Two sourcing modes: the config +
+7. **[remote-api.md](./remote-api.md)** — the remote API contract. Two sourcing modes: the config +
    property-lock server (owned) gets a **designed target schema** the backend adapts to; AI + GraphQL +
    accounts (separate team) are **locked to the current code** and conformed to exactly.
-6. **[plan.md](./plan.md)** — the historical make-plan: goal, current facts, decisions, non-goals, greenfield build
+8. **[plan.md](./plan.md)** — the historical make-plan: goal, current facts, decisions, non-goals, greenfield build
    order, test matrix, regression risks, acceptance criteria, and the todo chain.
    **This plan is COMPLETE** (P0–P10 built and cut over); it is history, not the active plan.
-7. **[parity-plan.md](./parity-plan.md)** — **the ACTIVE plan.** Brings the built rewrite to
-   production parity with the legacy extension and back into conformance with the contract:
-   the correction backlog (data-correctness regressions, doctrine drift, performance, the inert
-   reveal ritual), the required backend change, and the slice-by-slice execution order. Start here.
-8. **[study/](./study/)** — the legacy-vs-rewrite comparative study this plan was written from:
+9. **[parity-plan.md](./parity-plan.md)** — historical parity backlog and defect evidence, superseded
+   as an execution plan by the 91-decision plan above.
+10. **[study/](./study/)** — the legacy-vs-rewrite comparative study this plan was written from:
    analysis reports, both architect Q&A records, the independent Claude comparison
    (`independent-review-claude-comparison.md`), and `RESUME.md`.
 

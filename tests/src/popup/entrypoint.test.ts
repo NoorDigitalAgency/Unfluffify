@@ -2117,6 +2117,10 @@ describe("rewrite popup entrypoint", () => {
       }),
       target: "background",
     }));
+    const emulationNames = runtime.sendMessage.mock.calls
+      .map(([frame]) => (frame as { name?: string }).name)
+      .filter((name) => name === "emulation.apply" || name === "emulation.clear");
+    expect(emulationNames.slice(-2)).toEqual(["emulation.clear", "emulation.apply"]);
   });
 
   it("retries a publication-unknown outcome with the exact same fenced Hub operation", async () => {
@@ -2177,13 +2181,17 @@ describe("rewrite popup entrypoint", () => {
       }
       return replyFrame(message, []);
     });
+    const tabsUpdate = vi.fn();
     globalThis.chrome = {
       runtime: { ...runtime },
-      tabs: { query, sendMessage: tabsSendMessage, update: vi.fn() },
+      tabs: { query, sendMessage: tabsSendMessage, update: tabsUpdate },
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
     const props = () => render.mock.calls.at(-1)?.[0].props;
+    props().onCandidateNavigate("/detail/next");
+    await waitFor(() => tabsUpdate.mock.calls.length > 0, "candidate navigation");
+    expect(tabsUpdate).toHaveBeenCalledWith(77, { url: "https://example.com/detail/next" });
     props().onOpenLynxChecklist();
     await waitFor(() => props().lynxChecklist.phase === "ready", "publication checklist readiness");
 

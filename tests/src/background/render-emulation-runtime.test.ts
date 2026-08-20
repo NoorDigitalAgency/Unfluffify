@@ -106,7 +106,9 @@ describe("render emulation runtime", () => {
     });
 
     await runtime.apply(7, "mobile", 1);
+    expect(runtime.heldMode(7)).toBe("mobile");
     await runtime.clear(7);
+    expect(runtime.heldMode(7)).toBeNull();
     debuggerApi.sent.length = 0;
     debuggerApi.detach(7, "canceled_by_user");
     await flush();

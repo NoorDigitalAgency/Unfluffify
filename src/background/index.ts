@@ -291,6 +291,20 @@ export function startRewriteBackground(): void {
       pageUrl: request.pageUrl,
       refresh: request.refresh,
     });
+    // Content asks for page context at load time, before a popup necessarily
+    // exists. That is the earliest authoritative point at which the background
+    // knows this is a managed property tab, so establish the standing mobile
+    // posture here. An explicit desktop preview is a held override and remains
+    // untouched until the popup turns it off or marking begins.
+    if (
+      tabId > 0 &&
+      context.environmentKey &&
+      context.siteId !== null &&
+      renderEmulation.heldMode(tabId) !== "desktop" &&
+      renderEmulation.heldMode(tabId) !== "mobile"
+    ) {
+      await renderEmulation.apply(tabId, "mobile", 1, true).catch(() => undefined);
+    }
     const propertyKey = context.environmentKey && context.siteId !== null
       ? `${context.environmentKey}\u0000${context.siteId}`
       : null;

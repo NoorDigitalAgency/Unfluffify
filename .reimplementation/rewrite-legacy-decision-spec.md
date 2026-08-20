@@ -1,0 +1,200 @@
+# Rewrite–Legacy Decision Specification
+
+**Status:** Binding product and implementation specification
+
+**Decision date:** 2026-08-20
+
+**Scope:** 91 resolved decision units: 37 Intentional, 22 Unsure (U-18 split into
+five independently decided parts), and 32 Diverged.
+
+This document records the point-by-point rewrite-versus-legacy Q&A. It is the
+latest authority for every difference listed here. It preserves the rewrite's
+deliberate architecture while defining exactly where legacy behavior, styling,
+performance work, and recovery logic must be restored.
+
+## 1. Authority and interpretation
+
+When documents conflict, use this order:
+
+1. This specification.
+2. `study/qa-decisions-save-contract.md` for details not changed here.
+3. `contract-invariants.md`.
+4. `MARKING_AND_HIGHLIGHTING_LOGIC.md` and `PROPERTY_LOCK.md`.
+5. `decisions-log.md`, `parity-plan.md`, and the historical implementation plans.
+
+The execution plan in `rewrite-legacy-execution-plan.md` controls delivery order,
+not product semantics. Product semantics come from this document.
+
+The terms **must**, **must not**, and **only** are normative. “Debug build” means
+a build produced with `UNFLUFFIFY_DEBUG=1`; debug-only capability must be absent
+or unreachable in a production build, not merely hidden with CSS.
+
+## 2. Reconciled system rules
+
+The following rules combine decisions that otherwise appear to overlap:
+
+1. **Selector influence is one-shot.** Calculate the clean default baseline,
+   then simulate ordinary user inclusion clicks for inclusion selectors and
+   ordinary user exclusion clicks for exclusion selectors. Persist the results
+   as normal explicit rows. Selector identity, provenance, precedence,
+   suppression, and re-matching then disappear for that session.
+2. **Defaults and selectors are no longer one mechanism.** Toggleable default
+   posture is calculated at session start and may be re-evaluated only within
+   the branch affected by a user toggle. It must never override an explicit
+   include/exclude row. Selectors are never re-applied during that branch pass.
+3. **One canonical evaluation owns output.** The same normalized row set and
+   evaluation result drive marking overlays, silent highlights, preview, and
+   submitted rows. Fast rendering may cache or splice this result but may not
+   create a second marking truth.
+4. **Pointer ownership depends on surface.** Active marking owns the pointer;
+   holding Space temporarily releases it to the page. Silent highlighting and
+   post-AI preview keep the underlying page frozen against actionable clicks,
+   buttons, forms, menus, hover activation, and navigation, but permit page
+   scrolling and extension highlight/preview interaction.
+5. **Mobile is continuously enforced.** Every recognized managed tab stays in
+   Googlebot Smartphone emulation. There is no manual device or scale control.
+   The only desktop exception is the already-approved silent-only desktop
+   preview.
+6. **Shadow content follows retrievability, not mode labels.** Open roots and
+   closed roots captured by early `attachShadow` instrumentation are flattened,
+   preserved, markable, and captured. A genuinely inaccessible closed root is
+   omitted by itself; its host and accessible light DOM remain ordinary content.
+7. **Debug detail is structurally gated.** Raw diagnostics, expanded preview
+   classifications, silent annotation/copy tools, traces, direct mode, bus
+   inspection, and spinner/state tooling are debug-only. Production surfaces
+   concise actionable status and toasts.
+8. **Authoritative reads are adopted; risky writes fail closed.** A structurally
+   valid authoritative response is adopted even when an unexpected shrink lacks
+   proof. That sets a prominent integrity-warning state. In combination with the
+   fail-closed-write rule, later mutations remain blocked until a clean refresh
+   or reconciliation proof clears the condition; dismissing the warning does not
+   clear the integrity state.
+9. **Navigation never traps the operator.** Known dirty-state and candidate
+   confirmations remain mandatory. If navigation inspection itself fails, a
+   bounded fallback releases the navigation after the applicable generic warning.
+10. **Performance adaptations preserve semantics.** Serialized toggles,
+    generation checks, branch splicing, observer coalescing, geometry sampling,
+    and render caches may improve latency, but stale work must be rejected and no
+    optimization may alter include/exclude results.
+
+## 3. Intentional differences — keep the rewrite decision
+
+| ID | Binding outcome |
+|---|---|
+| I-01 | Keep the clean rewrite strategy. Session-start defaults are recalculated fresh; later default re-evaluation is limited to the user-affected branch. |
+| I-02 | Preserve the modular, decomposed architecture and its explicit realm boundaries. Do not restore legacy god files. |
+| I-03 | Keep the background reflex-arc/brain as the sole cross-realm decision authority. UI and content organs consume decisions and report facts; they do not independently birth the same decision. |
+| I-04 | Keep one typed, enumerable bus for extension realm RPC/events, with one reply or structured failure for every request. |
+| I-05 | Keep repository-backed durability, MV3 rehydration, idempotent replay, and explicit keepalive during active work. |
+| I-06 | Author the page-world program in TypeScript, generate the injected JavaScript during the build, and enforce generated-source parity. Hand-maintained duplicate TS/JS implementations are forbidden. |
+| I-07 | Keep property identity as `(environmentKey, siteId)`. Observed origins remain informational. |
+| I-08 | Keep the canonical page key as relative `path + query + fragment`. |
+| I-09 | Keep UnfluffifyHub as the sole backend authority and API façade for property state, delegated GraphQL context, mutations, locking, and publication. |
+| I-10 | Keep the full property corpus in the background. Only the current page may be a live session overlay. Popup state is a projection, never authority. |
+| I-11 | Keep save structurally singular and partial: one current page plus property selectors, fenced and idempotent, with a complete authoritative response. |
+| I-12 | Adopt otherwise valid authoritative responses even when shrink is not proven, but enter the prominent integrity-warning/write-block state defined in §2. |
+| I-13 | Keep timestamps and revisions server-owned. Client clocks do not decide authority or conflict winners. |
+| I-14 | Keep deterministic complete-feed reconciliation: missing keys delete, relabels preserve content, conflicting duplicate assignments block without mutation, and empty page types are non-actionable. |
+| I-15 | Keep fencing tokens, expected revisions, and operation IDs on every mutation. Duplicate delivery returns the recorded outcome; stale fences mutate nothing. |
+| I-16 | Keep the lock background-owned, presence-qualified, and independent of the side panel. Hidden, unselected, unfocused, or idle tabs do not renew it. |
+| I-17 | Keep same-user transfer explicit, fenced, and destructive to the displaced draft. Never silently merge or transfer unsaved work. |
+| I-18 | Keep publication Hub-owned. Only definitive GraphQL success advances the submitted fingerprint; ambiguous transport yields an explicit unknown outcome under the same idempotency key. |
+| I-19 | Keep one canonical normalized marking-row model for defaults, selector-seeded decisions, and user decisions. |
+| I-20 | Keep a single evaluation source and branch-scoped recomputation for toggles, subject to the selector/default separation in §2. |
+| I-21 | Keep Shift widening independent of width. Qualification and page-shell boundaries, not viewport width alone, determine the broadest valid grouping ancestor. |
+| I-22 | Discard resets the current page to a freshly calculated clean baseline; it does not restore a saved or cached draft. |
+| I-23 | A canonical SPA page-key change terminates the old page session and starts a new one. |
+| I-24 | Reload always terminates the current marking session and draft. |
+| I-25 | Definitive configuration deletion returns the extension to explicit onboarding. Do not silently reconstruct or reuse deleted connection state. |
+| I-26 | A background AI run may complete and persist after the panel closes. Surface the result when the panel returns, but never auto-apply it to a different/new session. |
+| I-27 | Keep fail-closed writes and fail-open reads. Reads may use the last validated baseline with warnings; writes require current authority, fence, revisions, and integrity. |
+| I-28 | Keep page blocking narrow and result-sensitive. Block only the interaction needed by the current operation/surface, and always provide an escape or recovery path. |
+| I-29 | Keep the full live theme system and user customization. |
+| I-30 | Keep lock, Todo, Send-to-Lynx, and other previously dark surfaces live in production when their state makes them applicable. |
+| I-31 | Keep the explicit silent-only desktop-preview exception; it is not a general device simulator. |
+| I-32 | Keep Googlebot Smartphone as the crawler emulation target, including viewport, UA/client hints, touch, and pointer media characteristics. |
+| I-33 | Continuously force mobile emulation on every recognized managed tab; it must self-heal after navigation, debugger detach, or tab rebinding. |
+| I-34 | Keep 15-second candidate-recovery polling only while presence/grace rules qualify the suspended editor. |
+| I-35 | Keep the current reveal sequence, scroll-height growth detection, ten-pass cap, and restoration of the operator's original scroll position after freezing. |
+| I-36 | Keep the rewrite's chosen colors, but use the legacy border grammar: thick, dashed, animated, and state-specific on both silent highlighting and marking UI. |
+| I-37 | Extension-initiated candidate navigation uses an inline panel confirmation. Native `beforeunload` remains only for browser-, page-, or externally initiated navigation. |
+
+## 4. Previously unsure differences — resolved product choices
+
+| ID | Binding outcome |
+|---|---|
+| U-01 | Use a responsive hybrid side-panel layout: fill ordinary widths, cap unusually wide layouts, and allow list-heavy views additional width. |
+| U-02 | Restore the shipped logo/wordmark and the legacy icon choice for equivalent actions. |
+| U-03 | Restore the legacy kebab header navigation. |
+| U-04 | Show the property URL as the primary context, the current relative page key beneath it, and at most one prioritized actionable notice. |
+| U-05 | Raw technical diagnostics exist only in debug builds and automation APIs. Production shows actionable status without internals. |
+| U-06 | Production uses concise toasts. A detailed Activity surface is debug/automation-only. |
+| U-07 | Configuration keeps per-field Change/Cancel interactions, but validates and commits the complete connection profile atomically. |
+| U-08 | Todo is adaptive: expand current and incomplete sections, collapse completed sections, and preserve manual per-property overrides. |
+| U-09 | Production lock copy is curated and plain-language. Raw lock/operation details are debug-only. |
+| U-10 | Prefer event-driven state updates with slower reconciliation polling as a fallback, never a competing authority. |
+| U-11 | Keep the side panel bound to the tab that opened it until explicit rebind or reopen. Active-tab changes alone do not silently move its context. |
+| U-12 | Restore overlay-owned pointer capture during marking. Holding Space temporarily releases pointer interaction to the page. |
+| U-13 | Use `WeakMap` identity primarily. Temporary DOM IDs are allowed only for cross-realm/preview needs and must be removed deterministically. |
+| U-14 | Implement an explicit, unit-tested toggleable-boundary predicate shared by target resolution and evaluation. |
+| U-15 | Incrementally decompose the popup entrypoint into typed controllers; do not perform another big-bang UI rewrite. |
+| U-16 | Store large transient HTML once and pass scoped references plus integrity hashes between layers. |
+| U-17 | Do not restore manual device simulation or scale controls. Keep the fixed crawler profile plus the silent-only desktop preview. |
+| U-18a | Restore **Empty cache for current domain** to the main configuration menu. Restore the macOS-style close button and bind it to **Unregister current tab**, with destructive confirmation and failure feedback. |
+| U-18b | Do not restore automatic render-mode detection. Keep explicit manual comparison/confirmation. |
+| U-18c | Do not restore client-side page-type assignment POST behavior. Page-type facts come from the authoritative feed. |
+| U-18d | Keep production preview categories and colors simple. Preserve the expanded classification model internally and expose it only in debug builds. |
+| U-18e | Restore the complete diagnostic toolkit only in debug builds: direct mode, trace controls, bus diagnostics, spinner/state inspection, and related tooling. |
+
+## 5. Diverged behavior — required correction
+
+| ID | Binding outcome |
+|---|---|
+| D-01 | Restore fresh session-start default calculation. During editing, re-evaluate default posture only in the branch affected by the user's toggle and never over an explicit row. |
+| D-02 | Treat selector application as simulated user markings immediately after the clean baseline. Inclusion selectors create ordinary explicit includes; exclusion selectors create ordinary explicit excludes. Delete selector-origin suppression and all post-seed selector behavior. |
+| D-03 | Preserve the semantic XPath of a collapsed wrapper, but draw its overlay using suitable visible-descendant geometry. Geometry fallback must not change marking identity. |
+| D-04 | Flatten all retrievable shadow roots, including closed roots captured by early `attachShadow` instrumentation. Preserve and mark flattened content, host, and accessible light DOM. If a closed root is genuinely inaccessible, omit only that root. |
+| D-05 | Strip every extension, consent-helper, and browser-automation artifact from rendered HTML, raw/static HTML, fingerprints, XPath sibling indexing, and every other captured representation. |
+| D-06 | Serialize toggles; validate generation and fingerprint; reject stale results; and assert branch-splice invariants. Do not perform a routine full-document reconcile after every toggle. |
+| D-07 | When observers report geometry change, run bounded multi-sample stabilization and coalesce repaint work. Do not add unconditional fixed-delay redraws. |
+| D-08 | Right-click opens an extension marking-actions menu for Include, Exclude, Widen, and Clear. It does not silently perform the left-click action or open the page context menu while marking owns the pointer. |
+| D-09 | Suppress duplicate physical-click delivery using pointer identity, timestamp, target, and mode while preserving intentional rapid distinct clicks. |
+| D-10 | Invalid targets receive immediate non-blocking overlay feedback and a concise actionable production toast. Technical rejection details are debug-only. |
+| D-11 | Space passthrough is complete press-and-hold behavior. It restores marking on release and safely recovers from blur, visibility changes, navigation, or missed `keyup`. |
+| D-12 | Wire the temporarily-disabled overlay style to real suspension. Borders visibly dim and pause animation during passthrough/busy suspension, then immediately restore. |
+| D-13 | Wire inspection-overlay state end to end. Entry, state changes, exit, navigation, reload, unregister, and failure all create/update/clean the right overlay deterministically. |
+| D-14 | Restore silent-highlight annotations and explicit copy affordances in debug builds only. Copying never changes markings and gives brief success feedback. |
+| D-15 | Size and position overlays from the actual document client area so scrollbar gutters, RTL placement, resize, and zoom cannot misalign them. |
+| D-16 | Preview rows remain pointer-only. Do not add keyboard focus or row keyboard commands. |
+| D-17 | Restore mouse-based panel-to-page preview correspondence: hover emphasizes the matching highlight and click scrolls it into view. Page highlights remain non-editing in preview. |
+| D-18 | Retain the full legacy preview classification model internally. Production maps it to simple categories/colors; debug exposes the complete classification. |
+| D-19 | Silent/post-AI preview is a constrained frozen surface: permit scrolling and extension highlight/list interaction, but block page buttons, links, menus, forms, hover UI, and navigation. |
+| D-20 | Defer visual reveal/freeze/inspection rituals while the document is hidden and coalesce them into one pending run for visibility restoration. Cleanup, lock maintenance, and background state continue. |
+| D-21 | Concurrent callers join one single-flight ritual. A newer generation or stronger scope schedules at most one consolidated follow-up. |
+| D-22 | Freeze CSS animation/transition, Web Animations, SVG SMIL, autoplay/playing media, and computed motion at the visible post-reveal state; restore only extension-changed state at lifecycle end. |
+| D-23 | Normalize content hidden only by entrance/motion styling, including opacity, transform, clip, blur, and animated collapse. Preserve semantically hidden menus, tabs, dialogs, accordions, carousels, and application state. |
+| D-24 | Maintain freeze for the entire applicable session: catch late motion/media, relevant style/class changes, hover activation, lifecycle restoration, and page-owned `requestIdleCallback` work. Extension scheduling remains live; all hooks restore on teardown. |
+| D-25 | Navigation inspection has a bounded fail-open fallback. It never bypasses a known dirty-state block, explicit candidate confirmation, or received block decision; unknown dirty state receives a generic warning. |
+| D-26 | Render-mode inspection has a watchdog that cancels stalled work, removes overlays/listeners/spinners, and returns to a retryable manual-comparison state without inferring a result. |
+| D-27 | After candidate-navigation confirmation, cancel page-scoped work, remove overlays/freeze/hooks, discard only confirmed uncommitted state, preserve property authority/lock/panel binding, navigate the same tab, start a fresh session, and reapply mobile. Failed navigation restores a usable state and does not unregister the tab. |
+| D-28 | Changing normalized GraphQL endpoint, environment, or backend identity invalidates the stored JWT atomically with the profile change. Authenticated requests remain disabled until a valid token for the new backend is obtained. |
+| D-29 | Restore dynamic extension-action icons for a small state set: unregistered, connecting, active, locked, and error/attention. Plain-language panel status remains authoritative. |
+| D-30 | Do not restore global keyboard shortcuts. Keep only Shift/Alt marking modifiers, press-and-hold Space passthrough, and Escape as a safety exit. Primary actions remain visible and pointer-driven. |
+| D-31 | Add React panel recovery: error boundary, detached/corrupted root detection, UI-root recreation, and rehydration from background authority without page reload, lost session, or duplicate subscriptions. |
+| D-32 | Connect scroll locking only to blocking panel operations and modal confirmations. Preserve panel scroll position and unlock on every terminal path. Never lock the inspected page's permitted preview/silent scrolling. |
+
+## 6. Conformance definition
+
+An implementation conforms only when all of the following are true:
+
+- Every row above has at least one automated contract assertion or a documented
+  live-browser acceptance scenario; high-risk rows have both.
+- Production and debug builds are separately tested for capability gating.
+- Optimized marking output is byte-for-byte/structurally equivalent to the
+  canonical evaluator for the same sanitized composed tree and row set.
+- Captured HTML, XPath indexing, overlay targets, preview classifications, and
+  AI submission all use the same artifact-free, shadow-flattened document model.
+- MV3 worker restart, panel close/reopen, hidden-tab transitions, candidate-feed
+  changes, lock loss/transfer, navigation, and reload have deterministic recovery.
+- `pnpm verify` is green and the witnessed live-browser matrix in the execution
+  plan passes on a production build before release.

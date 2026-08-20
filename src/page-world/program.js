@@ -380,6 +380,10 @@
       armed = false;
       sessionNonce = "";
       paused = false;
+      lazySuppressed = false;
+      if (globalThis.document && globalThis.document.documentElement) {
+        globalThis.document.documentElement.toggleAttribute("data-uf-lazy-loading-suppressed", false);
+      }
       flushQueued();
       restoreTimerBridge();
     }

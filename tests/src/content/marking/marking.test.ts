@@ -24,7 +24,7 @@ const leaf = (key: string, xpath: string): EvaluationNode => ({
 });
 
 describe("P6 content marking engine", () => {
-  it("resolves exclude by drilling and include by reaching in", () => {
+  it("uses only the actual hit path when refining an excluded boundary", () => {
     const child: MarkingCandidate = {
       key: "child",
       xpath: "/html[1]/body[1]/footer[1]/p[1]",
@@ -38,10 +38,27 @@ describe("P6 content marking engine", () => {
       children: [child],
     };
 
-    expect(resolveTarget([footer], "exclude")).toBe(child);
-    expect(resolveTarget([{ ...footer, children: [] }], "exclude")).toMatchObject({ key: "footer" });
+    expect(resolveTarget([child, footer], "exclude")).toBe(child);
+    expect(resolveTarget([footer], "exclude")).toMatchObject({ key: "footer" });
     expect(resolveTarget([footer], "include")).toBe(footer);
     expect(resolveTarget([footer], "passthrough")).toBeNull();
+  });
+
+  it("promotes the nearest mixed direct-text ancestor in include mode", () => {
+    const child: MarkingCandidate = {
+      key: "child",
+      xpath: "/html[1]/body[1]/aside[1]/span[1]",
+      selfMarkable: true,
+    };
+    const mixed: MarkingCandidate = {
+      key: "mixed",
+      xpath: "/html[1]/body[1]/aside[1]",
+      selfMarkable: true,
+      excluded: true,
+      ownsDirectText: true,
+    };
+
+    expect(resolveTarget([child, mixed], "include")).toBe(mixed);
   });
 
   it("does not create explicit includes for ordinary already-included content", () => {
@@ -453,6 +470,9 @@ describe("P6 content marking engine", () => {
     expect(MARKING_OVERLAY_STYLES).toContain("border: 3px solid #c62828");
     expect(MARKING_OVERLAY_STYLES).toContain("border: 2px dashed rgba(225, 70, 70, 0.4)");
     expect(MARKING_OVERLAY_STYLES).toContain("animation: uf-ai-content-dash 2s linear infinite");
+    expect(MARKING_OVERLAY_STYLES).toContain("border: 2px dashed #44b532");
+    expect(MARKING_OVERLAY_STYLES).toContain("border: 1px dashed rgba(156, 107, 107, 0.45)");
+    expect(MARKING_OVERLAY_STYLES).toContain("border: 2px dashed #b03b3b");
   });
 
   it("retains silent highlights with the shared visibility policy", () => {

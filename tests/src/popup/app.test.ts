@@ -46,7 +46,7 @@ const FULL_HANDLERS = {
   onOpenLynxChecklist: NOOP,
   onCloseLynxChecklist: NOOP,
   onSendToLynx: NOOP,
-  onChecklistCandidateNavigate: NOOP,
+  onCandidateNavigate: NOOP,
   onThemeChange: NOOP,
   onThemeModeChange: NOOP,
 };
@@ -879,6 +879,8 @@ describe("popup App surface", () => {
     expect(pending).toContain("Current");
     expect(pending).toContain("Marked");
     expect(pending).toContain('data-todo-candidate="/many/b"');
+    expect(pending).toContain('aria-label="Navigate to candidate /many/a"');
+    expect(pending).toContain('aria-label="/many/b, current page"');
   });
 
   it("distinguishes a neutral empty candidate feed from a refresh error", () => {

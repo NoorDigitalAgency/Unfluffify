@@ -35,7 +35,7 @@ describe("P5 page stabilization", () => {
     expect(freeze.isPaused()).toBe(false);
   });
 
-  it("runs exactly one reveal ritual and skips stale/no-scroll cases", async () => {
+  it("runs the confirmed-bottom reveal ritual, freezes no-scroll pages, and skips stale cases", async () => {
     const steps: string[] = [];
     await expect(runReveal({
       hasVerticalScrollRoom: true,
@@ -46,16 +46,27 @@ describe("P5 page stabilization", () => {
       suppressLazyLoading: () => steps.push("suppress"),
       freezeAtBottom: () => steps.push("freeze"),
     })).resolves.toEqual({ skipped: false, lazyExpansions: 1, frozenAtBottom: true });
-    expect(steps).toEqual(["top", "half", "suppress", "bottom", "freeze", "restore"]);
+    expect(steps).toEqual(["top", "lazy-threshold", "suppress", "bottom", "bottom", "freeze", "restore"]);
 
+    const noScrollSteps: string[] = [];
     await expect(runReveal({
       hasVerticalScrollRoom: false,
       activationStale: false,
       initialScrollHeight: 1,
-      scrollTo: () => steps.push("unexpected"),
-      suppressLazyLoading: () => steps.push("unexpected"),
-      freezeAtBottom: () => steps.push("unexpected"),
-    })).resolves.toMatchObject({ skipped: true });
+      scrollTo: () => noScrollSteps.push("unexpected-scroll"),
+      suppressLazyLoading: () => noScrollSteps.push("unexpected-suppress"),
+      freezeAtBottom: () => noScrollSteps.push("freeze"),
+    })).resolves.toEqual({ skipped: true, lazyExpansions: 0, frozenAtBottom: true });
+    expect(noScrollSteps).toEqual(["freeze"]);
+
+    await expect(runReveal({
+      hasVerticalScrollRoom: true,
+      activationStale: true,
+      initialScrollHeight: 1_000,
+      scrollTo: () => steps.push("unexpected-stale"),
+      suppressLazyLoading: () => steps.push("unexpected-stale"),
+      freezeAtBottom: () => steps.push("unexpected-stale"),
+    })).resolves.toMatchObject({ skipped: true, frozenAtBottom: false });
   });
 
   it("yields paint between scrolls and freezes at the re-measured bottom", async () => {
@@ -74,7 +85,7 @@ describe("P5 page stabilization", () => {
       scrollTo: (position, measuredScrollHeight) => {
         steps.push(`scroll:${position}:${measuredScrollHeight}`);
       },
-      waitForPaint: async () => {
+      waitForSettle: async () => {
         paintCount += 1;
         steps.push(`paint:${paintCount}`);
         if (paintCount === 2) {
@@ -88,17 +99,22 @@ describe("P5 page stabilization", () => {
     expect(steps).toEqual([
       "scroll:top:1000",
       "paint:1",
-      "scroll:half:1000",
+      "scroll:lazy-threshold:1000",
       "paint:2",
       "suppress",
       "paint:3",
       "measure:1500",
       "scroll:bottom:1500",
       "paint:4",
-      "freeze",
+      "measure:1500",
+      "scroll:bottom:1500",
       "paint:5",
-      "scroll:restore:1500",
+      "measure:1500",
+      "freeze",
       "paint:6",
+      "measure:1500",
+      "scroll:restore:1500",
+      "paint:7",
     ]);
     expect(result).toEqual({ skipped: false, lazyExpansions: 1, frozenAtBottom: true });
   });
@@ -121,7 +137,29 @@ describe("P5 page stabilization", () => {
     await expect(controller.run(input)).resolves.toMatchObject({ skipped: true });
     controller.resetForNavigation();
     await expect(controller.run(input)).resolves.toMatchObject({ skipped: false });
-    expect(runs).toBe(8);
+    expect(runs).toBe(10);
+  });
+
+  it("releases only its lazy-loading lock when activation becomes stale before freeze", async () => {
+    const steps: string[] = [];
+    let stale = false;
+    const result = await runReveal({
+      hasVerticalScrollRoom: true,
+      activationStale: () => stale,
+      initialScrollHeight: 1_000,
+      scrollTo: (position) => steps.push(position),
+      waitForSettle: async () => undefined,
+      suppressLazyLoading: () => steps.push("suppress"),
+      restoreLazyLoading: () => steps.push("restore-lazy"),
+      freezeAtBottom: () => steps.push("freeze"),
+      measureExpandedScrollHeight: () => {
+        stale = true;
+        return 1_000;
+      },
+    });
+
+    expect(result).toEqual({ skipped: true, lazyExpansions: 0, frozenAtBottom: false });
+    expect(steps).toEqual(["top", "lazy-threshold", "suppress", "restore-lazy"]);
   });
 
   it("skips concurrent reveal attempts before the first ritual settles", async () => {
@@ -142,6 +180,9 @@ describe("P5 page stabilization", () => {
 
     const first = controller.run(input);
     await expect(controller.run(input)).resolves.toMatchObject({ skipped: true });
+    for (let index = 0; index < 20 && !release; index += 1) {
+      await Promise.resolve();
+    }
     release?.();
     await expect(first).resolves.toMatchObject({ skipped: false });
   });
@@ -357,7 +398,7 @@ describe("P5 page stabilization", () => {
 });
 
 describe("page-visit reveal ritual", () => {
-  it("walks top, half, bottom then back, freezing at the bottom", async () => {
+  it("walks top, suppression threshold, confirmed bottom then back, freezing at the bottom", async () => {
     // The legacy contract: one full ritual per page visit — top, half (which is
     // where the lazyloader is capped), the true bottom, freeze, then return under
     // the freeze. The order is the point: freezing before the bottom would lock the
@@ -378,8 +419,9 @@ describe("page-visit reveal ritual", () => {
 
     expect(log).toEqual([
       "scroll:top",
-      "scroll:half",
+      "scroll:lazy-threshold",
       "suppress-lazy",
+      "scroll:bottom",
       "scroll:bottom",
       "freeze",
       "scroll:restore",

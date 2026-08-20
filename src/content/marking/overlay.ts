@@ -56,7 +56,9 @@ export const MARKING_OVERLAY_STYLES = `
 .uf-marking-layer-root .uf-layer[data-layer="saved-explicit-exclude"] { z-index: 4; }
 .uf-marking-layer-root .uf-layer[data-layer="saved-explicit-include"] { z-index: 5; }
 .uf-marking-layer-root .uf-layer[data-layer="ai-content"] { z-index: 6; }
-.uf-marking-layer-root .uf-layer[data-layer="silent"] { z-index: 6; }
+.uf-marking-layer-root .uf-layer[data-layer="silent-immutable"] { z-index: 6; }
+.uf-marking-layer-root .uf-layer[data-layer="silent-content"] { z-index: 6; }
+.uf-marking-layer-root .uf-layer[data-layer="silent-excluded"] { z-index: 6; }
 .uf-marking-layer-root .uf-layer[data-layer="session-explicit-exclude"] { z-index: 7; }
 .uf-marking-layer-root .uf-layer[data-layer="session-explicit-include"] { z-index: 8; }
 .uf-marking-layer-root .uf-layer[data-layer="focus"] { z-index: 9; }
@@ -166,7 +168,23 @@ export const MARKING_OVERLAY_STYLES = `
   border: 2px dashed #44b532;
   background: rgba(68, 181, 50, 0.08);
 }
+.uf-marking-layer-root .uf-silent-content-ghost {
+  border: 1px dotted rgba(68, 181, 50, 0.45);
+  background: transparent;
+}
+.uf-marking-layer-root .uf-silent-immutable {
+  border: 1px dashed rgba(156, 107, 107, 0.45);
+  background: transparent;
+}
+.uf-marking-layer-root .uf-silent-excluded {
+  border: 2px dashed #b03b3b;
+  background: rgba(176, 59, 59, 0.08);
+}
 @media (prefers-reduced-motion: reduce) {
+  .uf-marking-layer-root .uf-focus,
+  .uf-marking-layer-root .uf-ai-content {
+    animation: none !important;
+  }
   .uf-marking-layer-root .uf-interaction-ack {
     animation: none;
     opacity: 0.6;

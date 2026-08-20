@@ -15,14 +15,17 @@ import type { RenderMode } from "../../domain/schema/property";
 import { isToggleableDefaultTag } from "../../domain/taxonomy";
 import type { VisibilityGeometry } from "../../domain/visibility";
 
-function toCandidate(
-  node: EvaluationNode,
-  evaluation: ReadonlyMap<string, Classification> = new Map<string, Classification>(),
-  rows: readonly MarkRow[] = [],
-): MarkingCandidate {
+function buildCandidateIndex(
+  root: EvaluationNode,
+  evaluation: ReadonlyMap<string, Classification>,
+  rows: readonly MarkRow[],
+): Map<string, MarkingCandidate> {
+  const byXpath = new Map<string, MarkingCandidate>();
+  const rowsByXpath = new Map(rows.map((row) => [row.xpath, row]));
+  const visit = (node: EvaluationNode, parent: MarkingCandidate | null): MarkingCandidate => {
   const classification = evaluation.get(node.xpath);
-  const ownRow = rows.find((row) => row.xpath === node.xpath);
-  return {
+    const ownRow = rowsByXpath.get(node.xpath);
+    const candidate = {
     key: node.key,
     xpath: node.xpath,
     selfMarkable: Boolean(
@@ -36,8 +39,16 @@ function toCandidate(
     excluded: classification === "exception",
     explicitInclude: ownRow?.excluded === false && ownRow.explicit === true,
     closedShadow: node.closedShadow,
-    children: (node.children ?? []).map((child) => toCandidate(child, evaluation, rows)),
+      ownsDirectText: node.ownsDirectText,
+      parent,
+      children: [] as MarkingCandidate[],
+    } satisfies MarkingCandidate;
+    byXpath.set(node.xpath, candidate);
+    candidate.children.push(...(node.children ?? []).map((child) => visit(child, candidate)));
+    return candidate;
   };
+  visit(root, null);
+  return byXpath;
 }
 
 function composedContains(root: Element, element: Element): boolean {
@@ -57,7 +68,11 @@ function composedContains(root: Element, element: Element): boolean {
   return false;
 }
 
-function toWidenNode(node: EvaluationNode, parent?: WidenNode | null): WidenNode {
+function toWidenNode(
+  node: EvaluationNode,
+  parent: WidenNode | null,
+  byKey: Map<string, WidenNode>,
+): WidenNode {
   const widenNode = {
     key: node.key,
     tagName: node.tagName,
@@ -71,34 +86,10 @@ function toWidenNode(node: EvaluationNode, parent?: WidenNode | null): WidenNode
     parent,
     children: [] as WidenNode[],
   };
-  widenNode.children = (node.children ?? []).map((child) => toWidenNode(child, widenNode));
+  byKey.set(node.key, widenNode);
+  byKey.set(node.xpath, widenNode);
+  widenNode.children = (node.children ?? []).map((child) => toWidenNode(child, widenNode, byKey));
   return widenNode;
-}
-
-function findEvaluationNode(root: EvaluationNode, xpath: string): EvaluationNode | null {
-  if (root.xpath === xpath) {
-    return root;
-  }
-  for (const child of root.children ?? []) {
-    const found = findEvaluationNode(child, xpath);
-    if (found) {
-      return found;
-    }
-  }
-  return null;
-}
-
-function findWidenNode(root: WidenNode, key: string): WidenNode | null {
-  if (root.key === key) {
-    return root;
-  }
-  for (const child of root.children ?? []) {
-    const found = findWidenNode(child, key);
-    if (found) {
-      return found;
-    }
-  }
-  return null;
 }
 
 function collectDefaultExclusionRows(node: EvaluationNode, rows: MarkRow[] = []): MarkRow[] {
@@ -165,19 +156,47 @@ export function createMarkingEngine(rootElement: Element) {
   const renderer = createOverlayRenderer({ document: rootElement.ownerDocument });
   let observerCleanup: (() => void) | null = null;
   let renderScheduled = false;
-  let scheduledWork: "geometry" | "structural" | null = null;
+  type RenderWork = "geometry" | "silent-geometry" | "structural";
+  let scheduledWork: RenderWork | null = null;
   let silentHighlightsArmed = false;
-  let hoverResolution: Readonly<{ x: number; y: number; node: EvaluationNode | null }> | null = null;
+  let hoverResolution: Readonly<{
+    x: number;
+    y: number;
+    mode: MarkMode;
+    shiftActive: boolean;
+    node: EvaluationNode | null;
+  }> | null = null;
+  let candidateByXpath: Map<string, MarkingCandidate> | null = null;
+  let overlayTargets = new Map<string, OverlayRenderTarget>();
+  let widenByKey = new Map<string, WidenNode>();
+  let selectorIncludedXpaths = new Set<string>();
+
+  const rebuildBridgeIndexes = (): void => {
+    candidateByXpath = null;
+    overlayTargets = new Map([...bridge.byXpath].map(([xpath, value]) => [xpath, {
+      element: value.element,
+      visible: value.evaluationNode.visible,
+    }]));
+    widenByKey = new Map<string, WidenNode>();
+    toWidenNode(bridge.root, null, widenByKey);
+  };
+  rebuildBridgeIndexes();
+
+  const currentCandidateIndex = (): Map<string, MarkingCandidate> => {
+    if (!candidateByXpath) {
+      const evaluation = store.currentEvaluation();
+      candidateByXpath = buildCandidateIndex(bridge.root, evaluation.overlay, store.canonicalSet().rows);
+    }
+    return candidateByXpath;
+  };
 
   const refreshBridge = (): void => {
     hoverResolution = null;
     bridge = createDomBridgeView(rootElement);
     store = createMarkingStore({ root: bridge.root }, mergeDefaultExclusions(bridge.root, store.canonicalSet()));
+    rebuildBridgeIndexes();
   };
-  const byXpathElements = (): Map<string, OverlayRenderTarget> => new Map([...bridge.byXpath].map(([xpath, value]) => [xpath, {
-    element: value.element,
-    visible: value.evaluationNode.visible,
-  }]));
+  const byXpathElements = (): ReadonlyMap<string, OverlayRenderTarget> => overlayTargets;
   const byXpathElementsForBranch = (branchRoot: EvaluationNode): Map<string, OverlayRenderTarget> => {
     const elements = new Map<string, OverlayRenderTarget>();
     const collect = (node: EvaluationNode): void => {
@@ -194,9 +213,28 @@ export function createMarkingEngine(rootElement: Element) {
   };
   const renderSilent = (): readonly string[] => {
     const byXpath = byXpathElements();
-    const geometryByXpath = new Map([...byXpath].map(([xpath, target]) => [xpath, geometryForElement(target.element)]));
-    const xpaths = buildSilentHighlights(store.currentEvaluation(), geometryByXpath);
-    renderer.renderSilentHighlights(xpaths, byXpath);
+    const evaluation = store.currentEvaluation();
+    const geometryByXpath = new Map<string, VisibilityGeometry>();
+    for (const row of evaluation.rows) {
+      if (row.excluded || row.explicit === true) {
+        continue;
+      }
+      const target = byXpath.get(row.xpath);
+      if (target) {
+        geometryByXpath.set(row.xpath, geometryForElement(target.element));
+      }
+    }
+    const xpaths = buildSilentHighlights(evaluation, geometryByXpath);
+    const immutableXpaths: string[] = [];
+    const excludedXpaths: string[] = [];
+    for (const [xpath, classification] of evaluation.overlay) {
+      if (classification === "immutable" || classification === "closed-shadow") {
+        immutableXpaths.push(xpath);
+      } else if (classification === "exception") {
+        excludedXpaths.push(xpath);
+      }
+    }
+    renderer.renderSilentHighlights(xpaths, byXpath, { immutableXpaths, excludedXpaths });
     return xpaths;
   };
   const renderCurrent = (): void => {
@@ -205,9 +243,14 @@ export function createMarkingEngine(rootElement: Element) {
       renderSilent();
     }
   };
-  const scheduleRender = (work: "geometry" | "structural"): void => {
+  const scheduleRender = (work: RenderWork): void => {
     hoverResolution = null;
-    if (work === "structural" || scheduledWork === null) {
+    const priority: Readonly<Record<RenderWork, number>> = {
+      geometry: 0,
+      "silent-geometry": 1,
+      structural: 2,
+    };
+    if (scheduledWork === null || priority[work] > priority[scheduledWork]) {
       scheduledWork = work;
     }
     if (renderScheduled) {
@@ -225,9 +268,11 @@ export function createMarkingEngine(rootElement: Element) {
         return;
       }
       const byXpath = byXpathElements();
-      renderer.reposition(byXpath);
-      if (silentHighlightsArmed) {
+      if (nextWork === "silent-geometry" && silentHighlightsArmed) {
         renderSilent();
+        renderer.reposition(byXpath, { includeSilent: false });
+      } else {
+        renderer.reposition(byXpath);
       }
     };
     if (view?.requestAnimationFrame) {
@@ -239,6 +284,20 @@ export function createMarkingEngine(rootElement: Element) {
   const installObservers = (): (() => void) => {
     const view = rootElement.ownerDocument.defaultView;
     const cleanups: Array<() => void> = [];
+    let structuralRefreshHandle: ReturnType<typeof setTimeout> | null = null;
+    let lastStructuralRefreshAt = 0;
+    const scheduleStructuralRefresh = (): void => {
+      if (structuralRefreshHandle !== null) {
+        return;
+      }
+      const sinceLastRefresh = Date.now() - lastStructuralRefreshAt;
+      const delay = Math.max(300, 1_200 - sinceLastRefresh);
+      structuralRefreshHandle = setTimeout(() => {
+        structuralRefreshHandle = null;
+        lastStructuralRefreshAt = Date.now();
+        scheduleRender("structural");
+      }, delay);
+    };
     const isExtensionNode = (node: Node): boolean => {
       const element = node.nodeType === 1 ? node as Element : node.parentElement;
       return Boolean(element?.closest?.('[data-uf-extension-ui="true"]'));
@@ -262,13 +321,19 @@ export function createMarkingEngine(rootElement: Element) {
         if (records.every(isExtensionOnlyMutation)) {
           return;
         }
-        scheduleRender("structural");
+        scheduleStructuralRefresh();
       });
-      observer.observe(rootElement, { childList: true, subtree: true, attributes: true, characterData: true });
+      observer.observe(rootElement, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        characterData: true,
+        attributeFilter: ["class", "style", "hidden", "open", "role", "aria-hidden", "aria-expanded"],
+      });
       cleanups.push(() => observer.disconnect());
     }
     if (view?.ResizeObserver) {
-      const observer = new view.ResizeObserver(() => scheduleRender("geometry"));
+      const observer = new view.ResizeObserver(() => scheduleRender("silent-geometry"));
       observer.observe(rootElement);
       cleanups.push(() => observer.disconnect());
     }
@@ -297,13 +362,18 @@ export function createMarkingEngine(rootElement: Element) {
           clearTimeout(viewportScrollHandle);
         }
         viewportScrollHandle = setTimeout(finishViewportScroll, 250);
+        return;
       }
       scheduleRender("geometry");
     };
-    const scheduleResizeRender = (): void => scheduleRender("geometry");
+    const scheduleResizeRender = (): void => scheduleRender("silent-geometry");
     view?.addEventListener?.("scroll", scheduleGeometryRender, true);
     view?.addEventListener?.("resize", scheduleResizeRender);
     cleanups.push(() => {
+      if (structuralRefreshHandle !== null) {
+        clearTimeout(structuralRefreshHandle);
+        structuralRefreshHandle = null;
+      }
       if (viewportScrollHandle !== null) {
         clearTimeout(viewportScrollHandle);
         viewportScrollHandle = null;
@@ -356,6 +426,9 @@ export function createMarkingEngine(rootElement: Element) {
         { root: bridge.root },
         applySelectorSeed(store.canonicalSet(), { excludeXpaths, includeXpaths }),
       );
+      candidateByXpath = null;
+      selectorIncludedXpaths = new Set(includeXpaths);
+      renderer.setAiContentXpaths(selectorIncludedXpaths);
       renderCurrent();
       return true;
     },
@@ -363,22 +436,23 @@ export function createMarkingEngine(rootElement: Element) {
       const hits = getComposedHitElements(rootElement.ownerDocument, x, y)
         .filter((element) => composedContains(rootElement, element))
         .filter((element) => isPaintReachableAt(element, x, y, rootElement.ownerDocument));
-      const evaluation = store.currentEvaluation();
+      const candidatesByXpath = currentCandidateIndex();
       const candidates = hits
-        .map((element) => bridge.byElement.get(element)?.evaluationNode)
-        .filter((node): node is EvaluationNode => Boolean(node))
-        .map((node) => toCandidate(node, evaluation.overlay, store.canonicalSet().rows));
+        .map((element) => bridge.byElement.get(element)?.evaluationNode.xpath)
+        .map((xpath) => xpath ? candidatesByXpath.get(xpath) : undefined)
+        .filter((candidate): candidate is MarkingCandidate => Boolean(candidate));
       const resolved = resolveTarget(candidates, mode);
       if (!resolved) {
         return null;
       }
       if (shiftActive && mode === "exclude") {
-        const widenRoot = toWidenNode(bridge.root);
-        const widenNode = findWidenNode(widenRoot, resolved.xpath);
+        const widenNode = widenByKey.get(resolved.key) ?? widenByKey.get(resolved.xpath);
         const widened = widenNode ? chooseWidenTarget(widenNode) : null;
-        return widened ? findEvaluationNode(bridge.root, widened.key) : findEvaluationNode(bridge.root, resolved.xpath);
+        return widened
+          ? bridge.byXpath.get(widened.key)?.evaluationNode ?? bridge.byXpath.get(resolved.xpath)?.evaluationNode ?? null
+          : bridge.byXpath.get(resolved.xpath)?.evaluationNode ?? null;
       }
-      return findEvaluationNode(bridge.root, resolved.xpath);
+      return bridge.byXpath.get(resolved.xpath)?.evaluationNode ?? null;
     },
     toggle(node: EvaluationNode, mode: Exclude<MarkMode, "disabled" | "passthrough">): void {
       hoverResolution = null;
@@ -387,6 +461,13 @@ export function createMarkingEngine(rootElement: Element) {
         renderer.acknowledge(element, node.xpath, mode);
       }
       const toggled = store.toggle(node, mode);
+      candidateByXpath = null;
+      const activeExplicitIncludes = new Set(store.canonicalSet().rows
+        .filter((row) => !row.excluded && row.explicit === true)
+        .map((row) => row.xpath));
+      selectorIncludedXpaths = new Set([...selectorIncludedXpaths]
+        .filter((xpath) => activeExplicitIncludes.has(xpath)));
+      renderer.setAiContentXpaths(selectorIncludedXpaths);
       renderer.renderBranch(toggled, byXpathElementsForBranch(toggled.branchRoot));
       if (silentHighlightsArmed) {
         renderSilent();
@@ -395,12 +476,17 @@ export function createMarkingEngine(rootElement: Element) {
     renderReadOnly(): void {
       renderCurrent();
     },
-    hoverAtPoint(x: number, y: number): void {
-      if (hoverResolution?.x === x && hoverResolution.y === y) {
+    hoverAtPoint(x: number, y: number, mode: MarkMode = "exclude", shiftActive = false): void {
+      if (
+        hoverResolution?.x === x &&
+        hoverResolution.y === y &&
+        hoverResolution.mode === mode &&
+        hoverResolution.shiftActive === shiftActive
+      ) {
         return;
       }
-      const node = this.resolveAtPoint(x, y, "exclude");
-      hoverResolution = { x, y, node };
+      const node = this.resolveAtPoint(x, y, mode, shiftActive);
+      hoverResolution = { x, y, mode, shiftActive, node };
       const element = node ? bridge.byXpath.get(node.xpath)?.element ?? null : null;
       renderer.setHover(element, node?.xpath ?? "");
     },

@@ -1724,13 +1724,34 @@ button.property-lock__button {
 }
 
 .todo-candidate {
+  width: 100%;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
   gap: 8px;
   padding: 7px 8px;
   border-radius: 8px;
+  border: 0;
   background: color-mix(in srgb, var(--card) 76%, var(--bg-accent));
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.todo-candidate:hover:not(:disabled) .todo-candidate-link {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.todo-candidate:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--focus-ring-soft);
+}
+
+.todo-candidate:disabled {
+  opacity: 1;
 }
 
 .todo-candidate--current {

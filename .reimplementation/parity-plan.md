@@ -1,7 +1,9 @@
 # Unfluffify — Parity & Correction Plan
 
-> **Status:** the executable plan for bringing branch `re-write` to production parity with the
-> legacy extension and to conformance with the reimplementation contract.
+> **Status:** historical parity backlog and evidence. Superseded as the active execution plan by
+> [`rewrite-legacy-execution-plan.md`](./rewrite-legacy-execution-plan.md).
+> **Latest product authority:**
+> [`rewrite-legacy-decision-spec.md`](./rewrite-legacy-decision-spec.md), which wins every conflict.
 > **Authority:** [`study/qa-decisions-save-contract.md`](./study/qa-decisions-save-contract.md) →
 > [`contract-invariants.md`](./contract-invariants.md) → [`decisions-log.md`](./decisions-log.md) →
 > [`study/qa-decisions.md`](./study/qa-decisions.md). Where this plan conflicts with those, the

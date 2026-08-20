@@ -7,6 +7,11 @@ this first, then read only what the "Next actions" section tells you to read.
 
 Last updated: 2026-08-14, after the independent Codex audit and architect Q&A amendment.
 
+> **2026-08-20 continuation:** the later point-by-point comparison Q&A is now binding in
+> [`../rewrite-legacy-decision-spec.md`](../rewrite-legacy-decision-spec.md), and its active resume
+> pointer is [`../rewrite-legacy-execution-plan.md`](../rewrite-legacy-execution-plan.md). Any older
+> “active plan” statement below is historical.
+
 ---
 
 ## 1. The task (from the architect, verbatim in intent)
