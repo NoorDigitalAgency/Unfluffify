@@ -312,6 +312,13 @@ export const applicationContract = defineContract({
         hasToken: z.boolean(),
       }),
     },
+    /** A terminal tab boundary shared by definitive configuration deletion and
+     *  the explicit Unregister action. It releases the lease and clears every
+     *  resumable tab-scoped record; it does not delete property configuration. */
+    "session.unregister": {
+      request: z.object({ tabId: z.number().int().positive() }),
+      response: z.object({ status: z.literal("ok") }),
+    },
     "accounts.login": {
       request: z.object({
         email: z.string().min(1),

@@ -76,6 +76,13 @@ describe("corrective messaging application contracts", () => {
       .toEqual({ settings: {}, hasToken: true });
   });
 
+  it("defines unregister as an explicit positive tab-scoped terminal command", () => {
+    const command = applicationContract.commands["session.unregister"];
+    expect(command.request.parse({ tabId: 77 })).toEqual({ tabId: 77 });
+    expect(command.request.safeParse({ tabId: 0 }).success).toBe(false);
+    expect(command.response.parse({ status: "ok" })).toEqual({ status: "ok" });
+  });
+
   it("accepts the accounts login, logout and validate commands", () => {
     const login = applicationContract.commands["accounts.login"];
 

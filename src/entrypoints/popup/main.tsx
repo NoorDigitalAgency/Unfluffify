@@ -50,6 +50,7 @@ import type { TodoCoverage } from "../../domain/schema/todo";
 import { pageTypeForCandidate } from "../../domain/todo";
 import type { PageContextResolution } from "../../domain/schema/context";
 import { todoRefreshDue } from "../../popup/todo-recovery";
+import { executeConfirmedCandidateNavigation } from "../../popup/candidate-navigation";
 import { AI_RUN_TIMEOUT_MS } from "../../lynx/ai";
 import {
   evaluatePublicationChecklist,
@@ -177,6 +178,7 @@ let contentDirty = false;
  *  otherwise, and only one of them is fixed by reloading the page. */
 let contentReachable = true;
 let contentUnreachableReported = false;
+let candidateNavigationBusy = false;
 const EMPTY_TODO_COVERAGE: TodoCoverage = { covered: 0, actionable: 0, pageTypes: [] };
 let todoStatus: PageContextResolution["status"] | "unresolved" = "unresolved";
 let todoCoverage: TodoCoverage = EMPTY_TODO_COVERAGE;
@@ -424,6 +426,25 @@ async function resolveTargetTabContext(): Promise<TargetTabContext | null> {
       return { tabId: debugTabId, url: "" };
     }
   }
+  // A side panel belongs to the tab that opened it. Browser focus changes are
+  // presence facts for that tab's lock, never permission to retarget the UI.
+  // A missing bound tab is terminal; falling through to the active tab here
+  // would transfer drafts and actions without an explicit rebind.
+  if (boundTabId !== null) {
+    const tabs = getRuntimeBrowser().tabs;
+    if (typeof tabs.get !== "function") {
+      return { tabId: boundTabId, url: boundTabUrl };
+    }
+    try {
+      const tab = await tabs.get(boundTabId);
+      return {
+        tabId: boundTabId,
+        url: typeof tab?.url === "string" ? tab.url : boundTabUrl,
+      };
+    } catch {
+      return null;
+    }
+  }
   const [activeTab] = await getRuntimeBrowser().tabs.query({ active: true, currentWindow: true });
   return typeof activeTab?.id === "number" && activeTab.id > 0
     ? { tabId: activeTab.id, url: typeof activeTab.url === "string" ? activeTab.url : "" }
@@ -476,6 +497,13 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   boundTabId = context.tabId;
   boundTabKey = nextKey;
   boundTabUrl = context.url;
+  resetBoundSessionState();
+  logEvent(sameTabNavigation ? "Page navigated" : "Tab bound", context.url);
+  replacePopupStore();
+  return { changed: true, sameTabNavigation, key: nextKey };
+}
+
+function resetBoundSessionState(): void {
   brainSignals.reset();
   appliedEmulationMode = null;
   pendingRenderMode = null;
@@ -501,9 +529,7 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   todoRefreshedAt = 0;
   lynxChecklist = EMPTY_LYNX_CHECKLIST_STATE;
   pendingPublicationRequest = null;
-  logEvent(sameTabNavigation ? "Page navigated" : "Tab bound", context.url);
-  replacePopupStore();
-  return { changed: true, sameTabNavigation, key: nextKey };
+  silentSelectorsAppliedKey = null;
 }
 
 /** A decided signal is consumed once, and the cursor is the only record of what
@@ -702,18 +728,93 @@ function closeLynxChecklist(): void {
 }
 
 async function navigateToCandidate(pageKey: string): Promise<void> {
+  if (candidateNavigationBusy) {
+    return;
+  }
   const context = await resolveTargetTabContext();
   if (!context) {
     return;
   }
+  const requestKey = boundTabKey;
+  const canonicalTarget = canonicalPageKey(pageKey);
+  if (!canonicalTarget) {
+    logEvent("Candidate navigation blocked", "invalid relative page key", "warn");
+    render();
+    return;
+  }
   let url: string;
   try {
-    url = new URL(pageKey, loadedConfig?.baseUrl ?? context.url).toString();
+    url = new URL(canonicalTarget, loadedConfig?.baseUrl ?? context.url).toString();
   } catch {
     return;
   }
-  closeLynxChecklist();
-  await getRuntimeBrowser().tabs.update(context.tabId, { url });
+  const restoreNeeded = contentActive || loadedSelectors !== null;
+  candidateNavigationBusy = true;
+  try {
+    const result = await executeConfirmedCandidateNavigation({
+      restoreNeeded,
+      async inspect() {
+        if (boundTabId !== context.tabId || boundTabKey !== requestKey) {
+          return { decision: "block", dirty: "unknown", reason: "The panel binding changed." };
+        }
+        const raw = await requestContentMessage(context.tabId, { type: "getContentMainStatus" });
+        if (!raw || typeof raw !== "object") {
+          return { decision: "allow", dirty: "unknown", reason: "Navigation state could not be inspected." };
+        }
+        const status = raw as { pageUrl?: unknown; dirty?: unknown };
+        if (typeof status.pageUrl === "string" && status.pageUrl !== context.url) {
+          return { decision: "block", dirty: "unknown", reason: "The bound page changed before navigation." };
+        }
+        return { decision: "allow", dirty: status.dirty === true ? "dirty" : "clean" };
+      },
+      deactivate: () => sendContentMessage(context.tabId, { type: "deactivateContentMain" }),
+      async navigate() {
+        await getRuntimeBrowser().tabs.update(context.tabId, { url });
+      },
+      async reapplyMobile() {
+        await getPopupBus().request("emulation.apply", {
+          tabId: context.tabId,
+          mode: "mobile",
+          scale: 1,
+          allowReload: false,
+        }, { target: "background" });
+      },
+      async restore() {
+        if (contentActive) {
+          await setMarkingEnabled(true);
+          return contentActive;
+        }
+        silentSelectorsAppliedKey = null;
+        await refreshSilentSelectorPreview(context, requestKey);
+        return true;
+      },
+    });
+    if (result.status === "blocked") {
+      logEvent("Candidate navigation blocked", result.reason, "warn");
+    } else if (result.status === "failed") {
+      logEvent(
+        "Candidate navigation failed",
+        result.restored ? `${result.reason} · page restored` : `${result.reason} · reload the page`,
+        "danger",
+      );
+    } else {
+      closeLynxChecklist();
+      lastSubmissionSnapshot = null;
+      lastSubmissionKey = null;
+      activeRunSessionId = null;
+      contentActive = false;
+      contentDirty = false;
+      silentSelectorsAppliedKey = null;
+      logEvent(
+        "Candidate navigation started",
+        result.warning ? `${canonicalTarget} · ${result.warning}` : canonicalTarget,
+        result.warning ? "warn" : "info",
+      );
+    }
+  } finally {
+    candidateNavigationBusy = false;
+    render();
+  }
 }
 
 function publicationFailureMessage(status: string, reason?: string): string {
@@ -877,10 +978,6 @@ async function pollCurrentTabSignals(): Promise<void> {
   if (context === null) {
     return;
   }
-  const requestKey = await handleBoundContext(context);
-  await pullSignals(context.tabId, requestKey);
-  await refreshLockDirective(context, requestKey);
-  await refreshTodoContext(context, requestKey);
   if (storedSettingsForm === null) {
     await loadStoredSettings();
   }
@@ -890,6 +987,14 @@ async function pollCurrentTabSignals(): Promise<void> {
   if (hasStoredToken) {
     await adoptAuthStatus();
   }
+  if (!isConfigurationComplete()) {
+    render();
+    return;
+  }
+  const requestKey = await handleBoundContext(context);
+  await pullSignals(context.tabId, requestKey);
+  await refreshLockDirective(context, requestKey);
+  await refreshTodoContext(context, requestKey);
   // Guarded by the attempted-site id, so this is one request per property once
   // the site resolves — not one per tick.
   await maybeLoadPropertyConfig();
@@ -1842,6 +1947,9 @@ async function loadStoredSettings(): Promise<void> {
 
 async function saveStoredSettings(): Promise<void> {
   const payload = settingsFromForm(settingsForm);
+  const definitiveDeletion = Object.keys(payload).length === 0 &&
+    storedSettingsForm !== null &&
+    !settingsFormsMatch(storedSettingsForm, EMPTY_POPUP_SETTINGS_FORM);
   settingsBusy = true;
   render();
   const response = await getPopupBus().request("settings.save", payload, { target: "background" });
@@ -1855,8 +1963,32 @@ async function saveStoredSettings(): Promise<void> {
   settingsForm = storedSettingsForm;
   settingsFormDirty = false;
   hasStoredToken = response.data.hasToken;
+  if (definitiveDeletion) {
+    const context = await resolveTargetTabContext();
+    if (context) {
+      await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
+      const terminated = await getPopupBus().request(
+        "session.unregister",
+        { tabId: context.tabId },
+        { target: "background" },
+      );
+      if (!terminated.ok) {
+        logEvent("Session cleanup failed", terminated.failure.code, "danger");
+      }
+    }
+    resetBoundSessionState();
+    replacePopupStore();
+    confirmedRenderMode = null;
+    pendingRenderMode = null;
+    requestedView = "configuration";
+    configViewLocked = true;
+    authState = "signed_out";
+  }
   logEvent("Connection saved", Object.keys(payload).join(", ") || "cleared", "success");
   render();
+  if (definitiveDeletion) {
+    return;
+  }
   await refreshPopup();
 }
 

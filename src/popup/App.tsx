@@ -1,4 +1,5 @@
 import React from "react";
+import { todoSectionExpanded } from "./todo-recovery";
 
 import type { RenderMode } from "../domain/schema/property";
 import { DEFAULT_POPUP_VIEW, type PopupView } from "./view";
@@ -442,11 +443,24 @@ export function App({
   const [settingsFieldOriginals, setSettingsFieldOriginals] = React.useState<
     Partial<Record<PopupSettingsField, string>>
   >({});
+  const [todoExpandedOverrides, setTodoExpandedOverrides] = React.useState<Record<string, boolean>>({});
+  const [pendingCandidatePageKey, setPendingCandidatePageKey] = React.useState<string | null>(null);
   React.useEffect(() => {
     if (!diagnostics.settingsDirty && Object.keys(settingsFieldOriginals).length > 0) {
       setSettingsFieldOriginals({});
     }
   }, [diagnostics.settingsDirty, settingsFieldOriginals]);
+  const todoPropertyKey = `${diagnostics.siteId ?? "none"}|${diagnostics.baseUrl}`;
+  const requestCandidateNavigation = (pageKey: string): void => {
+    setPendingCandidatePageKey(pageKey);
+  };
+  const confirmCandidateNavigation = (): void => {
+    const pageKey = pendingCandidatePageKey;
+    setPendingCandidatePageKey(null);
+    if (pageKey) {
+      onCandidateNavigate?.(pageKey);
+    }
+  };
   const lockActions = presentation.lockBanner.actions ?? [];
   const pendingLockActionIsCurrent = pendingLockAction !== null && lockActions.some((action) =>
     action.kind === pendingLockAction.kind && action.suggestionId === pendingLockAction.suggestionId
@@ -789,6 +803,34 @@ export function App({
         </section>
       ) : null}
 
+      {pendingCandidatePageKey ? (
+        <section
+          className="u-alert u-alert-warn candidate-navigation-confirmation"
+          role="alert"
+          data-candidate-navigation-confirmation={pendingCandidatePageKey}
+        >
+          <strong>Open {pendingCandidatePageKey}?</strong>
+          <span> Any unsaved markings on this page will be discarded.</span>
+          <div className="button-row candidate-navigation-confirmation__actions">
+            <button
+              id="candidate-navigation-confirm"
+              type="button"
+              onClick={confirmCandidateNavigation}
+            >
+              Discard and open
+            </button>
+            <button
+              id="candidate-navigation-cancel"
+              type="button"
+              className="u-btn-secondary"
+              onClick={() => setPendingCandidatePageKey(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </section>
+      ) : null}
+
       {sessionView ? (
       <section className="card" aria-label="Session controls">
         <div className="section-header">
@@ -1008,13 +1050,23 @@ export function App({
           <div className="todo-body">
             {diagnostics.todo.pageTypes.map((pageType) => {
               const complete = pageType.markedCount >= 1;
+              const overrideKey = `${todoPropertyKey}|${pageType.pageType}`;
+              const expanded = todoSectionExpanded(pageType, todoExpandedOverrides[overrideKey]);
               return (
-                <section
+                <details
                   key={pageType.pageType}
                   className={`todo-subsection ${complete ? "" : "todo-subsection--missing"} ${pageType.current ? "todo-subsection--current" : ""}`}
                   data-todo-page-type={pageType.pageType}
+                  open={expanded}
+                  onToggle={(event) => {
+                    if (!event.nativeEvent.isTrusted) {
+                      return;
+                    }
+                    const open = event.currentTarget.open;
+                    setTodoExpandedOverrides((current) => ({ ...current, [overrideKey]: open }));
+                  }}
                 >
-                  <div className="todo-subsection-header" aria-expanded="true">
+                  <summary className="todo-subsection-header" aria-expanded={expanded}>
                     <span className="todo-subsection-title">{pageType.pageType}</span>
                     {pageType.current ? (
                       <span className="todo-candidate-badge todo-candidate-badge--current todo-subsection-current-badge">
@@ -1031,7 +1083,7 @@ export function App({
                       />
                       {pageType.markedCount}/1
                     </span>
-                  </div>
+                  </summary>
                   <div className="todo-subsection-body">
                     {pageType.candidates.map((candidate) => (
                       <button
@@ -1040,7 +1092,7 @@ export function App({
                         className={`todo-candidate ${candidate.current ? "todo-candidate--current" : ""}`}
                         data-todo-candidate={candidate.pageKey}
                         disabled={!onCandidateNavigate || candidate.current}
-                        onClick={() => onCandidateNavigate?.(candidate.pageKey)}
+                        onClick={() => requestCandidateNavigation(candidate.pageKey)}
                         aria-label={candidate.current
                           ? `${candidate.pageKey}, current page`
                           : `Navigate to candidate ${candidate.pageKey}`}
@@ -1064,7 +1116,7 @@ export function App({
                       </button>
                     ))}
                   </div>
-                </section>
+                </details>
               );
             })}
           </div>
@@ -1721,7 +1773,7 @@ export function App({
                               type="button"
                               className="lynx-checklist-popover__candidate-hint"
                               disabled={!onCandidateNavigate || candidate.current}
-                              onClick={() => onCandidateNavigate?.(candidate.pageKey)}
+                              onClick={() => requestCandidateNavigation(candidate.pageKey)}
                             >
                               {candidate.pageKey}
                             </button>

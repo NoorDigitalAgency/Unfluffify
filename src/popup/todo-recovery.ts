@@ -10,3 +10,12 @@ type TodoStatus = PageContextResolution["status"] | "unresolved";
 export function todoRefreshDue(status: TodoStatus, refreshedAt: number, now: number): boolean {
   return status !== "unresolved" && now - refreshedAt >= TODO_RECOVERY_INTERVAL_MS;
 }
+
+/** Current and incomplete groups open adaptively; a manual per-property choice
+ * wins until that property key is left and later revisited. */
+export function todoSectionExpanded(
+  input: Readonly<{ current: boolean; markedCount: number }>,
+  manualOverride?: boolean,
+): boolean {
+  return manualOverride ?? (input.current || input.markedCount < 1);
+}

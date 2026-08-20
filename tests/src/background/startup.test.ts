@@ -547,6 +547,10 @@ describe("rewrite background startup", () => {
       ok: true,
       payload: { settings, hasToken: false },
     });
+    expect(await call("session.unregister", { tabId: 77 }, "unregister-1", 4)).toMatchObject({
+      ok: true,
+      payload: { status: "ok" },
+    });
   });
 
   it("retains a JWT for normalized formatting edits and clears it for a backend change", async () => {

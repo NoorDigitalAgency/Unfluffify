@@ -591,6 +591,18 @@ export function startRewriteBackground(): void {
       hasToken: Boolean(saved.token?.trim()),
     };
   });
+  bus.onCommand("session.unregister", async ({ tabId }) => {
+    await beginTabCleanup(tabId, async () => {
+      await lockRuntime.terminateTab(tabId);
+      await clearTabContinuation(tabId);
+      // Session authority is terminal even when Chrome cannot detach the CDP
+      // posture (for example a tab that vanished between confirmation and this
+      // command). The caller already deactivated content and can report that
+      // cosmetic cleanup independently.
+      await renderEmulation.clear(tabId).catch(() => undefined);
+    });
+    return { status: "ok" as const };
+  });
   bus.onCommand("accounts.login", async (credentials) => {
     const result = await services.accounts.login(credentials);
     return result.status === "ok"

@@ -299,6 +299,19 @@ function makeRuntime(
       if (frame.name === "emulation.clear") {
         return replyFrame(frame, { status: "ok" });
       }
+      if (frame.name === "settings.load") {
+        return replyFrame(frame, {
+          settings: {
+            configEndpoint: "https://config.example.com",
+            aiEndpoint: "https://ai.example.com",
+            stageBase: "example.com",
+          },
+          hasToken: true,
+        });
+      }
+      if (frame.name === "accounts.status") {
+        return replyFrame(frame, { state: "valid", checkedAt: 1 });
+      }
       if (frame.name === "offscreen.refineXpaths") {
         const payload = frame.payload as { rows?: unknown };
         return replyFrame(frame, { rows: Array.isArray(payload.rows) ? payload.rows : [] });
@@ -1045,14 +1058,15 @@ describe("rewrite popup entrypoint", () => {
       ...snapshotA,
       pages: [{ url: "https://example.com/b", renderedHtml: "<html>b</html>", renderedXPaths: [{ xpath: "/html[1]/body[1]/main[2]", excluded: false }] }],
     };
+    let activeUrl = "https://example.com/a";
+    const get = vi.fn(async () => ({ id: 77, url: activeUrl }));
     const tabsSendMessage = makeTabsSendMessage(async (_tabId: number, message) => {
       if (message.type === "captureSubmissionSnapshot") {
-        return { ok: true, snapshot: query.mock.calls.length > 1 ? snapshotB : snapshotA, rows: [] };
+        return { ok: true, snapshot: activeUrl.endsWith("/b") ? snapshotB : snapshotA, rows: [] };
       }
       return { ok: true, initialized: true, tree: "rewrite" };
     });
     let signalSeq = 0;
-    let activeUrl = "https://example.com/a";
     let rehydratedB = false;
     const runtime = makeRuntime(async (message) => {
       if (message.name === "signals.emit") {
@@ -1124,6 +1138,7 @@ describe("rewrite popup entrypoint", () => {
       },
       tabs: {
         query,
+        get,
         sendMessage: tabsSendMessage,
       },
     } as unknown as typeof chrome;
@@ -1134,7 +1149,6 @@ describe("rewrite popup entrypoint", () => {
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
     await flushEntrypointWork();
-    query.mockResolvedValue([{ id: 77, url: "https://example.com/b" }]);
     activeUrl = "https://example.com/b";
     const poll = globalThis.window.setInterval.mock.calls[0]?.[0] as () => void;
     poll();
@@ -2120,6 +2134,8 @@ describe("rewrite popup entrypoint", () => {
       createRoot: vi.fn(() => ({ render })),
     }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/a" }]);
+    let activeUrl = "https://example.com/a";
+    const get = vi.fn(async () => ({ id: 77, url: activeUrl }));
     const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: false, tree: "rewrite" }));
     const runtime = makeRuntime(async (message) => {
       if (message.name === "signals.emit") {
@@ -2143,13 +2159,14 @@ describe("rewrite popup entrypoint", () => {
       },
       tabs: {
         query,
+        get,
         sendMessage: tabsSendMessage,
       },
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
     await flushEntrypointWork();
-    query.mockResolvedValue([{ id: 77, url: "https://example.com/b" }]);
+    activeUrl = "https://example.com/b";
     const poll = globalThis.window.setInterval.mock.calls[0]?.[0] as () => void;
     poll();
     await flushEntrypointWork();
@@ -2169,6 +2186,89 @@ describe("rewrite popup entrypoint", () => {
       .map(([frame]) => (frame as { name?: string }).name)
       .filter((name) => name === "emulation.apply" || name === "emulation.clear");
     expect(emulationNames.slice(-2)).toEqual(["emulation.clear", "emulation.apply"]);
+  });
+
+  it("keeps observing the opening tab when browser focus moves elsewhere", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/a" }]);
+    const get = vi.fn().mockResolvedValue({ id: 77, url: "https://example.com/a" });
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: false, tree: "rewrite" }));
+    const runtime = makeRuntime(async (message) => replyFrame(message, []));
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, get, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "emulation.apply"),
+      "initial tab binding",
+    );
+    const queriesAfterBinding = query.mock.calls.length;
+    query.mockResolvedValue([{ id: 88, url: "https://elsewhere.example.net/" }]);
+    const poll = globalThis.window.setInterval.mock.calls[0]?.[0] as () => void;
+    poll();
+    await waitFor(() => get.mock.calls.length > 0, "sticky tab lookup");
+
+    expect(query).toHaveBeenCalledTimes(queriesAfterBinding);
+    expect(get).toHaveBeenLastCalledWith(77);
+    expect(tabsSendMessage.mock.calls.every(([tabId]) => tabId === 77)).toBe(true);
+    expect(runtime.sendMessage.mock.calls
+      .filter(([frame]) => frame.name === "lock.directive")
+      .every(([frame]) => frame.payload.tabId === 77)).toBe(true);
+  });
+
+  it("terminates the bound session and stays in onboarding after definitive configuration deletion", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/a" }]);
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "settings.save") {
+        return replyFrame(message, { status: "ok", settings: {}, hasToken: false });
+      }
+      if (message.name === "session.unregister") {
+        return replyFrame(message, { status: "ok" });
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    await waitFor(() => props().diagnostics.settingsLoaded, "stored connection profile");
+    props().onSettingsChange("configEndpoint", "");
+    props().onSettingsChange("aiEndpoint", "");
+    props().onSettingsChange("stageBase", "");
+    props().onSettingsSave();
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "session.unregister"),
+      "terminal session cleanup",
+    );
+
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "settings.save",
+      payload: {},
+    }));
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "session.unregister",
+      payload: { tabId: 77 },
+    }));
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("deactivateContentMain", {}));
+    expect(props().view).toBe("configuration");
+    expect(props().diagnostics).toMatchObject({
+      configurationComplete: false,
+      settingsSaved: false,
+      authState: "signed_out",
+      contentActive: false,
+      contentDirty: false,
+    });
   });
 
   it("retries a publication-unknown outcome with the exact same fenced Hub operation", async () => {
