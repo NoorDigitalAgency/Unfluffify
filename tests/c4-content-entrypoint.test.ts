@@ -274,6 +274,7 @@ describe("C4 rewrite content entrypoints", () => {
       toggle: vi.fn(),
       setPassthrough: vi.fn(),
       setSuspended: vi.fn(),
+      rejectAtPoint: vi.fn(),
       rows: vi.fn(() => [{ xpath: "/html[1]/body[1]/p[1]", excluded: true }]),
     };
     const createMarkingEngine = vi.fn(() => engine);
@@ -481,16 +482,23 @@ describe("C4 rewrite content entrypoints", () => {
     )).toBe(true);
     documentListeners.get("keyup")?.({ code: "Space" } as unknown as Event);
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
+    documentListeners.get("keydown")?.({ code: "Space" } as unknown as Event);
+    dispatchTestEvent(windowListeners, "blur", {} as Event);
+    expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
     expect(engine.refresh).toHaveBeenCalledTimes(2);
     expect(engine.renderReadOnly).toHaveBeenCalledTimes(2);
     expect(engine.setPassthrough).toHaveBeenNthCalledWith(1, true);
     expect(engine.setPassthrough).toHaveBeenNthCalledWith(2, false);
+    expect(engine.setPassthrough).toHaveBeenNthCalledWith(3, true);
+    expect(engine.setPassthrough).toHaveBeenNthCalledWith(4, false);
     await dispatchContentCommand(listener, "pauseContentMainInteractions");
+    expect(engine.setSuspended).toHaveBeenCalledWith(true);
     expect(contentRoot?.children.some((element) =>
       element.attributes["data-uf-marking-paused-notice"] === "true"
       && element.textContent === "Marking temporarily paused"
     )).toBe(true);
     await dispatchContentCommand(listener, "resumeContentMainInteractions");
+    expect(engine.setSuspended).toHaveBeenCalledWith(false);
     const click = {
       clientX: 10,
       clientY: 20,
@@ -502,6 +510,20 @@ describe("C4 rewrite content entrypoints", () => {
     documentListeners.get("click")?.(click as unknown as Event);
     expect(engine.resolveAtPoint).toHaveBeenCalledWith(10, 20, "exclude", true);
     expect(engine.toggle).toHaveBeenCalledWith({ xpath: "/html[1]/body[1]/p[1]" }, "exclude");
+    engine.resolveAtPoint.mockReturnValueOnce(null);
+    documentListeners.get("click")?.({
+      clientX: 15,
+      clientY: 25,
+      altKey: false,
+      shiftKey: false,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as Event);
+    expect(engine.rejectAtPoint).toHaveBeenCalledWith(15, 25);
+    expect(contentRoot?.children.some((element) =>
+      element.attributes["data-uf-content-toast"] === "true" &&
+      element.textContent === "That area can't be marked."
+    )).toBe(true);
     expect(click.preventDefault).toHaveBeenCalledTimes(1);
     // bus.emit defers its transport send by a microtask, unlike bus.request which
     // sends synchronously, so the fact needs a flush before it is observable.

@@ -580,6 +580,25 @@ describe("P6 DOM bridge", () => {
     renderer.dispose();
   });
 
+  it("sizes the capture overlay to RTL scrollbar gutters and refreshed zoom geometry", () => {
+    const doc = new FakeDocument();
+    Object.assign(doc.defaultView, { innerWidth: 1_000, innerHeight: 800 });
+    Object.assign(doc.documentElement, { clientWidth: 980, clientHeight: 780, dir: "rtl" });
+    const renderer = createOverlayRenderer({ document: doc as unknown as Document });
+
+    expect(renderer.root.style.left).toBe("20px");
+    expect(renderer.root.style.width).toBe("980px");
+    expect(renderer.root.style.height).toBe("780px");
+
+    Object.assign(doc.defaultView, { innerWidth: 1_200, innerHeight: 900 });
+    Object.assign(doc.documentElement, { clientWidth: 960, clientHeight: 860, dir: "ltr" });
+    renderer.reposition(new Map());
+    expect(renderer.root.style.left).toBe("0px");
+    expect(renderer.root.style.width).toBe("960px");
+    expect(renderer.root.style.height).toBe("860px");
+    renderer.dispose();
+  });
+
   it("forgets selector provenance after applying selectors as ordinary user marks", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 200));

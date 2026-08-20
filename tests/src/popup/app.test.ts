@@ -275,6 +275,9 @@ describe("popup App surface", () => {
     expect(markup).toContain('aria-label="Exit Preview"');
     expect(markup).toContain("Exit preview to resume editing.");
     expect(markup).toContain("/html[1]/body[1]/div[1]/nav[1]");
+    expect(markup).toContain('class="preview-sidebar__item-button" aria-disabled="true"');
+    expect(markup).not.toContain('class="preview-sidebar__item-button" tabindex=');
+    expect(markup).not.toContain('<button class="preview-sidebar__item-button"');
     for (const id of ["toggle-enabled", "page-save", "page-revert", "marking-preview", "config-header-open"]) {
       expect(markup, `#${id} must not remain interactive behind preview`).not.toContain(`id="${id}"`);
     }
