@@ -14,7 +14,8 @@ const pageWorldEntrypointSource = readFileSync(
 test("single page-world program is a classic script with the production relay protocol", () => {
   assert.doesNotMatch(pageWorldSource, /^\s*export\s/m);
   assert.doesNotMatch(pageWorldSource, /^\s*import\s/m);
-  assert.match(pageWorldSource, /\(function \(\) \{/);
+  assert.match(pageWorldSource, /^\/\/ GENERATED from src\/page-world\/program\.ts\./);
+  assert.match(pageWorldSource, /\(\(\) => \{/);
   assert.match(pageWorldSource, /unfluffify:page-world-relay:v1/);
   assert.match(pageWorldSource, /PAGE_WORLD_SET_MOTION_PAUSED/);
   assert.match(pageWorldSource, /SET_MOTION_PAUSED/);

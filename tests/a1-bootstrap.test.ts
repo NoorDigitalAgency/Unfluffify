@@ -49,7 +49,8 @@ describe("WXT Part A bridge", () => {
     expect(packageJson.scripts.check).toContain("tsconfig.wxt.json");
     expect(packageJson.scripts.dev).toBe("wxt");
     expect(packageJson.scripts["wxt:dev"]).toBeUndefined();
-    expect(packageJson.scripts.build).toBe("wxt build");
+    expect(packageJson.scripts["page-world:check"]).toContain("generate-page-world.mjs --check");
+    expect(packageJson.scripts.build).toBe("pnpm page-world:check && wxt build");
     expect(packageJson.scripts.zip).toContain("pnpm build");
     expect(packageJson.scripts.zip).toContain("create-output-zip.mjs");
     expect(packageJson.scripts.lint).toBe("eslint .");

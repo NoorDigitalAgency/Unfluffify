@@ -67,6 +67,9 @@ const NEW_TREE_FEATURE_DIRS = [
 ];
 
 const PENDING_DELETION_PATHS = new Set<string>();
+const BUILD_AUTHORED_SOURCES = new Set([
+  normalize("src/page-world/program.ts"),
+]);
 
 const LEGACY_GOD_FILES = [
   "src/background.ts",
@@ -264,8 +267,13 @@ describe("P10 cutover guard", () => {
 
   it("does not leave orphaned new-tree feature files outside entrypoint reachability", () => {
     const reachable = buildEntrypointReachability();
+    const generator = readFileSync("scripts/generate-page-world.mjs", "utf8");
+    expect(generator).toContain("src/page-world/program.ts");
+    expect(generator).toContain("src/page-world/program.js");
+    expect(pathIsReachable(reachable, "src/page-world/program.js")).toBe(true);
     const orphaned = listFeatureFiles()
       .filter((file) => !reachable.has(file))
+      .filter((file) => !BUILD_AUTHORED_SOURCES.has(file))
       .filter((file) => !isPendingDeletion(file))
       .sort((left, right) => left.localeCompare(right));
 
