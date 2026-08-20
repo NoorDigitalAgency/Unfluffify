@@ -494,7 +494,17 @@ in the owning phase and rerun its focused gate plus P9–P11.
     stabilization, branch-only repainting, RTL/zoom/scrollbar client geometry,
     suspended animation state, exact border grammar, debug-only silent XPath
     copy affordances, logo/icon assets, and pointer-only preview rows.
-- [ ] P4 — Reveal/freeze and emulation
+- [x] P4 — Reveal/freeze and emulation
+  - Commit: `bc69b56d` (`Make reveal and crawler posture persistent`).
+  - `pnpm lint && pnpm check` passed.
+  - `pnpm vitest run tests/src/background/emulation-policy.test.ts tests/src/background/render-emulation-runtime.test.ts tests/src/content/stabilization/stabilization.test.ts tests/src/page-world/program.test.ts tests/page-world-source-parity.test.ts tests/c4-content-entrypoint.test.ts --reporter=dot`
+    — 6 files / 59 tests passed.
+  - `pnpm test -- --reporter=dot` — 81 files / 649 tests passed.
+  - Evidence covers hidden-tab deferral/coalescing, joined concurrent callers,
+    generation/scope follow-up, ten-pass reveal and scroll restoration, persistent
+    CSS/WAAPI/SMIL/media/timer/rAF/idle freezing, semantic-hidden preservation,
+    late/restarted motion sources, extension-owned teardown, and continuous fixed
+    Googlebot Smartphone posture with only the held silent desktop exception.
 - [ ] P5 — Authority/config/auth/persistence
 - [ ] P6 — Lock/candidacy/session/navigation
 - [ ] P7 — Preview and inspection

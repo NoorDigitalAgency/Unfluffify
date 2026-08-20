@@ -38,9 +38,9 @@ rows again through the integrated and live matrices.
 | I-28 | P5 | `tests/popup-ai-run-gating.test.ts`; `tests/reconciliation-fact-brain-authority.test.ts` | P11 operation blocking/recovery |
 | I-29 | P8 | `tests/src/popup/theme.test.ts`; `tests/theme-colors.test.ts` | P11 theme matrix |
 | I-30 | P8 | `tests/src/popup/app.test.ts`; `tests/popup-view-projector.test.ts` | production package UI run |
-| I-31 | P4 | `tests/device-emulation-lifecycle.test.ts`; `tests/popup-render-mode.test.ts` | P11 silent desktop preview |
-| I-32 | P4 | `tests/device-emulation-store-hardening.test.ts`; `tests/src/background/render-emulation-runtime.test.ts` | P11 CDP emulation facts |
-| I-33 | P4 | `tests/device-emulation-lifecycle.test.ts`; `tests/src/background/render-emulation-runtime.test.ts` | P11 navigation/detach self-heal |
+| I-31 | P4 | `tests/src/background/emulation-policy.test.ts`; `tests/src/popup/app.test.ts` | P11 silent desktop preview |
+| I-32 | P4 | `tests/src/content/stabilization/stabilization.test.ts`; `tests/src/background/render-emulation-runtime.test.ts` | P11 CDP emulation facts |
+| I-33 | P4 | `tests/src/background/emulation-policy.test.ts`; `tests/src/background/render-emulation-runtime.test.ts` | P11 navigation/detach self-heal |
 | I-34 | P6 | `tests/popup-todo-recovery.test.ts`; `tests/tab-inactivity-observer.test.ts` | P11 candidate polling window |
 | I-35 | P4 | `tests/src/content/stabilization/stabilization.test.ts` | P11 reveal trace |
 | I-36 | P3 | `tests/src/content/marking/marking.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P11 visual border check |
@@ -61,7 +61,7 @@ rows again through the integrated and live matrices.
 | U-14 | P2 | `tests/src/domain/boundary.test.ts`; `tests/src/domain/evaluate.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P9 canonical marking scenario |
 | U-15 | P1 | `tests/src/popup/root-recovery.test.ts`; `tests/c3-popup-entrypoint.test.ts` | `pnpm check` and bundle gate |
 | U-16 | P1 | `tests/transfer-payload-store.test.ts`; `tests/capture-page-snapshot-handler.test.ts` | P9 large-corpus scenario |
-| U-17 | P4 | `tests/device-emulation-lifecycle.test.ts`; planned manual-control absence assertion | production package inspection |
+| U-17 | P4 | `tests/src/background/emulation-policy.test.ts`; `tests/src/popup/app.test.ts` | production package inspection |
 | U-18a | P8 | planned cache/unregister action tests | P11 cache and unregister flow |
 | U-18b | P7 | `tests/popup-render-mode.test.ts`; `tests/render-mode-inspector.test.ts` | P11 manual inspection |
 | U-18c | P6 | `tests/no-autonomous-backend-io.test.ts`; `tests/src/domain/todo.test.ts` | P11 feed-owned page types |
@@ -86,11 +86,11 @@ rows again through the integrated and live matrices.
 | D-17 | P7 | `tests/preview-tooltip.test.ts`; planned hover/scroll correspondence test | P11 preview-list interaction |
 | D-18 | P7 | planned internal-to-production classification mapping snapshots | production/debug build gates |
 | D-19 | P7 | planned constrained-preview event firewall tests | P11 blocked-actions/allowed-scroll matrix |
-| D-20 | P4 | planned hidden-document reveal deferral test | P11 hidden-tab activation |
-| D-21 | P4 | `tests/src/content/stabilization/stabilization.test.ts`; planned generation follow-up case | P11 concurrent activation |
-| D-22 | P4 | `tests/core-motion-pause.test.ts`; `tests/page-motion-freeze.test.ts` | P11 motion-source matrix |
-| D-23 | P4 | `tests/core-visibility.test.ts`; planned entrance-vs-semantic-hidden fixtures | P11 hidden-content matrix |
-| D-24 | P4 | `tests/page-motion-freeze.test.ts`; `tests/src/page-world/program.test.ts` | P11 late-motion lifecycle |
+| D-20 | P4 | `tests/src/content/stabilization/stabilization.test.ts`; `tests/c4-content-entrypoint.test.ts` | P11 hidden-tab activation |
+| D-21 | P4 | `tests/src/content/stabilization/stabilization.test.ts` | P11 concurrent activation |
+| D-22 | P4 | `tests/src/page-world/program.test.ts` | P11 motion-source matrix |
+| D-23 | P4 | `tests/src/page-world/program.test.ts` | P11 hidden-content matrix |
+| D-24 | P4 | `tests/src/page-world/program.test.ts`; `tests/page-world-source-parity.test.ts` | P11 late-motion lifecycle |
 | D-25 | P6 | planned bounded navigation-inspection fallback tests | P11 unknown/dirty navigation |
 | D-26 | P7 | planned render-inspection watchdog/retry tests | P11 stalled-inspection recovery |
 | D-27 | P6 | planned candidate-navigation cleanup/failure integration test | P11 navigation failure recovery |
