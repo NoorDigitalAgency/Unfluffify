@@ -1,9 +1,14 @@
 # Property Lock Contract
 
-This document is the extension-side source of truth for property edit locking.
-Do not change this contract unless a task explicitly asks for property-lock
-behavior changes, and update `README.md`, `PROPERTY_LOCK.md`, and the focused
-property-lock tests in the same commit.
+**Status:** Detailed lock protocol subordinate to
+[`.reimplementation/rewrite-legacy-decision-spec.md`](./.reimplementation/rewrite-legacy-decision-spec.md)
+and [`.reimplementation/contract-invariants.md`](./.reimplementation/contract-invariants.md).
+The latest decision specification wins every conflict, including presence-qualified
+renewal, destructive fenced same-user transfer, deterministic complete-feed
+reconciliation, and bounded recovery polling.
+
+Do not change lock behavior without updating this document, the binding decision
+specification, `README.md`, and the focused property-lock tests in the same commit.
 
 ## Ownership Model
 

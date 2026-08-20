@@ -93,6 +93,9 @@ modify their source of truth.
   register and at least once in the traceability matrix.
 - Baseline test failures, if any, are recorded rather than hidden.
 
+**Evidence artifacts:** [`decision-test-traceability.md`](./decision-test-traceability.md) and
+[`p0-baseline.md`](./p0-baseline.md).
+
 ### P1 — Runtime, cross-realm authority, and panel resilience
 
 **Primary decisions:** I-02–I-06, U-10, U-15, U-16, D-31.

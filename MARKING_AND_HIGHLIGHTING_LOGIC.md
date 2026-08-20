@@ -4,8 +4,8 @@
 > [`.reimplementation/rewrite-legacy-decision-spec.md`](./.reimplementation/rewrite-legacy-decision-spec.md)
 > supersedes conflicting behavior in this document. In particular, selector influence is now a
 > one-shot simulated-user seeding phase, retrievable closed shadow roots are flattened and markable,
-> and silent/post-AI preview blocks underlying page actions while allowing scrolling. Phase P0 of the
-> active execution plan must reconcile the remaining prose before implementation is accepted.
+> and silent/post-AI preview blocks underlying page actions while allowing scrolling. The prose below
+> has been reconciled to those decisions; git history retains the superseded legacy details.
 
 This document is the source of truth for the marking rules restored from
 `052c164b077d459fa7a6e79b306f01144336719c`, with deliberate current safeguards
@@ -29,25 +29,14 @@ output is not sufficient if it alters the rules below.
 
 Non-negotiable invariants:
 
-- **Default and CSS/AI-selector markings are ONLY an element's INITIAL marking
-  state. After seeding they carry no special rule, privilege, or priority — they
-  are ordinary markings, identical to a mark the user made by hand.** The CSS
-  selectors and the default-exclusion rules SEED the initial `xpaths` rows and
-  then STEP ASIDE; from that point the stored rows are the sole marking truth.
-  Rendering, target resolution, and submission MUST derive an element's state
-  from its stored row, and MUST NOT re-apply a CSS selector or a default-tag rule
-  (`matchesToggleableDefaultExcluded`, selector re-match) on top of an element
-  that already has an explicit row. Concretely: an element the user has
-  un-excluded (`{ excluded: false }` row) renders and submits as ordinary
-  implicit/included content **even if a CSS selector or a default rule would
-  otherwise match it** — never leave it blank (neither excluded by the row nor
-  content because a selector/default rule re-caught it). The ONLY time the
-  default/selector state of an element is recomputed after seeding is when an
-  ancestor/descendant marking mutation temporarily recalculates the default
-  states of the AFFECTED branch; all other elements are unaffected. Drift here
-  (re-applying selectors/defaults as if they still owned the element) is the root
-  cause of the "unmarked element goes blank instead of showing the implicit
-  inclusion" bug — see the leaf-boundary and selector-suppression notes below.
+- **Defaults and selectors are two ordered phases.** First calculate the clean
+  baseline from the default taxonomy. Second apply inclusion and exclusion
+  selectors exactly as simulated user clicks, producing ordinary explicit
+  rows. Selector identity, provenance, precedence, suppression, and re-matching
+  then disappear for the session. A later user toggle may re-evaluate default
+  posture only within its affected branch; it never re-runs selectors and never
+  overwrites an explicit row. Rendering, target resolution, preview, and
+  submission consume the same canonical rows and evaluation.
 - Toggleable defaults differ from user/CSS-selected exclusions only while the
   excluded/included state is being decided.
 - After that decision, default exclusions are ordinary generated `{ xpath,
@@ -69,13 +58,11 @@ Non-negotiable invariants:
   layer so the unmarked control still carries marking UI and can be re-excluded.
   It is therefore force-included as a default-layer candidate (a toggleable-default
   is not "self-markable content" so the plain default walk would otherwise skip
-  it). Similarly, an un-excluded element that a CSS/AI selector still matches has
-  that selector suppressed at render (derived from the un-excluded rows) so it
-  renders as implicit content instead of being re-caught by the selector.
+  it). Selector matching is not consulted here because it ended after seeding.
 - Fast refresh, caching, or performance work may only be an adaptation layer over
-  the 052c-derived rules. It must sync page markings before drawing and must not
-  create a second source of marking truth. Explicit-toggle refreshes must be
-  followed immediately by an invalidating full rebuild.
+  the canonical evaluator and must not create a second marking truth. Toggles are
+  serialized, generation/fingerprint guarded, and branch-spliced; stale work is
+  rejected. A routine full-document reconcile after every toggle is forbidden.
 
 The implementation is split across:
 
@@ -252,10 +239,8 @@ Each page entry may contain:
 
 - `title`
 - `timestamp`
-- `xpaths`: ordered `{ xpath, excluded }` rows; user-created exclude rows
-  carry `explicit: true`
-- `includeXpaths`: local explicit include XPath rows
-- `selectorSuppressedXpaths`: local selector-default suppression overrides
+- `xpaths`: ordered `{ xpath, excluded, explicit? }` rows; explicit inclusion is
+  `{ excluded: false, explicit: true }`
 - `silentWhitespaceExcludedXpaths`: local bookkeeping for generated whitespace
   explicit-exclude rows
 - `submissionXpaths`
@@ -269,11 +254,9 @@ rule that every stored excluded XPath row submits as excluded unless it is
 explicitly included or suppressed by an excluded ancestor. Untagged generated or
 legacy rows are still sync posture and may be dropped if they do not still match
 a generated default.
-`includeXpaths` is the local explicit-include list. Normalization removes
-redundant nested rows when a broader boundary takes over a subtree. Config sync
-does not send `includeXpaths` or `selectorSuppressedXpaths` as separate fields:
-both are merged into `xpaths` as `{ xpath, excluded: false, explicit: true }`
-rows and reconstructed into the local lists when loaded.
+Normalization removes redundant nested rows when a broader boundary takes over
+a subtree. Config sync carries explicit includes directly in `xpaths`. No
+selector-provenance or selector-suppression field is stored or reconstructed.
 
 Visible renderable block elements whose subtree has no meaningful normalized
 text may be synced as silent whitespace explicit exclusions. The `xpaths` row is
@@ -286,17 +269,11 @@ make an otherwise unmarked page count as manually marked for AI auto-seeding.
 Sync drops the generated row when the element gains meaningful text, disappears,
 becomes hidden/non-rendered, or falls under another exclusion.
 
-AI-selector auto-seeding on an unmarked page writes its exclusion rows as
-`{ xpath, excluded: true, explicit: true }` — the seeded CSS/AI baseline IS the
-explicit precedence baseline. The explicit flag is load-bearing twice: it lets
-the seeded rows survive the sync reconcile (which rebuilds rows from scan
-candidates plus preserved explicit rows), and it satisfies the
-`hasExplicitUserMarkings` gate so the seed runs at most once per session
-instead of wiping and reseeding the entry on every rebuild. Without it, the
-seeded rows suppressed the generated default-exclusion rows as excluded
-parents and then evaporated in the same pass — an unmarked page with stored AI
-exclusion selectors rendered with no exclusion rows at all, and the whole
-assessment flipped whenever the first user mark landed or was removed.
+AI-selector seeding runs once, after the clean default baseline. Inclusion
+selectors simulate ordinary include actions and exclusion selectors simulate
+ordinary exclude actions. Their results are explicit rows and are thereafter
+indistinguishable from the same user actions. Later rebuilds never consult the
+selector set.
 
 For toggleable default exclusions, a stored row with `excluded: false` is the
 user's explicit unmark for that exact default boundary. A direct exclude-mode
@@ -327,20 +304,11 @@ Default-layer projection uses two related but distinct sets:
 That split keeps generated default boundaries visible on initial render while
 still preventing duplicate descendant default markings under excluded ancestors.
 
-Both full renders and fast explicit-toggle overlay refreshes must run page
-marking synchronization before drawing. The fast refresh is only an adaptation
-layer over the 052c-derived rules; it cannot draw from a just-mutated entry
-until generated default posture rows, including default ancestors converted to
-`excluded: false`, have been reconciled. Structural toggles still schedule the
-full invalidating rebuild immediately after the fast explicit refresh so
-default, selector, AI, and ancestor layers cannot visibly lag behind the
-acknowledgement. Leaf explicit-exclude toggles may patch cached lower-priority
-collections and debounce that full rebuild so the user-visible mark/unmark
-acknowledgement is not blocked by a full-page collection pass.
-
-When that fast patch is applied to cached lower-priority collections, it must
-apply only current-session explicit deltas, not fetched saved explicit rows, so
-saved rows cannot accidentally outrank selector influence.
+Fast explicit-toggle rendering operates on the serialized canonical mutation
+result. It recomputes and redraws the affected branch only, validates the DOM
+generation/fingerprint before commit, and rejects stale work. Cached projection
+data may be patched only when branch-splice invariants prove equivalence; it may
+never outrank or reinterpret an explicit row.
 
 ## Marking Performance Contract
 
@@ -352,14 +320,10 @@ Marking mode must avoid duplicate full-page passes:
   are rendered, activation must show the page-inspection spinner, block page and
   content-overlay input, perform a bottom-and-top reveal scroll for lazy
   content, then restore the user's original scroll position.
-- A manual refinement performs a cheap immediate explicit-layer refresh.
-  Structural refinements then run an immediate invalidating full rebuild for
-  correctness. Leaf explicit-exclude refinements may debounce the invalidating
-  rebuild after patching cached lower-priority collections. The immediate
-  refresh may update explicit include/exclude layers and cached explicit
-  collections, but it must not recompute the default layer or redraw every
-  layer; the following full rebuild owns default, selector, AI, and ancestor
-  correctness.
+- A manual refinement performs one serialized branch-scoped evaluation and a
+  cheap immediate acknowledgement. It does not schedule a routine full-document
+  rebuild. Default posture may be reconsidered only inside that branch;
+  selectors do not re-enter evaluation.
 - A marking pass may cache per-element visibility, text, immutable/default
   selector, ancestor, textual-descendant, and paint-reachability decisions.
   These are pure functions of the current DOM + viewport, so the synchronous
@@ -393,21 +357,12 @@ Marking mode must avoid duplicate full-page passes:
 ### Rebuild model: target and interim (MA-3)
 
 A mark's blast radius is branch-local: an element's fate depends only on its own
-ancestry, never a sibling's mark. The **target** model is therefore a
+ancestry, never a sibling's mark. The model is therefore a
 branch-scoped incremental rebuild — on a mark of element E, recompute only the
 affected surface (`subtree(E) ∪ ancestor-chain(E)` to the nearest marked or
-structural ancestor), splice it into the cached collections, and keep the
-selector-influence, AI-content, and immutable layers cached untouched. Because
-the incremental result is provably identical to a full rebuild, it must be
-guarded by an `incremental == full-rebuild` equivalence check over a corpus plus
-a settle-time full reconcile as a safety net.
-
-**Verified prerequisite:** a marking toggle never changes which elements the AI
-selectors match. The marking cache key derives its selector fingerprint from the
-config-owned selector set (`getNewestConfigSelectorSet`), while a toggle mutates
-only the page-marking entry (`xpaths` / `includeXpaths`), which feeds the
-separate entry fingerprint. So the selector / AI / immutable layers are safe to
-freeze across a mark.
+structural ancestor), splice it into the cached projections, and keep unrelated
+branches untouched. Corpus tests compare this optimization with the canonical
+evaluator; production does not rely on a trailing full-document reconcile.
 
 **Shipped (branch-scoped rebuild):** a single explicit toggle takes the
 branch-scoped path. The affected surface is rooted at the OUTERMOST
@@ -419,17 +374,11 @@ collections (stashed at invalidation, DOM/viewport-version-tagged). The scoped
 render skips the (redundant) sync scan and re-walks only the affected subtree
 with the root frame seeded from its real ancestor state.
 
-Guards, all falling back to the full rebuild: more than one pending toggle; any
-page/selector-fingerprint change; any entry-row difference between the stash and
-the next key that does not resolve INSIDE the affected subtree (this catches
-generated-row churn discovered by a sync elsewhere on the page); a pending
-fresh-baseline adoption; a stale (version-mismatched) stash; an unbounded
-affected root. After every authoritative scoped rebuild one coalesced trailing
-FULL reconcile runs (~1.5s after the toggles settle) as the self-healing
-correctness backstop, and settle/invalidating renders remain full. Debug builds
-expose a live `incremental == full` parity audit
-(`localStorage["unfluffify:cp7b-parity"]="1"`) that keeps the full rebuild
-authoritative and logs any scoped divergence.
+Guards reject or retry serialized work when the DOM generation/fingerprint is
+stale, the affected root is unbounded, or branch-splice invariants fail. A new
+structural generation starts a new authoritative calculation rather than
+committing stale output. Debug/test corpora may expose canonical equivalence
+audits; production does not carry a live parity-audit mechanism.
 
 ## Motion Stability Contract
 
@@ -646,9 +595,10 @@ interaction is intentionally a separate hold state. Releasing `Space`, window
 blur, visibility changes, or disabling marking restores the overlay and redraws
 markings over the page's new posture.
 
-Silent highlighting overlays never capture page clicks, so users can interact
-with accordions directly in passive highlighting mode. The same page-motion
-pause remains active in both modes to keep markings and highlights comparable.
+Silent highlighting and post-AI preview deliberately do not offer page
+passthrough. They allow page scrolling and extension highlight/list interaction,
+but block underlying links, buttons, forms, menus, hover activation, and
+navigation. The same page-motion pause remains active to keep output comparable.
 
 ### Temporary Disabled State
 
@@ -787,15 +737,17 @@ real DOM**. If something Google cares about happens inside a shadow tree, the
 extension must handle it too.
 
 The sanitized page snapshot (`createSanitizedPageSnapshot`) clones the light DOM
-and then inlines every open shadow root into the clone as real elements at the
-front of the host (composed-tree order), recursing through nested shadow roots.
+and then inlines every retrievable shadow root into the clone as real elements
+at the front of the host (composed-tree order), recursing through nested roots.
 There is no `<template shadowrootmode>` wrapper in the captured HTML — the shadow
 tree appears as ordinary inline elements, matching the deep-capture the consumer
 performs. Because inlining happens before the strip / class / `data-uf-*`
 sanitizing passes, those passes also clean the inlined shadow nodes.
 
-- **Open** shadow roots are captured. **Closed** shadow roots are inaccessible
-  (the browser exposes no `shadowRoot`) and are silently skipped.
+- **Open** roots and closed roots captured by early `attachShadow`
+  instrumentation are flattened, markable, and captured. If a closed root is
+  genuinely inaccessible, omit only that root; preserve its host and accessible
+  light DOM as ordinary content.
 - The extension's own shadow root (WXT content-UI host, `data-wxt-shadow-root` /
   `data-uf-extension-ui`) is never captured — it is extension chrome, not page
   content.
@@ -810,7 +762,7 @@ sanitizing passes, those passes also clean the inlined shadow nodes.
   document has a capturable shadow root; shadow-free pages resolve via the native
   light-DOM path unchanged.
 - The page-shell guard's depth computation walks the flattened (shadow-crossing)
-  parent chain, so shell protection applies inside open shadow trees the same as
+  parent chain, so shell protection applies inside retrievable shadow trees the same as
   in light DOM.
 - The live engine treats shadow content as real DOM: the default-content
   enumeration and the reconcile scan descend into capturable shadow roots
@@ -819,7 +771,7 @@ sanitizing passes, those passes also clean the inlined shadow nodes.
   read-more `<button>` is auto-excluded, the shadow `<p>` auto-included).
   Hit-testing is composed-aware: a hit reported on a shadow host still counts as
   a hit on the shadow content it paints (paint-reachability), and target
-  resolution / hover pierce open shadow roots so inner shadow nodes are
+  resolution / hover pierce retrievable shadow roots so inner shadow nodes are
   click-markable. Overlays position over composed geometry via each element's
   real client rects. All shadow descent is gated on the presence of a capturable
   shadow root, so shadow-free pages behave exactly as before.
@@ -858,16 +810,12 @@ Rules:
   content outside the mobile viewport width or document height is invisible;
   text merely clipped by a vertical CSS clamp (see Visibility and CSS Clamps) is
   not invisible-textual — it submits as included,
-- opening Unfluffify enables mobile simulation by default for each fresh tab
-  session, including when an already-open side panel moves to a new tab; a
-  user-disabled simulation state is preserved for that session while marking is
-  off, but the active marking editor tab forces mobile simulation back on until
-  marking is disabled again, and Render Mode inspection must not clear an
-  existing session simulation choice,
-- when the property already has AI selectors, the popup exposes a separate
-  desktop-preview checkbox that persists for the tab lifecycle, switches the
-  page to desktop emulation, disables marking entry while it is on, and falls
-  back to mobile emulation if DevTools tears the emulation debugger down,
+- every recognized managed tab continuously uses the fixed Googlebot Smartphone
+  posture; users cannot disable it or change scale/device metrics, and
+  navigation, debugger detach, and tab rebinding self-heal,
+- the only desktop posture is the approved silent-only desktop preview; it is
+  not a general simulator, disables marking entry, and restores crawler mobile
+  when the preview ends,
 - same-property pages that are outside the current Live Page candidate list
   still keep silent highlighting and property-lock status for that property;
   only marking entry is blocked there,

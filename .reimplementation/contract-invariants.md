@@ -52,8 +52,8 @@ conflicting older rows in this register. Where this register cites the legacy do
 |----|------|-----|
 | INV-2.5 | **Only inclusions carry an implicit/explicit split.** *Implicit inclusion* = the computed content baseline (a visible, markable, direct-text element), never stored. *Explicit inclusion* = a user Alt-rescue, stored. | **CORRECTED** — the split is now exclusive to inclusions. |
 | INV-2.6 | **There is no "implicit exclusion."** Every exclusion is one unified kind of **exception**: a per-element row carving a hole out of the inclusion baseline. | **CORRECTED** — removed the implicit-exclusion concept entirely. |
-| INV-2.7 | **Exceptions have exactly two origins, both ordinary.** (a) user toggle; (b) automatic creation at the initial calculation or a branch recalculation, from the default taxonomy + CSS/AI selectors. Auto exceptions are **"not special"** — after creation they carry no rule, privilege, or priority over user exceptions, and are represented by the same wire row. | **CORRECTED** — old code re-applied selector/default rules on top of existing rows (the drift that caused the blank-element bug). Forbidden now. |
-| INV-2.8 | **Seed once, then step aside.** The default-tag rules and CSS/AI selectors *seed* the initial exception rows and then no longer own their elements. Rendering, target resolution, and submission derive an element's state from its stored row, and MUST NOT re-match a selector or re-apply a default-tag rule on top of an element that already has a row. | **CORRECTED** — see INV-2.7. |
+| INV-2.7 | **Exceptions have exactly two ordinary origins.** (a) default taxonomy during the clean calculation or an affected-branch default recalculation; (b) simulated or real user toggles. Every committed result uses the same canonical row shape. An explicit row always wins. | **CORRECTED** — defaults and selectors are separate phases; selectors never participate in later default recalculation. |
+| INV-2.8 | **Selectors are one-shot simulated user actions.** Calculate the clean default baseline first, apply inclusion/exclusion selectors exactly as ordinary user clicks second, persist ordinary explicit rows, then delete selector identity, provenance, precedence, suppression, and re-matching for the session. | **CORRECTED** — selector-origin state after seeding is forbidden. |
 | INV-2.9 | **An un-excluded toggleable default renders as implicit content.** A stored `{excluded:false}` row for a toggleable-default boundary suppresses that boundary's own implicit marking but does **not** exclude descendants and is **not** a subtree include; the element renders/submits as ordinary implicit/included content **even if a selector or default rule would otherwise match it**. It must never render blank. | CONFIRMED (this is the exact behavior the blank-element bug violated) |
 | INV-2.10 | **Immutable tags never become per-page rows.** They ride the payload as the separate `defaultExclusionSelectors` list; stale per-page immutable rows are suppressed before submission. | CONFIRMED |
 
@@ -64,7 +64,7 @@ conflicting older rows in this register. Where this register cites the legacy do
 | INV-2.11 | **Top-level payload** = `{ baseUrl, renderMode, defaultExclusionSelectors, pages[] }`, where `defaultExclusionSelectors` is exactly the immutable tag list (INV-2.1). | CONFIRMED (verified from `AiRunPayloadSnapshot`) |
 | INV-2.12 | **Per-page** = `{ url, renderedHtml, rawHtml?, renderedXPaths[] }`. `renderedHtml` is always present; `rawHtml` is present **only when** `renderMode === 'static'`. | CONFIRMED |
 | INV-2.13 | **Each XPath row** = `{ xpath, excluded: boolean, explicit?: boolean }`. `explicit` marks a user-authored (or user-rescued) row; auto rows omit or carry it per submission semantics (§5). This single row shape carries both includes (`excluded:false`) and excludes (`excluded:true`). | CONFIRMED |
-| INV-2.14 | Include lists and selector-suppression overrides are **not** separate wire fields — they merge into `renderedXPaths` as `{excluded:false, explicit:true}` rows and are reconstructed locally on load. | CONFIRMED |
+| INV-2.14 | Explicit includes are **not** a separate wire field; they are `renderedXPaths` rows with `{excluded:false, explicit:true}`. Selector-suppression/provenance state does not exist after the one-shot seed. | **CORRECTED** |
 
 ---
 
@@ -94,7 +94,7 @@ conflicting older rows in this register. Where this register cites the legacy do
 | INV-3.13 | **Space passthrough is the only path to hidden content.** Holding Space lets clicks pass to the page (open accordions/tabs/menus); once revealed, the content can be Alt-included. Space passthrough clicks never commit a mark. | CONFIRMED |
 | INV-3.14 | **Closed boundary is reachable only in include mode.** Exclude mode never targets inside a closed include; only removing the include re-opens it. | CONFIRMED (companion to INV-3.10) |
 | INV-3.15 | **O(1) hover.** Hover resolves a single hover rect per pointer position; it must not recollect the page or re-scan all candidates on hover. Paint-reachability for the hovered element is checked without a full pass. | CONFIRMED |
-| INV-3.16 | **Hit path pierces pointer-events suppression and open shadow roots.** `elementsFromPoint` is extended to surface `pointer-events:none` descendants of the topmost hit whose rects contain the point (deepest-first), and to pierce open shadow roots, so hit-transparent header text and shadow content stay markable. | CONFIRMED |
+| INV-3.16 | **Hit path pierces pointer-events suppression and every retrievable shadow root.** `elementsFromPoint` is extended to surface `pointer-events:none` descendants of the topmost hit whose rects contain the point (deepest-first), and to pierce open plus early-captured closed roots, so hit-transparent header text and retrievable shadow content stay markable. | **CORRECTED** |
 | INV-3.17 | **Paint-reachability gate.** A target must be paint-reachable in the current viewport: responsive alternates that keep measurable boxes but are fully covered by another face/slide/overlay are not separate targets. A miss counts as *reachable* when the topmost page hit is an ancestor and the chain up is pointer-events-suppressed (transparency, not coverage); a genuine foreign overlay reads as covered. | CONFIRMED |
 
 ### 3.3 Shift climb rule
@@ -132,9 +132,9 @@ conflicting older rows in this register. Where this register cites the legacy do
 | INV-5.6 | **CSS text clamp is not hiding → included.** Text fully present in the DOM but truncated downward by a vertical clamp (`overflow-y:hidden/clip` on an over-tall box, fixed `height`/`max-height`, or `-webkit-line-clamp`) with a non-empty visible preview submits as **included**. This applies only to downward truncation with a visible preview; horizontal/off-canvas/upward displacement and fully-collapsed zero-height boxes stay excluded. | CONFIRMED |
 | INV-5.7 | **Genuine hiding → excluded/not-markable.** `display:none`, `visibility:hidden/collapse`, `opacity:0`, `hidden`, sr-only/clip-rect off-canvas, zero-area, and interaction-gated collapsed panels are not visible, not markable, not submitted (until revealed via Space). | CONFIRMED |
 | INV-5.8 | **One shared user-visible definition** governs live `isVisible`, save-time `isVisibleForSubmission`, and silent-highlight retention. They must not diverge. | CONFIRMED |
-| INV-5.9 | **Shadow flatten (Googlebot parity).** Open shadow roots are inlined into the sanitized clone as real elements at the front of the host (composed-tree order, recursing nested roots) — **no** `<template shadowrootmode>` wrapper. Inlining happens before strip/sanitize passes so inlined nodes are cleaned too. | CONFIRMED |
+| INV-5.9 | **Shadow flatten (Googlebot parity).** Open and early-captured closed shadow roots are inlined into the sanitized clone as real elements at the front of the host (composed-tree order, recursing nested roots) — **no** `<template shadowrootmode>` wrapper. Inlining happens before strip/sanitize passes so inlined nodes are cleaned too. | **CORRECTED** |
 | INV-5.10 | **XPath continuity across shadow boundaries.** `getXPath`/`getSnapshotXPath` walk the composed tree; a light child of a shadow host is index-shifted past the host's preceding same-tag inlined shadow children, so shadow elements address like any other node and align with the captured HTML. Resolution back to elements walks the composed tree (shadow-first) when a capturable shadow root exists, and the native light-DOM path otherwise. | CONFIRMED |
-| INV-5.11 | **Closed shadow roots are skipped from capture** and their host is treated as excluded/unmarkable/uncaptured — but rendered with a **distinct overlay style** (a new closed-shadow category, visually different from the immutable overlay) so the editor sees an unreachable region. | **CORRECTED** — old behavior silently skipped closed roots with no distinct affordance; a new overlay category is added. |
+| INV-5.11 | **Closed-root behavior follows retrievability.** An early-captured closed root is flattened, markable, and captured like an open root. If a root is genuinely inaccessible, omit only that root; its host and accessible light DOM remain ordinary content and are never auto-excluded merely because the root is inaccessible. | **CORRECTED** |
 | INV-5.12 | **The extension's own shadow root is never captured** (`data-wxt-shadow-root` / `data-uf-extension-ui`); it is chrome, not content. | CONFIRMED |
 | INV-5.13 | **Immutable exclusion via the tag list, not rows.** Immutable defaults and their descendants are excluded through `defaultExclusionSelectors`, not per-page rows; stale immutable rows are suppressed pre-submission. | CONFIRMED |
 | INV-5.14 | **Consent UI is not stored/submitted as dedicated rows.** It is hidden before saving; any textual consent content is handled by the ordinary invisible-textual rule. | CONFIRMED |
@@ -146,7 +146,7 @@ conflicting older rows in this register. Where this register cites the legacy do
 
 | ID | Rule | Tag |
 |----|------|-----|
-| INV-6.1 | **Fresh-session seed.** Every enable re-seeds the page fresh from defaults + CSS/AI selectors (selector influence only when a selector set is present) and **discards any stale persisted draft**, so a freshly enabled page never starts dirty. The first render adopts that computed seed as the clean baseline. | CONFIRMED |
+| INV-6.1 | **Fresh-session seed.** Every enable discards stale draft state, calculates a fresh default baseline, then applies CSS/AI selectors once as simulated ordinary user markings. The resulting rows become the clean baseline and retain no selector provenance, so a freshly enabled page never starts dirty. | **CORRECTED** |
 | INV-6.2 | **Dirty only on explicit toggle.** The session becomes dirty only when the user makes an explicit marking change; auto-seeding does not dirty it. | CONFIRMED |
 | INV-6.3 | **AI-fresh-before-save gate.** After any marking change, Run AI must re-run before Save enables. Any post-AI edit drops back to dirty and re-requires a run. Marking cannot be disabled until Save or Discard. | CONFIRMED |
 | INV-6.4 | **The AI-run gate is `sessionRequiresAiRun`, not a second fingerprint.** Save gating composes pending session changes + page-controls visibility + reconciliation state + `sessionRequiresAiRun`. The Run-AI fingerprint (`aiRunUpToDate`) only disables *Run AI* while the last output still matches the current include/exclude XPaths; CSS-selector-only edits don't change that fingerprint. | CONFIRMED |
@@ -166,14 +166,14 @@ conflicting older rows in this register. Where this register cites the legacy do
 
 | ID | Rule | Tag |
 |----|------|-----|
-| INV-7.1 | **Exactly one reveal/freeze per page visit.** On editor activation: store scroll, force instant scroll behavior, sweep top→bottom to trigger scroll/intersection handlers (≤1 lazy expansion, lazy-suppression at 50% of initial height), freeze at absolute bottom, then restore original scroll under the freeze. The sweep is skipped when there's no vertical scroll room or activation goes stale. | CONFIRMED |
+| INV-7.1 | **One single-flight reveal/freeze per visible page visit.** Store scroll, run top→lazy-threshold→bottom→wait→bottom confirmation, continue only while height grows (ten-pass cap), freeze at the final bottom, then restore the original scroll under the freeze. Hidden documents defer/coalesce; concurrent callers join; a newer generation may schedule one follow-up. No-scroll pages still freeze. | **CORRECTED** |
 | INV-7.2 | **Activation gating.** Reveal/freeze and silent highlighting activate **only after real editor activation** — never on passive page-load. Reveal is a blocking preparation phase: while it runs, page interaction is blocked with the inspection spinner/overlay and a blocking `editor_preparing` reconciliation reason so setup can't be interrupted. | CONFIRMED |
 | INV-7.3 | **Freeze scope is page content only.** Extension-owned UI (`#unfluffify-overlay`, indicators, popovers, injected bridge, `[id^="unfluffify-"]`, `[data-uf-extension-ui="true"]`) keeps its own animations/timers/overlay scheduling alive. | CONFIRMED |
 | INV-7.4 | **Two-layer JS motion stabilization.** A page-world timer bridge holds page `setTimeout`/`setInterval`/`requestAnimationFrame` while paused (stopping recursive carousel loops); the content script uses extension-owned timer/rAF helpers so page-world gating never starves extension UI. Deferred timer/rAF callbacks are **flushed on resume, not lost**. | CONFIRMED |
 | INV-7.5 | **Reveal normalization vs semantic hidden.** Layout-present elements hidden only by *motion styling* (low opacity, clip, visibility, transform, blur) or with entrance hooks (`data-w-id`/`data-ix`) are normalized to their final visible posture. Semantic hidden UI (modals, dialogs, menus, tabs, carousels, accordions, `aria-hidden`) stays hidden. | CONFIRMED |
 | INV-7.6 | **Source-owned pause, shared across modes.** The pause is held independently by marking and silent-highlight lifecycles; the *same* freeze is active in both. It lifts fully only on navigation; per-subsystem resumes don't drop it while another source holds it. On full release, synthetic hover state, inline locks, paused media, SVG clocks, and Web Animations are restored. | CONFIRMED |
 | INV-7.7 | **Freeze mechanics are stripped from saved snapshots.** The pause class, pause stylesheet, indicator, inline locks, reveal normalizations, and timer controls are removed from sanitized `renderedHtml` so saved HTML records page posture, not freeze mechanics. | CONFIRMED |
-| INV-7.8 | **Silent overlays never capture page clicks** — the user can operate accordions directly in silent mode — while the same motion pause keeps markings and highlights comparable. | CONFIRMED |
+| INV-7.8 | **Silent/post-AI preview is constrained and frozen.** Scrolling and extension highlight/preview-list interaction remain available, but underlying page clicks, controls, forms, menus, hover activation, and navigation are blocked. | **CORRECTED** |
 | INV-7.9 | **SPA force-reload.** While the extension is **active on the page** (editor or silent-highlight), a non-navigating URL change (`pushState`/`replaceState`/`hashchange`) forces a full page reload so the standard reveal/freeze + fresh capture re-run for the new route. | **CORRECTED** — old code let SPA route changes proceed without a fresh capture; now forced-reload while active. |
 
 ---
@@ -182,14 +182,14 @@ conflicting older rows in this register. Where this register cites the legacy do
 
 | ID | Rule | Tag |
 |----|------|-----|
-| INV-8.1 | **Forced mobile emulation (submission viewport).** Fresh tab sessions enable mobile 412×960 by default (including when an open side panel moves to a new tab). A user-disabled state is preserved for that session while marking is off, but the active marking editor tab forces mobile back on until marking is disabled. | CONFIRMED |
-| INV-8.2 | **Desktop preview is a distinct, feature-gated toggle.** Only when the property already has AI selectors: a desktop 1920×1080 preview checkbox that persists for the tab lifecycle, switches to desktop emulation, disables marking entry while on, and falls back to mobile if DevTools tears the debugger down. | CONFIRMED |
-| INV-8.3 | **Scale is clamped 0.25..1** and reconciled on load. | CONFIRMED |
-| INV-8.4 | **Emulation self-heals after nav / silent detach** and **must be active for Save.** If the debugger silently detaches after navigation, emulation is re-cleared/re-applied. | CONFIRMED |
+| INV-8.1 | **Continuously forced crawler mobile.** Every recognized managed tab uses the fixed Googlebot Smartphone posture (viewport, UA/client hints, touch, and pointer media) from recognition through teardown. The user cannot disable it. | **CORRECTED** |
+| INV-8.2 | **Desktop preview is a narrow exception, not a simulator.** Only the approved silent-only desktop preview may temporarily hold desktop posture; marking entry stays unavailable until the fixed mobile posture is restored. | **CORRECTED** |
+| INV-8.3 | **No manual scale or device controls.** The crawler profile owns scale and device metrics; production UI exposes neither. | **CORRECTED** |
+| INV-8.4 | **Emulation self-heals after navigation, debugger detach, and rebinding** and **must be active for Save.** A managed tab cannot remain in an unintended desktop/non-crawler posture. | **CORRECTED** |
 | INV-8.5 | **Render-mode inspection owns its own reveal/freeze lifecycle.** It must not run editor-acquisition reveal/freeze while the base URL's render mode is unconfirmed. The explicit With/Without-JavaScript action is the only render-mode path that reveals/freezes. | CONFIRMED |
 | INV-8.6 | **Render-mode capture sequence:** capture sanitized rendered HTML (JS on, after reveal, **before** highlighting) → reload JS-disabled via CDP → capture static/raw HTML (background `fetchStaticPageHtml`) → restore JS. The rendered capture uses the same extension-node stripping as saved snapshots. | CONFIRMED |
 | INV-8.7 | **No-JS hold is tracked and always cleared** on end/nav/inactivity. During inspection the editor sees a *reconnecting-after-inspection* status that **suppresses the 70s connection-loss countdown** (see §9). | CONFIRMED |
-| INV-8.8 | **Render-mode inspection must not clear an existing session simulation choice.** | CONFIRMED |
+| INV-8.8 | **Render-mode inspection restores the standing managed-tab posture.** It must not leave the tab outside fixed crawler mobile after its explicit comparison lifecycle ends. | **CORRECTED** |
 
 ---
 
@@ -273,14 +273,16 @@ conflicting older rows in this register. Where this register cites the legacy do
 | Area | Old behavior (forbidden) | New rule |
 |------|--------------------------|----------|
 | Property identity | Frontend base-URL normalization / longest-match | `(environmentKey, siteId)` from Hub-delegated GraphQL; GraphQL-derived relative `pageKey`; observed origins informational (INV-1.1/1.2) |
-| Exclusion model | "Implicit exclusion" + default/selector layer as ongoing authority | One unified exception kind; seed-then-step-aside (INV-2.6/2.7/2.8) |
+| Exclusion model | "Implicit exclusion" + default/selector layer as ongoing authority | Clean default baseline, then one-shot simulated selector actions with no retained provenance (INV-2.6/2.7/2.8) |
 | Blank element | Global/config-merge re-derivation re-caught un-excluded elements | Branch-scoped, action-triggered only; un-excluded → implicit content (INV-2.9, INV-4.1/4.4) |
 | Parity audit | `incremental == full` corpus audit + trailing full reconcile | Removed; branch-scoped derivation is the definition of correct (INV-4.5) |
 | Shift widening | Full-width wrapper rejection | Width-independent; qualifies on ≥2 eligible descendants; climb to broadest (INV-3.18/3.19) |
 | Discard | Reverted to saved user-markings draft; disabled marking | Clean computed baseline; marking stays active (INV-6.6) |
 | Lock identity | Frontend sessionStorage client-id + cloned-tab UUID rotation | Backend-issued + backend-rotated identity (INV-9.1/9.2) |
 | Lock timings | Client-owned | Backend-authoritative; client mirrors (INV-9.6) |
-| Closed shadow | Silently skipped, no affordance | Distinct closed-shadow overlay category (INV-5.11) |
+| Closed shadow | Every closed host treated as inaccessible/excluded | Flatten captured roots; omit only a genuinely inaccessible root while retaining host/light DOM (INV-5.11) |
+| Silent interaction | Passive overlay allowed page actions | Frozen constrained surface: scroll/preview interaction only; block page actions (INV-7.8) |
+| Managed emulation | User-disableable mobile plus manual scale/device controls | Continuously forced Googlebot Smartphone; silent-only desktop exception (INV-8.1–8.4) |
 | SPA nav | Route change without fresh capture | Force full reload while active (INV-7.9) |
 | Presentation | Dual PopupState/ViewState bags + local re-derivation | One store per organ; brain signals guarantee consistency (INV-10.4) |
 

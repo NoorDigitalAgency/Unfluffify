@@ -1,6 +1,15 @@
-# Unfluffify Active Architecture Plan
+# Unfluffify Historical Architecture Plans
 
-Last updated: 2026-06-27
+**Status:** Superseded on 2026-08-20 by
+[`../.reimplementation/rewrite-legacy-execution-plan.md`](../.reimplementation/rewrite-legacy-execution-plan.md).
+This file preserves completed/historical implementation reasoning only and is not
+an active resume pointer or product-semantics authority. The binding rules are in
+[`../.reimplementation/rewrite-legacy-decision-spec.md`](../.reimplementation/rewrite-legacy-decision-spec.md),
+including one-shot selector actions, retrievable closed-root flattening, constrained
+silent/post-AI interaction, and continuously forced crawler mobile without manual
+device or scale controls.
+
+Last historical update: 2026-06-27
 
 ## Objective
 
@@ -21,9 +30,8 @@ fix, extensionless imports, lint pass) plan/progress docs were removed from the
 workspace; their durable outcomes live in `.copilot/knowledge.md`. Use git
 history if earlier rationale is needed.
 
-There are two open implementation plans below: **Dev/Live-Browser Tooling
-Hardening**, opened 2026-06-27 after a live migration-regression sweep, and
-**Brain-Centralized Deterministic System State**, opened 2026-06-28.
+The sections below were open implementation plans in June 2026. They are retained
+as provenance and must not be resumed independently.
 
 ---
 
