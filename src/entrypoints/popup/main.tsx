@@ -74,16 +74,6 @@ import {
 Object.assign(document.documentElement.dataset, { theme: "nordic", themeMode: "system" });
 document.documentElement.style.colorScheme = "light dark";
 
-type PopupDebugApi = Readonly<{
-  getViewState: () => Record<string, unknown>;
-}>;
-
-declare global {
-  interface Window {
-    __UNFLUFFIFY_POPUP_DEBUG__?: PopupDebugApi;
-  }
-}
-
 const rootElement = document.getElementById("app") ?? document.getElementById("root") ?? document.body.appendChild(document.createElement("div"));
 let store = createPopupStore({ name: "silent", lastConsumedSeq: 0, reconciliationReason: "" });
 let unsubscribeStore: (() => void) | null = null;
@@ -180,6 +170,15 @@ let contentDirty = false;
 let contentReachable = true;
 let contentUnreachableReported = false;
 let candidateNavigationBusy = false;
+let maintenanceBusy = false;
+let maintenanceMessage = "";
+let maintenanceTone: PopupLogEntry["tone"] = "info";
+const DEBUG_BUILD = __UF_DEBUG_BUILD__;
+let debugTraceEnabled = false;
+let directModeActive = DEBUG_BUILD && new URLSearchParams(location.search).get("directMode") === "1";
+if (directModeActive && confirmedRenderMode === null) {
+  confirmedRenderMode = "rendered";
+}
 const EMPTY_TODO_COVERAGE: TodoCoverage = { covered: 0, actionable: 0, pageTypes: [] };
 let todoStatus: PageContextResolution["status"] | "unresolved" = "unresolved";
 let todoCoverage: TodoCoverage = EMPTY_TODO_COVERAGE;
@@ -190,6 +189,9 @@ const eventLog = createEventLog();
 
 function logEvent(label: string, detail = "", tone: PopupLogEntry["tone"] = "info"): void {
   eventLog.add({ label, detail, tone, at: Date.now() });
+  if (DEBUG_BUILD && debugTraceEnabled) {
+    console.debug("[Unfluffify][popup-trace]", label, detail);
+  }
 }
 
 function safeOrigin(url: string): string {
@@ -249,6 +251,9 @@ function resolveAuthState(): PopupAuthState {
 /** Legacy's configurationComplete: all three endpoints stored and a token held.
  *  A rejected token counts as absent — it cannot authorise anything. */
 function isConfigurationComplete(): boolean {
+  if (directModeActive) {
+    return true;
+  }
   const stored = storedSettingsForm;
   if (stored === null) {
     return false;
@@ -260,7 +265,7 @@ function isConfigurationComplete(): boolean {
 function currentView(): PopupView {
   const resolution = resolvePopupView({
     requested: requestedView,
-    settingsLoaded: storedSettingsForm !== null,
+    settingsLoaded: storedSettingsForm !== null || directModeActive,
     configurationComplete: isConfigurationComplete(),
     configViewLocked,
     renderModeSet: renderModeSet(),
@@ -303,6 +308,9 @@ function buildDiagnostics(): PopupDiagnostics {
     todoStatus,
     todo: todoCoverage,
     log: eventLog.entries(),
+    maintenanceBusy,
+    maintenanceMessage,
+    maintenanceTone,
   };
 }
 
@@ -1459,6 +1467,24 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     render();
     return;
   }
+  if (enabled && directModeActive) {
+    ensureSignalPolling(context);
+    await applySessionEmulation(context);
+    const activated = await sendContentMessage(context.tabId, {
+      type: "activateContentMain",
+      baseUrl: safeOrigin(context.url),
+      pageUrl: context.url,
+      realEditorActivation: true,
+    });
+    contentActive = activated;
+    if (activated) {
+      await adoptContentRows(context.tabId, requestKey);
+      await reportPopupFact(context, "debug-direct-marking-activated", { markingEnabled: true }, requestKey);
+    }
+    logEvent(activated ? "Direct marking enabled" : "Direct marking failed", context.url, activated ? "success" : "danger");
+    render();
+    return;
+  }
   // Turning marking off discards the markings, so ask first — but only when
   // there is something to lose. Confirming an empty session is just noise.
   if (!enabled && contentDirty && !confirmDiscardMarkings()) {
@@ -2012,6 +2038,101 @@ async function saveStoredSettings(): Promise<void> {
   await refreshPopup();
 }
 
+async function reloadTargetTab(tabId: number): Promise<void> {
+  await callBrowserApiVoid(
+    (api, callback) => api.tabs.reload(tabId, {}, callback),
+    async (api) => await api.tabs.reload(tabId),
+  );
+}
+
+async function clearCurrentDomainCache(): Promise<void> {
+  const context = await resolveTargetTabContext();
+  const origin = context ? safeOrigin(context.url) : "";
+  if (!context || !origin) {
+    maintenanceMessage = "This tab does not have a website domain whose cache can be cleared.";
+    maintenanceTone = "danger";
+    render();
+    return;
+  }
+  maintenanceBusy = true;
+  maintenanceMessage = "";
+  render();
+  const response = await getPopupBus().request("cache.clearDomain", { origin }, { target: "background" });
+  if (!response.ok) {
+    maintenanceBusy = false;
+    maintenanceMessage = "Chrome could not clear this domain's cache.";
+    maintenanceTone = "danger";
+    logEvent("Domain cache clear failed", response.failure.code, "danger");
+    render();
+    return;
+  }
+  if (response.data.status === "error") {
+    maintenanceBusy = false;
+    maintenanceMessage = response.data.message;
+    maintenanceTone = "danger";
+    logEvent("Domain cache clear failed", response.data.message, "danger");
+    render();
+    return;
+  }
+  try {
+    await reloadTargetTab(context.tabId);
+    maintenanceMessage = `Cache emptied for ${response.data.origin}. The tab is reloading.`;
+    maintenanceTone = "success";
+    logEvent("Domain cache cleared", response.data.origin, "success");
+  } catch (error) {
+    maintenanceMessage = "The cache was emptied, but Chrome could not reload the tab.";
+    maintenanceTone = "warn";
+    logEvent("Domain cache reload failed", error instanceof Error ? error.message : String(error), "warn");
+  } finally {
+    maintenanceBusy = false;
+    render();
+  }
+}
+
+async function unregisterCurrentTab(): Promise<void> {
+  const context = await resolveTargetTabContext();
+  if (!context) {
+    maintenanceMessage = "The tab is no longer available to unregister.";
+    maintenanceTone = "danger";
+    render();
+    return;
+  }
+  maintenanceBusy = true;
+  maintenanceMessage = "";
+  render();
+  await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
+  const response = await getPopupBus().request(
+    "session.unregister",
+    { tabId: context.tabId },
+    { target: "background" },
+  );
+  if (!response.ok) {
+    maintenanceBusy = false;
+    maintenanceMessage = "Unfluffify could not unregister this tab. It remains connected.";
+    maintenanceTone = "danger";
+    logEvent("Tab unregister failed", response.failure.code, "danger");
+    render();
+    return;
+  }
+  resetBoundSessionState();
+  contentActive = false;
+  contentDirty = false;
+  try {
+    await reloadTargetTab(context.tabId);
+    maintenanceMessage = "Unfluffify was closed on this tab. The page is reloading normally.";
+    maintenanceTone = "success";
+    logEvent("Tab unregistered", context.url, "success");
+    window.close?.();
+  } catch (error) {
+    maintenanceMessage = "The tab was unregistered, but Chrome could not reload it.";
+    maintenanceTone = "warn";
+    logEvent("Tab unregister reload failed", error instanceof Error ? error.message : String(error), "warn");
+  } finally {
+    maintenanceBusy = false;
+    render();
+  }
+}
+
 function updateSettingsField(field: PopupSettingsField, value: string): void {
   settingsForm = { ...settingsForm, [field]: value };
   settingsFormDirty = true;
@@ -2483,6 +2604,40 @@ function getDebugViewState(): Record<string, unknown> {
   };
 }
 
+function getDebugBusDiagnostics(): Record<string, unknown> {
+  return {
+    realm: "popup",
+    boundTabId,
+    boundTabKey,
+    lastConsumedSeq: brainSignals.consumedThrough(),
+    polling: signalPollHandle !== null,
+    contentReachable,
+  };
+}
+
+function getDebugSpinnerState(): Record<string, unknown> {
+  const presentation = store.getPresentation();
+  return {
+    visible: presentation.curtainVisible,
+    title: presentation.curtainText,
+    blockedReason: presentation.blockedReason,
+    countdownText: presentation.countdownText,
+    maintenanceBusy,
+  };
+}
+
+function activateDirectMode(): void {
+  if (!DEBUG_BUILD) {
+    return;
+  }
+  directModeActive = true;
+  confirmedRenderMode ??= "rendered";
+  requestedView = "marking";
+  configViewLocked = false;
+  logEvent("Debug direct mode enabled", boundTabUrl, "warn");
+  render();
+}
+
 function render(): void {
   rootRecovery.render(
     <App
@@ -2495,8 +2650,8 @@ function render(): void {
       appearance={appearance}
       onEnableChange={(enabled) => { void setMarkingEnabled(enabled); }}
       onDesktopPreviewChange={(enabled) => { void setDesktopPreviewEnabled(enabled); }}
-      onRunAi={() => { void runAi(); }}
-      onSave={() => { void saveSession(); }}
+      onRunAi={directModeActive ? undefined : () => { void runAi(); }}
+      onSave={directModeActive ? undefined : () => { void saveSession(); }}
       onDiscard={() => { void discardMarkings(); }}
       onPreview={() => { void showPreview(); }}
       onExitPreview={() => { void exitPreview(); }}
@@ -2517,18 +2672,32 @@ function render(): void {
       onRenderModePick={pickRenderMode}
       onRenderModeCommit={commitRenderMode}
       onRenderModeCancel={cancelRenderMode}
-      onOpenLynxChecklist={() => { void openLynxChecklist(); }}
+      onOpenLynxChecklist={directModeActive ? undefined : () => { void openLynxChecklist(); }}
       onCloseLynxChecklist={closeLynxChecklist}
       onSendToLynx={() => { void sendToLynx(); }}
       onCandidateNavigate={(pageKey) => { void navigateToCandidate(pageKey); }}
       onThemeChange={updateTheme}
       onThemeModeChange={updateThemeMode}
+      onEmptyDomainCache={() => { void clearCurrentDomainCache(); }}
+      onUnregisterTab={() => { void unregisterCurrentTab(); }}
     />,
   );
 }
 
-if (typeof window !== "undefined") {
-  window.__UNFLUFFIFY_POPUP_DEBUG__ = { getViewState: getDebugViewState };
+if (DEBUG_BUILD && typeof window !== "undefined") {
+  window.__UNFLUFFIFY_POPUP_DEBUG__ = {
+    getViewState: getDebugViewState,
+    getActivity: () => eventLog.entries(),
+    getBusDiagnostics: getDebugBusDiagnostics,
+    getSpinnerState: getDebugSpinnerState,
+    setTraceEnabled(enabled) {
+      debugTraceEnabled = enabled;
+    },
+    get directModeActive() {
+      return directModeActive;
+    },
+    activateDirectMode,
+  };
 }
 unsubscribeStore = store.subscribe(render);
 render();

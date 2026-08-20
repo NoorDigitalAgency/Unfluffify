@@ -9,9 +9,13 @@ declare global {
 	interface Window {
 		__UNFLUFFIFY_TOGGLE_PERF__?: boolean;
 		__UNFLUFFIFY_POPUP_DEBUG__?: {
-			getViewState?: () => Record<string, unknown>;
-			directModeActive?: boolean;
-			activateDirectMode?: () => void;
+			getViewState: () => Record<string, unknown>;
+			getActivity: () => readonly unknown[];
+			getBusDiagnostics: () => Record<string, unknown>;
+			getSpinnerState: () => Record<string, unknown>;
+			setTraceEnabled: (enabled: boolean) => void;
+			readonly directModeActive: boolean;
+			activateDirectMode: () => void;
 		};
 	}
 }

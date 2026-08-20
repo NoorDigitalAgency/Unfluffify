@@ -36,6 +36,10 @@ function backendConfig(): ConfigSnapshot {
 }
 
 function installEntrypointDom(href: string): void {
+  Object.defineProperty(globalThis, "__UF_DEBUG_BUILD__", {
+    configurable: true,
+    value: true,
+  });
   Object.defineProperty(globalThis, "document", {
     configurable: true,
     value: {
@@ -341,6 +345,7 @@ describe("rewrite popup entrypoint", () => {
     Reflect.deleteProperty(globalThis, "document");
     Reflect.deleteProperty(globalThis, "location");
     Reflect.deleteProperty(globalThis, "window");
+    Reflect.deleteProperty(globalThis, "__UF_DEBUG_BUILD__");
   });
 
   it("keeps the tab in mobile simulation from the moment it is bound", async () => {
@@ -2279,6 +2284,60 @@ describe("rewrite popup entrypoint", () => {
       contentActive: false,
       contentDirty: false,
     });
+  });
+
+  it("clears only the bound domain and explicitly unregisters then reloads the opening tab", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const close = vi.fn();
+    Object.assign(globalThis.window, { close });
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/a?x=1" }]);
+    const get = vi.fn().mockResolvedValue({ id: 77, url: "https://example.com/a?x=1" });
+    const reload = vi.fn((_tabId: number, _options: object, callback: () => void) => callback());
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "cache.clearDomain") {
+        return replyFrame(message, { status: "ok", origin: "https://example.com" });
+      }
+      if (message.name === "session.unregister") {
+        return replyFrame(message, { status: "ok" });
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, get, reload, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    await waitFor(() => props().diagnostics.settingsLoaded, "stored connection profile");
+
+    props().onEmptyDomainCache();
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "cache.clearDomain"),
+      "domain cache command",
+    );
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "cache.clearDomain",
+      payload: { origin: "https://example.com" },
+    }));
+    expect(reload).toHaveBeenCalledWith(77, {}, expect.any(Function));
+    expect(props().diagnostics).toMatchObject({
+      maintenanceBusy: false,
+      maintenanceTone: "success",
+    });
+
+    props().onUnregisterTab();
+    await waitFor(() => close.mock.calls.length === 1, "unregister completion");
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "session.unregister",
+      payload: { tabId: 77 },
+    }));
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("deactivateContentMain", {}));
+    expect(reload).toHaveBeenCalledTimes(2);
+    expect(close).toHaveBeenCalledOnce();
   });
 
   it("retries a publication-unknown outcome with the exact same fenced Hub operation", async () => {

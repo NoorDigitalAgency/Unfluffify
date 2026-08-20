@@ -1,9 +1,10 @@
 import type { PopupContentRow } from "./organ/machine";
+import { popupDebugBuildEnabled } from "./build-mode";
 
 export type PreviewDisplayClassification = PopupContentRow["classification"];
 
 export function previewDebugDetailEnabled(): boolean {
-  return typeof __UF_DEBUG_BUILD__ !== "undefined" && __UF_DEBUG_BUILD__;
+  return popupDebugBuildEnabled();
 }
 
 /** The evaluator retains all classification detail. Production deliberately

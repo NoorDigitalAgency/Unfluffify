@@ -21,6 +21,56 @@ body.is-busy {
   overflow: visible;
 }
 
+.app[data-view="preview"] {
+  max-width: 640px;
+}
+
+@media (max-width: 520px) {
+  .app {
+    max-width: none;
+  }
+}
+
+.header-kebab-menu {
+  top: calc(100% + 6px);
+  right: 0;
+}
+
+.mac-close-button {
+  display: inline-grid;
+  width: 14px;
+  min-width: 14px;
+  height: 14px;
+  min-height: 14px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, #8f1010 58%, transparent);
+  border-radius: 999px;
+  background: #ff5f57;
+  color: #6f0905;
+  box-shadow: none;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.mac-close-button:hover:not(:disabled) {
+  background: #ff3b30;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #ff5f57 18%, transparent);
+}
+
+.mac-close-button:disabled {
+  filter: grayscale(0.8);
+}
+
+.header-page-key {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Structure only — the theme layer owns the look of everything inside. */
 .app > .card,
 .app > .collapsible,
@@ -197,4 +247,48 @@ body.is-busy {
   border: 1px solid color-mix(in srgb, var(--line) 56%, transparent);
   border-radius: 8px;
   padding: 8px 10px;
+}
+
+.popup-toast {
+  position: sticky;
+  z-index: 25;
+  bottom: 10px;
+  display: block;
+  width: fit-content;
+  max-width: min(100%, 34rem);
+  margin: 10px auto 0;
+  padding: 9px 12px;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border: 1px solid var(--line);
+  border-left-width: 4px;
+  border-radius: 9px;
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--ink) 16%, transparent);
+  font-size: 12px;
+  font-weight: 650;
+  animation: uf-popup-toast-in 160ms ease-out both;
+}
+
+.popup-toast--success {
+  border-left-color: var(--success);
+}
+
+.popup-toast--warn {
+  border-left-color: var(--warn);
+}
+
+.popup-toast--danger {
+  border-left-color: var(--danger);
+}
+
+@keyframes uf-popup-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

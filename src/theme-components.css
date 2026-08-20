@@ -364,7 +364,7 @@ button.loading:disabled {
 
 .app-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   gap: 8px;
   max-width: 100%;
@@ -384,6 +384,7 @@ button.loading:disabled {
 
 .header-property-url {
   display: grid;
+  grid-column: 1 / -1;
   gap: 6px;
   width: 100%;
   margin-top: 8px;
@@ -470,6 +471,9 @@ button.property-lock__button {
 
 .header-actions {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   margin-left: auto;
 }
 

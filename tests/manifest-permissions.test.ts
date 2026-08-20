@@ -42,6 +42,12 @@ test("manifest grants the browser lifecycle signals required by property-lock pr
   assert.ok(manifest.permissions.includes("idle"));
 });
 
+test("manifest does not register global keyboard shortcuts", async () => {
+  const manifest = await readManifestUnderTest();
+
+  assert.equal(Object.hasOwn(manifest, "commands"), false);
+});
+
 test("manifest exposes the content UI icon font without the global icon stylesheet", async () => {
   const manifest = await readManifestUnderTest();
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);

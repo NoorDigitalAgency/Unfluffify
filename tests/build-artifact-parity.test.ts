@@ -21,6 +21,9 @@ test("generated extension manifest and resources resolve", async () => {
   assert.equal(existsSync(manifestPath), true, "generated manifest.json should exist");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   const popupHtml = readFileSync(path.join(OUTPUT_ROOT, "popup.html"), "utf8");
+  const popupScript = popupHtml.match(/<script[^>]+src="\/([^"]+\.js)"/)?.[1];
+  assert.ok(popupScript, "popup.html should name its bundled JavaScript");
+  const popupJavaScript = readFileSync(path.join(OUTPUT_ROOT, normalizePath(popupScript)), "utf8");
 
   const required = new Set();
   required.add("manifest.json");
@@ -71,4 +74,28 @@ test("generated extension manifest and resources resolve", async () => {
     popupHtml,
     /\/assets\/fonts\/fonts\.css|\/assets\/materialdesignicons\.min\.css|\/theme-color\.css|\/theme-components\.css|\/popup\.css|\/theme-utilities\.css/
   );
+  for (const debugMarker of [
+    "__UNFLUFFIFY_POPUP_DEBUG__",
+    "getBusDiagnostics",
+    "getSpinnerState",
+    "data-debug-tool",
+    "data-event-log",
+    "data-row-internal-classification",
+    "[Unfluffify][popup-trace]",
+    "Debug direct mode enabled",
+  ]) {
+    assert.equal(
+      popupJavaScript.includes(debugMarker),
+      false,
+      `production popup must not retain debug marker: ${debugMarker}`,
+    );
+  }
+  assert.equal(
+    popupJavaScript.includes("data-popup-toast"),
+    true,
+    "production popup should retain the concise operator toast surface",
+  );
+  const contentJavaScript = readFileSync(path.join(OUTPUT_ROOT, "content-scripts/content-loader.js"), "utf8");
+  assert.equal(contentJavaScript.includes("Highlight details copied"), false);
+  assert.equal(contentJavaScript.includes("Unable to copy highlight details"), false);
 }, PACKAGE_BUILD_TIMEOUT_MS);

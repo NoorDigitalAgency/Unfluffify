@@ -1,6 +1,7 @@
 import React from "react";
 import { todoSectionExpanded } from "./todo-recovery";
-import { previewDebugDetailEnabled, projectPreviewClassification } from "./preview-classification";
+import { projectPreviewClassification } from "./preview-classification";
+import { createPanelScrollLock } from "./scroll-lock";
 
 import type { RenderMode } from "../domain/schema/property";
 import { DEFAULT_POPUP_VIEW, type PopupView } from "./view";
@@ -116,6 +117,9 @@ export type PopupDiagnostics = Readonly<{
   todoStatus: PageContextResolution["status"] | "unresolved";
   todo: TodoCoverage;
   log: readonly PopupLogEntry[];
+  maintenanceBusy: boolean;
+  maintenanceMessage: string;
+  maintenanceTone: "info" | "success" | "warn" | "danger";
 }>;
 
 export type LynxChecklistState = Readonly<{
@@ -165,6 +169,9 @@ export const EMPTY_POPUP_DIAGNOSTICS: PopupDiagnostics = {
   todoStatus: "unresolved",
   todo: { covered: 0, actionable: 0, pageTypes: [] },
   log: [],
+  maintenanceBusy: false,
+  maintenanceMessage: "",
+  maintenanceTone: "info",
 };
 
 export const EMPTY_POPUP_SETTINGS_FORM: PopupSettingsForm = {
@@ -226,6 +233,16 @@ export function resolvePopupCurtainKind(presentation: PopupPresentation): PopupC
     return "none";
   }
   return presentation.lockBanner.visible ? "blocked" : "busy";
+}
+
+export function relativePageKey(pageUrl: string, baseUrl: string): string {
+  try {
+    const page = new URL(pageUrl);
+    const base = new URL(baseUrl || page.origin);
+    return page.origin === base.origin ? `${page.pathname}${page.search}` || "/" : page.href;
+  } catch {
+    return pageUrl || "/";
+  }
 }
 
 const CLASSIFICATION_LABEL: Readonly<Record<string, string>> = {
@@ -403,6 +420,8 @@ export function App({
   onCandidateNavigate,
   onThemeChange,
   onThemeModeChange,
+  onEmptyDomainCache,
+  onUnregisterTab,
 }: Readonly<{
   presentation: PopupPresentation;
   view?: PopupView;
@@ -442,8 +461,12 @@ export function App({
   onCandidateNavigate?: (pageKey: string) => void;
   onThemeChange?: (theme: ThemeId) => void;
   onThemeModeChange?: (mode: ThemeMode) => void;
+  onEmptyDomainCache?: () => void;
+  onUnregisterTab?: () => void;
 }>) {
+  const debugBuild = __UF_DEBUG_BUILD__;
   const [themeMenuOpen, setThemeMenuOpen] = React.useState(false);
+  const [headerMenuOpen, setHeaderMenuOpen] = React.useState(false);
   const [pendingLockAction, setPendingLockAction] = React.useState<LockAction | null>(null);
   const [settingsFieldOriginals, setSettingsFieldOriginals] = React.useState<
     Partial<Record<PopupSettingsField, string>>
@@ -451,6 +474,7 @@ export function App({
   const [todoExpandedOverrides, setTodoExpandedOverrides] = React.useState<Record<string, boolean>>({});
   const [pendingCandidatePageKey, setPendingCandidatePageKey] = React.useState<string | null>(null);
   const [previewHoveredXpath, setPreviewHoveredXpath] = React.useState<string | null>(null);
+  const [pendingMaintenanceAction, setPendingMaintenanceAction] = React.useState<"cache" | "unregister" | null>(null);
   React.useEffect(() => {
     if (!diagnostics.settingsDirty && Object.keys(settingsFieldOriginals).length > 0) {
       setSettingsFieldOriginals({});
@@ -542,6 +566,47 @@ export function App({
     "unavailable",
     "stale",
   ].includes(diagnostics.todoStatus);
+  const setupCopy = setupProblem === "unreadable"
+    ? "Reading the stored connection… if this persists, reopen the panel."
+    : setupProblem === "unconfigured"
+      ? "Set the stage base host below and save it."
+      : setupProblem === "signed_out"
+        ? "Sign in below to connect this property."
+        : setupProblem ? "The saved endpoints did not answer the site lookup. Check the connection below." : "";
+  const prioritizedNotice = diagnostics.maintenanceMessage
+    ? {
+        kind: "maintenance",
+        tone: diagnostics.maintenanceTone,
+        copy: diagnostics.maintenanceMessage,
+      }
+    : diagnostics.configStatus === "integrity_shrink"
+      ? {
+          kind: "integrity",
+          tone: "danger" as const,
+          copy: "Configuration changed unexpectedly. Save and Send are paused until a clean refresh verifies it.",
+        }
+      : setupProblem
+        ? {
+            kind: `setup-${setupProblem}`,
+            tone: setupProblem === "unreadable" ? "warn" as const : "danger" as const,
+            copy: setupCopy,
+          }
+        : !diagnostics.contentReachable
+          ? {
+              kind: "content-unreachable",
+              tone: "warn" as const,
+              copy: "Reload the page so Unfluffify can connect to it.",
+            }
+          : null;
+  const confirmMaintenanceAction = (): void => {
+    const action = pendingMaintenanceAction;
+    setPendingMaintenanceAction(null);
+    if (action === "cache") {
+      onEmptyDomainCache?.();
+    } else if (action === "unregister") {
+      onUnregisterTab?.();
+    }
+  };
   const publicationBusy = lynxChecklist.phase === "checking" || lynxChecklist.phase === "publishing";
   const publicationCanSend = lynxChecklist.gate.status === "ready" &&
     (lynxChecklist.phase === "ready" || lynxChecklist.phase === "unknown");
@@ -567,6 +632,27 @@ export function App({
   /** What the radios show: the unconfirmed pick if there is one, otherwise the
    *  mode in force. Null means nothing is selected and there is nothing to set. */
   const selectedRenderMode = diagnostics.renderModePending ?? diagnostics.renderMode;
+  const panelBlocking = curtainKind === "busy" || diagnostics.maintenanceBusy || Boolean(
+    pendingLockAction || pendingCandidatePageKey || pendingMaintenanceAction || lynxChecklist.open,
+  );
+  React.useEffect(() => {
+    if (!panelBlocking || typeof document === "undefined" || typeof window === "undefined" || !document.body) {
+      return;
+    }
+    const lock = createPanelScrollLock({ body: document.body, viewport: window });
+    lock.lock();
+    return lock.dispose;
+  }, [panelBlocking]);
+  const sessionPhaseCopy = presentation.temporarilyDisabledOverlay
+    ? "Working"
+    : presentation.silentModeActive
+      ? "Ready"
+      : presentation.enableToggleChecked ? "Marking" : "Connected";
+  // Production gets a single concise operator-facing result. The detailed
+  // event stream (including technical detail) remains a debug-build surface.
+  const productionToast = debugBuild
+    ? null
+    : diagnostics.log.find((entry) => entry.tone !== "info") ?? null;
 
   if (presentation.mainUiHidden || view === "loading") {
     return (
@@ -584,13 +670,13 @@ export function App({
       <main
         className="app"
         data-main-hidden={presentation.mainUiHidden}
-        data-state-name={diagnostics.stateName}
+        {...(debugBuild ? { "data-state-name": diagnostics.stateName } : {})}
         data-view="preview"
       >
         <header className="app-header">
           <div className="header-text">
             <img className="header-logo" src="/logo.png" alt="Unfluffify" />
-            <span className="hint status-text" data-session-phase={diagnostics.stateName}>
+            <span className="hint status-text" {...(debugBuild ? { "data-session-phase": diagnostics.stateName } : {})}>
               {presentation.previewExitPending ? "Restoring page" : "Preview"}
             </span>
           </div>
@@ -628,13 +714,13 @@ export function App({
           ) : (
             <ul className="preview-sidebar__list">
               {presentation.contentRows.map((row, index) => {
-                const classification = projectPreviewClassification(row.classification);
+                const classification = projectPreviewClassification(row.classification, debugBuild);
                 return (
                 <li
                   key={row.xpath}
                   className={`preview-sidebar__item preview-sidebar__item--${classification} ${previewHoveredXpath === row.xpath ? "preview-sidebar__item--active" : ""}`}
                   data-row-classification={classification}
-                  {...(previewDebugDetailEnabled() ? { "data-row-internal-classification": row.classification } : {})}
+                  {...(debugBuild ? { "data-row-internal-classification": row.classification } : {})}
                   onPointerEnter={() => {
                     setPreviewHoveredXpath(row.xpath);
                     onPreviewRowHover?.(row.xpath);
@@ -670,52 +756,112 @@ export function App({
   }
 
   return (
-    <main className="app" data-main-hidden={presentation.mainUiHidden} data-state-name={diagnostics.stateName} data-view={view}>
+    <main
+      className="app"
+      data-main-hidden={presentation.mainUiHidden}
+      data-view={view}
+      {...(debugBuild ? { "data-state-name": diagnostics.stateName, "data-debug-build": "true" } : {})}
+    >
       <header className="app-header">
         <div className="header-text">
           <img className="header-logo" src="/logo.png" alt="Unfluffify" />
-          <span className="hint status-text" data-session-phase={diagnostics.stateName}>
-            {diagnostics.stateName || "unknown"}
-            {presentation.silentModeActive ? " · idle" : ""}
-            {presentation.temporarilyDisabledOverlay ? " · marking suspended" : ""}
+          <span className="hint status-text" {...(debugBuild ? { "data-session-phase": diagnostics.stateName } : {})}>
+            {debugBuild ? diagnostics.stateName || "unknown" : sessionPhaseCopy}
           </span>
         </div>
-        {/* Legacy's header-actions: a way into configuration, and a way back that
-            only appears once setup is complete enough to leave. */}
         <div className="header-actions">
+          <button
+            id="unregister-current-tab"
+            type="button"
+            className="mac-close-button"
+            title="Unregister current tab and reload"
+            aria-label="Unregister current tab and reload"
+            disabled={!onUnregisterTab || diagnostics.maintenanceBusy || curtainKind === "busy"}
+            onClick={() => setPendingMaintenanceAction("unregister")}
+          >
+            <span aria-hidden="true">×</span>
+          </button>
+          <button
+            id="header-kebab-toggle"
+            type="button"
+            className="header-menu-toggle"
+            title="Configuration menu"
+            aria-label="Configuration menu"
+            aria-haspopup="menu"
+            aria-expanded={headerMenuOpen}
+            onClick={() => setHeaderMenuOpen((open) => !open)}
+          >
+            <i className="mdi mdi-dots-vertical btn-icon" aria-hidden="true" />
+          </button>
+          <div className="section-menu header-kebab-menu" role="menu" hidden={!headerMenuOpen}>
           {configurationView ? (
             <button
               id="config-header-back"
               type="button"
-              className="header-menu-toggle"
-              title="Back to marking"
-              aria-label="Back to marking"
+              role="menuitem"
               disabled={!onConfigurationContinue || !diagnostics.configurationComplete}
-              onClick={onConfigurationContinue}
+              onClick={() => {
+                setHeaderMenuOpen(false);
+                onConfigurationContinue?.();
+              }}
             >
               <i className="mdi mdi-arrow-left btn-icon" aria-hidden="true" />
+              Back to marking
             </button>
           ) : (
             <button
               id="config-header-open"
               type="button"
-              className="header-menu-toggle"
-              title="Connection settings"
-              aria-label="Connection settings"
+              role="menuitem"
               disabled={!onOpenConfiguration}
-              onClick={onOpenConfiguration}
+              onClick={() => {
+                setHeaderMenuOpen(false);
+                onOpenConfiguration?.();
+              }}
             >
-              <i className="mdi mdi-cog btn-icon" aria-hidden="true" />
+              <i className="mdi mdi-tune btn-icon" aria-hidden="true" />
+              Connection settings
             </button>
           )}
+            <button
+              id="render-mode-open"
+              type="button"
+              role="menuitem"
+              disabled={!onOpenRenderMode}
+              onClick={() => {
+                setHeaderMenuOpen(false);
+                onOpenRenderMode?.();
+              }}
+            >
+              <i className={`mdi ${renderModeIcon(diagnostics.renderMode)} btn-icon`} aria-hidden="true" />
+              Render mode · {renderModeLabel(diagnostics.renderMode)}
+            </button>
+            <button
+              id="clear-domain-cache"
+              type="button"
+              role="menuitem"
+              className="u-btn-danger"
+              disabled={!onEmptyDomainCache || !diagnostics.baseUrl || diagnostics.maintenanceBusy}
+              onClick={() => {
+                setHeaderMenuOpen(false);
+                setPendingMaintenanceAction("cache");
+              }}
+            >
+              <i className="mdi mdi-trash-can-outline btn-icon" aria-hidden="true" />
+              Empty cache for current domain
+            </button>
+          </div>
         </div>
         <div className="header-property-url">
           <span className="control-label">
             <i className="mdi mdi-link-variant field-icon" aria-hidden="true" />
-            <span className="control-label-text">Page</span>
+            <span className="control-label-text">Property</span>
           </span>
-          <span className="readout" id="page-url-readout" title={diagnostics.pageUrl}>
-            {diagnostics.pageUrl || "No page bound"}
+          <span className="readout" id="property-url-readout" title={diagnostics.baseUrl}>
+            {diagnostics.baseUrl || "No property bound"}
+          </span>
+          <span className="hint header-page-key" id="page-url-readout" title={diagnostics.pageUrl}>
+            {relativePageKey(diagnostics.pageUrl, diagnostics.baseUrl)}
           </span>
         </div>
       </header>
@@ -739,9 +885,13 @@ export function App({
             {lockStatusText(presentation, diagnostics)}
             {presentation.lockBanner.countdownSeconds ? ` (${presentation.lockBanner.countdownSeconds}s)` : ""}
           </span>
-          <span className="property-lock__detail">
-            {`status ${diagnostics.lockStatus || "pending"} · role ${diagnostics.lockRole || "unknown"} · site ${diagnostics.siteId ?? "—"}`}
-          </span>
+          {debugBuild ? (
+            <span className="property-lock__detail">
+              {`status ${diagnostics.lockStatus || "pending"} · role ${diagnostics.lockRole || "unknown"} · site ${diagnostics.siteId ?? "—"}`}
+            </span>
+          ) : presentation.lockBanner.text ? (
+            <span className="property-lock__detail">{presentation.lockBanner.text}</span>
+          ) : null}
         </span>
         <span className="property-lock__actions">
           {pendingLockActionIsCurrent ? (
@@ -790,39 +940,17 @@ export function App({
         </span>
       </section>
 
-      {!diagnostics.contentReachable ? (
-        <div className="u-alert u-alert-warn" role="status" data-content-unreachable="true">
-          No content script on this tab. Reload the page — Chrome does not inject
-          into tabs that were already open when the extension loaded.
-        </div>
-      ) : null}
-
-      {setupProblem ? (
+      {prioritizedNotice ? (
         <div
-          className={`u-alert ${setupProblem === "unreadable" ? "u-alert-warn" : "u-alert-danger"}`}
+          className={`u-alert u-alert-${prioritizedNotice.tone === "info" ? "warn" : prioritizedNotice.tone}`}
           role="status"
-          data-setup-required={setupProblem}
+          data-prioritized-notice={prioritizedNotice.kind}
+          {...(setupProblem && prioritizedNotice.kind.startsWith("setup-") ? { "data-setup-required": setupProblem } : {})}
+          {...(prioritizedNotice.kind === "content-unreachable" ? { "data-content-unreachable": "true" } : {})}
+          {...(prioritizedNotice.kind === "integrity" ? { "data-integrity-write-block": "true" } : {})}
         >
-          {setupProblem === "unreadable"
-            ? "Reading the stored connection… if this persists, the background service worker is not answering."
-            : setupProblem === "unconfigured"
-              ? "Set the stage base host below and save — the site lookup and sign-in are both derived from it."
-              : setupProblem === "signed_out"
-                ? "Sign in below. Without a token the site lookup, AI run and save all fail."
-                : "The saved endpoints did not answer the site lookup. Check the stage base host below."}
+          {prioritizedNotice.copy}
         </div>
-      ) : null}
-
-      {diagnostics.configStatus === "integrity_shrink" ? (
-        <section
-          className="u-alert u-alert-danger integrity-warning"
-          role="alert"
-          aria-label="Configuration integrity warning"
-          data-integrity-write-block="true"
-        >
-          <strong>Configuration changed unexpectedly.</strong>{" "}
-          The newest Hub data is shown, but Save and Send to Lynx are blocked until a clean refresh verifies it.
-        </section>
       ) : null}
 
       {pendingCandidatePageKey ? (
@@ -851,6 +979,46 @@ export function App({
             </button>
           </div>
         </section>
+      ) : null}
+
+      {pendingMaintenanceAction ? (
+        <div
+          className="warning-popover maintenance-confirmation"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="maintenance-confirmation-title"
+        >
+          <section className="warning-popover__card">
+            <h2 id="maintenance-confirmation-title" className="warning-popover__title">
+              {pendingMaintenanceAction === "cache" ? "Empty this domain's cache?" : "Close Unfluffify on this tab?"}
+            </h2>
+            <p className="warning-popover__body">
+              {pendingMaintenanceAction === "cache"
+                ? `Stored website data for ${diagnostics.baseUrl || "this domain"} will be removed and the tab reloaded.`
+                : "Unfluffify will discard this tab's session, release its lock, and reload the page normally."}
+            </p>
+            <div className="button-row warning-popover__actions">
+              <button
+                id="maintenance-confirm"
+                type="button"
+                className="u-btn-danger"
+                disabled={diagnostics.maintenanceBusy}
+                onClick={confirmMaintenanceAction}
+              >
+                {pendingMaintenanceAction === "cache" ? "Empty cache and reload" : "Unregister and reload"}
+              </button>
+              <button
+                id="maintenance-cancel"
+                type="button"
+                className="u-btn-secondary"
+                disabled={diagnostics.maintenanceBusy}
+                onClick={() => setPendingMaintenanceAction(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          </section>
+        </div>
       ) : null}
 
       {sessionView ? (
@@ -905,24 +1073,6 @@ export function App({
           />
         </label>
         ) : null}
-
-        {/* The mode every capture is taken as, and the way back to changing it. */}
-        <label className="row" htmlFor="render-mode-open">
-          <span className="row-label">
-            <i className={`mdi ${renderModeIcon(diagnostics.renderMode)} row-icon`} aria-hidden="true" />
-            <span>Render mode</span>
-          </span>
-          <button
-            id="render-mode-open"
-            type="button"
-            className="u-btn-secondary"
-            disabled={!onOpenRenderMode}
-            onClick={onOpenRenderMode}
-          >
-            <span data-render-mode={diagnostics.renderMode ?? "unset"}>{renderModeLabel(diagnostics.renderMode)}</span>
-            <i className="mdi mdi-pencil btn-icon" aria-hidden="true" />
-          </button>
-        </label>
 
         <div className="section-divider" />
 
@@ -1146,7 +1296,8 @@ export function App({
       </section>
       ) : null}
 
-      <section className="card" aria-label="Diagnostics">
+      {debugBuild ? (
+      <section className="card" aria-label="Diagnostics" data-debug-tool="state-inspection">
         <div className="section-header">
           <span className="section-title">
             <i className="mdi mdi-information-outline btn-icon" aria-hidden="true" />
@@ -1191,6 +1342,7 @@ export function App({
         />
         <StatRow icon="mdi-history" label="Run session" value={diagnostics.runSessionId || "—"} />
       </section>
+      ) : null}
 
       {renderModeView ? (
       <section className="card render-mode-section" aria-label="Render mode">
@@ -1737,7 +1889,8 @@ export function App({
       </details>
       ) : null}
 
-      <div className="trace-events-panel" data-event-log="true">
+      {debugBuild ? (
+      <div className="trace-events-panel" data-event-log="true" data-debug-tool="trace-activity">
         <div className="trace-events-panel__header">
           <i className="mdi mdi-history trace-events-panel__icon" aria-hidden="true" />
           <span className="trace-events-panel__label">Activity</span>
@@ -1763,6 +1916,18 @@ export function App({
           )}
         </ul>
       </div>
+      ) : null}
+
+      {productionToast ? (
+        <output
+          className={`popup-toast popup-toast--${productionToast.tone}`}
+          role="status"
+          aria-live="polite"
+          data-popup-toast={productionToast.tone}
+        >
+          {productionToast.label}
+        </output>
+      ) : null}
 
       {lynxChecklist.open ? (
         <div className="warning-popover lynx-checklist-popover" role="dialog" aria-modal="true" aria-labelledby="lynx-checklist-title">

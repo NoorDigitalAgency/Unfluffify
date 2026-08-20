@@ -49,6 +49,8 @@ const FULL_HANDLERS = {
   onCandidateNavigate: NOOP,
   onThemeChange: NOOP,
   onThemeModeChange: NOOP,
+  onEmptyDomainCache: NOOP,
+  onUnregisterTab: NOOP,
 };
 
 function renderApp(
@@ -170,6 +172,10 @@ describe("popup App surface", () => {
     expect(markup).toContain('class="property-lock');
     expect(markup).toContain("property-lock__status");
     expect(markup).toContain("property-lock__detail");
+    expect(markup).toContain('id="header-kebab-toggle"');
+    expect(markup).toContain('id="clear-domain-cache"');
+    expect(markup).toContain('id="unregister-current-tab"');
+    expect(markup).not.toMatch(/id="unregister-current-tab"[^>]*disabled/);
   });
 
   it("keeps each view's controls off the other view", () => {
@@ -282,10 +288,9 @@ describe("popup App surface", () => {
     expect(markup).toContain('class="preview-sidebar__item-button"');
     expect(markup).not.toContain('class="preview-sidebar__item-button" tabindex=');
     expect(markup).not.toContain('<button class="preview-sidebar__item-button"');
-    expect(markup).not.toContain('data-row-classification="immutable"');
-    expect(markup).not.toContain('data-row-classification="closed-shadow"');
-    expect(markup.match(/data-row-classification="excluded"/g)).toHaveLength(3);
-    expect(markup).not.toContain("data-row-internal-classification");
+    expect(markup).toContain('data-row-classification="immutable"');
+    expect(markup).toContain('data-row-classification="closed-shadow"');
+    expect(markup).toContain('data-row-internal-classification="immutable"');
     for (const id of ["toggle-enabled", "page-save", "page-revert", "marking-preview", "config-header-open"]) {
       expect(markup, `#${id} must not remain interactive behind preview`).not.toContain(`id="${id}"`);
     }
@@ -334,13 +339,50 @@ describe("popup App surface", () => {
     expect(complete).toContain("Ready to mark.");
   });
 
-  it("keeps the blocked-reason and projection data hooks on every action", () => {
-    const markup = renderApp(SILENT, { stateName: "silent" });
+  it("restores raw state hooks and the Activity toolkit in the test/debug build", () => {
+    const debug = renderApp(
+      SILENT,
+      {
+        stateName: "silent",
+        log: [{ id: 1, at: 1, label: "Loaded", detail: "raw", tone: "info" }],
+      },
+      EMPTY_POPUP_SETTINGS_FORM,
+      FULL_HANDLERS,
+    );
 
-    expect(markup).toContain('data-blocked-reason="silent"');
-    expect(markup).toContain('data-silent-mode="true"');
-    expect(markup).toContain('data-state-name="silent"');
-    expect(markup).toContain('data-session-phase="silent"');
+    expect(debug).toContain('data-state-name="silent"');
+    expect(debug).toContain('data-session-phase="silent"');
+    expect(debug).toContain("Activity");
+    expect(debug).toContain('aria-label="Diagnostics"');
+    expect(debug).toContain("property-lock__detail");
+  });
+
+  it("shows property-first context with the relative page key underneath", () => {
+    const markup = renderApp(SILENT, {
+      baseUrl: "https://example.com",
+      pageUrl: "https://example.com/jobs/42?source=todo",
+    });
+
+    expect(markup).toContain('id="property-url-readout"');
+    expect(markup).toContain("https://example.com");
+    expect(markup).toContain("/jobs/42?source=todo");
+    expect(markup).not.toMatch(/id="clear-domain-cache"[^>]*disabled/);
+  });
+
+  it("projects only the highest-priority actionable notice", () => {
+    const markup = renderApp(SILENT, {
+      settingsLoaded: false,
+      contentReachable: false,
+      configStatus: "integrity_shrink",
+      maintenanceMessage: "The unregister request failed.",
+      maintenanceTone: "danger",
+    });
+
+    expect(markup.match(/data-prioritized-notice=/g)).toHaveLength(1);
+    expect(markup).toContain('data-prioritized-notice="maintenance"');
+    expect(markup).not.toContain('data-setup-required=');
+    expect(markup).not.toContain('data-content-unreachable=');
+    expect(markup).not.toContain('data-integrity-write-block=');
   });
 
   it("renders a settings field for every stored connection setting", () => {
@@ -835,8 +877,8 @@ describe("popup App surface", () => {
   it("renders the activity log newest-first with its tone", () => {
     const markup = renderApp(SILENT, {
       log: [
-        { at: 1770000000000, label: "Run AI failed", detail: "endpoint_unconfigured", tone: "danger" },
-        { at: 1769999999000, label: "Run AI started", detail: "local-run-1", tone: "info" },
+        { id: 2, at: 1770000000000, label: "Run AI failed", detail: "endpoint_unconfigured", tone: "danger" },
+        { id: 1, at: 1769999999000, label: "Run AI started", detail: "local-run-1", tone: "info" },
       ],
     });
 

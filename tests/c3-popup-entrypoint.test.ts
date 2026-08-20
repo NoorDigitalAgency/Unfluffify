@@ -25,10 +25,13 @@ describe("C3 popup contract", () => {
     expect(popupHtml).toContain('<script type="module" src="./main.tsx"></script>');
   });
 
-  it("keeps the live popup debug view-state hook", () => {
+  it("gates the popup diagnostic toolkit behind the debug build literal", () => {
     const popupSource = readFileSync(resolve(REPO_ROOT, "src", "entrypoints", "popup", "main.tsx"), "utf8");
 
     expect(popupSource).toContain("__UNFLUFFIFY_POPUP_DEBUG__");
-    expect(popupSource).toMatch(/__UNFLUFFIFY_POPUP_DEBUG__\s*=\s*\{\s*getViewState:\s*getDebugViewState\s*\}/);
+    expect(popupSource).toMatch(/if\s*\(DEBUG_BUILD\s*&&\s*typeof window/);
+    expect(popupSource).toContain("getBusDiagnostics: getDebugBusDiagnostics");
+    expect(popupSource).toContain("getSpinnerState: getDebugSpinnerState");
+    expect(popupSource).toContain("activateDirectMode");
   });
 });

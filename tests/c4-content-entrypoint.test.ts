@@ -533,7 +533,7 @@ describe("C4 rewrite content entrypoints", () => {
     expect(engine.rejectAtPoint).toHaveBeenCalledWith(15, 25);
     expect(contentRoot?.children.some((element) =>
       element.attributes["data-uf-content-toast"] === "true" &&
-      element.textContent === "That area can't be marked."
+      element.textContent === "That area can't be marked (15, 25)."
     )).toBe(true);
     expect(click.preventDefault).toHaveBeenCalledTimes(1);
     // bus.emit defers its transport send by a microtask, unlike bus.request which

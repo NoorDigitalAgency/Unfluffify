@@ -19,6 +19,8 @@ import { projectTodoCoverage } from "../domain/todo";
 import type { ConfigSnapshot } from "../storage/config";
 import { fetchStaticPageHtml } from "./static-html";
 import { createTransferPayloadStore } from "./transfer-payload-store";
+import { actionIconStateForContext, createActionIconController } from "./action-icon";
+import { clearDomainCache } from "../storage/domain-cache";
 
 export { createRewriteBrain } from "./rewrite-brain";
 
@@ -78,6 +80,7 @@ export function startRewriteBackground(): void {
   rewriteBackgroundStarted = true;
   const services = createRewriteBackgroundServices();
   const transferPayloads = createTransferPayloadStore();
+  const actionIcons = createActionIconController(api.action);
   const runtime = createRewriteBrainRuntime({
     addMessageListener() {},
     rehydrateDurableFacts: services.persistence.rehydrateDurableFacts,
@@ -162,6 +165,7 @@ export function startRewriteBackground(): void {
       return beginTabCleanup(tabId, () => clearTabContinuation(tabId));
     },
     async observeLockFacts(facts) {
+      void actionIcons.apply(facts.tabId, facts.canEdit ? "active" : "locked").catch(() => undefined);
       await awaitTabTermination(facts.tabId);
       const brain = await runtime.getBrain(facts.tabId);
       brain.observe({
@@ -289,11 +293,13 @@ export function startRewriteBackground(): void {
   const renderModeByProperty = new Map<string, boolean>();
   bus.onCommand("page.context", async (request, meta) => {
     const tabId = request.tabId ?? parseSenderTabId(meta.sourceInstance) ?? 0;
+    void actionIcons.apply(tabId, "connecting").catch(() => undefined);
     const context = await pageContextRuntime.resolve({
       tabId,
       pageUrl: request.pageUrl,
       refresh: request.refresh,
     });
+    void actionIcons.apply(tabId, actionIconStateForContext(context.status)).catch(() => undefined);
     // Content asks for page context at load time, before a popup necessarily
     // exists. That is the earliest authoritative point at which the background
     // knows this is a managed property tab, so establish the standing mobile
@@ -591,6 +597,7 @@ export function startRewriteBackground(): void {
       hasToken: Boolean(saved.token?.trim()),
     };
   });
+  bus.onCommand("cache.clearDomain", ({ origin }) => clearDomainCache(api.browsingData, origin));
   bus.onCommand("session.unregister", async ({ tabId }) => {
     await beginTabCleanup(tabId, async () => {
       await lockRuntime.terminateTab(tabId);
@@ -601,6 +608,7 @@ export function startRewriteBackground(): void {
       // cosmetic cleanup independently.
       await renderEmulation.clear(tabId).catch(() => undefined);
     });
+    await actionIcons.apply(tabId, "unregistered").catch(() => undefined);
     return { status: "ok" as const };
   });
   bus.onCommand("accounts.login", async (credentials) => {

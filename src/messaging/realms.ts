@@ -312,6 +312,13 @@ export const applicationContract = defineContract({
         hasToken: z.boolean(),
       }),
     },
+    "cache.clearDomain": {
+      request: z.object({ origin: z.string().min(1) }),
+      response: z.discriminatedUnion("status", [
+        z.object({ status: z.literal("ok"), origin: z.string().url() }),
+        z.object({ status: z.literal("error"), message: z.string().min(1) }),
+      ]),
+    },
     /** A terminal tab boundary shared by definitive configuration deletion and
      *  the explicit Unregister action. It releases the lease and clears every
      *  resumable tab-scoped record; it does not delete property configuration. */
