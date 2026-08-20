@@ -100,6 +100,169 @@ describe("P5 page-world program", () => {
     expect(fired).toBe(true);
   });
 
+  it("freezes and restores the complete motion-source matrix, including late work", () => {
+    const source = readFileSync("src/page-world/program.js", "utf8");
+    const listeners: PageWorldListener[] = [];
+    const eventListeners = new Map<string, EventListener>();
+    let mutationCallback: MutationCallback = () => undefined;
+    let nativeIdle: IdleRequestCallback | null = null;
+    class FakeStyle {
+      readonly values = new Map<string, { value: string; priority: string }>();
+      getPropertyValue(property: string): string { return this.values.get(property)?.value ?? ""; }
+      getPropertyPriority(property: string): string { return this.values.get(property)?.priority ?? ""; }
+      setProperty(property: string, value: string, priority = ""): void { this.values.set(property, { value, priority }); }
+      removeProperty(property: string): void { this.values.delete(property); }
+    }
+    class FakeAnimation {
+      playState = "running";
+      readonly effect: { target: unknown };
+      constructor(target: unknown) { this.effect = { target }; }
+      pause(): void { this.playState = "paused"; }
+      play(): void { this.playState = "running"; }
+    }
+    class FakeElement {
+      readonly nodeType = 1;
+      readonly attributes = new Map<string, string>();
+      readonly children: FakeElement[] = [];
+      readonly style = new FakeStyle();
+      readonly animations: FakeAnimation[] = [];
+      parentElement: FakeElement | null = null;
+      isConnected = true;
+      paused = true;
+      scrollHeight = 0;
+      pauseCalls = 0;
+      playCalls = 0;
+      pauseAnimationCalls = 0;
+      unpauseAnimationCalls = 0;
+      textContent = "";
+      constructor(readonly tagName: string) {}
+      setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
+      getAttribute(name: string): string | null { return this.attributes.get(name) ?? null; }
+      hasAttribute(name: string): boolean { return this.attributes.has(name); }
+      removeAttribute(name: string): void { this.attributes.delete(name); }
+      toggleAttribute(name: string, force: boolean): void {
+        if (force) this.attributes.set(name, "");
+        else this.attributes.delete(name);
+      }
+      appendChild<T extends FakeElement>(child: T): T { child.parentElement = this; this.children.push(child); return child; }
+      querySelectorAll(): FakeElement[] { return this.children.flatMap((child) => [child, ...child.querySelectorAll()]); }
+      closest(selector: string): FakeElement | null {
+        if (selector === '[data-uf-extension-ui="true"]' && this.getAttribute("data-uf-extension-ui") === "true") return this;
+        return this.parentElement?.closest(selector) ?? null;
+      }
+      contains(element: FakeElement): boolean { return this === element || this.children.some((child) => child.contains(element)); }
+      getAnimations(): typeof this.animations { return this.animations; }
+      pause(): void { this.paused = true; this.pauseCalls += 1; }
+      animate(): FakeAnimation {
+        const animation = new FakeAnimation(this);
+        this.animations.push(animation);
+        return animation;
+      }
+      pauseAnimations(): void { this.pauseAnimationCalls += 1; }
+      unpauseAnimations(): void { this.unpauseAnimationCalls += 1; }
+      remove(): void { this.isConnected = false; }
+    }
+    class FakeMediaElement extends FakeElement {
+      play(): Promise<void> { this.paused = false; this.playCalls += 1; return Promise.resolve(); }
+    }
+    const root = new FakeElement("HTML");
+    const head = root.appendChild(new FakeElement("HEAD"));
+    const entrance = root.appendChild(new FakeElement("DIV"));
+    const semantic = root.appendChild(new FakeElement("DIALOG"));
+    const media = root.appendChild(new FakeMediaElement("VIDEO"));
+    const svg = root.appendChild(new FakeElement("SVG"));
+    entrance.animations.push(new FakeAnimation(entrance));
+    semantic.animations.push(new FakeAnimation(semantic));
+    media.paused = false;
+    const animations = [...entrance.animations, ...semantic.animations];
+    const document = {
+      documentElement: root,
+      head,
+      createElement: (tagName: string) => new FakeElement(tagName.toUpperCase()),
+      getAnimations: () => animations,
+    };
+    const context = {
+      performance: { now: () => 123 },
+      document,
+      Element: FakeElement,
+      Animation: FakeAnimation,
+      HTMLMediaElement: FakeMediaElement,
+      getComputedStyle(element: FakeElement) {
+        return {
+          display: "block",
+          visibility: "visible",
+          opacity: element === entrance || element === semantic ? "0" : "1",
+          animationName: element.animations.length > 0 ? "enter" : "none",
+          animationDuration: element.animations.length > 0 ? "1s" : "0s",
+          clipPath: "none",
+          filter: "none",
+          transform: "none",
+          height: "20px",
+          maxHeight: "none",
+          overflow: "visible",
+          overflowY: "visible",
+          getPropertyValue: () => "none",
+        };
+      },
+      MutationObserver: class {
+        constructor(callback: MutationCallback) { mutationCallback = callback; }
+        observe() {}
+        disconnect() {}
+      },
+      EventTarget: { prototype: {
+        addEventListener(type: string, listener: EventListener) { eventListeners.set(type, listener); },
+        removeEventListener(type: string) { eventListeners.delete(type); },
+      } },
+      setTimeout(callback: () => void) { callback(); return 1; },
+      clearTimeout() {},
+      setInterval() { return 1; },
+      clearInterval() {},
+      requestAnimationFrame(callback: (now: number) => void) { callback(1); return 1; },
+      cancelAnimationFrame() {},
+      requestIdleCallback(callback: IdleRequestCallback) { nativeIdle = callback; return 9; },
+      cancelIdleCallback() {},
+      addEventListener(_type: string, listener: PageWorldListener) { listeners.push(listener); },
+    };
+    vm.runInNewContext(source, { ...context, globalThis: context });
+    const send = (message: unknown) => dispatchFromPage(listeners, context as unknown as Record<string, unknown>, message);
+    send({ kind: "uf-page-bus/1", type: "request", nonce: "n1", command: "ARM", payload: {} });
+    send({ kind: "uf-page-bus/1", type: "request", nonce: "n2", sessionNonce: "n1", command: "SET_MOTION_PAUSED", payload: { paused: true } });
+
+    expect(root.getAttribute("data-uf-page-motion-paused")).toBe("true");
+    expect(entrance.style.getPropertyValue("opacity")).toBe("1");
+    expect(semantic.style.getPropertyValue("opacity")).toBe("");
+    expect(entrance.animations[0]?.playState).toBe("paused");
+    expect(media.pauseCalls).toBe(1);
+    expect(svg.pauseAnimationCalls).toBe(1);
+
+    entrance.animations[0]?.play();
+    expect(entrance.animations[0]?.playState).toBe("paused");
+    const scriptedAnimation = entrance.animate();
+    expect(scriptedAnimation.playState).toBe("paused");
+    void media.play();
+    expect(media.paused).toBe(true);
+
+    let idleFired = false;
+    context.requestIdleCallback(() => { idleFired = true; });
+    nativeIdle?.({ didTimeout: false, timeRemaining: () => 5 });
+    expect(idleFired).toBe(false);
+
+    const late = root.appendChild(new FakeElement("DIV"));
+    const lateAnimation = new FakeAnimation(late);
+    late.animations.push(lateAnimation);
+    animations.push(lateAnimation);
+    mutationCallback([{ target: root, addedNodes: [late] }] as unknown as MutationRecord[], {} as MutationObserver);
+    expect(lateAnimation.playState).toBe("paused");
+
+    send({ kind: "uf-page-bus/1", type: "request", nonce: "n3", sessionNonce: "n1", command: "DESTROY", payload: {} });
+    expect(root.getAttribute("data-uf-page-motion-paused")).toBeNull();
+    expect(entrance.style.getPropertyValue("opacity")).toBe("");
+    expect(entrance.animations[0]?.playState).toBe("running");
+    expect(media.playCalls).toBe(2);
+    expect(svg.unpauseAnimationCalls).toBe(1);
+    expect(idleFired).toBe(true);
+  });
+
   it("relays MAIN-world pushState URL changes to the isolated content script", async () => {
     const source = readFileSync("src/page-world/program.js", "utf8");
     const listeners: PageWorldListener[] = [];

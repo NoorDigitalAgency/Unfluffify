@@ -20,6 +20,21 @@ export type RevealRunResult = Readonly<{
   frozenAtBottom: boolean;
 }>;
 
+export type RevealVisitControllerOptions = Readonly<{
+  isVisible?: () => boolean;
+  waitUntilVisible?: () => Promise<void>;
+}>;
+
+export type RevealVisitRequest = Readonly<{
+  scopeStrength?: number;
+}>;
+
+const SKIPPED_REVEAL: RevealRunResult = {
+  skipped: true,
+  lazyExpansions: 0,
+  frozenAtBottom: false,
+};
+
 export async function runReveal(input: RevealRunInput): Promise<RevealRunResult> {
   const activationStale = (): boolean => typeof input.activationStale === "function"
     ? input.activationStale()
@@ -93,23 +108,117 @@ export async function runReveal(input: RevealRunInput): Promise<RevealRunResult>
   }
 }
 
-export function createRevealVisitController() {
-  let startedForVisit = false;
-  return {
-    async run(input: RevealRunInput): Promise<RevealRunResult> {
-      if (startedForVisit) {
-        return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
+export function createRevealVisitController(options: RevealVisitControllerOptions = {}) {
+  type Request = Readonly<{
+    generation: number;
+    scopeStrength: number;
+    task: () => Promise<RevealRunResult>;
+  }>;
+  let generation = 0;
+  let completedGeneration = -1;
+  let completedScopeStrength = -1;
+  let activeRequest: Request | null = null;
+  let activePromise: Promise<RevealRunResult> | null = null;
+  let consolidatedFollowup: Request | null = null;
+  let acceptingFollowup = false;
+
+  const visible = (): boolean => options.isVisible?.() ?? true;
+  const waitForVisibility = async (): Promise<boolean> => {
+    if (visible()) {
+      return true;
+    }
+    if (!options.waitUntilVisible) {
+      return false;
+    }
+    await options.waitUntilVisible();
+    return visible();
+  };
+  const completed = (request: Request): boolean =>
+    request.generation < completedGeneration ||
+    (request.generation === completedGeneration && request.scopeStrength <= completedScopeStrength);
+  const strongerThanActive = (request: Request): boolean => Boolean(
+    activeRequest && (
+      request.generation > activeRequest.generation ||
+      (request.generation === activeRequest.generation && request.scopeStrength > activeRequest.scopeStrength)
+    )
+  );
+  const mergeFollowup = (request: Request): void => {
+    if (!consolidatedFollowup) {
+      consolidatedFollowup = request;
+      return;
+    }
+    if (
+      request.generation > consolidatedFollowup.generation ||
+      (request.generation === consolidatedFollowup.generation && request.scopeStrength > consolidatedFollowup.scopeStrength)
+    ) {
+      consolidatedFollowup = request;
+    }
+  };
+  const execute = async (request: Request): Promise<RevealRunResult> => {
+    if (request.generation < generation || completed(request) || !await waitForVisibility()) {
+      return SKIPPED_REVEAL;
+    }
+    if (request.generation < generation) {
+      return SKIPPED_REVEAL;
+    }
+    const result = await request.task();
+    if (!result.skipped) {
+      completedGeneration = request.generation;
+      completedScopeStrength = request.scopeStrength;
+    }
+    return result;
+  };
+  const start = (request: Request): Promise<RevealRunResult> => {
+    activeRequest = request;
+    acceptingFollowup = true;
+    activePromise = (async () => {
+      let result = await execute(request);
+      const followup = consolidatedFollowup;
+      consolidatedFollowup = null;
+      acceptingFollowup = false;
+      if (followup && !completed(followup)) {
+        activeRequest = followup;
+        result = await execute(followup);
       }
-      startedForVisit = true;
-      const result = await runReveal(input);
-      if (!result.skipped) {
-        return result;
-      }
-      startedForVisit = false;
       return result;
+    })().finally(() => {
+      activeRequest = null;
+      activePromise = null;
+      consolidatedFollowup = null;
+      acceptingFollowup = false;
+    });
+    return activePromise;
+  };
+
+  const runTask = (
+    task: () => Promise<RevealRunResult>,
+    request: RevealVisitRequest = {},
+  ): Promise<RevealRunResult> => {
+    const next: Request = {
+      generation,
+      scopeStrength: request.scopeStrength ?? 0,
+      task,
+    };
+    if (completed(next) && !activePromise) {
+      return Promise.resolve(SKIPPED_REVEAL);
+    }
+    if (activePromise) {
+      if (acceptingFollowup && strongerThanActive(next)) {
+        mergeFollowup(next);
+      }
+      return activePromise;
+    }
+    return start(next);
+  };
+
+  return {
+    run(input: RevealRunInput, request: RevealVisitRequest = {}): Promise<RevealRunResult> {
+      return runTask(() => runReveal(input), request);
     },
+    runTask,
     resetForNavigation(): void {
-      startedForVisit = false;
+      generation += 1;
+      completedScopeStrength = -1;
     },
   };
 }

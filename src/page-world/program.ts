@@ -15,6 +15,7 @@ type PageTimerHandler = string | ((...args: unknown[]) => void);
 type PageTimer = (
   | Readonly<{ type: "timeout"; callback: (...args: unknown[]) => void; args: unknown[] }>
   | Readonly<{ type: "raf"; callback: FrameRequestCallback; args: [] }>
+  | Readonly<{ type: "idle"; callback: IdleRequestCallback; args: [] }>
 ) & { cancelled: boolean; nativeId?: unknown };
 type PageEventListener = EventListenerOrEventListenerObject;
 type PageListenerOptions = boolean | AddEventListenerOptions | undefined;
@@ -36,6 +37,8 @@ type PageWorldRoot = Readonly<{
   performance: Performance;
   Element?: typeof Element;
   EventTarget?: typeof EventTarget;
+  Animation?: typeof Animation;
+  HTMLMediaElement?: typeof HTMLMediaElement;
 }> & {
   setTimeout: (callback: PageTimerHandler, delay?: number, ...args: unknown[]) => unknown;
   clearTimeout: (token: unknown) => void;
@@ -43,8 +46,12 @@ type PageWorldRoot = Readonly<{
   clearInterval: (token: unknown) => void;
   requestAnimationFrame: (callback: FrameRequestCallback) => unknown;
   cancelAnimationFrame: (token: unknown) => void;
+  requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => unknown;
+  cancelIdleCallback?: (token: unknown) => void;
   IntersectionObserver?: typeof IntersectionObserver;
   ResizeObserver?: typeof ResizeObserver;
+  MutationObserver?: typeof MutationObserver;
+  getComputedStyle?: (element: Element) => CSSStyleDeclaration;
   queueMicrotask?: (callback: () => void) => void;
   postMessage: (message: unknown, targetOrigin: string) => void;
   addEventListener: (
@@ -83,15 +90,38 @@ const page = globalThis as unknown as PageWorldRoot;
     clearInterval: page.clearInterval,
     requestAnimationFrame: page.requestAnimationFrame,
     cancelAnimationFrame: page.cancelAnimationFrame,
+    requestIdleCallback: page.requestIdleCallback,
+    cancelIdleCallback: page.cancelIdleCallback,
     IntersectionObserver: page.IntersectionObserver,
     ResizeObserver: page.ResizeObserver,
     attachShadow: page.Element?.prototype.attachShadow as InstrumentedAttachShadow | undefined,
+    animate: page.Element?.prototype.animate,
+    animationPlay: page.Animation?.prototype.play,
+    mediaPlay: page.HTMLMediaElement?.prototype.play,
     addEventListener: page.EventTarget?.prototype.addEventListener,
     removeEventListener: page.EventTarget?.prototype.removeEventListener,
   };
   const wrappedEventRegistrations: WrappedEventRegistration[] = [];
   const timeoutTokens = new Map<unknown, PageTimer>();
   const rafTokens = new Map<unknown, PageTimer>();
+  const idleTokens = new Map<unknown, PageTimer>();
+  const pausedAnimations = new Set<Animation>();
+  const pausedMedia = new Set<HTMLMediaElement>();
+  const pausedSvgRoots = new Set<SVGSVGElement>();
+  const normalizedMotionStyles: Array<Readonly<{
+    element: HTMLElement | SVGElement;
+    property: string;
+    value: string;
+    priority: string;
+  }>> = [];
+  const normalizedProperties = new WeakMap<Element, Set<string>>();
+  const pendingMotionRoots = new Set<Element>();
+  const motionEventCleanups: Array<() => void> = [];
+  let motionStyle: HTMLStyleElement | null = null;
+  let motionObserver: MutationObserver | null = null;
+  let motionEnforcementScheduled = false;
+  let motionSourceHooksInstalled = false;
+  let motionErrorCount = 0;
   let lastKnownUrl = page.location && page.location.href ? String(page.location.href) : "";
 
   function installClosedShadowInstrumentation() {
@@ -159,14 +189,313 @@ const page = globalThis as unknown as PageWorldRoot;
     return Boolean(options && typeof options === "object" && options.once);
   }
 
+  function isExtensionElement(element: Element): boolean {
+    return element.getAttribute?.("data-uf-extension-ui") === "true" ||
+      Boolean(element.closest?.('[data-uf-extension-ui="true"]'));
+  }
+
+  function isSemanticallyHidden(element: Element): boolean {
+    let cursor: Element | null = element;
+    while (cursor) {
+      if (
+        cursor.hasAttribute?.("hidden") ||
+        cursor.hasAttribute?.("inert") ||
+        cursor.getAttribute?.("aria-hidden") === "true" ||
+        (cursor.tagName === "DIALOG" && !cursor.hasAttribute?.("open"))
+      ) {
+        return true;
+      }
+      if (cursor !== element && cursor.getAttribute?.("aria-expanded") === "false") {
+        return true;
+      }
+      if (cursor.tagName === "DETAILS" && !cursor.hasAttribute?.("open")) {
+        const summary = Array.from(cursor.children ?? []).find((child) => child.tagName === "SUMMARY");
+        if (element !== summary && !summary?.contains?.(element)) {
+          return true;
+        }
+      }
+      cursor = cursor.parentElement;
+    }
+    return false;
+  }
+
+  function rememberMotionStyle(
+    element: HTMLElement | SVGElement,
+    property: string,
+    value: string,
+  ): void {
+    const remembered = normalizedProperties.get(element) ?? new Set<string>();
+    if (remembered.has(property)) return;
+    remembered.add(property);
+    normalizedProperties.set(element, remembered);
+    normalizedMotionStyles.push({
+      element,
+      property,
+      value: element.style.getPropertyValue(property),
+      priority: element.style.getPropertyPriority(property),
+    });
+    element.style.setProperty(property, value, "important");
+  }
+
+  function normalizeMotionHiddenElement(element: Element): void {
+    if (isExtensionElement(element) || isSemanticallyHidden(element) || !page.getComputedStyle) return;
+    const styled = element as HTMLElement | SVGElement;
+    if (!styled.style) return;
+    const computed = page.getComputedStyle(element);
+    if (computed.display === "none" || computed.visibility === "hidden" || computed.visibility === "collapse") return;
+    const animations = typeof element.getAnimations === "function" ? element.getAnimations({ subtree: false }) : [];
+    const motionDriven = animations.length > 0 || (computed.animationName !== "none" && computed.animationDuration !== "0s");
+    if (!motionDriven) return;
+
+    const opacity = Number.parseFloat(computed.opacity || "1");
+    const clipPath = computed.clipPath || computed.getPropertyValue?.("clip-path") || "none";
+    const filtered = computed.filter && computed.filter !== "none";
+    const transformed = computed.transform && computed.transform !== "none";
+    const collapsed = "scrollHeight" in element &&
+      (element as HTMLElement).scrollHeight > 0 &&
+      (Number.parseFloat(computed.height || "0") <= 1 || Number.parseFloat(computed.maxHeight || "0") <= 1) &&
+      ["hidden", "clip"].includes(computed.overflowY || computed.overflow);
+    if (opacity <= 0.05) rememberMotionStyle(styled, "opacity", "1");
+    if (transformed) rememberMotionStyle(styled, "transform", "none");
+    if (filtered) rememberMotionStyle(styled, "filter", "none");
+    if (clipPath !== "none") rememberMotionStyle(styled, "clip-path", "none");
+    if (collapsed) {
+      rememberMotionStyle(styled, "height", "auto");
+      rememberMotionStyle(styled, "max-height", `${(element as HTMLElement).scrollHeight}px`);
+    }
+  }
+
+  function pauseMotionSources(root: Element): void {
+    const documentAnimations = page.document?.getAnimations?.() ?? [];
+    for (const animation of documentAnimations) {
+      const target = (animation.effect as KeyframeEffect | null)?.target as Element | null;
+      if (target?.nodeType === 1 && !root.contains(target) && root !== target) continue;
+      if (animation.playState === "running") {
+        try {
+          animation.pause();
+          pausedAnimations.add(animation);
+        } catch {
+          motionErrorCount += 1;
+          // A disconnected animation may vanish between enumeration and pause.
+        }
+      }
+    }
+    const elements = [root, ...Array.from(root.querySelectorAll?.("*") ?? [])];
+    for (const element of elements) {
+      normalizeMotionHiddenElement(element);
+      const media = element as HTMLMediaElement;
+      if (["AUDIO", "VIDEO"].includes(element.tagName) && typeof media.pause === "function" && !media.paused) {
+        try {
+          media.pause();
+          pausedMedia.add(media);
+        } catch {
+          motionErrorCount += 1;
+          // A custom media implementation may reject pause.
+        }
+      }
+      const svg = element as SVGSVGElement;
+      if (element.tagName.toLowerCase() === "svg" && typeof svg.pauseAnimations === "function") {
+        try {
+          svg.pauseAnimations();
+          pausedSvgRoots.add(svg);
+        } catch {
+          motionErrorCount += 1;
+          // Detached SVG roots cannot always be paused.
+        }
+      }
+    }
+  }
+
+  function scheduleMotionEnforcement(root: Element = page.document.documentElement): void {
+    if (!paused || !root || isExtensionElement(root)) return;
+    pendingMotionRoots.add(root);
+    if (motionEnforcementScheduled) return;
+    motionEnforcementScheduled = true;
+    const enforce = () => {
+      motionEnforcementScheduled = false;
+      const roots = [...pendingMotionRoots];
+      pendingMotionRoots.clear();
+      for (const pendingRoot of roots) {
+        if (pendingRoot.isConnected !== false) pauseMotionSources(pendingRoot);
+      }
+    };
+    if (originals.requestAnimationFrame) {
+      originals.requestAnimationFrame.call(page, enforce);
+    } else {
+      originals.setTimeout.call(page, enforce, 0);
+    }
+  }
+
+  function installMotionSourceHooks(): void {
+    if (motionSourceHooksInstalled) return;
+    motionSourceHooksInstalled = true;
+    if (page.Element && originals.animate) {
+      page.Element.prototype.animate = function patchedAnimate(
+        this: Element,
+        keyframes: Keyframe[] | PropertyIndexedKeyframes | null,
+        options?: number | KeyframeAnimationOptions,
+      ): Animation {
+        const animation = originals.animate!.call(this, keyframes, options);
+        if (paused) {
+          try {
+            animation.pause();
+            pausedAnimations.add(animation);
+          } catch {
+            motionErrorCount += 1;
+            // A page may return a realm-specific animation object.
+          }
+        }
+        return animation;
+      };
+    }
+    if (page.Animation && originals.animationPlay) {
+      page.Animation.prototype.play = function patchedAnimationPlay(this: Animation): void {
+        originals.animationPlay!.call(this);
+        if (paused) {
+          try {
+            this.pause();
+            pausedAnimations.add(this);
+          } catch {
+            motionErrorCount += 1;
+            // A detached effect cannot be re-paused.
+          }
+        }
+      };
+    }
+    if (page.HTMLMediaElement && originals.mediaPlay) {
+      page.HTMLMediaElement.prototype.play = function patchedMediaPlay(this: HTMLMediaElement): Promise<void> {
+        const result = originals.mediaPlay!.call(this);
+        if (paused) {
+          try {
+            this.pause();
+            pausedMedia.add(this);
+          } catch {
+            motionErrorCount += 1;
+            // A detached media element cannot be re-paused.
+          }
+        }
+        return result;
+      };
+    }
+  }
+
+  function restoreMotionSourceHooks(): void {
+    if (!motionSourceHooksInstalled) return;
+    if (page.Element && originals.animate) page.Element.prototype.animate = originals.animate;
+    if (page.Animation && originals.animationPlay) page.Animation.prototype.play = originals.animationPlay;
+    if (page.HTMLMediaElement && originals.mediaPlay) page.HTMLMediaElement.prototype.play = originals.mediaPlay;
+    motionSourceHooksInstalled = false;
+  }
+
+  function installMotionFreeze(): void {
+    const documentElement = page.document?.documentElement;
+    if (!documentElement || typeof documentElement.setAttribute !== "function") return;
+    documentElement.setAttribute("data-uf-page-motion-paused", "true");
+    installMotionSourceHooks();
+    if (!motionStyle) {
+      motionStyle = page.document.createElement("style");
+      motionStyle.setAttribute("data-uf-extension-ui", "true");
+      motionStyle.setAttribute("data-uf-page-motion-style", "true");
+      motionStyle.textContent = `
+html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not([data-uf-extension-ui="true"] *) {
+  animation-play-state: paused !important;
+  transition-property: none !important;
+  scroll-behavior: auto !important;
+}
+`;
+      (page.document.head || documentElement).appendChild(motionStyle);
+    }
+    pauseMotionSources(documentElement);
+    if (!motionObserver && page.MutationObserver) {
+      motionObserver = new page.MutationObserver((records) => {
+        for (const record of records) {
+          const target = record.target.nodeType === 1 ? record.target as Element : record.target.parentElement;
+          if (target) pendingMotionRoots.add(target);
+          for (const node of Array.from(record.addedNodes ?? [])) {
+            if (node.nodeType === 1) pendingMotionRoots.add(node as Element);
+          }
+        }
+        scheduleMotionEnforcement();
+      });
+      motionObserver.observe(documentElement, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["class", "style", "hidden", "open", "aria-hidden", "aria-expanded"],
+      });
+    }
+    if (motionEventCleanups.length === 0 && originals.addEventListener && originals.removeEventListener) {
+      for (const type of ["animationstart", "animationiteration", "transitionrun", "play", "pointerover", "mouseover"]) {
+        const listener = (event: Event): void => {
+          const target = (event.target as Element | null)?.nodeType === 1
+            ? event.target as Element
+            : documentElement;
+          scheduleMotionEnforcement(target);
+        };
+        originals.addEventListener.call(page.document, type, listener, true);
+        motionEventCleanups.push(() => originals.removeEventListener?.call(page.document, type, listener, true));
+      }
+    }
+  }
+
+  function releaseMotionFreeze(): void {
+    motionObserver?.disconnect();
+    motionObserver = null;
+    while (motionEventCleanups.length > 0) motionEventCleanups.pop()?.();
+    pendingMotionRoots.clear();
+    motionEnforcementScheduled = false;
+    motionStyle?.remove();
+    motionStyle = null;
+    page.document?.documentElement?.removeAttribute?.("data-uf-page-motion-paused");
+    restoreMotionSourceHooks();
+    for (let index = normalizedMotionStyles.length - 1; index >= 0; index -= 1) {
+      const remembered = normalizedMotionStyles[index];
+      if (!remembered) continue;
+      if (remembered.value) {
+        remembered.element.style.setProperty(remembered.property, remembered.value, remembered.priority);
+      } else {
+        remembered.element.style.removeProperty(remembered.property);
+      }
+      normalizedProperties.get(remembered.element)?.delete(remembered.property);
+    }
+    normalizedMotionStyles.length = 0;
+    for (const animation of pausedAnimations) {
+      try {
+        if (animation.playState === "paused") animation.play();
+      } catch {
+        motionErrorCount += 1;
+        // An animation removed by the page has nothing left to restore.
+      }
+    }
+    pausedAnimations.clear();
+    for (const media of pausedMedia) {
+      try {
+        void media.play().catch(() => undefined);
+      } catch {
+        motionErrorCount += 1;
+        // Autoplay policy may prevent restoration.
+      }
+    }
+    pausedMedia.clear();
+    for (const svg of pausedSvgRoots) {
+      try {
+        svg.unpauseAnimations();
+      } catch {
+        motionErrorCount += 1;
+        // A detached SVG root has no lifecycle left to restore.
+      }
+    }
+    pausedSvgRoots.clear();
+  }
+
   function installTimerBridge() {
     if (installed) return;
     installed = true;
     page.setTimeout = function patchedSetTimeout(callback, delay, ...args) {
-        if (typeof callback !== "function") {
-          return originals.setTimeout.call(page, callback, delay, ...args);
-        }
-        const token: PageTimer = { type: "timeout", callback, args, cancelled: false };
+        const callable = typeof callback === "function"
+          ? callback
+          : () => { originals.setTimeout.call(page, callback, 0, ...args); };
+        const token: PageTimer = { type: "timeout", callback: callable, args, cancelled: false };
         const nativeId = originals.setTimeout.call(page, () => {
           if (token.cancelled) return;
           if (paused) {
@@ -174,7 +503,7 @@ const page = globalThis as unknown as PageWorldRoot;
             return;
           }
           timeoutTokens.delete(token.nativeId);
-          callback.call(page, ...args);
+          callable.call(page, ...args);
       }, delay);
         token.nativeId = nativeId;
         timeoutTokens.set(nativeId, token);
@@ -191,11 +520,13 @@ const page = globalThis as unknown as PageWorldRoot;
       return originals.clearTimeout.call(page, token);
     };
     page.setInterval = function patchedSetInterval(callback, delay, ...args) {
-      if (typeof callback !== "function") {
-        return originals.setInterval.call(page, callback, delay, ...args);
-      }
       return originals.setInterval.call(page, function intervalGate() {
-        if (!paused) callback.call(page, ...args);
+        if (paused) return;
+        if (typeof callback === "function") {
+          callback.call(page, ...args);
+        } else {
+          originals.setTimeout.call(page, callback, 0, ...args);
+        }
       }, delay);
     };
     page.clearInterval = function patchedClearInterval(token) {
@@ -230,6 +561,33 @@ const page = globalThis as unknown as PageWorldRoot;
       }
       return originals.cancelAnimationFrame?.call(page, token);
     };
+    if (originals.requestIdleCallback) {
+      page.requestIdleCallback = function patchedRequestIdleCallback(callback, options) {
+        const token: PageTimer = { type: "idle", callback, args: [], cancelled: false };
+        const nativeId = originals.requestIdleCallback!.call(page, (deadline) => {
+          if (token.cancelled) return;
+          if (paused) {
+            queued.push(token);
+            return;
+          }
+          idleTokens.delete(token.nativeId);
+          callback.call(page, deadline);
+        }, options);
+        token.nativeId = nativeId;
+        idleTokens.set(nativeId, token);
+        return nativeId;
+      };
+      page.cancelIdleCallback = function patchedCancelIdleCallback(token) {
+        const tracked = idleTokens.get(token);
+        if (tracked) {
+          tracked.cancelled = true;
+          idleTokens.delete(token);
+          originals.cancelIdleCallback?.call(page, token);
+          return;
+        }
+        return originals.cancelIdleCallback?.call(page, token);
+      };
+    }
     if (originals.IntersectionObserver) {
       const PatchedIntersectionObserver = function PatchedIntersectionObserver(
         callback: IntersectionObserverCallback,
@@ -331,6 +689,8 @@ const page = globalThis as unknown as PageWorldRoot;
     page.clearInterval = originals.clearInterval;
     page.requestAnimationFrame = originals.requestAnimationFrame;
     page.cancelAnimationFrame = originals.cancelAnimationFrame;
+    page.requestIdleCallback = originals.requestIdleCallback;
+    page.cancelIdleCallback = originals.cancelIdleCallback;
     page.IntersectionObserver = originals.IntersectionObserver;
     page.ResizeObserver = originals.ResizeObserver;
     while (wrappedEventRegistrations.length > 0) {
@@ -350,6 +710,7 @@ const page = globalThis as unknown as PageWorldRoot;
     lazySuppressed = false;
     timeoutTokens.clear();
     rafTokens.clear();
+    idleTokens.clear();
     if (page.document && page.document.documentElement) {
       page.document.documentElement.toggleAttribute("data-uf-lazy-loading-suppressed", false);
     }
@@ -365,6 +726,12 @@ const page = globalThis as unknown as PageWorldRoot;
           if (item.type === "raf") {
             rafTokens.delete(item.nativeId);
             item.callback.call(page, performance.now());
+          } else if (item.type === "idle") {
+            idleTokens.delete(item.nativeId);
+            item.callback.call(page, {
+              didTimeout: false,
+              timeRemaining: () => 0,
+            });
           } else {
             timeoutTokens.delete(item.nativeId);
             item.callback.call(page, ...item.args);
@@ -468,7 +835,12 @@ const page = globalThis as unknown as PageWorldRoot;
     }
     if (command === "SET_MOTION_PAUSED") {
       paused = Boolean(request.payload && request.payload.paused);
-      if (!paused) flushQueued();
+      if (paused) {
+        installMotionFreeze();
+      } else {
+        releaseMotionFreeze();
+        flushQueued();
+      }
     }
     if (command === "SET_LAZY_LOADING_SUPPRESSED") {
       lazySuppressed = Boolean(request.payload && request.payload.suppressed);
@@ -481,12 +853,13 @@ const page = globalThis as unknown as PageWorldRoot;
       sessionNonce = "";
       paused = false;
       lazySuppressed = false;
+      releaseMotionFreeze();
       if (page.document && page.document.documentElement) {
         page.document.documentElement.toggleAttribute("data-uf-lazy-loading-suppressed", false);
       }
       flushQueued();
       restoreTimerBridge();
     }
-    reply(page, request, true, { armed, paused, lazySuppressed });
+    reply(page, request, true, { armed, paused, lazySuppressed, motionErrorCount });
   });
 }());

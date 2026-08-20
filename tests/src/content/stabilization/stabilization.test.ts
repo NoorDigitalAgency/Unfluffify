@@ -162,7 +162,7 @@ describe("P5 page stabilization", () => {
     expect(steps).toEqual(["top", "lazy-threshold", "suppress", "restore-lazy"]);
   });
 
-  it("skips concurrent reveal attempts before the first ritual settles", async () => {
+  it("joins concurrent reveal attempts to the one authoritative ritual", async () => {
     const controller = createRevealVisitController();
     let release: (() => void) | null = null;
     const input = {
@@ -179,12 +179,69 @@ describe("P5 page stabilization", () => {
     };
 
     const first = controller.run(input);
-    await expect(controller.run(input)).resolves.toMatchObject({ skipped: true });
+    const joined = controller.run(input);
+    expect(joined).toBe(first);
     for (let index = 0; index < 20 && !release; index += 1) {
       await Promise.resolve();
     }
     release?.();
     await expect(first).resolves.toMatchObject({ skipped: false });
+    await expect(joined).resolves.toMatchObject({ skipped: false });
+  });
+
+  it("defers and coalesces hidden-document runs until visibility returns", async () => {
+    let visible = false;
+    let reveal = 0;
+    let releaseVisibility: (() => void) | null = null;
+    const controller = createRevealVisitController({
+      isVisible: () => visible,
+      waitUntilVisible: () => new Promise<void>((resolve) => {
+        releaseVisibility = resolve;
+      }),
+    });
+    const task = () => {
+      reveal += 1;
+      return Promise.resolve({ skipped: false, lazyExpansions: 0, frozenAtBottom: true });
+    };
+
+    const first = controller.runTask(task);
+    const joined = controller.runTask(task);
+    expect(joined).toBe(first);
+    expect(reveal).toBe(0);
+    visible = true;
+    releaseVisibility?.();
+    await expect(first).resolves.toMatchObject({ frozenAtBottom: true });
+    expect(reveal).toBe(1);
+  });
+
+  it("consolidates a newer generation into one follow-up ritual", async () => {
+    const steps: string[] = [];
+    let releasePrimary: (() => void) | null = null;
+    const controller = createRevealVisitController();
+    const first = controller.runTask(async () => {
+      steps.push("primary");
+      await new Promise<void>((resolve) => {
+        releasePrimary = resolve;
+      });
+      return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
+    });
+    for (let index = 0; index < 20 && !releasePrimary; index += 1) {
+      await Promise.resolve();
+    }
+    controller.resetForNavigation();
+    const joined = controller.runTask(async () => {
+      steps.push("follow-up");
+      return { skipped: false, lazyExpansions: 0, frozenAtBottom: true };
+    }, { scopeStrength: 2 });
+    controller.runTask(async () => {
+      steps.push("superseded");
+      return { skipped: false, lazyExpansions: 0, frozenAtBottom: true };
+    }, { scopeStrength: 1 });
+
+    expect(joined).toBe(first);
+    releasePrimary?.();
+    await expect(first).resolves.toMatchObject({ frozenAtBottom: true });
+    expect(steps).toEqual(["primary", "follow-up"]);
   });
 
   it("clamps and clears emulation state", () => {

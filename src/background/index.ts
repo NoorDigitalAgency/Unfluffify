@@ -1,6 +1,7 @@
 import { createRewriteBrainRuntime } from "./rewrite-brain-runtime";
 import { createPropertyLockRuntime, PROPERTY_LOCK_HEARTBEAT_ALARM } from "./lock-runtime";
 import { createRenderEmulationRuntime } from "./render-emulation-runtime";
+import { managedEmulationDecision } from "./emulation-policy";
 import { createRewriteBackgroundServices } from "./services";
 import { createAuthTokenMonitor } from "./auth-token-monitor";
 import { createPageContextRuntime } from "./page-context-runtime";
@@ -298,14 +299,17 @@ export function startRewriteBackground(): void {
     // knows this is a managed property tab, so establish the standing mobile
     // posture here. An explicit desktop preview is a held override and remains
     // untouched until the popup turns it off or marking begins.
-    if (
-      tabId > 0 &&
-      context.environmentKey &&
-      context.siteId !== null &&
-      renderEmulation.heldMode(tabId) !== "desktop" &&
-      renderEmulation.heldMode(tabId) !== "mobile"
-    ) {
-      await renderEmulation.apply(tabId, "mobile", 1, true).catch(() => undefined);
+    const emulationDecision = managedEmulationDecision({
+      recognized: tabId > 0 && Boolean(context.environmentKey) && context.siteId !== null,
+      heldMode: renderEmulation.heldMode(tabId),
+    });
+    if (emulationDecision) {
+      await renderEmulation.apply(
+        tabId,
+        emulationDecision.mode,
+        emulationDecision.scale,
+        emulationDecision.allowReload,
+      ).catch(() => undefined);
     }
     const propertyKey = context.environmentKey && context.siteId !== null
       ? `${context.environmentKey}\u0000${context.siteId}`

@@ -34,8 +34,19 @@ function mockFastRevealVisit(): void {
     const actual = await importOriginal<typeof import("../src/content/stabilization")>();
     return {
       ...actual,
+      async runReveal(input: {
+        suppressLazyLoading: () => Promise<void>;
+        freezeAtBottom: () => Promise<void>;
+      }) {
+        await input.suppressLazyLoading();
+        await input.freezeAtBottom();
+        return { skipped: false, lazyExpansions: 0, frozenAtBottom: true };
+      },
       createRevealVisitController: () => ({
         resetForNavigation: vi.fn(),
+        async runTask(task: () => Promise<{ skipped: boolean; lazyExpansions: number; frozenAtBottom: boolean }>) {
+          return task();
+        },
         async run(input: {
           suppressLazyLoading: () => Promise<void>;
           freezeAtBottom: () => Promise<void>;

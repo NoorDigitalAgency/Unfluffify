@@ -19,7 +19,7 @@ import {
   type ContentPresentation,
   type ContentState,
 } from "../content/organ";
-import { createFreezeController, createRevealVisitController, createSpaGuard } from "../content/stabilization";
+import { createFreezeController, createRevealVisitController, createSpaGuard, runReveal } from "../content/stabilization";
 import type { BrainSignal } from "../domain/schema/signals";
 import type { LockActionKind } from "../domain/schema/facts";
 import type { CommandEnvelope } from "../messaging/contracts";
@@ -29,7 +29,23 @@ import { pullRewriteSignals, type RewriteSignalBus } from "../messaging/rewrite-
 
 const activation = createActivationGate();
 const freezeController = createFreezeController();
-const revealController = createRevealVisitController();
+const revealController = createRevealVisitController({
+  isVisible: () => typeof document === "undefined" || document.visibilityState !== "hidden",
+  waitUntilVisible: () => new Promise((resolve) => {
+    if (typeof document === "undefined" || document.visibilityState !== "hidden") {
+      resolve();
+      return;
+    }
+    const onVisible = (): void => {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+      document.removeEventListener("visibilitychange", onVisible, true);
+      resolve();
+    };
+    document.addEventListener("visibilitychange", onVisible, true);
+  }),
+});
 const spaGuard = createSpaGuard((url) => {
   if (typeof location !== "undefined" && location.href !== url) {
     location.assign(url);
@@ -497,75 +513,79 @@ function waitForWindowScrollEnd(targetY: number, isStale: () => boolean): Promis
 }
 
 async function runActivationStabilization(pageUrl: string): Promise<{ skipped: boolean } | null> {
-  spaGuard.arm(pageUrl);
-  destroyPageWorldSession();
-  pageInspectionActive = true;
-  lastContentSurfaceSignature = "";
-  renderContentSurface();
-  const initialScrollY = typeof window !== "undefined" ? window.scrollY : 0;
-  const isStale = (): boolean => pageUrl !== (typeof location !== "undefined" ? location.href : pageUrl);
-  const waitForSettle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 1_000));
   try {
-    const armed = await requestStabilizationPageCommand("ARM", {});
-    pageWorldSessionNonce = armed.nonce;
-    return await revealController.run({
-      hasVerticalScrollRoom: typeof document !== "undefined" && typeof window !== "undefined"
-        ? currentDocumentScrollHeight() > window.innerHeight + 2
-        : false,
-      activationStale: isStale,
-      initialScrollHeight: currentDocumentScrollHeight(),
-      measureExpandedScrollHeight: currentDocumentScrollHeight,
-      async scrollTo(position, measuredScrollHeight) {
-        if (typeof window === "undefined") {
-          return;
-        }
-        const bottomY = Math.max(0, measuredScrollHeight - window.innerHeight);
-        const targetY = position === "top"
-          ? 0
-          : position === "lazy-threshold"
-            ? Math.round(bottomY * 0.5)
-            : position === "bottom"
-              ? bottomY
-              : initialScrollY;
-        window.scrollTo({ top: targetY, behavior: "smooth" });
-        await waitForWindowScrollEnd(targetY, isStale);
-      },
-      waitForSettle,
-      async suppressLazyLoading() {
-        await requestStabilizationPageCommand(
-          "SET_LAZY_LOADING_SUPPRESSED",
-          { suppressed: true },
-          pageWorldSessionNonce,
-        );
-      },
-      async restoreLazyLoading() {
-        if (!pageWorldSessionNonce) {
-          return;
-        }
-        await requestStabilizationPageCommand(
-          "SET_LAZY_LOADING_SUPPRESSED",
-          { suppressed: false },
-          pageWorldSessionNonce,
-        );
-      },
-      async freezeAtBottom() {
-        await requestStabilizationPageCommand(
-          "SET_MOTION_PAUSED",
-          { paused: true },
-          pageWorldSessionNonce,
-        );
-        freezeController.pause("page-visit");
+    return await revealController.runTask(async () => {
+      spaGuard.arm(pageUrl);
+      destroyPageWorldSession();
+      pageInspectionActive = true;
+      lastContentSurfaceSignature = "";
+      renderContentSurface();
+      const initialScrollY = typeof window !== "undefined" ? window.scrollY : 0;
+      const isStale = (): boolean => pageUrl !== (typeof location !== "undefined" ? location.href : pageUrl);
+      const waitForSettle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 1_000));
+      try {
+        const armed = await requestStabilizationPageCommand("ARM", {});
+        pageWorldSessionNonce = armed.nonce;
+        return await runReveal({
+          hasVerticalScrollRoom: typeof document !== "undefined" && typeof window !== "undefined"
+            ? currentDocumentScrollHeight() > window.innerHeight + 2
+            : false,
+          activationStale: isStale,
+          initialScrollHeight: currentDocumentScrollHeight(),
+          measureExpandedScrollHeight: currentDocumentScrollHeight,
+          async scrollTo(position, measuredScrollHeight) {
+            if (typeof window === "undefined") {
+              return;
+            }
+            const bottomY = Math.max(0, measuredScrollHeight - window.innerHeight);
+            const targetY = position === "top"
+              ? 0
+              : position === "lazy-threshold"
+                ? Math.round(bottomY * 0.5)
+                : position === "bottom"
+                  ? bottomY
+                  : initialScrollY;
+            window.scrollTo({ top: targetY, behavior: "smooth" });
+            await waitForWindowScrollEnd(targetY, isStale);
+          },
+          waitForSettle,
+          async suppressLazyLoading() {
+            await requestStabilizationPageCommand(
+              "SET_LAZY_LOADING_SUPPRESSED",
+              { suppressed: true },
+              pageWorldSessionNonce,
+            );
+          },
+          async restoreLazyLoading() {
+            if (!pageWorldSessionNonce) {
+              return;
+            }
+            await requestStabilizationPageCommand(
+              "SET_LAZY_LOADING_SUPPRESSED",
+              { suppressed: false },
+              pageWorldSessionNonce,
+            );
+          },
+          async freezeAtBottom() {
+            await requestStabilizationPageCommand(
+              "SET_MOTION_PAUSED",
+              { paused: true },
+              pageWorldSessionNonce,
+            );
+            freezeController.pause("page-visit");
+            lastContentSurfaceSignature = "";
+            renderContentSurface();
+          },
+        });
+      } finally {
+        pageInspectionActive = false;
         lastContentSurfaceSignature = "";
         renderContentSurface();
-      },
-    });
+      }
+    }, { scopeStrength: 1 });
   } catch (error) {
     console.error("[Unfluffify][rewrite] Page stabilization failed", error);
     return null;
-  } finally {
-    pageInspectionActive = false;
-    lastContentSurfaceSignature = "";
-    renderContentSurface();
   }
 }
 
@@ -1218,14 +1238,15 @@ function runPageVisitRitual(pageUrl: string, cause: string): void {
     return;
   }
   const attempt = (): void => {
-    ritualPendingForUrl = "";
     if (pageUrl && currentPageUrl() !== pageUrl) {
       // The page moved on while waiting; this ritual describes a document that is
       // no longer here, and the new one has its own trigger.
+      ritualPendingForUrl = "";
       return;
     }
     // Started synchronously so the page-world bridge is armed before anything else
     // this tick can look for it; the walk's outcome settles later.
+    ritualPendingForUrl = pageUrl;
     void runActivationStabilization(pageUrl).then((result) => {
       if (result && !result.skipped) {
         ritualRanForUrl = pageUrl;
@@ -1235,6 +1256,10 @@ function runPageVisitRitual(pageUrl: string, cause: string): void {
       console.debug(`[Unfluffify][rewrite] Page-visit reveal/freeze skipped (${cause}) — attempt kept`);
     }).catch(() => {
       // A failed walk has not prepared the page either, so the attempt stays free.
+    }).finally(() => {
+      if (ritualPendingForUrl === pageUrl) {
+        ritualPendingForUrl = "";
+      }
     });
   };
   if (readyToWalk()) {
