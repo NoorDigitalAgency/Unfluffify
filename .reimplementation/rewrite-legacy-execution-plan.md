@@ -574,7 +574,16 @@ in the owning phase and rerun its focused gate plus P9–P11.
   - Cutover reachability, generated page-world parity, production debug
     exclusion, output-equivalence corpus, and the 2,000-node p95 marking
     benchmark are green. Hub remained unchanged and its 96-test P9 gate passed.
-- [ ] P11 — Witnessed live acceptance
+- [x] P11 — Witnessed live acceptance
+  - Live/fix commit: `82cd129d` (`Fix live navigation and silent session transitions`).
+  - [`p11-live-acceptance-evidence.md`](./p11-live-acceptance-evidence.md)
+    records the production artifact, browser, property/site identity, live
+    matrix, Alpha deployment identity, failures found, and repair evidence.
+  - Focused P11 regression gate passed 4 files / 66 tests; `pnpm verify` passed
+    lint, all TypeScript checks, 91 files / 685 tests, production build, and all
+    7 manifest assertions.
+  - Hub remained clean at the already-live `9bdce9f`; no Alpha redeploy was
+    required.
 
 For each completed item, append the commit SHA(s), exact test command, result,
 and any live artifact/version directly beneath the checkbox. The first unchecked
