@@ -5,7 +5,7 @@ import type { CanonicalMarkSet, Classification, MarkMode, MarkRow } from "../../
 import type { EvaluationNode } from "../../domain/evaluate";
 import { captureFlattenedHtml, createDomBridgeView, type DomBridgeView } from "./dom-view";
 import { getComposedHitElements } from "./hit-testing";
-import { isPaintReachableAt } from "./paint-reachability";
+import { isPaintReachableWithinHits } from "./paint-reachability";
 import { createMarkingStore } from "./store";
 import { resolveTarget, type MarkingCandidate } from "./resolve";
 import { createOverlayRenderer, type OverlayRenderTarget } from "./renderer";
@@ -635,9 +635,10 @@ export function createMarkingEngine(
       return lastInitializationSeededSelectors;
     },
     resolveAtPoint(x: number, y: number, mode: MarkMode, shiftActive = false): EvaluationNode | null {
-      const hits = getComposedHitElements(rootElement.ownerDocument, x, y)
+      const pointHits = getComposedHitElements(rootElement.ownerDocument, x, y);
+      const hits = pointHits
         .filter((element) => composedContains(rootElement, element))
-        .filter((element) => isPaintReachableAt(element, x, y, rootElement.ownerDocument));
+        .filter((element) => isPaintReachableWithinHits(element, pointHits));
       const candidatesByXpath = currentCandidateIndex();
       const candidates = hits
         .map((element) => bridge.byElement.get(element)?.evaluationNode.xpath)

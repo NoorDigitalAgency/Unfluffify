@@ -36,6 +36,7 @@ class FakeElement {
   id = "";
   hidden = false;
   clientRects: Rect[] | null = null;
+  clientRectReadCount = 0;
   rectReadCount = 0;
   roleReadCount = 0;
 
@@ -133,6 +134,7 @@ class FakeElement {
   }
 
   getClientRects(): Rect[] {
+    this.clientRectReadCount += 1;
     return this.clientRects ?? [this.rect];
   }
 }
@@ -253,6 +255,36 @@ describe("P6 DOM bridge", () => {
     engine.hoverAtPoint(20, 15);
 
     expect(doc.hitReadCount).toBeGreaterThan(firstProbeReads);
+  });
+
+  it("shares one composed hit stack across every point-resolution candidate", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const article = new FakeElement("ARTICLE", rect(0, 0, 200, 100));
+    const paragraph = new FakeElement("P", rect(10, 10, 120, 20), "Target copy");
+    const cover = new FakeElement("DIV", rect(0, 0, 200, 100));
+    for (const element of [root, article, paragraph, cover]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    article.appendChild(paragraph);
+    root.appendChild(article);
+    doc.hits = [paragraph, article, root];
+    const engine = createMarkingEngine(root as unknown as Element);
+    doc.hitReadCount = 0;
+
+    expect(engine.resolveAtPoint(20, 15, "exclude")?.xpath).toBe("/main[1]/article[1]/p[1]");
+    expect(doc.hitReadCount).toBe(1);
+
+    // Reachability must still use the full point stack before root filtering:
+    // an unrelated painted cover outside the engine root blocks every root
+    // candidate, without causing a second native hit-test per candidate.
+    doc.hits = [cover, paragraph, article, root];
+    doc.hitReadCount = 0;
+    expect(engine.resolveAtPoint(20, 15, "exclude")).toBeNull();
+    expect(doc.hitReadCount).toBe(1);
+    engine.dispose();
   });
 
   it("builds an Element-backed shadow-flattened bridge view", () => {
@@ -646,6 +678,40 @@ describe("P6 DOM bridge", () => {
       .flatMap((layer) => layer.children)
       .map((box) => box.getAttribute("data-uf-overlay-xpath")))
       .not.toContain("/section[1]");
+    renderer.dispose();
+  });
+
+  it("reuses paint geometry only across one synchronous marking and silent transaction", async () => {
+    const doc = new FakeDocument();
+    const paragraph = new FakeElement("P", rect(10, 10, 200, 20), "Canonical text");
+    paragraph.ownerDocument = doc;
+    doc.pointHits = () => [paragraph];
+    const renderer = createOverlayRenderer({ document: doc as unknown as Document });
+    const xpath = "/p[1]";
+    const evaluation = {
+      rows: [{ xpath, excluded: false }],
+      overlay: new Map([[xpath, "implicit-include" as const]]),
+    };
+    const targets = new Map([[xpath, {
+      element: paragraph as unknown as Element,
+      visible: true,
+    }]]);
+
+    paragraph.clientRectReadCount = 0;
+    renderer.render(evaluation, targets);
+    renderer.renderSilentHighlights([xpath], targets);
+    expect(paragraph.clientRectReadCount).toBe(1);
+
+    paragraph.clientRectReadCount = 0;
+    renderer.render(evaluation, targets);
+    await Promise.resolve();
+    renderer.renderSilentHighlights([xpath], targets);
+    expect(paragraph.clientRectReadCount).toBe(2);
+
+    paragraph.clientRectReadCount = 0;
+    renderer.renderBranch(evaluation, targets);
+    renderer.renderSilentHighlightsBranch([xpath], targets);
+    expect(paragraph.clientRectReadCount).toBe(1);
     renderer.dispose();
   });
 

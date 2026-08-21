@@ -223,6 +223,43 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   let hoverXpath = "";
   let acknowledgementClearHandle: ReturnType<typeof setTimeout> | null = null;
   let silentDebugAnnotations = false;
+  // Marking and silent layers are rendered synchronously from the same DOM
+  // generation. Retain paint-reachable rects only until the next microtask so
+  // that the immediately following silent pass can reuse the expensive native
+  // hit tests without carrying geometry across page work or viewport changes.
+  let geometryBatch: Map<Element, RectLike[]> | null = null;
+  let geometryBatchGeneration = 0;
+
+  const beginRetainedGeometryBatch = (): void => {
+    geometryBatch = new Map<Element, RectLike[]>();
+    geometryBatchGeneration += 1;
+    const generation = geometryBatchGeneration;
+    queueMicrotask(() => {
+      if (geometryBatchGeneration === generation) {
+        geometryBatch = null;
+      }
+    });
+  };
+
+  const beginGeometryBatch = (): void => {
+    geometryBatchGeneration += 1;
+    geometryBatch = new Map<Element, RectLike[]>();
+  };
+
+  const endGeometryBatch = (): void => {
+    geometryBatchGeneration += 1;
+    geometryBatch = null;
+  };
+
+  const measuredClientRectsFor = (element: Element): RectLike[] => {
+    const retained = geometryBatch?.get(element);
+    if (retained) {
+      return retained;
+    }
+    const measured = clientRectsFor(element, options.document);
+    geometryBatch?.set(element, measured);
+    return measured;
+  };
 
   const updateClientArea = (): void => {
     const view = options.document.defaultView;
@@ -284,7 +321,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     }
     let layerKey = LAYER_BY_CLASSIFICATION[classification];
     let presentation = overlayClassFor(classification);
-    let rects = clientRectsFor(target.element, options.document);
+    let rects = measuredClientRectsFor(target.element);
     if (rects.length === 0 && classification === "explicit-include") {
       rects = rawClientRectsFor(target.element);
       if (!target.visible) {
@@ -364,7 +401,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       if (!layer) {
         return;
       }
-      let rects = clientRectsFor(target.element, options.document);
+      let rects = measuredClientRectsFor(target.element);
       if (rects.length === 0 && presentation.includes("uf-silent-content-ghost")) {
         rects = rawClientRectsFor(target.element);
       }
@@ -416,7 +453,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     const used = new Set<string>();
     const layer = layers.get("hover");
     if (layer && hoverElement) {
-      const rects = clientRectsFor(hoverElement, options.document);
+      const rects = measuredClientRectsFor(hoverElement);
       for (let index = 0; index < rects.length; index += 1) {
         const key = `${hoverXpath}\u0000${index}`;
         let overlay = hoverBoxes.get(key);
@@ -463,6 +500,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   };
 
   const clearBoxes = (): void => {
+    endGeometryBatch();
     clearAcknowledgement();
     for (const layer of layers.values()) {
       layer.replaceChildren();
@@ -480,6 +518,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   return {
     root,
     render(evaluation: EvaluationResult, byXpath: ReadonlyMap<string, OverlayRenderTarget>): void {
+      beginRetainedGeometryBatch();
       const submittedXpaths = new Set(evaluation.rows.map((row) => row.xpath));
       classificationByXpath.clear();
       for (const [xpath, classification] of evaluation.overlay) {
@@ -494,6 +533,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       drawCurrentClassifications(byXpath);
     },
     renderBranch(evaluation: EvaluationResult, byXpath: ReadonlyMap<string, OverlayRenderTarget>): void {
+      beginRetainedGeometryBatch();
       const affected = new Set(byXpath.keys());
       const submittedXpaths = new Set(evaluation.rows.map((row) => row.xpath));
       const used = new Set<string>();
@@ -523,17 +563,27 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       byXpath: ReadonlyMap<string, OverlayRenderTarget>,
       renderOptions: Readonly<{ includeSilent?: boolean }> = {},
     ): void {
-      updateClientArea();
-      drawCurrentClassifications(byXpath);
-      if (renderOptions.includeSilent !== false) {
-        drawSilent(byXpath);
+      beginGeometryBatch();
+      try {
+        updateClientArea();
+        drawCurrentClassifications(byXpath);
+        if (renderOptions.includeSilent !== false) {
+          drawSilent(byXpath);
+        }
+        drawHover();
+      } finally {
+        endGeometryBatch();
       }
-      drawHover();
     },
     setHover(element: Element | null, xpath = ""): void {
       hoverElement = element;
       hoverXpath = element ? xpath : "";
-      drawHover();
+      beginGeometryBatch();
+      try {
+        drawHover();
+      } finally {
+        endGeometryBatch();
+      }
     },
     renderSilentHighlights(
       xpaths: readonly string[],
@@ -553,7 +603,14 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       for (const xpath of categories.excludedXpaths ?? []) {
         silentPresentationByXpath.set(xpath, "uf-silent-excluded");
       }
-      drawSilent(byXpath);
+      if (!geometryBatch) {
+        beginGeometryBatch();
+      }
+      try {
+        drawSilent(byXpath);
+      } finally {
+        endGeometryBatch();
+      }
     },
     renderSilentHighlightsBranch(
       xpaths: readonly string[],
@@ -576,7 +633,14 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       for (const xpath of categories.excludedXpaths ?? []) {
         silentPresentationByXpath.set(xpath, "uf-silent-excluded");
       }
-      drawSilent(byXpath, affected);
+      if (!geometryBatch) {
+        beginGeometryBatch();
+      }
+      try {
+        drawSilent(byXpath, affected);
+      } finally {
+        endGeometryBatch();
+      }
     },
     acknowledge(element: Element, xpath: string, mode: "include" | "exclude"): void {
       clearAcknowledgement();
@@ -584,7 +648,13 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       if (!layer) {
         return;
       }
-      const rects = clientRectsFor(element, options.document);
+      beginGeometryBatch();
+      let rects: RectLike[];
+      try {
+        rects = measuredClientRectsFor(element);
+      } finally {
+        endGeometryBatch();
+      }
       const presentation = mode === "include" ? "uf-explicit-include" : "uf-explicit-exclude";
       for (let index = 0; index < rects.length; index += 1) {
         const overlay = options.document.createElement("div");

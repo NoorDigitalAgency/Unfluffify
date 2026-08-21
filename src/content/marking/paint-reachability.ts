@@ -54,19 +54,22 @@ export function isActuallyPaintReachable(
     [rect.left + insetX, rect.top + rect.height - insetY],
     [rect.left + rect.width - insetX, rect.top + rect.height - insetY],
   ];
-  return points.some(([x, y]) =>
-    getComposedHitElements(document, x, y).length > 0 &&
-    isPaintReachableAt(element, x, y, document)
-  );
+  return points.some(([x, y]) => {
+    const hits = getComposedHitElements(document, x, y);
+    return hits.length > 0 && isPaintReachableWithinHits(element, hits);
+  });
 }
 
-export function isPaintReachableAt(
+/**
+ * Evaluate reachability against an already expanded composed hit stack. Callers
+ * that resolve several candidates at one physical point must share this stack:
+ * recomputing it per candidate repeats native hit-testing and shadow traversal
+ * even though reachability only depends on the same top painted element.
+ */
+export function isPaintReachableWithinHits(
   element: Element,
-  x: number,
-  y: number,
-  document: Document = element.ownerDocument,
+  hits: readonly Element[],
 ): boolean {
-  const hits = getComposedHitElements(document, x, y);
   const top = hits[0];
   if (!top) {
     return true;
@@ -84,4 +87,14 @@ export function isPaintReachableAt(
     return true;
   }
   return false;
+}
+
+export function isPaintReachableAt(
+  element: Element,
+  x: number,
+  y: number,
+  document: Document = element.ownerDocument,
+): boolean {
+  const hits = getComposedHitElements(document, x, y);
+  return isPaintReachableWithinHits(element, hits);
 }
