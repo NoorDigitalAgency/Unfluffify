@@ -2,9 +2,10 @@
 
 **Authority:** [`rewrite-legacy-decision-spec.md`](./rewrite-legacy-decision-spec.md)
 
-**Status:** Living release-gate index. “Planned” evidence is an obligation of the
-owning phase; it is not a claim that the test already exists. P9/P11 exercise all
-rows again through the integrated and live matrices.
+**Status:** Executable release-gate index. Every local automated-evidence path is
+validated on disk, every row names executable automated evidence, and every row
+also names a specific live/build acceptance. P9/P11 accepted the original 91
+rows; P20 re-exercises all 104 rows through the integrated and live matrices.
 
 | Decision | Primary phase | Automated evidence | Live/build evidence |
 |---|---|---|---|
@@ -37,7 +38,7 @@ rows again through the integrated and live matrices.
 | I-27 | P5 | `tests/src/background/property-authority.test.ts`; `tests/src/background/services.test.ts`; `tests/src/background/startup.test.ts` | P9 failure-recovery scenario |
 | I-28 | P5 | `tests/src/popup/app.test.ts`; `tests/src/popup/entrypoint.test.ts` | P11 operation blocking/recovery |
 | I-29 | P8 | `tests/src/popup/theme.test.ts`; `tests/theme-colors.test.ts` | P11 theme matrix |
-| I-30 | P8 | `tests/src/popup/app.test.ts`; `tests/popup-view-projector.test.ts`; `tests/popup-responsive-layout.test.ts`; `tests/build-artifact-parity.test.ts` | production package UI run |
+| I-30 | P8 | `tests/src/popup/app.test.ts`; `tests/popup-responsive-layout.test.ts`; `tests/build-artifact-parity.test.ts` | production package UI run |
 | I-31 | P4 | `tests/src/background/emulation-policy.test.ts`; `tests/src/popup/app.test.ts` | P11 silent desktop preview |
 | I-32 | P4 | `tests/src/content/stabilization/stabilization.test.ts`; `tests/src/background/render-emulation-runtime.test.ts` | P11 CDP emulation facts |
 | I-33 | P4 | `tests/src/background/emulation-policy.test.ts`; `tests/src/background/render-emulation-runtime.test.ts` | P11 navigation/detach self-heal |
@@ -50,20 +51,20 @@ rows again through the integrated and live matrices.
 | U-03 | P8 | `tests/src/popup/app.test.ts` | P11 popup navigation |
 | U-04 | P8 | `tests/src/popup/app.test.ts` | P11 context hierarchy |
 | U-05 | P8 | `tests/src/popup/app.test.ts`; `tests/src/popup/entrypoint.test.ts`; `tests/c3-popup-entrypoint.test.ts`; `tests/build-artifact-parity.test.ts` | production/debug build gates |
-| U-06 | P8 | `tests/page-toast.test.ts`; `tests/src/popup/app.test.ts`; `tests/build-artifact-parity.test.ts` | production package inspection |
+| U-06 | P8 | `tests/src/popup/app.test.ts`; `tests/build-artifact-parity.test.ts` | production package toast inspection |
 | U-07 | P5 | `tests/src/storage/settings.test.ts`; `tests/src/background/startup.test.ts`; `tests/src/popup/app.test.ts` | P11 configuration edit |
 | U-08 | P6 | `tests/src/popup/app.test.ts`; `tests/src/popup/todo-recovery.test.ts` | P11 Todo expansion choices |
-| U-09 | P8 | `tests/property-lock-banner-mode.test.ts`; `tests/src/popup/app.test.ts`; `tests/build-artifact-parity.test.ts` | P11 lock copy |
+| U-09 | P8 | `tests/src/popup/app.test.ts`; `tests/build-artifact-parity.test.ts` | P11 lock copy and production detail exclusion |
 | U-10 | P1 | `tests/src/background/brain.test.ts`; `tests/src/popup/signal-cursor.test.ts`; `tests/src/popup/entrypoint.test.ts` | P9 event/reconciliation scenario |
 | U-11 | P6 | `tests/src/popup/entrypoint.test.ts` | P11 bound-tab observation |
-| U-12 | P3 | `tests/mark-mode-fsm.test.ts`; `tests/c4-content-entrypoint.test.ts` | P11 Space passthrough |
+| U-12 | P3 | `tests/c4-content-entrypoint.test.ts`; `tests/src/content/marking/interaction.test.ts` | P11 Space passthrough and recovery |
 | U-13 | P2 | `tests/src/content/marking/dom-bridge.test.ts` (WeakMap identity; no temporary DOM IDs) | P9 shadow/preview scenario |
 | U-14 | P2 | `tests/src/domain/boundary.test.ts`; `tests/src/domain/evaluate.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P9 canonical marking scenario |
 | U-15 | P1 | `tests/src/popup/root-recovery.test.ts`; `tests/c3-popup-entrypoint.test.ts` | `pnpm check` and bundle gate |
 | U-16 | P1 | `tests/transfer-payload-store.test.ts`; `tests/capture-page-snapshot-handler.test.ts` | P9 large-corpus scenario |
 | U-17 | P4 | `tests/src/background/emulation-policy.test.ts`; `tests/src/popup/app.test.ts` | production package inspection |
 | U-18a | P8 | `tests/src/background/domain-cache.test.ts`; `tests/src/messaging/contracts.test.ts`; `tests/src/popup/app.test.ts`; `tests/src/popup/entrypoint.test.ts` | P11 cache and unregister flow |
-| U-18b | P7 | `tests/popup-render-mode.test.ts`; `tests/render-mode-inspector.test.ts`; `tests/src/popup/render-mode-inspection.test.ts`; `tests/src/background/render-emulation-runtime.test.ts` | P11 manual inspection |
+| U-18b | P7 | `tests/src/popup/app.test.ts`; `tests/src/popup/entrypoint.test.ts`; `tests/src/popup/render-mode-inspection.test.ts`; `tests/src/background/render-emulation-runtime.test.ts` | P11 manual inspection with both JavaScript loads |
 | U-18c | P6 | `tests/src/domain/todo.test.ts`; `tests/src/lynx/context.test.ts`; `tests/src/background/page-context-runtime.test.ts` | P11 feed-owned page types |
 | U-18d | P7 | `tests/src/popup/preview-classification.test.ts`; `tests/src/popup/app.test.ts` | production/debug build gates |
 | U-18e | P8 | `tests/src/popup/app.test.ts`; `tests/src/popup/entrypoint.test.ts`; `tests/c3-popup-entrypoint.test.ts`; `tests/build-artifact-parity.test.ts` | production/debug build gates |
@@ -77,13 +78,13 @@ rows again through the integrated and live matrices.
 | D-08 | P3 | `tests/src/content/marking/interaction.test.ts`; `tests/c4-content-entrypoint.test.ts` | P11 right-click flow |
 | D-09 | P3 | `tests/src/content/marking/interaction.test.ts` | P11 rapid-click flow |
 | D-10 | P3 | `tests/c4-content-entrypoint.test.ts`; `tests/src/content/marking/marking.test.ts` | P11 invalid-target flow |
-| D-11 | P3 | `tests/mark-mode-fsm.test.ts`; `tests/c4-content-entrypoint.test.ts` | P11 Space recovery paths |
+| D-11 | P3 | `tests/c4-content-entrypoint.test.ts`; `tests/src/content/marking/interaction.test.ts` | P11 Space recovery paths |
 | D-12 | P3 | `tests/c4-content-entrypoint.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P11 passthrough/busy visuals |
-| D-13 | P7 | `tests/render-mode-inspection-handlers.test.ts`; `tests/src/popup/render-mode-inspection.test.ts`; `tests/src/background/render-emulation-runtime.test.ts`; `tests/src/content/organ.test.ts` | P11 inspection teardown |
+| D-13 | P7 | `tests/src/popup/entrypoint.test.ts`; `tests/src/popup/render-mode-inspection.test.ts`; `tests/src/background/render-emulation-runtime.test.ts`; `tests/src/content/organ.test.ts` | P11 inspection teardown after either JavaScript load |
 | D-14 | P3 | `tests/src/content/marking/dom-bridge.test.ts`; production-negative bundle rechecked in P10 | production/debug build gates |
 | D-15 | P3 | `tests/src/content/marking/dom-bridge.test.ts` | P11 geometry matrix |
 | D-16 | P3 | `tests/src/popup/app.test.ts` | production popup inspection |
-| D-17 | P7 | `tests/preview-tooltip.test.ts`; `tests/src/content/marking/dom-bridge.test.ts`; `tests/src/popup/app.test.ts`; `tests/src/popup/entrypoint.test.ts` | P11 preview-list interaction |
+| D-17 | P7 | `tests/src/content/marking/dom-bridge.test.ts`; `tests/src/popup/app.test.ts`; `tests/src/popup/entrypoint.test.ts` | P11 preview-list hover, click-to-scroll, and exit interaction |
 | D-18 | P7 | `tests/src/popup/preview-classification.test.ts`; `tests/src/popup/app.test.ts` | production/debug build gates |
 | D-19 | P7 | `tests/src/content/input-firewall.test.ts`; `tests/src/content/organ.test.ts`; `tests/src/popup/app.test.ts` | P11 blocked-actions/allowed-scroll matrix |
 | D-20 | P4 | `tests/src/content/stabilization/stabilization.test.ts`; `tests/c4-content-entrypoint.test.ts` | P11 hidden-tab activation |
@@ -96,9 +97,22 @@ rows again through the integrated and live matrices.
 | D-27 | P6 | `tests/src/popup/candidate-navigation.test.ts`; `tests/src/popup/entrypoint.test.ts` | P11 navigation failure recovery |
 | D-28 | P5 | `tests/src/storage/settings.test.ts`; `tests/src/background/startup.test.ts`; `tests/src/lynx/token-rotation.test.ts` | P11 endpoint/token invalidation |
 | D-29 | P8 | `tests/src/background/action-icon.test.ts`; `tests/src/background/startup.test.ts` | production action-icon inspection |
-| D-30 | P8 | `tests/manifest-permissions.test.ts`; `tests/mark-mode-fsm.test.ts` | production package inspection |
+| D-30 | P8 | `tests/manifest-permissions.test.ts`; `tests/c4-content-entrypoint.test.ts` | production package shortcut absence and in-page Space handling |
 | D-31 | P1 | `tests/src/popup/root-recovery.test.ts`; `tests/src/popup/entrypoint.test.ts` | P11 panel corruption recovery |
 | D-32 | P8 | `tests/src/popup/scroll-lock.test.ts`; `tests/src/popup/app.test.ts` | P11 modal/busy teardown |
+| N-01 | P13 | `tests/src/content/consent.test.ts`; `tests/src/content/marking/dom-bridge.test.ts`; `tests/capture-page-snapshot-handler.test.ts` | P20 direct capture, fingerprint, and AI payload contain no consent-helper style or marker |
+| N-02 | P15 | `tests/src/content/input-firewall.test.ts`; `tests/src/content/organ.test.ts`; `tests/c4-content-entrypoint.test.ts` | P20 CSS/JavaScript hover and click stay blocked while wheel/touch scroll and extension UI work |
+| N-03 | P16 | `tests/src/popup/render-mode-inspection.test.ts`; `tests/src/background/render-emulation-runtime.test.ts`; `tests/src/popup/entrypoint.test.ts` | P20 inspection survives reload, panel closure, and worker restart until matching paint acknowledgement |
+| N-04 | P17 | `tests/src/popup/preview-classification.test.ts`; `tests/src/messaging/contracts.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P20 all six canonical classifications survive transport; production is simple and debug is complete |
+| N-05 | P14 | `tests/src/domain/selector-seed.test.ts`; `tests/src/content/marking/dom-bridge.test.ts`; `tests/c4-content-entrypoint.test.ts` | P20 instrumented marking and silent activation perform one composed-document bridge pass |
+| N-06 | P14 | `tests/marking-performance-equivalence.test.ts`; `tests/src/content/marking/marking.test.ts`; `tests/src/content/marking/interaction.test.ts` | P20 deterministic rewrite-versus-legacy browser benchmark covers activation through painted click and stabilization |
+| N-07 | P18 | `tests/src/popup/app.test.ts`; `tests/src/popup/entrypoint.test.ts`; `tests/c4-content-entrypoint.test.ts` | P20 competing menus, outside-click, topmost Escape, preview exit, and busy protection matrix |
+| N-08 | P18 | `tests/src/popup/app.test.ts`; `tests/build-artifact-parity.test.ts` | P20 production success/warning/error toast timers, replacement, and manual close |
+| N-09 | P17 | `tests/src/popup/app.test.ts`; `tests/src/popup/preview-classification.test.ts`; `tests/build-artifact-parity.test.ts` | P20 production rows lead with readable text and exclude XPath/details while debug retains them |
+| N-10 | P13 | `tests/src/page-world/program.test.ts`; `tests/page-world-source-parity.test.ts`; `tests/src/content/marking/dom-bridge.test.ts` | P20 forced-open formerly closed shadow content is markable, capturable, and artifact-free |
+| N-11 | P13 | `tests/src/content/consent.test.ts`; `tests/c4-content-entrypoint.test.ts`; `tests/src/background/property-authority.test.ts` | P20 candidate and non-candidate property pages suppress ordinary/native/late consent UI until a terminal property exit |
+| N-12 | P12 | `tests/decision-traceability.test.ts` | P20 release gate rejects missing/duplicate IDs, stale paths, and unnamed acceptance evidence |
+| N-13 | P19 | `tests/src/domain/import-boundary.test.ts`; `tests/src/popup/root-recovery.test.ts`; `tests/c3-popup-entrypoint.test.ts` | P20 extracted controllers preserve authority, lifecycle behavior, and production/debug bundle boundaries |
 
 ## Integrated evidence
 
@@ -108,3 +122,5 @@ rows again through the integrated and live matrices.
   `pnpm verify` plus production/debug reachability and performance gates.
 - **P11:** production build on `bonliva.se` against live Alpha, with the matrix
   and artifact identities recorded in the active execution plan.
+- **P20:** production and debug builds on `bonliva.se`, with the 13 follow-up
+  decisions exercised by their explicitly named acceptance checks above.
