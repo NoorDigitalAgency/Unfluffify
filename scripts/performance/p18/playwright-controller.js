@@ -527,14 +527,54 @@ async (page) => {
         { priorContentOccurrenceId, contentBeforeClose },
       );
 
-      await toastPage.locator(`[data-popup-toast-close="${popupManualOccurrence.id}"]`).click();
-      await toastPage.waitForSelector("[data-popup-toast]", { state: "hidden" });
-      const popupAfterClose = await popupCall(toastPage, "snapshot");
-      await contentPage.locator(
-        `[data-uf-content-toast="true"][data-uf-content-toast-id="${contentBeforeClose.toast.id}"] [data-uf-content-toast-close="true"]`,
-      ).click();
-      await contentPage.waitForSelector('[data-uf-content-toast="true"]', { state: "hidden" });
+      const contentToastSelector = `[data-uf-content-toast="true"][data-uf-content-toast-id="${contentBeforeClose.toast.id}"]`;
+      const contentCloseHit = await contentPage.locator(
+        `${contentToastSelector} [data-uf-content-toast-close="true"]`,
+      ).evaluate((close, expectedToastId) => {
+        const rect = close.getBoundingClientRect();
+        const center = {
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        };
+        const hit = document.elementFromPoint(center.x, center.y);
+        const hitClose = hit?.closest('[data-uf-content-toast-close="true"]') ?? null;
+        const owner = close.closest('[data-uf-content-toast="true"]');
+        const hitOwner = hitClose?.closest('[data-uf-content-toast="true"]') ?? null;
+        return {
+          center,
+          rect: {
+            left: rect.left,
+            top: rect.top,
+            width: rect.width,
+            height: rect.height,
+          },
+          expectedToastId,
+          ownerToastId: owner?.getAttribute("data-uf-content-toast-id") ?? null,
+          hitOwnerToastId: hitOwner?.getAttribute("data-uf-content-toast-id") ?? null,
+          hitTagName: hit?.tagName ?? null,
+          hitClassName: hit?.getAttribute("class") ?? null,
+          hitCloseIsExact: hitClose === close,
+          hitOwnerIsExact: hitOwner === owner,
+        };
+      }, String(contentBeforeClose.toast.id));
+      assertion(
+        contentCloseHit.rect.width > 0 &&
+          contentCloseHit.rect.height > 0 &&
+          contentCloseHit.ownerToastId === String(contentBeforeClose.toast.id) &&
+          contentCloseHit.hitOwnerToastId === String(contentBeforeClose.toast.id) &&
+          contentCloseHit.hitCloseIsExact &&
+          contentCloseHit.hitOwnerIsExact,
+        "Fresh content warning close control did not own its physical hit point",
+        contentCloseHit,
+      );
+      await contentPage.mouse.click(contentCloseHit.center.x, contentCloseHit.center.y);
+      await contentPage.locator(contentToastSelector).waitFor({ state: "hidden", timeout: 5_000 });
       const contentAfterClose = await contentCall(contentPage, "snapshot");
+      assertion(contentAfterClose.toast === null, "Fresh content warning did not close after raw physical input", { contentCloseHit, contentAfterClose });
+
+      await toastPage.locator(`[data-popup-toast-close="${popupManualOccurrence.id}"]`).click();
+      await toastPage.locator(`[data-popup-toast-close="${popupManualOccurrence.id}"]`).waitFor({ state: "hidden" });
+      const popupAfterClose = await popupCall(toastPage, "snapshot");
       await Promise.all([
         toastPage.waitForTimeout(6_500),
         contentPage.waitForTimeout(4_200),
@@ -549,6 +589,7 @@ async (page) => {
         popupAfterClose,
         popupAfterDeadlines,
         contentBeforeClose,
+        contentCloseHit,
         contentAfterClose,
         contentAfterDeadlines,
       };
