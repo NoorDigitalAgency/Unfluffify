@@ -2,9 +2,14 @@ import React from "react";
 import { todoSectionExpanded } from "./todo-recovery";
 import { projectPreviewRow } from "./preview-classification";
 import { createPanelScrollLock } from "./scroll-lock";
+import {
+  useTransientSurfaceManager,
+  useTransientSurfaceRegistration,
+} from "./use-transient-surfaces";
 
 import type { RenderMode } from "../domain/schema/property";
 import type { PreviewProjection } from "../domain/schema/preview";
+import type { TransientToast } from "../ui/toast-controller";
 import { DEFAULT_POPUP_VIEW, type PopupView } from "./view";
 import type { PopupPresentation } from "./organ/memory";
 import type { TodoCoverage } from "../domain/schema/todo";
@@ -236,6 +241,24 @@ export function resolvePopupCurtainKind(presentation: PopupPresentation): PopupC
   return presentation.lockBanner.visible ? "blocked" : "busy";
 }
 
+export function markingDisableNeedsConfirmation(enabled: boolean, contentDirty: boolean): boolean {
+  return !enabled && contentDirty;
+}
+
+export function resolvePopupPanelBlocking(input: Readonly<{
+  curtainKind: PopupCurtainKind;
+  maintenanceBusy: boolean;
+  lockConfirmation: boolean;
+  candidateConfirmation: boolean;
+  maintenanceConfirmation: boolean;
+  markingDisableConfirmation: boolean;
+  checklist: boolean;
+}>): boolean {
+  return input.curtainKind === "busy" || input.maintenanceBusy || input.lockConfirmation ||
+    input.candidateConfirmation || input.maintenanceConfirmation ||
+    input.markingDisableConfirmation || input.checklist;
+}
+
 export function relativePageKey(pageUrl: string, baseUrl: string): string {
   try {
     const page = new URL(pageUrl);
@@ -455,6 +478,41 @@ export function PreviewRowList({
   );
 }
 
+function PopupToast({
+  toast,
+  onDismiss,
+}: Readonly<{
+  toast: TransientToast | null;
+  onDismiss?: (id: number) => void;
+}>) {
+  if (!toast) {
+    return null;
+  }
+  const urgent = toast.tone === "danger";
+  return (
+    <output
+      className={`popup-toast popup-toast--${toast.tone === "warning" ? "warn" : toast.tone}`}
+      role={urgent ? "alert" : "status"}
+      aria-live={urgent ? "assertive" : "polite"}
+      data-popup-toast={toast.tone}
+      data-toast-id={toast.id}
+    >
+      <span>{toast.message}</span>
+      {onDismiss ? (
+        <button
+          type="button"
+          className="popup-toast__dismiss"
+          aria-label="Close notification"
+          data-popup-toast-close={toast.id}
+          onClick={() => onDismiss(toast.id)}
+        >
+          ×
+        </button>
+      ) : null}
+    </output>
+  );
+}
+
 export function App({
   presentation,
   view = DEFAULT_POPUP_VIEW,
@@ -463,6 +521,7 @@ export function App({
   credentials = EMPTY_POPUP_CREDENTIALS_FORM,
   lynxChecklist = EMPTY_LYNX_CHECKLIST_STATE,
   appearance = DEFAULT_POPUP_APPEARANCE,
+  toast = null,
   onEnableChange,
   onDesktopPreviewChange,
   onRunAi,
@@ -495,6 +554,7 @@ export function App({
   onThemeModeChange,
   onEmptyDomainCache,
   onUnregisterTab,
+  onToastDismiss,
 }: Readonly<{
   presentation: PopupPresentation;
   view?: PopupView;
@@ -503,6 +563,7 @@ export function App({
   credentials?: PopupCredentialsForm;
   lynxChecklist?: LynxChecklistState;
   appearance?: PopupAppearance;
+  toast?: TransientToast | null;
   onEnableChange?: (enabled: boolean) => void;
   onDesktopPreviewChange?: (enabled: boolean) => void;
   onRunAi?: () => void;
@@ -536,6 +597,7 @@ export function App({
   onThemeModeChange?: (mode: ThemeMode) => void;
   onEmptyDomainCache?: () => void;
   onUnregisterTab?: () => void;
+  onToastDismiss?: (id: number) => void;
 }>) {
   const debugBuild = __UF_DEBUG_BUILD__;
   const [themeMenuOpen, setThemeMenuOpen] = React.useState(false);
@@ -548,6 +610,20 @@ export function App({
   const [pendingCandidatePageKey, setPendingCandidatePageKey] = React.useState<string | null>(null);
   const [previewHoveredRowId, setPreviewHoveredRowId] = React.useState<string | null>(null);
   const [pendingMaintenanceAction, setPendingMaintenanceAction] = React.useState<"cache" | "unregister" | null>(null);
+  const [pendingMarkingDisable, setPendingMarkingDisable] = React.useState(false);
+  const headerMenuRef = React.useRef<HTMLDivElement | null>(null);
+  const themeMenuRef = React.useRef<HTMLDivElement | null>(null);
+  const lockConfirmationRef = React.useRef<HTMLSpanElement | null>(null);
+  const candidateConfirmationRef = React.useRef<HTMLElement | null>(null);
+  const maintenanceConfirmationRef = React.useRef<HTMLDivElement | null>(null);
+  const markingDisableConfirmationRef = React.useRef<HTMLDivElement | null>(null);
+  const checklistRef = React.useRef<HTMLDivElement | null>(null);
+  const busyCurtainRef = React.useRef<HTMLDivElement | null>(null);
+  const transientManager = useTransientSurfaceManager({
+    previewActive: presentation.previewVisible,
+    previewRestoring: presentation.previewExitPending,
+    onPreviewExit: onExitPreview,
+  });
   React.useEffect(() => {
     if (!diagnostics.settingsDirty && Object.keys(settingsFieldOriginals).length > 0) {
       setSettingsFieldOriginals({});
@@ -713,9 +789,108 @@ export function App({
   /** What the radios show: the unconfirmed pick if there is one, otherwise the
    *  mode in force. Null means nothing is selected and there is nothing to set. */
   const selectedRenderMode = diagnostics.renderModePending ?? diagnostics.renderMode;
-  const panelBlocking = curtainKind === "busy" || diagnostics.maintenanceBusy || Boolean(
-    pendingLockAction || pendingCandidatePageKey || pendingMaintenanceAction || lynxChecklist.open,
+  const pendingMarkingDisableIsCurrent = pendingMarkingDisable &&
+    presentation.enableToggleChecked && diagnostics.contentDirty;
+  React.useEffect(() => {
+    if (pendingMarkingDisable && !pendingMarkingDisableIsCurrent) {
+      setPendingMarkingDisable(false);
+    }
+  }, [pendingMarkingDisable, pendingMarkingDisableIsCurrent]);
+
+  useTransientSurfaceRegistration(transientManager, headerMenuOpen, {
+    id: "header-menu",
+    kind: "menu",
+    root: () => headerMenuRef.current,
+    outside: "dismiss",
+    escape: "dismiss",
+    dismiss: () => setHeaderMenuOpen(false),
+  });
+  useTransientSurfaceRegistration(transientManager, themeMenuOpen, {
+    id: "theme-menu",
+    kind: "menu",
+    root: () => themeMenuRef.current,
+    outside: "dismiss",
+    escape: "dismiss",
+    dismiss: () => setThemeMenuOpen(false),
+  });
+  useTransientSurfaceRegistration(transientManager, pendingLockActionIsCurrent, {
+    id: "lock-confirmation",
+    kind: "confirmation",
+    root: () => lockConfirmationRef.current,
+    outside: "ignore",
+    escape: "dismiss",
+    dismiss: () => setPendingLockAction(null),
+  });
+  useTransientSurfaceRegistration(
+    transientManager,
+    pendingMaintenanceAction !== null || diagnostics.maintenanceBusy,
+    {
+      id: "maintenance-confirmation",
+      kind: "dialog",
+      root: () => maintenanceConfirmationRef.current,
+      outside: "ignore",
+      escape: diagnostics.maintenanceBusy ? "block" : "dismiss",
+      dismiss: () => setPendingMaintenanceAction(null),
+    },
   );
+  useTransientSurfaceRegistration(transientManager, pendingMarkingDisableIsCurrent, {
+    id: "marking-disable-confirmation",
+    kind: "confirmation",
+    root: () => markingDisableConfirmationRef.current,
+    outside: "ignore",
+    escape: "dismiss",
+    dismiss: () => setPendingMarkingDisable(false),
+  });
+  // Register the checklist before its nested candidate confirmation so Escape
+  // can only peel the latter, never both surfaces or the underlying action.
+  useTransientSurfaceRegistration(transientManager, lynxChecklist.open, {
+    id: "lynx-checklist",
+    kind: "checklist",
+    root: () => checklistRef.current,
+    outside: "ignore",
+    escape: publicationBusy ? "block" : "dismiss",
+    dismiss: () => onCloseLynxChecklist?.(),
+  });
+  useTransientSurfaceRegistration(transientManager, pendingCandidatePageKey !== null, {
+    id: "candidate-confirmation",
+    kind: "confirmation",
+    ...(lynxChecklist.open ? { parentId: "lynx-checklist" } : {}),
+    root: () => candidateConfirmationRef.current,
+    outside: "ignore",
+    escape: "dismiss",
+    dismiss: () => setPendingCandidatePageKey(null),
+  });
+  useTransientSurfaceRegistration(transientManager, previewHoveredRowId !== null, {
+    id: "preview-hover",
+    kind: "tooltip",
+    root: () => null,
+    outside: "ignore",
+    escape: "dismiss",
+    dismiss: () => {
+      const rowId = previewHoveredRowId;
+      setPreviewHoveredRowId(null);
+      if (rowId !== null) {
+        onPreviewRowHover?.(rowId, false);
+      }
+    },
+  });
+  useTransientSurfaceRegistration(transientManager, curtainKind === "busy", {
+    id: "popup-busy-curtain",
+    kind: "busy",
+    root: () => busyCurtainRef.current,
+    outside: "ignore",
+    escape: "block",
+    dismiss: () => undefined,
+  });
+  const panelBlocking = resolvePopupPanelBlocking({
+    curtainKind,
+    maintenanceBusy: diagnostics.maintenanceBusy,
+    lockConfirmation: pendingLockAction !== null,
+    candidateConfirmation: pendingCandidatePageKey !== null,
+    maintenanceConfirmation: pendingMaintenanceAction !== null,
+    markingDisableConfirmation: pendingMarkingDisable,
+    checklist: lynxChecklist.open,
+  });
   React.useEffect(() => {
     if (!panelBlocking || typeof document === "undefined" || typeof window === "undefined" || !document.body) {
       return;
@@ -729,12 +904,6 @@ export function App({
     : presentation.silentModeActive
       ? "Ready"
       : presentation.enableToggleChecked ? "Marking" : "Connected";
-  // Production gets a single concise operator-facing result. The detailed
-  // event stream (including technical detail) remains a debug-build surface.
-  const productionToast = debugBuild
-    ? null
-    : diagnostics.log.find((entry) => entry.tone !== "info") ?? null;
-
   if (presentation.mainUiHidden || view === "loading") {
     return (
       <main className="app" data-main-hidden={presentation.mainUiHidden} data-view="loading">
@@ -742,6 +911,7 @@ export function App({
           <span className="popup-loading-view__spinner" aria-hidden="true" />
           <span className="popup-loading-view__title">{presentation.curtainText || "Starting Unfluffify"}</span>
         </div>
+        <PopupToast toast={toast} onDismiss={onToastDismiss} />
       </main>
     );
   }
@@ -767,6 +937,7 @@ export function App({
           className="card preview-sidebar"
           aria-label="Detected Content"
           aria-busy={presentation.previewExitPending}
+          data-transient-fallback="preview"
         >
           <div className="preview-sidebar__header">
             <span className="section-title">
@@ -779,6 +950,7 @@ export function App({
               className="preview-sidebar__dismiss"
               title="Exit Preview"
               aria-label="Exit Preview"
+              data-transient-trigger="preview-exit"
               disabled={!onExitPreview || presentation.previewExitPending}
               onClick={onExitPreview}
             >
@@ -802,6 +974,7 @@ export function App({
           />
         </section>
 
+        <PopupToast toast={toast} onDismiss={onToastDismiss} />
         <output data-silent-mode={presentation.silentModeActive} data-temp-disabled={presentation.temporarilyDisabledOverlay} />
       </main>
     );
@@ -821,13 +994,14 @@ export function App({
             {debugBuild ? diagnostics.stateName || "unknown" : sessionPhaseCopy}
           </span>
         </div>
-        <div className="header-actions">
+        <div className="header-actions" ref={headerMenuRef}>
           <button
             id="unregister-current-tab"
             type="button"
             className="mac-close-button"
             title="Unregister current tab and reload"
             aria-label="Unregister current tab and reload"
+            data-transient-trigger="maintenance-confirmation"
             disabled={!onUnregisterTab || diagnostics.maintenanceBusy || curtainKind === "busy"}
             onClick={() => setPendingMaintenanceAction("unregister")}
           >
@@ -841,11 +1015,17 @@ export function App({
             aria-label="Configuration menu"
             aria-haspopup="menu"
             aria-expanded={headerMenuOpen}
+            data-transient-trigger="header-menu"
             onClick={() => setHeaderMenuOpen((open) => !open)}
           >
             <i className="mdi mdi-dots-vertical btn-icon" aria-hidden="true" />
           </button>
-          <div className="section-menu header-kebab-menu" role="menu" hidden={!headerMenuOpen}>
+          <div
+            className="section-menu header-kebab-menu"
+            role="menu"
+            hidden={!headerMenuOpen}
+            {...(headerMenuOpen ? { "data-transient-surface": "header-menu" } : {})}
+          >
           {configurationView ? (
             <button
               id="config-header-back"
@@ -893,6 +1073,7 @@ export function App({
               type="button"
               role="menuitem"
               className="u-btn-danger"
+              data-transient-trigger="maintenance-confirmation"
               disabled={!onEmptyDomainCache || !diagnostics.baseUrl || diagnostics.maintenanceBusy}
               onClick={() => {
                 setHeaderMenuOpen(false);
@@ -947,7 +1128,13 @@ export function App({
         </span>
         <span className="property-lock__actions">
           {pendingLockActionIsCurrent ? (
-            <span className="property-lock__confirmation" role="alert" data-lock-confirmation="discard">
+            <span
+              ref={lockConfirmationRef}
+              className="property-lock__confirmation"
+              role="alert"
+              data-lock-confirmation="discard"
+              data-transient-surface="lock-confirmation"
+            >
               <span>Discard unsaved work in the current editor session?</span>
               <button
                 id="lock-confirm-discard"
@@ -973,6 +1160,7 @@ export function App({
                 id={`lock-${action.kind}`}
                 type="button"
                 className="property-lock__button"
+                {...(action.confirmDiscard ? { "data-transient-trigger": "lock-confirmation" } : {})}
                 disabled={!onLockAction}
                 onClick={() => requestLockAction(action)}
               >
@@ -1007,9 +1195,11 @@ export function App({
 
       {pendingCandidatePageKey ? (
         <section
+          ref={candidateConfirmationRef}
           className="u-alert u-alert-warn candidate-navigation-confirmation"
           role="alert"
           data-candidate-navigation-confirmation={pendingCandidatePageKey}
+          data-transient-surface="candidate-confirmation"
         >
           <strong>Open {pendingCandidatePageKey}?</strong>
           <span> Any unsaved markings on this page will be discarded.</span>
@@ -1035,10 +1225,12 @@ export function App({
 
       {pendingMaintenanceAction ? (
         <div
+          ref={maintenanceConfirmationRef}
           className="warning-popover maintenance-confirmation"
           role="dialog"
           aria-modal="true"
           aria-labelledby="maintenance-confirmation-title"
+          data-transient-surface="maintenance-confirmation"
         >
           <section className="warning-popover__card">
             <h2 id="maintenance-confirmation-title" className="warning-popover__title">
@@ -1073,6 +1265,47 @@ export function App({
         </div>
       ) : null}
 
+      {pendingMarkingDisableIsCurrent ? (
+        <div
+          ref={markingDisableConfirmationRef}
+          className="warning-popover marking-disable-confirmation"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="marking-disable-confirmation-title"
+          data-transient-surface="marking-disable-confirmation"
+        >
+          <section className="warning-popover__card">
+            <h2 id="marking-disable-confirmation-title" className="warning-popover__title">
+              Disable marking and discard this draft?
+            </h2>
+            <p className="warning-popover__body">
+              This page has unsaved marking changes. Disabling marking will discard them.
+            </p>
+            <div className="button-row warning-popover__actions">
+              <button
+                id="marking-disable-confirm"
+                type="button"
+                className="u-btn-danger"
+                onClick={() => {
+                  setPendingMarkingDisable(false);
+                  onEnableChange?.(false);
+                }}
+              >
+                Discard and disable
+              </button>
+              <button
+                id="marking-disable-cancel"
+                type="button"
+                className="u-btn-secondary"
+                onClick={() => setPendingMarkingDisable(false)}
+              >
+                Keep marking
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {sessionView ? (
       <section className="card" aria-label="Session controls">
         <div className="section-header">
@@ -1095,12 +1328,20 @@ export function App({
           <input
             id="toggle-enabled"
             type="checkbox"
+            data-transient-trigger="marking-disable-confirmation"
             checked={presentation.enableToggleChecked}
             /* A lock block and an unchosen render mode are the two cases where
                enabling can never succeed — marks taken under an unestablished
                render mode describe a page nobody has looked at. */
             disabled={!onEnableChange || presentation.lockBanner.visible || !renderModeSet}
-            onChange={(event) => onEnableChange?.(event.currentTarget.checked)}
+            onChange={(event) => {
+              const enabled = event.currentTarget.checked;
+              if (markingDisableNeedsConfirmation(enabled, diagnostics.contentDirty)) {
+                setPendingMarkingDisable(true);
+                return;
+              }
+              onEnableChange?.(enabled);
+            }}
           />
         </label>
 
@@ -1315,6 +1556,7 @@ export function App({
                         type="button"
                         className={`todo-candidate ${candidate.current ? "todo-candidate--current" : ""}`}
                         data-todo-candidate={candidate.pageKey}
+                        data-transient-trigger="candidate-confirmation"
                         disabled={!onCandidateNavigate || candidate.current}
                         onClick={() => requestCandidateNavigation(candidate.pageKey)}
                         aria-label={candidate.current
@@ -1849,21 +2091,20 @@ export function App({
                 >
                   <i className="mdi mdi-chevron-left btn-icon" aria-hidden="true" />
                 </button>
-                <div className="theme-dropdown">
+                <div className="theme-dropdown" ref={themeMenuRef}>
                   <button
                     id="theme-dropdown-toggle"
                     type="button"
                     className="theme-dropdown__toggle"
                     aria-haspopup="listbox"
                     aria-expanded={themeMenuOpen}
+                    data-transient-trigger="theme-menu"
                     disabled={!onThemeChange}
                     onClick={() => setThemeMenuOpen((open) => !open)}
                     onKeyDown={(event) => {
                       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                         event.preventDefault();
                         onThemeChange?.(cycleTheme(appearance.theme, event.key === "ArrowDown" ? 1 : -1));
-                      } else if (event.key === "Escape") {
-                        setThemeMenuOpen(false);
                       }
                     }}
                   >
@@ -1875,7 +2116,12 @@ export function App({
                     />
                   </button>
                   {themeMenuOpen ? (
-                    <div className="section-menu theme-dropdown__menu" role="listbox" aria-label="Theme">
+                    <div
+                      className="section-menu theme-dropdown__menu"
+                      role="listbox"
+                      aria-label="Theme"
+                      data-transient-surface="theme-menu"
+                    >
                       {THEME_OPTIONS.map((option) => {
                         const selected = option.id === appearance.theme;
                         return (
@@ -1970,19 +2216,17 @@ export function App({
       </div>
       ) : null}
 
-      {productionToast ? (
-        <output
-          className={`popup-toast popup-toast--${productionToast.tone}`}
-          role="status"
-          aria-live="polite"
-          data-popup-toast={productionToast.tone}
-        >
-          {productionToast.label}
-        </output>
-      ) : null}
+      <PopupToast toast={toast} onDismiss={onToastDismiss} />
 
       {lynxChecklist.open ? (
-        <div className="warning-popover lynx-checklist-popover" role="dialog" aria-modal="true" aria-labelledby="lynx-checklist-title">
+        <div
+          ref={checklistRef}
+          className="warning-popover lynx-checklist-popover"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="lynx-checklist-title"
+          data-transient-surface="lynx-checklist"
+        >
           <section className="warning-popover__card lynx-checklist-popover__card">
             <h2 id="lynx-checklist-title" className="warning-popover__title">Final check before sending to Lynx:</h2>
             <div className="warning-popover__body lynx-checklist-popover__section">
@@ -2011,6 +2255,7 @@ export function App({
                               key={candidate.pageKey}
                               type="button"
                               className="lynx-checklist-popover__candidate-hint"
+                              data-transient-trigger="candidate-confirmation"
                               disabled={!onCandidateNavigate || candidate.current}
                               onClick={() => requestCandidateNavigation(candidate.pageKey)}
                             >
@@ -2074,7 +2319,12 @@ export function App({
       ) : null}
 
       {curtainKind === "busy" ? (
-        <div className="ui-curtain" role="status">
+        <div
+          ref={busyCurtainRef}
+          className="ui-curtain"
+          role="status"
+          data-transient-surface="popup-busy-curtain"
+        >
           <div className="ui-curtain__content">
             <span className="ui-curtain__spinner" aria-hidden="true" />
             <span className="ui-curtain__title">{presentation.curtainText}</span>

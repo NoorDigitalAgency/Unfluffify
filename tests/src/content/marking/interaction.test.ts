@@ -5,6 +5,7 @@ import {
   openMarkingContextMenu,
 } from "../../../../src/content/marking/interaction";
 import { createGeometryStabilizer } from "../../../../src/content/marking/stabilizer";
+import { createTransientSurfaceManager } from "../../../../src/ui/transient-surface-manager";
 
 class FakeElement {
   readonly children: FakeElement[] = [];
@@ -45,6 +46,7 @@ describe("marking interaction controls", () => {
 
     openMarkingContextMenu({
       document,
+      manager: createTransientSurfaceManager(),
       x: 620,
       y: 460,
       actions: [
@@ -69,7 +71,49 @@ describe("marking interaction controls", () => {
     } as unknown as Event);
     expect(run).toHaveBeenCalledTimes(1);
     expect(menu.removed).toBe(true);
-    expect(documentListeners.has("pointerdown")).toBe(false);
+    expect(documentListeners.size).toBe(0);
+  });
+
+  it("replaces and dismisses the right-click menu without running a marking action", () => {
+    const documentElement = new FakeElement();
+    Object.assign(documentElement, { clientWidth: 640, clientHeight: 480 });
+    const document = {
+      documentElement,
+      createElement: () => new FakeElement(),
+    } as unknown as Document;
+    const manager = createTransientSurfaceManager();
+    const run = vi.fn();
+    const open = () => openMarkingContextMenu({
+      document,
+      manager,
+      x: 100,
+      y: 100,
+      actions: [{ id: "include", label: "Include", enabled: true, run }],
+    });
+
+    const closeFirst = open();
+    const first = documentElement.children.at(-1)!;
+    closeFirst();
+    open();
+    const second = documentElement.children.at(-1)!;
+    expect(first.removed).toBe(true);
+    expect(second.removed).toBe(false);
+    expect(manager.snapshot()).toEqual([{ id: "marking-context-menu", kind: "menu" }]);
+
+    const escape = {
+      key: "Escape",
+      preventDefault: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    };
+    expect(manager.handleEscape(escape)).toBe("dismissed");
+    expect(second.removed).toBe(true);
+    expect(run).not.toHaveBeenCalled();
+
+    open();
+    const third = documentElement.children.at(-1)!;
+    expect(manager.handlePointerDown({ composedPath: () => [new EventTarget()] } as PointerEvent)).toBe(true);
+    expect(third.removed).toBe(true);
+    expect(run).not.toHaveBeenCalled();
   });
 });
 

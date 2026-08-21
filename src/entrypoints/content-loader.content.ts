@@ -13,6 +13,7 @@ import { hideConsentOverlays, restoreConsentOverlays } from "../content/consent"
 import { shouldBlockPageInput } from "../content/input-firewall";
 import {
   createInteractionShield,
+  MAXIMUM_DOCUMENT_Z_INDEX,
   type InteractionShieldController,
 } from "../content/interaction-shield";
 import {
@@ -45,6 +46,12 @@ import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
 import { pullRewriteSignals, type RewriteSignalBus } from "../messaging/rewrite-signals";
 import type { SelectorSet } from "../storage/config";
+import { createToastController, type ToastTone } from "../ui/toast-controller";
+import {
+  createTransientSurfaceManager,
+  type TransientSurfaceHandle,
+  type TransientSurfaceManager,
+} from "../ui/transient-surface-manager";
 
 const activation = createActivationGate();
 const freezeController = createFreezeController();
@@ -130,10 +137,15 @@ let ritualPendingForUrl = "";
 const RITUAL_READY_TIMEOUT_MS = 8000;
 let contentSurfaceRoot: HTMLElement | null = null;
 let lastContentSurfaceSignature = "";
+let contentTransientSurfaces: TransientSurfaceManager | null = null;
+let contentLockConfirmation: TransientSurfaceHandle | null = null;
+let previewEscapeRequested = false;
+let dismissedOutsidePointer: Readonly<{ x: number; y: number; at: number }> | null = null;
 let pageInspectionActive = false;
 let silentInteractionShieldActive = false;
-let contentToastText = "";
-let contentToastClearHandle: ReturnType<typeof setTimeout> | null = null;
+const contentToastController = createToastController();
+let contentToastGeneration = 0;
+let contentToastsSuspended = false;
 let interactionShield: InteractionShieldController | null = null;
 let renderInspectionCurtain: RenderInspectionCurtainController | null = null;
 let renderInspectionAdoptionGeneration = 0;
@@ -615,6 +627,7 @@ function applyContentSignal(signal: BrainSignal): boolean {
     }
   }
   contentPresentation = memoryForContent(nextState);
+  syncContentTransientPreviewContext();
   if (contentPresentation.markingEditsBlocked) {
     pauseMarkingInteractions();
   } else if (previousPresentation.markingEditsBlocked && markingInteractionsPaused) {
@@ -1016,7 +1029,7 @@ function setSpacePassthrough(event: KeyboardEvent, active: boolean): void {
     markingEngine?.setPassthrough?.(active);
     syncMarkingCursor();
     if (!wasActive && active) {
-      showContentToast("Page interaction mode");
+      showContentToast("Page interaction mode", "success");
     }
   }
 }
@@ -1077,6 +1090,56 @@ async function reportContentFact(reason: string, facts: Record<string, unknown>)
   // Pull immediately after reporting so the content organ does not have to wait
   // for the periodic correctness poll to observe the brain's decided edge.
   void pullContentSignals().catch(() => undefined);
+}
+
+function contentPreviewContext(): Readonly<{ active: boolean; restoring: boolean }> {
+  const active = contentState.name === "preview_open" ||
+    contentState.name === "silent_preview" ||
+    contentState.name === "exit_restoring";
+  return {
+    active,
+    restoring: contentState.name === "exit_restoring" || previewEscapeRequested,
+  };
+}
+
+function requestPreviewExitFromPage(): void {
+  const context = contentPreviewContext();
+  if (!context.active || context.restoring || !interactionShieldAuthorityActive) {
+    return;
+  }
+  // Raise the local guard before the fact crosses the worker boundary. Repeated
+  // Escape cannot birth competing restoration requests while the brain decides
+  // the one authoritative preview.exit.requested edge.
+  previewEscapeRequested = true;
+  contentTransientSurfaces?.setPreviewContext({ active: true, restoring: true });
+  void reportContentFact("preview-escape-requested", {
+    previewExitRequested: true,
+  }).catch((error: unknown) => {
+    previewEscapeRequested = false;
+    // Reset the manager's one-shot latch only after a failed report, so a later
+    // Escape can retry rather than leaving the page trapped in Preview.
+    contentTransientSurfaces?.setPreviewContext({ active: false, restoring: false });
+    contentTransientSurfaces?.setPreviewContext(contentPreviewContext());
+    console.error("[Unfluffify][rewrite] Unable to request preview restoration", error);
+  });
+}
+
+function ensureContentTransientSurfaces(): TransientSurfaceManager {
+  if (contentTransientSurfaces) {
+    return contentTransientSurfaces;
+  }
+  contentTransientSurfaces = createTransientSurfaceManager({
+    onPreviewExit: requestPreviewExitFromPage,
+  });
+  contentTransientSurfaces.setPreviewContext(contentPreviewContext());
+  return contentTransientSurfaces;
+}
+
+function syncContentTransientPreviewContext(): void {
+  if (!contentPreviewContext().active) {
+    previewEscapeRequested = false;
+  }
+  contentTransientSurfaces?.setPreviewContext(contentPreviewContext());
 }
 
 async function pingContentActivity(_command: CommandEnvelope): Promise<void> {
@@ -1212,15 +1275,47 @@ function ensureContentSurfaceStyles(): void {
   position: fixed;
   left: 50%;
   bottom: max(14px, calc(env(safe-area-inset-bottom) + 14px));
+  display: flex;
+  align-items: center;
+  gap: 10px;
   max-width: min(560px, calc(100vw - 28px));
   padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-left-width: 4px;
   border-radius: 10px;
   background: rgba(47, 42, 36, 0.9);
   color: #fdf6ed;
   box-shadow: 0 12px 30px rgba(0, 0, 0, 0.2);
-  pointer-events: none;
+  pointer-events: auto;
+  transform: translateX(-50%);
   font: 500 12px/1.4 Inter, system-ui, sans-serif;
   animation: uf-content-toast-in 0.2s ease both;
+}
+[data-uf-content-toast-tone="success"] { border-left-color: #5cc98a; }
+[data-uf-content-toast-tone="warning"] { border-left-color: #f0bd4f; }
+[data-uf-content-toast-tone="danger"] { border-left-color: #ef6b73; }
+[data-uf-content-toast-copy="true"] {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+[data-uf-content-toast-close="true"] {
+  display: inline-grid;
+  width: 26px;
+  height: 26px;
+  flex: 0 0 26px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.12);
+  color: inherit;
+  cursor: pointer;
+  pointer-events: auto;
+  font: 700 18px/1 Inter, system-ui, sans-serif;
+}
+[data-uf-content-toast-close="true"]:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 2px;
 }
 [data-uf-marking-paused-notice="true"] {
   position: fixed;
@@ -1255,23 +1350,31 @@ function pausedNoticeCopy(reason: string): string {
   return "Marking temporarily paused";
 }
 
-function showContentToast(text: string): void {
-  if (!text) {
+function showContentToast(
+  text: string,
+  tone: ToastTone,
+  generation = contentToastGeneration,
+): void {
+  if (!text || contentToastsSuspended || generation !== contentToastGeneration) {
     return;
   }
-  contentToastText = text;
-  if (contentToastClearHandle !== null) {
-    clearTimeout(contentToastClearHandle);
+  contentToastController.show({ message: text, tone });
+}
+
+function retireContentToasts(options: Readonly<{ suspend?: boolean }> = {}): void {
+  contentToastGeneration += 1;
+  if (options.suspend !== undefined) {
+    contentToastsSuspended = options.suspend;
   }
-  lastContentSurfaceSignature = "";
-  renderContentSurface();
-  contentToastClearHandle = setTimeout(() => {
-    contentToastClearHandle = null;
-    contentToastText = "";
+  contentToastController.clear();
+}
+
+contentToastController.subscribe(() => {
+  if (typeof document !== "undefined") {
     lastContentSurfaceSignature = "";
     renderContentSurface();
-  }, 1800);
-}
+  }
+});
 
 function extensionSurfacesForShield(): HTMLElement[] {
   const surfaces: HTMLElement[] = [];
@@ -1318,7 +1421,7 @@ function syncInteractionShield(): void {
   const previewActive = previewInteractionActive();
   const silentActive = silentInteractionShieldActive;
   const blockedOrganActive = contentPresentation.pageInputBlocked && !previewActive;
-  const inspectionActive = renderInspectionCurtain?.current() !== null;
+  const inspectionActive = (renderInspectionCurtain?.current() ?? null) !== null;
   const shouldBeActive = inspectionActive || (
     interactionShieldAuthorityActive &&
     (silentActive || previewActive || blockedOrganActive || durablePostureShieldActive)
@@ -1377,11 +1480,7 @@ function disposeTerminalContentSurfaces(): void {
   selectorsSeeded = false;
   markingInteractionsPaused = false;
   pageInspectionActive = false;
-  if (contentToastClearHandle !== null) {
-    clearTimeout(contentToastClearHandle);
-    contentToastClearHandle = null;
-  }
-  contentToastText = "";
+  retireContentToasts();
   spaGuard.disarm();
   destroyPageWorldSession();
   syncMarkingCursor();
@@ -1732,7 +1831,7 @@ function ensureContentSurfaceRoot(): HTMLElement | null {
   contentSurfaceRoot.style.position = "fixed";
   contentSurfaceRoot.style.inset = "0";
   contentSurfaceRoot.style.pointerEvents = "none";
-  contentSurfaceRoot.style.zIndex = "2147483646";
+  contentSurfaceRoot.style.zIndex = MAXIMUM_DOCUMENT_Z_INDEX;
   document.documentElement.appendChild(contentSurfaceRoot);
   lastContentSurfaceSignature = "";
   interactionShield?.refresh();
@@ -1760,17 +1859,31 @@ function renderContentSurface(): void {
     : "";
   const effectiveBlockedReason = blockedReason || (pageInspectionActive ? "page-inspection" : "");
   const pageInputBlocked = shouldBlockPageInput(contentPresentation, silentInteractionShieldActive);
-  const signature = JSON.stringify({ effectiveBlockedReason, curtain, banner, motionPaused, pausedNotice, contentToastText, pageInputBlocked });
+  const contentToast = contentToastController.current();
+  const signature = JSON.stringify({ effectiveBlockedReason, curtain, banner, motionPaused, pausedNotice, contentToast, pageInputBlocked });
   const root = ensureContentSurfaceRoot();
   if (!root) {
     return;
   }
   root.style.pointerEvents = curtain.visible ? "auto" : "none";
   syncInteractionShield();
+  if (
+    !interactionShield?.isActive() &&
+    document.documentElement.lastElementChild !== root
+  ) {
+    // The marking plane uses the maximum document z-index and is commonly
+    // mounted after this retained surface root. Equal-z siblings are ordered by
+    // DOM position, so move the pointer-transparent root above marking whenever
+    // it reprojects. Only its explicitly interactive descendants receive hits;
+    // empty points continue through to the marking layer below.
+    document.documentElement.appendChild(root);
+  }
   if (signature === lastContentSurfaceSignature) {
     return;
   }
   lastContentSurfaceSignature = signature;
+  contentLockConfirmation?.unregister();
+  contentLockConfirmation = null;
   root.replaceChildren();
   if (curtain.visible) {
     const curtainElement = document.createElement("section");
@@ -1831,6 +1944,7 @@ function renderContentSurface(): void {
             confirm.addEventListener("click", (confirmEvent) => {
               confirmEvent.preventDefault();
               confirmEvent.stopPropagation();
+              contentLockConfirmation?.close("context-change");
               void getContentBus().request("lock.action", action, { target: "background" });
             });
             const cancel = document.createElement("button");
@@ -1840,12 +1954,23 @@ function renderContentSurface(): void {
             cancel.addEventListener("click", (cancelEvent) => {
               cancelEvent.preventDefault();
               cancelEvent.stopPropagation();
-              lastContentSurfaceSignature = "";
-              renderContentSurface();
+              contentLockConfirmation?.close("context-change");
             });
             actions.appendChild(prompt);
             actions.appendChild(confirm);
             actions.appendChild(cancel);
+            contentLockConfirmation = ensureContentTransientSurfaces().open({
+              id: "content-lock-confirmation",
+              kind: "confirmation",
+              root: () => actions,
+              outside: "ignore",
+              escape: "dismiss",
+              dismiss: () => {
+                contentLockConfirmation = null;
+                lastContentSurfaceSignature = "";
+                renderContentSurface();
+              },
+            });
             return;
           }
           void getContentBus().request("lock.action", action, { target: "background" });
@@ -1880,12 +2005,29 @@ function renderContentSurface(): void {
     notice.textContent = pausedNotice;
     root.appendChild(notice);
   }
-  if (contentToastText) {
+  if (contentToast) {
     const toast = document.createElement("aside");
     toast.setAttribute("data-uf-content-toast", "true");
-    toast.setAttribute("role", "status");
-    toast.setAttribute("aria-live", "polite");
-    toast.textContent = contentToastText;
+    toast.setAttribute("data-uf-content-toast-tone", contentToast.tone);
+    toast.setAttribute("data-uf-content-toast-id", String(contentToast.id));
+    toast.setAttribute("role", contentToast.tone === "danger" ? "alert" : "status");
+    toast.setAttribute("aria-live", contentToast.tone === "danger" ? "assertive" : "polite");
+    const copy = document.createElement("span");
+    copy.setAttribute("data-uf-content-toast-copy", "true");
+    copy.textContent = contentToast.message;
+    const close = document.createElement("button");
+    close.type = "button";
+    close.setAttribute("data-uf-content-toast-close", "true");
+    close.setAttribute("aria-label", "Close notification");
+    close.title = "Close notification";
+    close.textContent = "×";
+    close.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      contentToastController.dismiss(contentToast.id);
+    });
+    toast.appendChild(copy);
+    toast.appendChild(close);
     root.appendChild(toast);
   }
 }
@@ -2388,7 +2530,7 @@ function ensureMarkingListeners(): void {
       const debugDetail = typeof __UF_DEBUG_BUILD__ !== "undefined" && __UF_DEBUG_BUILD__
         ? ` (${Math.round(event.clientX)}, ${Math.round(event.clientY)})`
         : "";
-      showContentToast(`That area can't be marked${debugDetail}.`);
+      showContentToast(`That area can't be marked${debugDetail}.`, "warning");
       return;
     }
     commit(physicalIdFor(event), target, mode);
@@ -2424,11 +2566,12 @@ function ensureMarkingListeners(): void {
     const clearTarget = exclude ?? include;
     if (!include && !exclude) {
       markingEngine.rejectAtPoint?.(event.clientX, event.clientY);
-      showContentToast("That area can't be marked.");
+      showContentToast("That area can't be marked.", "warning");
       return;
     }
     closeMarkingMenu = openMarkingContextMenu({
       document,
+      manager: ensureContentTransientSurfaces(),
       x: event.clientX,
       y: event.clientY,
       actions: [
@@ -2574,11 +2717,7 @@ function deactivateMarking(mode: MarkingDeactivationMode = "terminal"): void {
   markingEngine?.setInputTransparent?.(false);
   markingEngine?.dispose();
   markingEngine = null;
-  if (contentToastClearHandle !== null) {
-    clearTimeout(contentToastClearHandle);
-    contentToastClearHandle = null;
-  }
-  contentToastText = "";
+  retireContentToasts();
   syncMarkingCursor();
   lastContentSurfaceSignature = "";
   renderContentSurface();
@@ -2622,6 +2761,10 @@ function handleUrlChanged(nextUrl?: string): void {
     return;
   }
   const previousUrl = lastKnownPageUrl;
+  contentTransientSurfaces?.closeAll("context-change");
+  contentTransientSurfaces?.setPreviewContext({ active: false, restoring: false });
+  previewEscapeRequested = false;
+  contentLockConfirmation = null;
   renderInspectionAdoptionGeneration += 1;
   const activeInspection = renderInspectionCurtain?.current() ?? null;
   const activeInspectionIdentity = activeInspection
@@ -2659,6 +2802,9 @@ function handleUrlChanged(nextUrl?: string): void {
   ritualRanForUrl = "";
   ritualPendingForUrl = "";
   revealController.resetForNavigation();
+  // A toast describes an occurrence on the old URL. Retire it synchronously at
+  // the boundary even when no marking engine happens to be mounted.
+  retireContentToasts();
   void establishPageContext();
   if (markingActive) {
     deactivateMarking();
@@ -2814,10 +2960,11 @@ function installSilentDebugCopy(): void {
     if (!xpath) {
       return;
     }
+    const toastGeneration = contentToastGeneration;
     void navigator.clipboard.writeText(`XPath: ${xpath}`).then(() => {
-      showContentToast("Highlight details copied.");
+      showContentToast("Highlight details copied.", "success", toastGeneration);
     }).catch(() => {
-      showContentToast("Unable to copy highlight details.");
+      showContentToast("Unable to copy highlight details.", "danger", toastGeneration);
     });
   };
   document.addEventListener("click", handleCopy, true);
@@ -3077,25 +3224,81 @@ export default defineContentScript({
   matches: ["<all_urls>"],
   runAt: "document_start",
   main(ctx) {
+    const transientSurfaces = ensureContentTransientSurfaces();
+    const handleTransientKeyDown = (event: KeyboardEvent): void => {
+      transientSurfaces.handleEscape({
+        key: event.key,
+        preventDefault: () => event.preventDefault?.(),
+        stopImmediatePropagation: () => event.stopImmediatePropagation?.(),
+      });
+    };
+    const handleTransientPointerDown = (event: PointerEvent): void => {
+      if (typeof event.composedPath !== "function" || !transientSurfaces.handlePointerDown(event)) {
+        return;
+      }
+      dismissedOutsidePointer = {
+        x: event.clientX,
+        y: event.clientY,
+        at: event.timeStamp,
+      };
+      event.preventDefault?.();
+      event.stopImmediatePropagation?.();
+    };
+    const suppressDismissalClick = (event: MouseEvent): void => {
+      const dismissed = dismissedOutsidePointer;
+      dismissedOutsidePointer = null;
+      if (
+        !dismissed ||
+        Math.abs(dismissed.x - event.clientX) > 2 ||
+        Math.abs(dismissed.y - event.clientY) > 2 ||
+        Math.abs(dismissed.at - event.timeStamp) > 1_000
+      ) {
+        return;
+      }
+      event.preventDefault?.();
+      event.stopImmediatePropagation?.();
+    };
+    if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+      // Install before the interaction shield. Escape is extension authority;
+      // the shield must never swallow it as page input while Preview is open.
+      window.addEventListener("keydown", handleTransientKeyDown, true);
+      window.addEventListener("pointerdown", handleTransientPointerDown, true);
+      window.addEventListener("click", suppressDismissalClick, true);
+    }
     installNavigationWatcher();
     let localSurfacesSuspended = false;
     const suspendLocalSurfaces = (): void => {
       localSurfacesSuspended = true;
+      transientSurfaces.closeAll("context-change");
+      retireContentToasts({ suspend: true });
       releaseLocalRenderInspectionForPageHide();
       disposeInteractionShield();
+    };
+    const unloadLocalSurfaces = (): void => {
+      suspendLocalSurfaces();
+      if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
+        window.removeEventListener("keydown", handleTransientKeyDown, true);
+        window.removeEventListener("pointerdown", handleTransientPointerDown, true);
+        window.removeEventListener("click", suppressDismissalClick, true);
+      }
+      transientSurfaces.dispose();
+      contentTransientSurfaces = null;
+      contentToastController.dispose();
     };
     if (typeof window !== "undefined") {
       // BFCache can hide/show the same document more than once. Keep this
       // listener for the lifetime of the content realm. Every hide drops both
       // local physical layers without revoking their durable background leases.
       window.addEventListener("pagehide", suspendLocalSurfaces);
-      window.addEventListener("unload", suspendLocalSurfaces, { once: true });
+      window.addEventListener("unload", unloadLocalSurfaces, { once: true });
       window.addEventListener("pageshow", () => {
         // Start a new exact document-fenced reconciliation before rebuilding
         // local surfaces. Only an authoritative `adopt` response may remount
         // the inspection curtain; terminal/inactive answers leave it fail-open.
         if (localSurfacesSuspended) {
           localSurfacesSuspended = false;
+          contentToastsSuspended = false;
+          syncContentTransientPreviewContext();
           void adoptRenderInspectionSession();
         }
         // Ordinary P15 reasons remain locally retained across BFCache. They can
@@ -3107,6 +3310,14 @@ export default defineContentScript({
       requestTerminalShieldClear("extension-invalidation");
       terminateConsentSuppression({ terminal: true });
       terminateInteractionShieldAuthority();
+      if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
+        window.removeEventListener("keydown", handleTransientKeyDown, true);
+        window.removeEventListener("pointerdown", handleTransientPointerDown, true);
+        window.removeEventListener("click", suppressDismissalClick, true);
+      }
+      transientSurfaces.dispose();
+      contentTransientSurfaces = null;
+      contentToastController.dispose();
       if (contentSignalPollHandle !== null && typeof window !== "undefined") {
         window.clearInterval(contentSignalPollHandle);
         contentSignalPollHandle = null;

@@ -1,3 +1,5 @@
+import type { TransientSurfaceManager } from "../../ui/transient-surface-manager";
+
 export type MarkingMenuAction = Readonly<{
   id: "include" | "exclude" | "widen" | "clear";
   label: string;
@@ -28,6 +30,7 @@ export function createPhysicalActionDeduper() {
 
 export function openMarkingContextMenu(options: Readonly<{
   document: Document;
+  manager: TransientSurfaceManager;
   x: number;
   y: number;
   actions: readonly MarkingMenuAction[];
@@ -40,19 +43,12 @@ export function openMarkingContextMenu(options: Readonly<{
   root.style.top = `${Math.max(8, Math.min(options.y, (options.document.documentElement.clientHeight || 240) - 174))}px`;
 
   let closed = false;
-  const close = (): void => {
+  const remove = (): void => {
     if (closed) {
       return;
     }
     closed = true;
     root.remove();
-    options.document.removeEventListener("pointerdown", closeFromOutside, true);
-  };
-  const closeFromOutside = (event: Event): void => {
-    if (event.target instanceof Node && root.contains(event.target)) {
-      return;
-    }
-    close();
   };
 
   for (const action of options.actions) {
@@ -73,6 +69,16 @@ export function openMarkingContextMenu(options: Readonly<{
     root.appendChild(button);
   }
   options.document.documentElement.appendChild(root);
-  options.document.addEventListener("pointerdown", closeFromOutside, true);
+  const surface = options.manager.open({
+    id: "marking-context-menu",
+    kind: "menu",
+    root: () => root,
+    outside: "dismiss",
+    escape: "dismiss",
+    dismiss: remove,
+  });
+  const close = (): void => {
+    surface.close("context-change");
+  };
   return close;
 }

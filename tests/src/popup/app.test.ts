@@ -8,6 +8,8 @@ import {
   EMPTY_POPUP_CREDENTIALS_FORM,
   EMPTY_POPUP_DIAGNOSTICS,
   EMPTY_POPUP_SETTINGS_FORM,
+  markingDisableNeedsConfirmation,
+  resolvePopupPanelBlocking,
   resolvePopupCurtainKind,
   PreviewRowList,
   type PopupCredentialsForm,
@@ -303,6 +305,8 @@ describe("popup App surface", () => {
     expect(markup).toContain('data-view="preview"');
     expect(markup).toContain('aria-label="Detected Content"');
     expect(markup).toContain('id="preview-exit"');
+    expect(markup).toContain('data-transient-fallback="preview"');
+    expect(markup).toContain('data-transient-trigger="preview-exit"');
     expect(markup).toContain('aria-label="Exit Preview"');
     expect(markup).toContain("Exit preview to resume editing.");
     expect(markup).toContain("Point to a row to compare it with the page");
@@ -940,6 +944,7 @@ describe("popup App surface", () => {
     const locked = renderApp(LOCKED, { lockStatus: "ok", lockRole: "passive" });
 
     expect(running).toContain('class="ui-curtain"');
+    expect(running).toContain('data-transient-surface="popup-busy-curtain"');
     expect(running).toContain("Computing selectors");
     // A scrim over the locked state would bury the way to the connection form.
     expect(locked).not.toContain('class="ui-curtain"');
@@ -978,6 +983,60 @@ describe("popup App surface", () => {
     expect(markup).toContain("endpoint_unconfigured");
     expect(markup).toContain("u-color-danger");
     expect(markup.indexOf("Run AI failed")).toBeLessThan(markup.indexOf("Run AI started"));
+    expect(markup).not.toContain("data-popup-toast");
+  });
+
+  it("renders only the current typed toast occurrence with an exact dismissal seam", () => {
+    const markup = renderApp(
+      SILENT,
+      { log: [{ id: 1, at: 1, label: "Stale diagnostic", detail: "private", tone: "danger" }] },
+      EMPTY_POPUP_SETTINGS_FORM,
+      {
+        ...FULL_HANDLERS,
+        toast: { id: 17, message: "Saved for this property", tone: "success" },
+        onToastDismiss: NOOP,
+      },
+    );
+
+    expect(markup).toContain('data-popup-toast="success"');
+    expect(markup).toContain('data-toast-id="17"');
+    expect(markup).toContain("Saved for this property");
+    expect(markup).toContain('role="status"');
+    expect(markup).toContain('aria-live="polite"');
+    expect(markup).toContain('aria-label="Close notification"');
+    expect(markup).toContain('data-popup-toast-close="17"');
+    expect(markup).not.toMatch(/popup-toast[^]*Stale diagnostic/);
+  });
+
+  it("keeps urgent toasts available through loading and Preview", () => {
+    const handlers = {
+      ...FULL_HANDLERS,
+      toast: { id: 23, message: "The request failed", tone: "danger" },
+      onToastDismiss: NOOP,
+    };
+    const loading = renderApp(
+      SILENT,
+      {},
+      EMPTY_POPUP_SETTINGS_FORM,
+      handlers,
+      EMPTY_POPUP_CREDENTIALS_FORM,
+      "loading",
+    );
+    const preview = renderApp({
+      name: "preview_open",
+      lastConsumedSeq: 8,
+      priorState: "post_ai_clean",
+      reconciliationReason: "post_ai",
+      previewProjection: PREVIEW_PROJECTION,
+    }, {}, EMPTY_POPUP_SETTINGS_FORM, handlers);
+
+    for (const markup of [loading, preview]) {
+      expect(markup).toContain('data-popup-toast="danger"');
+      expect(markup).toContain('role="alert"');
+      expect(markup).toContain('aria-live="assertive"');
+      expect(markup).toContain('data-popup-toast-close="23"');
+      expect(markup).toContain("The request failed");
+    }
   });
 
   it("reports an empty activity log rather than an empty panel", () => {
@@ -1120,6 +1179,8 @@ describe("popup App surface", () => {
 
     expect(markup).toContain('id="save-excludes"');
     expect(markup).toContain('role="dialog"');
+    expect(markup).toContain('data-transient-surface="lynx-checklist"');
+    expect(markup).toContain('data-transient-trigger="candidate-confirmation"');
     expect(markup).toContain("Final check before sending to Lynx:");
     expect(markup).toContain("Current Live Page coverage:");
     expect(markup).toContain("Mark at least one page for: detail.");
@@ -1199,5 +1260,37 @@ describe("resolvePopupCurtainKind", () => {
 
   it("reports a blocked curtain whenever the lock banner is up", () => {
     expect(resolvePopupCurtainKind(memoryFor(LOCKED))).toBe("blocked");
+  });
+});
+
+describe("popup transient safety seams", () => {
+  it("asks before disabling a dirty marking session only", () => {
+    expect(markingDisableNeedsConfirmation(false, true)).toBe(true);
+    expect(markingDisableNeedsConfirmation(false, false)).toBe(false);
+    expect(markingDisableNeedsConfirmation(true, true)).toBe(false);
+  });
+
+  it("locks panel scrolling for every blocking transient and busy curtain", () => {
+    const baseline = {
+      curtainKind: "none" as const,
+      maintenanceBusy: false,
+      lockConfirmation: false,
+      candidateConfirmation: false,
+      maintenanceConfirmation: false,
+      markingDisableConfirmation: false,
+      checklist: false,
+    };
+    expect(resolvePopupPanelBlocking(baseline)).toBe(false);
+    for (const key of [
+      "maintenanceBusy",
+      "lockConfirmation",
+      "candidateConfirmation",
+      "maintenanceConfirmation",
+      "markingDisableConfirmation",
+      "checklist",
+    ] as const) {
+      expect(resolvePopupPanelBlocking({ ...baseline, [key]: true }), key).toBe(true);
+    }
+    expect(resolvePopupPanelBlocking({ ...baseline, curtainKind: "busy" })).toBe(true);
   });
 });

@@ -473,6 +473,95 @@ describe("rewrite popup entrypoint", () => {
     ].map((expected) => expect.objectContaining(expected)));
   });
 
+  it("projects only explicit operator outcomes as replaceable toast occurrences", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const runtime = makeRuntime(async (message) => replyFrame(message, []));
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: makeTabsSendMessage(() => ({ ok: true, active: false })) },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await waitFor(() => render.mock.calls.length > 0, "popup render");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    expect(props().toast).toBeNull();
+
+    // This is a final, user-triggered refusal. It appears in Activity and as one
+    // concise transient occurrence.
+    props().onCandidateNavigate("//invalid-cross-origin-page-key");
+    await waitFor(() => props().toast?.message === "Candidate navigation blocked", "navigation refusal toast");
+    const occurrence = props().toast;
+    expect(occurrence).toMatchObject({
+      id: expect.any(Number),
+      tone: "warning",
+      message: "Candidate navigation blocked",
+    });
+    expect(props().diagnostics.log[0]).toMatchObject({ label: "Candidate navigation blocked", tone: "warn" });
+
+    props().onToastDismiss(occurrence.id);
+    await waitFor(() => props().toast === null, "manual toast dismissal");
+    // A later informational Activity entry must not reconstruct the dismissed
+    // notification from history.
+    props().onRenderModePick("rendered");
+    expect(props().diagnostics.log[0]).toMatchObject({ label: "Candidate navigation blocked", tone: "warn" });
+    expect(props().toast).toBeNull();
+  });
+
+  it("fences a delayed tab-A result across B and a same-key A rebind", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    let activeUrl = "https://example.com/a";
+    const query = vi.fn(async () => [{ id: 77, url: activeUrl }]);
+    const get = vi.fn(async () => ({ id: 77, url: activeUrl }));
+    let releaseActivation: ((value: unknown) => void) | null = null;
+    let activationRequested = false;
+    const delayedActivation = new Promise<unknown>((resolve) => {
+      releaseActivation = resolve;
+    });
+    const tabsSendMessage = makeTabsSendMessage((_tabId, message) => {
+      if (message.type === "activateContentMain") {
+        activationRequested = true;
+        return delayedActivation;
+      }
+      if (message.type === "getContentMainStatus") {
+        return { ok: true, active: false, dirty: false, pageUrl: activeUrl, contentRows: [] };
+      }
+      return { ok: true, initialized: true, tree: "rewrite" };
+    });
+    const runtime = makeRuntime(async (message) => replyFrame(message, []));
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, get, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await waitFor(() => render.mock.calls.length > 0, "popup render");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    globalThis.window.__UNFLUFFIFY_POPUP_DEBUG__.activateDirectMode();
+    props().onEnableChange(true);
+    await waitFor(() => activationRequested, "the delayed tab-A activation");
+
+    activeUrl = "https://example.com/b";
+    props().onRefresh();
+    await waitFor(() => props().diagnostics.pageUrl === activeUrl, "the tab-B binding");
+    activeUrl = "https://example.com/a";
+    props().onRefresh();
+    await waitFor(() => props().diagnostics.pageUrl === activeUrl, "the new tab-A binding occurrence");
+
+    releaseActivation?.({ ok: true, initialized: true, tree: "rewrite" });
+    await flushEntrypointWork();
+
+    expect(props().toast).toBeNull();
+    expect(props().diagnostics.contentActive).toBe(false);
+    expect(props().diagnostics.log.map((entry: { label: string }) => entry.label)).not.toContain(
+      "Direct marking enabled",
+    );
+  });
+
   it("routes lock banner actions through the background-owned transfer path", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     const render = createReactRenderProbe();
@@ -1472,10 +1561,8 @@ describe("rewrite popup entrypoint", () => {
     }
   });
 
-  it("asks before discarding markings and keeps them when the operator declines", async () => {
+  it("treats a dirty disable callback as already confirmed and never opens a native dialog", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    // The operator says no to the discard prompt.
-    (globalThis.window as unknown as { confirm: () => boolean }).confirm = vi.fn(() => false);
     const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
@@ -1520,10 +1607,13 @@ describe("rewrite popup entrypoint", () => {
     const commandsAfter = tabsSendMessage.mock.calls
       .map(([, m]) => (m as { payload?: { name?: string } }).payload?.name);
 
-    expect((globalThis.window as unknown as { confirm: ReturnType<typeof vi.fn> }).confirm).toHaveBeenCalled();
-    // Declining must not deactivate, because deactivating is the wipe.
-    expect(commandsAfter.filter((name) => name === "enterSilentContentMain"))
-      .toEqual(commandsBefore.filter((name) => name === "enterSilentContentMain"));
+    expect((globalThis.window as unknown as { confirm: ReturnType<typeof vi.fn> }).confirm).not.toHaveBeenCalled();
+    // App is the only caller and invokes this callback only from the explicit
+    // manager-owned confirmation action. The entrypoint therefore crosses the
+    // deactivation boundary exactly once and has no Escape/native-dialog path.
+    expect(commandsAfter.filter((name) => name === "enterSilentContentMain")).toHaveLength(
+      commandsBefore.filter((name) => name === "enterSilentContentMain").length + 1,
+    );
   });
 
   it("binds production popup toggles to the active tab and returns content to silent mode on disable", async () => {

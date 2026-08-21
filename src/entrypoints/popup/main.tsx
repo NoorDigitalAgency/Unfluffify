@@ -52,6 +52,7 @@ import { isRenderModeConfirmed } from "../../storage/config";
 import { resolvePopupView, type PopupView, type PopupViewRequest } from "../../popup/view";
 import { createSignalCursor } from "../../popup/signal-cursor";
 import { createEventLog } from "../../popup/event-log";
+import { createToastController, type ToastTone } from "../../ui/toast-controller";
 import type { LockAction, LockBannerVocabulary, LockReason } from "../../domain/schema/facts";
 import { resolvePopupLockCopy } from "../../popup/copy";
 import type { TodoCoverage } from "../../domain/schema/todo";
@@ -116,6 +117,11 @@ const rootRecovery = createPopupRootRecovery({
 let popupFactSequence = 0;
 let boundTabId: number | null = null;
 let boundTabKey: string | null = null;
+let boundTabOccurrence = 0;
+type PopupBindingOccurrence = Readonly<{
+  key: string | null;
+  occurrence: number;
+}>;
 /** Unregister/config removal is a terminal boundary for this popup realm. Any
  *  async work that began before it must not send a fresh content command into a
  *  replacement document and thereby re-register the tab. A newly opened popup
@@ -238,12 +244,54 @@ let managedRenderInspectionContext: ManagedRenderInspectionContext | null = null
 let lynxChecklist: LynxChecklistState = EMPTY_LYNX_CHECKLIST_STATE;
 let pendingPublicationRequest: PropertyPublishRequest | null = null;
 const eventLog = createEventLog();
+const toastController = createToastController();
 
 function logEvent(label: string, detail = "", tone: PopupLogEntry["tone"] = "info"): void {
   eventLog.add({ label, detail, tone, at: Date.now() });
   if (DEBUG_BUILD && debugTraceEnabled) {
     console.debug("[Unfluffify][popup-trace]", label, detail);
   }
+}
+
+/** Activity is durable diagnostic history; a toast is one explicit operator
+ * outcome. Keeping the two calls separate prevents signal replay and persistent
+ * condition polling from resurrecting a notification that already expired or
+ * was manually closed. */
+function notifyEvent(
+  label: string,
+  detail: string,
+  tone: Exclude<PopupLogEntry["tone"], "info">,
+): void {
+  logEvent(label, detail, tone);
+  const toastTone: ToastTone = tone === "warn" ? "warning" : tone;
+  toastController.show({ message: label, tone: toastTone });
+}
+
+function captureBindingOccurrence(key = boundTabKey): PopupBindingOccurrence {
+  return { key, occurrence: boundTabOccurrence };
+}
+
+function bindingOccurrenceIsCurrent(binding: PopupBindingOccurrence): boolean {
+  return binding.key !== null &&
+    binding.key === boundTabKey &&
+    binding.occurrence === boundTabOccurrence;
+}
+
+/** Async tab work may finish after polling has rebound the popup. Its durable
+ * Activity and transient result both belong to the binding that admitted the
+ * action, so an A -> B -> A ABA must not recreate A's occurrence over a newer
+ * panel lifetime. */
+function notifyBoundEvent(
+  binding: PopupBindingOccurrence,
+  label: string,
+  detail: string,
+  tone: Exclude<PopupLogEntry["tone"], "info">,
+): boolean {
+  if (!bindingOccurrenceIsCurrent(binding)) {
+    return false;
+  }
+  notifyEvent(label, detail, tone);
+  return true;
 }
 
 function safeOrigin(url: string): string {
@@ -421,7 +469,7 @@ function updateTheme(theme: ThemeId): void {
   const next = { ...appearance, theme };
   adoptAppearance(next);
   void persistAppearance(next).catch((error: unknown) => {
-    logEvent("Theme not saved", error instanceof Error ? error.message : String(error), "warn");
+    notifyEvent("Theme not saved", error instanceof Error ? error.message : String(error), "warn");
     render();
   });
 }
@@ -433,7 +481,7 @@ function updateThemeMode(mode: ThemeMode): void {
   const next = { ...appearance, mode };
   adoptAppearance(next);
   void persistAppearance(next).catch((error: unknown) => {
-    logEvent("Theme mode not saved", error instanceof Error ? error.message : String(error), "warn");
+    notifyEvent("Theme mode not saved", error instanceof Error ? error.message : String(error), "warn");
     render();
   });
 }
@@ -569,6 +617,11 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
     return { changed: false, sameTabNavigation: false, key: nextKey };
   }
   const sameTabNavigation = boundTabId === context.tabId && boundTabKey !== null;
+  // A notification occurrence belongs to the binding that produced it. The
+  // debug Activity history may remain useful across a rebind, but the operator
+  // must not see an old tab's result projected over the new tab.
+  boundTabOccurrence += 1;
+  toastController.clear();
   boundTabId = context.tabId;
   boundTabKey = nextKey;
   boundTabUrl = context.url;
@@ -848,10 +901,11 @@ async function navigateToCandidate(pageKey: string): Promise<void> {
   if (!context) {
     return;
   }
-  const requestKey = boundTabKey;
+  const requestKey = await handleBoundContext(context);
+  const binding = captureBindingOccurrence(requestKey);
   const canonicalTarget = canonicalPageKey(pageKey);
   if (!canonicalTarget) {
-    logEvent("Candidate navigation blocked", "invalid relative page key", "warn");
+    notifyBoundEvent(binding, "Candidate navigation blocked", "invalid relative page key", "warn");
     render();
     return;
   }
@@ -902,10 +956,14 @@ async function navigateToCandidate(pageKey: string): Promise<void> {
         return true;
       },
     });
+    if (!bindingOccurrenceIsCurrent(binding)) {
+      return;
+    }
     if (result.status === "blocked") {
-      logEvent("Candidate navigation blocked", result.reason, "warn");
+      notifyBoundEvent(binding, "Candidate navigation blocked", result.reason, "warn");
     } else if (result.status === "failed") {
-      logEvent(
+      notifyBoundEvent(
+        binding,
         "Candidate navigation failed",
         result.restored ? `${result.reason} · page restored` : `${result.reason} · reload the page`,
         "danger",
@@ -918,11 +976,11 @@ async function navigateToCandidate(pageKey: string): Promise<void> {
       contentActive = false;
       contentDirty = false;
       silentSelectorsAppliedKey = null;
-      logEvent(
-        "Candidate navigation started",
-        result.warning ? `${canonicalTarget} · ${result.warning}` : canonicalTarget,
-        result.warning ? "warn" : "info",
-      );
+      if (result.warning) {
+        notifyBoundEvent(binding, "Candidate navigation started", `${canonicalTarget} · ${result.warning}`, "warn");
+      } else {
+        logEvent("Candidate navigation started", canonicalTarget);
+      }
     }
   } finally {
     candidateNavigationBusy = false;
@@ -1678,42 +1736,54 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     return;
   }
   const requestKey = await handleBoundContext(context);
+  const binding = captureBindingOccurrence(requestKey);
   if (enabled && !renderModeSet()) {
-    logEvent("Enable marking refused", "choose a render mode first", "warn");
+    notifyBoundEvent(binding, "Enable marking refused", "choose a render mode first", "warn");
     render();
     return;
   }
   if (enabled && directModeActive) {
     ensureSignalPolling();
     await applySessionEmulation(context);
+    if (!bindingOccurrenceIsCurrent(binding)) {
+      return;
+    }
     const activated = await sendContentMessage(context.tabId, {
       type: "activateContentMain",
       baseUrl: safeOrigin(context.url),
       pageUrl: context.url,
       realEditorActivation: true,
     });
+    if (!bindingOccurrenceIsCurrent(binding)) {
+      return;
+    }
     contentActive = activated;
     if (activated) {
       await adoptMarkingRows(context.tabId, requestKey);
       await reportPopupFact(context, "debug-direct-marking-activated", { markingEnabled: true }, requestKey);
     }
-    logEvent(activated ? "Direct marking enabled" : "Direct marking failed", context.url, activated ? "success" : "danger");
+    notifyBoundEvent(
+      binding,
+      activated ? "Direct marking enabled" : "Direct marking failed",
+      context.url,
+      activated ? "success" : "danger",
+    );
     render();
     return;
   }
-  // Turning marking off discards the markings, so ask first — but only when
-  // there is something to lose. Confirming an empty session is just noise.
-  if (!enabled && contentDirty && !confirmDiscardMarkings()) {
-    logEvent("Marking kept", "discard cancelled");
-    render();
-    return;
-  }
+  // The App's transient-surface manager owns dirty-disable confirmation. This
+  // function runs only after the explicit confirm action, so Escape can close
+  // the prompt without ever crossing into deactivation or discard authority.
   if (enabled) {
     ensureSignalPolling();
     await pullSignals(context.tabId, requestKey);
     const lock = await refreshLockDirective(context, requestKey);
+    if (!bindingOccurrenceIsCurrent(binding)) {
+      return;
+    }
     if (!lock || !lockAllowsEditing(lock)) {
-      logEvent(
+      notifyBoundEvent(
+        binding,
         "Enable marking refused",
         lock ? resolvePopupLockCopy(lock.lockBanner) || lock.status : "lock unavailable",
         "danger",
@@ -1721,8 +1791,12 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
       render();
       return;
     }
-    if (!await applySessionEmulation(context)) {
-      logEvent("Enable marking failed", "device emulation could not be applied", "danger");
+    const emulationApplied = await applySessionEmulation(context);
+    if (!bindingOccurrenceIsCurrent(binding)) {
+      return;
+    }
+    if (!emulationApplied) {
+      notifyBoundEvent(binding, "Enable marking failed", "device emulation could not be applied", "danger");
       render();
       return;
     }
@@ -1735,6 +1809,9 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
       // The content script applies them once and then ignores them.
       ...(loadedSelectors ? { selectors: loadedSelectors } : {}),
     });
+    if (!bindingOccurrenceIsCurrent(binding)) {
+      return;
+    }
     contentActive = activated;
     if (!activated) {
       // Marking never armed, so the tab is silent again — and silent still means
@@ -1746,7 +1823,8 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
       // pretending the operator has edited anything.
       await adoptMarkingRows(context.tabId, requestKey);
     }
-    logEvent(
+    notifyBoundEvent(
+      binding,
       activated ? "Marking enabled" : "Marking activation failed",
       activated
         ? context.url
@@ -1764,8 +1842,11 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
       type: "enterSilentContentMain",
       pageUrl: context.url,
     });
+    if (!bindingOccurrenceIsCurrent(binding)) {
+      return;
+    }
     if (!deactivated) {
-      logEvent("Marking disable failed", "the content script did not confirm deactivation", "danger");
+      notifyBoundEvent(binding, "Marking disable failed", "the content script did not confirm deactivation", "danger");
       render();
       return;
     }
@@ -1863,10 +1944,15 @@ async function adoptMarkingRows(tabId: number, requestKey = boundTabKey): Promis
  *  popup that started it, so this exit first re-reads background authority and
  *  keeps the operator in the render-mode view until JavaScript paint is exact. */
 async function openConfiguration(): Promise<void> {
+  const binding = captureBindingOccurrence();
   requestedView = "render-mode";
   render();
-  if (!await restoreJavascriptView()) {
-    logEvent("Connection settings blocked", "restore the JavaScript view before leaving", "warn");
+  const restored = await restoreJavascriptView();
+  if (!bindingOccurrenceIsCurrent(binding)) {
+    return;
+  }
+  if (!restored) {
+    notifyBoundEvent(binding, "Connection settings blocked", "restore the JavaScript view before leaving", "warn");
     render();
     return;
   }
@@ -1879,7 +1965,7 @@ async function openConfiguration(): Promise<void> {
  *  is actually complete, so a half-configured extension cannot be dismissed. */
 function continueFromConfiguration(): void {
   if (!isConfigurationComplete()) {
-    logEvent("Cannot continue", "finish the connection setup first", "warn");
+    notifyEvent("Cannot continue", "finish the connection setup first", "warn");
     render();
     return;
   }
@@ -1915,12 +2001,19 @@ async function restoreJavascriptView(): Promise<boolean> {
     return false;
   }
   const requestKey = await handleBoundContext(context);
+  const binding = captureBindingOccurrence(requestKey);
   await refreshTodoContext(context, requestKey, { force: true });
+  if (!bindingOccurrenceIsCurrent(binding)) {
+    return false;
+  }
   const observed = await observeCurrentRenderInspection(
     context,
     requestKey,
     managedRenderInspectionPropertyFor(context, requestKey),
   );
+  if (!bindingOccurrenceIsCurrent(binding)) {
+    return false;
+  }
   if (observed === "inactive") {
     return true;
   }
@@ -1940,9 +2033,15 @@ async function restoreJavascriptView(): Promise<boolean> {
   const active = observed === "active" && current?.phase !== "terminal";
   if (active) {
     await cancelActiveRenderInspection(context, requestKey);
+    if (!bindingOccurrenceIsCurrent(binding)) {
+      return false;
+    }
   }
   logEvent("Restoring the page", "reloading with JavaScript");
   await loadRenderModeView(true);
+  if (!bindingOccurrenceIsCurrent(binding)) {
+    return false;
+  }
   const restored = renderInspectionProjection.session;
   const javascriptPaintConfirmed =
     restored?.phase === "terminal" &&
@@ -1950,7 +2049,7 @@ async function restoreJavascriptView(): Promise<boolean> {
     restored.javascriptEnabled &&
     renderInspectionProjection.view === "with_javascript";
   if (!javascriptPaintConfirmed) {
-    logEvent("JavaScript view not confirmed", "stay here and retry before leaving", "warn");
+    notifyBoundEvent(binding, "JavaScript view not confirmed", "stay here and retry before leaving", "warn");
     render();
   }
   return javascriptPaintConfirmed;
@@ -1975,7 +2074,7 @@ async function preparePageAfterRenderMode(): Promise<void> {
 async function commitRenderMode(): Promise<void> {
   const chosen = pendingRenderMode ?? confirmedRenderMode;
   if (chosen === null) {
-    logEvent("Cannot set the render mode", "choose one of the two first", "warn");
+    notifyEvent("Cannot set the render mode", "choose one of the two first", "warn");
     render();
     return;
   }
@@ -2010,15 +2109,6 @@ async function cancelRenderMode(): Promise<void> {
   await preparePageAfterRenderMode();
 }
 
-function confirmDiscardMarkings(): boolean {
-  const confirmFn = typeof window !== "undefined" ? window.confirm : undefined;
-  if (typeof confirmFn !== "function") {
-    // No way to ask, so do not silently discard.
-    return false;
-  }
-  return confirmFn.call(window, "Turning marking off discards your unsaved markings. Continue?");
-}
-
 async function setDesktopPreviewEnabled(enabled: boolean): Promise<void> {
   desktopPreviewEnabled = enabled;
   store.setDesktopPreview(enabled);
@@ -2028,18 +2118,20 @@ async function setDesktopPreviewEnabled(enabled: boolean): Promise<void> {
   if (context === null) {
     return;
   }
+  const binding = captureBindingOccurrence();
   // No armed-session requirement: this control lives on the silent view, which is
   // precisely where marking is off. Turning it off returns the tab to mobile.
   if (!await applySessionEmulation(context)) {
-    logEvent("Device preview failed", "emulation could not be applied", "warn");
+    notifyBoundEvent(binding, "Device preview failed", "emulation could not be applied", "warn");
   }
   render();
 }
 
 async function refreshPopup(): Promise<void> {
+  const binding = captureBindingOccurrence();
   const context = await resolveTargetTabContext();
   if (context === null) {
-    logEvent("Refresh failed", "no active tab", "danger");
+    notifyBoundEvent(binding, "Refresh failed", "no active tab", "danger");
     render();
     return;
   }
@@ -2836,18 +2928,19 @@ async function runAi(): Promise<void> {
   if (context === null) {
     return;
   }
+  const requestKey = await handleBoundContext(context);
+  const binding = captureBindingOccurrence(requestKey);
   const runPageKey = canonicalPageKey(context.url);
   if (!runPageKey) {
-    logEvent("Run AI refused", "the current page URL has no valid path scope", "warn");
+    notifyBoundEvent(binding, "Run AI refused", "the current page URL has no valid path scope", "warn");
     render();
     return;
   }
-  const requestKey = await handleBoundContext(context);
   if (store.getState().name === "running") {
     return;
   }
   if (!renderModeSet()) {
-    logEvent("Run AI refused", "choose a render mode first", "warn");
+    notifyBoundEvent(binding, "Run AI refused", "choose a render mode first", "warn");
     render();
     return;
   }
@@ -2869,8 +2962,8 @@ async function runAi(): Promise<void> {
   }, requestKey);
   const snapshot = await captureSubmission(context, lock.baseUrl);
   if (!snapshot) {
-    if (activeRunSessionId === localRunId) {
-      logEvent("Run AI failed", "page snapshot capture failed", "danger");
+    if (activeRunSessionId === localRunId && bindingOccurrenceIsCurrent(binding)) {
+      notifyBoundEvent(binding, "Run AI failed", "page snapshot capture failed", "danger");
       await reportPopupFactAndPull(context, "ai-run-capture-failed", {
         runPhase: "failed",
         runSessionId: localRunId,
@@ -2883,7 +2976,7 @@ async function runAi(): Promise<void> {
     render();
     return;
   }
-  if (activeRunSessionId !== localRunId) {
+  if (activeRunSessionId !== localRunId || !bindingOccurrenceIsCurrent(binding)) {
     return;
   }
   lastSubmissionSnapshot = snapshot;
@@ -2899,9 +2992,12 @@ async function runAi(): Promise<void> {
     editorSessionId,
     snapshot,
   }, { target: "background" });
+  if (!bindingOccurrenceIsCurrent(binding)) {
+    return;
+  }
   if (!response.ok || response.data.status !== "ok") {
     if (activeRunSessionId === localRunId) {
-      logEvent("Run AI failed", response.ok ? response.data.status : response.failure.code, "danger");
+      notifyBoundEvent(binding, "Run AI failed", response.ok ? response.data.status : response.failure.code, "danger");
       await reportPopupFactAndPull(context, "ai-run-request-failed", {
         runPhase: "failed",
         runSessionId: localRunId,
@@ -2914,14 +3010,18 @@ async function runAi(): Promise<void> {
     render();
     return;
   }
-  if (activeRunSessionId !== localRunId) {
+  if (activeRunSessionId !== localRunId || !bindingOccurrenceIsCurrent(binding)) {
     return;
   }
   await pullSignals(context.tabId, requestKey);
+  if (!bindingOccurrenceIsCurrent(binding)) {
+    return;
+  }
   if (response.data.selectors) {
     await sendContentMessage(context.tabId, { type: "markContentMainClean" });
     contentDirty = false;
-    logEvent(
+    notifyBoundEvent(
+      binding,
       "Run AI completed",
       `${response.data.selectors.inclusionSelectors.length} include · ${response.data.selectors.exclusionSelectors.length} exclude`,
       "success",
@@ -2945,6 +3045,7 @@ async function saveSession(): Promise<void> {
     return;
   }
   const requestKey = await handleBoundContext(context);
+  const binding = captureBindingOccurrence(requestKey);
   await pullSignals(context.tabId, requestKey);
   const lock = await refreshLockDirective(context, requestKey);
   if (!lock || !lockAllowsEditing(lock)) {
@@ -3004,7 +3105,7 @@ async function saveSession(): Promise<void> {
   }
   const saveRequest = configFromSubmission(snapshot, selectors, lock, context.url);
   if (!saveRequest) {
-    logEvent("Save blocked", "authoritative lock or candidate page type is unavailable", "danger");
+    notifyBoundEvent(binding, "Save blocked", "authoritative lock or candidate page type is unavailable", "danger");
     await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
     await reportPopupFactAndPull(context, "save-reconciliation-ended", {
       reconciliationPending: false,
@@ -3014,6 +3115,9 @@ async function saveSession(): Promise<void> {
     return;
   }
   const response = await getPopupBus().request("config.save", saveRequest, { target: "background" });
+  if (!bindingOccurrenceIsCurrent(binding)) {
+    return;
+  }
   await pullSignals(context.tabId, requestKey);
   if (store.getState().name === "reconciling" && store.getState().reconciliationDirty) {
     await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
@@ -3041,7 +3145,7 @@ async function saveSession(): Promise<void> {
     // decision and the local copy has been cleared background-side.
     renderModeSource = "backend";
     configStatus = "ok";
-    logEvent("Session saved", snapshot.baseUrl, "success");
+    notifyBoundEvent(binding, "Session saved", snapshot.baseUrl, "success");
     await reportPopupFactAndPull(context, "session-saved", {
       savedSeq: nextPopupFactSequence(),
       markingEnabled: false,
@@ -3055,7 +3159,7 @@ async function saveSession(): Promise<void> {
       silentSelectorsAppliedKey = null;
       configStatus = "integrity_shrink";
     }
-    logEvent("Save failed", response.ok ? response.data.status : response.failure.code, "danger");
+    notifyBoundEvent(binding, "Save failed", response.ok ? response.data.status : response.failure.code, "danger");
     await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
   }
   await reportPopupFactAndPull(context, "save-reconciliation-ended", {
@@ -3174,6 +3278,7 @@ async function showPreview(): Promise<void> {
     return;
   }
   const requestKey = await handleBoundContext(context);
+  const binding = captureBindingOccurrence(requestKey);
   await pullSignals(context.tabId, requestKey);
   const lock = await refreshLockDirective(context, requestKey);
   if (!lock || !lockAllowsEditing(lock)) {
@@ -3199,7 +3304,7 @@ async function showPreview(): Promise<void> {
   }
   const candidate = await requestPreviewProjectionForContext(context, requestKey);
   if (!candidate) {
-    logEvent("Preview unavailable", "detected content could not be read", "warn");
+    notifyBoundEvent(binding, "Preview unavailable", "detected content could not be read", "warn");
     render();
     return;
   }
@@ -3305,12 +3410,12 @@ async function activatePreviewRow(rowId: string): Promise<void> {
     return;
   }
   if (!result) {
-    logEvent("Preview row unavailable", "the page did not answer", "warn");
+    notifyEvent("Preview row unavailable", "the page did not answer", "warn");
     render();
     return;
   }
   if (result.targeted === false) {
-    logEvent("Preview row changed", "refreshing detected content", "warn");
+    notifyEvent("Preview row changed", "refreshing detected content", "warn");
     await recoverStalePreviewProjection(context, requestKey, projection.projectionId);
   }
 }
@@ -3335,12 +3440,16 @@ async function discardMarkings(): Promise<void> {
     return;
   }
   const requestKey = await handleBoundContext(context);
+  const binding = captureBindingOccurrence(requestKey);
   const reset = await sendContentMessage(context.tabId, {
     type: "resetContentMain",
     pageUrl: context.url,
   });
+  if (!bindingOccurrenceIsCurrent(binding)) {
+    return;
+  }
   if (!reset) {
-    logEvent("Discard failed", "content script refused the reset", "danger");
+    notifyBoundEvent(binding, "Discard failed", "content script refused the reset", "danger");
     render();
     return;
   }
@@ -3426,6 +3535,8 @@ function render(): void {
       credentials={credentialsForm}
       lynxChecklist={lynxChecklist}
       appearance={appearance}
+      toast={toastController.current()}
+      onToastDismiss={(id) => { toastController.dismiss(id); }}
       onEnableChange={(enabled) => { void setMarkingEnabled(enabled); }}
       onDesktopPreviewChange={(enabled) => { void setDesktopPreviewEnabled(enabled); }}
       onRunAi={directModeActive ? undefined : () => { void runAi(); }}
@@ -3476,6 +3587,15 @@ if (DEBUG_BUILD && typeof window !== "undefined") {
     },
     activateDirectMode,
   };
+}
+const unsubscribeToast = toastController.subscribe(() => render());
+if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  const disposeTransientNotifications = (): void => {
+    unsubscribeToast();
+    toastController.dispose();
+  };
+  window.addEventListener("pagehide", disposeTransientNotifications, { once: true });
+  window.addEventListener("unload", disposeTransientNotifications, { once: true });
 }
 unsubscribeStore = store.subscribe(render);
 render();

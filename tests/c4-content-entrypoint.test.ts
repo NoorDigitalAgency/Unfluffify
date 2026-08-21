@@ -62,7 +62,10 @@ vi.mock("../src/content/interaction-shield", () => {
     shieldHarness.instances.push(instance);
     return instance;
   });
-  return { createInteractionShield: shieldHarness.create };
+  return {
+    createInteractionShield: shieldHarness.create,
+    MAXIMUM_DOCUMENT_Z_INDEX: "2147483647",
+  };
 });
 
 vi.mock("../src/content/render-inspection-curtain", () => {
@@ -2000,6 +2003,10 @@ describe("C4 rewrite content entrypoints", () => {
     const pageUrl = installTestLocation();
     const documentListeners = new Map<string, EventListener>();
     const windowListeners: TestListenerRegistry = new Map();
+    const markingOverlay = {
+      className: "uf-marking-layer-root",
+      style: { pointerEvents: "auto", zIndex: "2147483647" },
+    } as unknown as HTMLElement;
     const engine = {
       refresh: vi.fn(),
       renderReadOnly: vi.fn(),
@@ -2009,13 +2016,18 @@ describe("C4 rewrite content entrypoints", () => {
       setPassthrough: vi.fn(),
       setInputTransparent: vi.fn(),
       setSuspended: vi.fn(),
+      clearHover: vi.fn(),
       rejectAtPoint: vi.fn(),
       rows: vi.fn(() => [{ xpath: "/html[1]/body[1]/p[1]", excluded: true }]),
       lastInitializationSeededSelectors: vi.fn(() => true),
       renderSilentHighlights: vi.fn(() => ["/html[1]/body[1]/p[1]"]),
       setSilentDebugAnnotations: vi.fn(),
+      overlayRoot: vi.fn(() => markingOverlay),
     };
-    const createMarkingEngine = vi.fn(() => engine);
+    const createMarkingEngine = vi.fn(() => {
+      document.documentElement.appendChild(markingOverlay);
+      return engine;
+    });
     const sendMessage = vi.fn(async (message: BusFrame) => message.name === "page.context"
       ? managedPageContextReply(message, pageUrl.href)
       : { ok: true });
@@ -2027,7 +2039,9 @@ describe("C4 rewrite content entrypoints", () => {
       textContent: string;
       isConnected: boolean;
       title: string;
+      listeners: Map<string, EventListener[]>;
       setAttribute: (name: string, value: string) => void;
+      addEventListener: (name: string, listener: EventListener) => void;
       appendChild: (child: SurfaceElement) => SurfaceElement;
       replaceChildren: (...children: SurfaceElement[]) => void;
       remove: () => void;
@@ -2042,8 +2056,12 @@ describe("C4 rewrite content entrypoints", () => {
         textContent: "",
         isConnected: true,
         title: "",
+        listeners: new Map(),
         setAttribute(name: string, value: string) {
           this.attributes[name] = value;
+        },
+        addEventListener(name: string, listener: EventListener) {
+          this.listeners.set(name, [...(this.listeners.get(name) ?? []), listener]);
         },
         appendChild(child: SurfaceElement) {
           this.children.push(child);
@@ -2160,6 +2178,12 @@ describe("C4 rewrite content entrypoints", () => {
       await Promise.resolve();
     }
     const contentRoot = contentElements.find((element) => element.attributes["data-uf-content-surface-root"] === "true");
+    const currentToast = (): SurfaceElement | undefined => contentRoot?.children.find((element) =>
+      element.attributes["data-uf-content-toast"] === "true"
+    );
+    const toastCopy = (toast: SurfaceElement | undefined): string | undefined => toast?.children.find((element) =>
+      element.attributes["data-uf-content-toast-copy"] === "true"
+    )?.textContent;
     const pauseIndicator = contentRoot?.children.find((element) =>
       element.attributes["data-uf-motion-pause-indicator"] === "true"
     );
@@ -2173,7 +2197,10 @@ describe("C4 rewrite content entrypoints", () => {
       element.attributes["data-uf-content-curtain-copy"] === "true"
       && element.textContent === "Inspecting page... it will be ready soon"
     )).toBe(true);
-    expect(windowListeners.has("keydown")).toBe(false);
+    // Escape safety is installed at document_start, ahead of the interaction
+    // shield, so Preview can always request its normal restoration path even
+    // before marking listeners exist.
+    expect(windowListeners.has("keydown")).toBe(true);
     await dispatchContentCommand(listener, "activateContentMain");
     const status = await dispatchContentCommand(listener, "getContentMainStatus");
     expect(status.data).toMatchObject({
@@ -2183,8 +2210,16 @@ describe("C4 rewrite content entrypoints", () => {
       pageUrl: pageUrl.href,
       markedCount: 0,
       contentRows: [{ xpath: "/html[1]/body[1]/p[1]", classification: "excluded" }],
+      sessionState: { name: "boot" },
+      authority: { configPresent: true, lockRole: "editor", lockBlocked: false },
+      presentation: { markingEditsBlocked: false, pageInputBlocked: false },
       tree: "rewrite",
     });
+    expect(inspectionCurtainHarness.instances).toHaveLength(0);
+    expect(shieldHarness.instances.some((instance) => instance.setActive.mock.calls.some(
+      ([reason, active]) => reason === "render-inspection" && active === true,
+    ))).toBe(false);
+    expect(engine.setInputTransparent).toHaveBeenLastCalledWith(false);
     expect(createMarkingEngine).toHaveBeenCalledTimes(1);
     expect(createMarkingEngine).toHaveBeenCalledWith(document.documentElement, {
       render: true,
@@ -2226,10 +2261,37 @@ describe("C4 rewrite content entrypoints", () => {
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
     documentListeners.get("keydown")?.({ code: "Space" } as unknown as Event);
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-passthrough");
-    expect(contentRoot?.children.some((element) =>
-      element.attributes["data-uf-content-toast"] === "true"
-      && element.textContent === "Page interaction mode"
-    )).toBe(true);
+    const spaceToast = currentToast();
+    expect(toastCopy(spaceToast)).toBe("Page interaction mode");
+    expect(spaceToast?.attributes).toMatchObject({
+      "data-uf-content-toast-tone": "success",
+      role: "status",
+      "aria-live": "polite",
+    });
+    const documentChildrenInAppendOrder = (
+      document.documentElement.appendChild as ReturnType<typeof vi.fn>
+    ).mock.calls.map(([element]) => element);
+    expect(documentChildrenInAppendOrder.lastIndexOf(contentRoot))
+      .toBeGreaterThan(documentChildrenInAppendOrder.lastIndexOf(markingOverlay));
+    expect(contentRoot?.style).toMatchObject({
+      pointerEvents: "none",
+      zIndex: "2147483647",
+    });
+    expect(markingOverlay.style.pointerEvents).toBe("auto");
+    expect(contentElements.find((element) => element.id === "unfluffify-content-surface-style")?.textContent)
+      .toMatch(/\[data-uf-content-toast-close="true"\]\s*\{[^}]*pointer-events:\s*auto;/s);
+    const closeToast = spaceToast?.children.find((element) =>
+      element.attributes["data-uf-content-toast-close"] === "true"
+    );
+    expect(closeToast?.attributes["aria-label"]).toBe("Close notification");
+    expect(closeToast?.title).toBe("Close notification");
+    const closeEvent = { preventDefault: vi.fn(), stopPropagation: vi.fn() };
+    for (const closeListener of closeToast?.listeners.get("click") ?? []) {
+      closeListener(closeEvent as unknown as Event);
+    }
+    expect(currentToast()).toBeUndefined();
+    expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(closeEvent.stopPropagation).toHaveBeenCalledOnce();
     documentListeners.get("keyup")?.({ code: "Space" } as unknown as Event);
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
     documentListeners.get("keydown")?.({ code: "Space" } as unknown as Event);
@@ -2270,10 +2332,13 @@ describe("C4 rewrite content entrypoints", () => {
       stopPropagation: vi.fn(),
     } as unknown as Event);
     expect(engine.rejectAtPoint).toHaveBeenCalledWith(15, 25);
-    expect(contentRoot?.children.some((element) =>
-      element.attributes["data-uf-content-toast"] === "true" &&
-      element.textContent === "That area can't be marked (15, 25)."
-    )).toBe(true);
+    const invalidToast = currentToast();
+    expect(toastCopy(invalidToast)).toBe("That area can't be marked (15, 25).");
+    expect(invalidToast?.attributes).toMatchObject({
+      "data-uf-content-toast-tone": "warning",
+      role: "status",
+      "aria-live": "polite",
+    });
     expect(click.preventDefault).toHaveBeenCalledTimes(1);
     // bus.emit defers its transport send by a microtask, unlike bus.request which
     // sends synchronously, so the fact needs a flush before it is observable.
@@ -2375,9 +2440,41 @@ describe("C4 rewrite content entrypoints", () => {
     expect(writeText).toHaveBeenCalledWith("XPath: /html[1]/body[1]/p[1]");
     expect(debugCopyEvent.preventDefault).toHaveBeenCalledOnce();
     expect(debugCopyEvent.stopPropagation).toHaveBeenCalledOnce();
+    expect(toastCopy(currentToast())).toBe("Highlight details copied.");
+    expect(currentToast()?.attributes["data-uf-content-toast-tone"]).toBe("success");
+    const copiedToastId = Number(currentToast()?.attributes["data-uf-content-toast-id"]);
+    writeText.mockRejectedValueOnce(new Error("clipboard unavailable"));
+    documentListeners.get("click")?.(debugCopyEvent as unknown as Event);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(toastCopy(currentToast())).toBe("Unable to copy highlight details.");
+    expect(currentToast()?.attributes).toMatchObject({
+      "data-uf-content-toast-tone": "danger",
+      role: "alert",
+      "aria-live": "assertive",
+    });
+    expect(Number(currentToast()?.attributes["data-uf-content-toast-id"])).toBeGreaterThan(copiedToastId);
+    expect(contentRoot?.children.filter((element) =>
+      element.attributes["data-uf-content-toast"] === "true"
+    )).toHaveLength(1);
+    let resolveDelayedCopy: (() => void) | undefined;
+    writeText.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveDelayedCopy = resolve;
+    }));
+    documentListeners.get("click")?.(debugCopyEvent as unknown as Event);
+    await Promise.resolve();
+    dispatchTestEvent(windowListeners, "pagehide", { type: "pagehide" } as Event);
+    expect(currentToast()).toBeUndefined();
+    resolveDelayedCopy?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(currentToast()).toBeUndefined();
+    dispatchTestEvent(windowListeners, "pageshow", { type: "pageshow" } as Event);
 
     const deactivate = await dispatchContentCommand(listener, "deactivateContentMain");
-    expect(shield?.setActive).toHaveBeenCalledWith("silent-highlights", false);
+    expect(currentToast()).toBeUndefined();
+    expect(shieldHarness.instances.at(-1)?.setActive)
+      .toHaveBeenCalledWith("silent-highlights", false);
     expect(engine.setInputTransparent).toHaveBeenCalledWith(false);
     expect(window.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       command: "DESTROY",
@@ -2387,9 +2484,31 @@ describe("C4 rewrite content entrypoints", () => {
 
     await dispatchContentCommand(listener, "applySilentSelectors", { selectors: silentSelectors });
     expect(contentRoot?.isConnected).toBe(true);
+    writeText.mockResolvedValueOnce(undefined);
+    documentListeners.get("click")?.(debugCopyEvent as unknown as Event);
+    await Promise.resolve();
+    expect(toastCopy(currentToast())).toBe("Highlight details copied.");
+    pageUrl.href = "https://example.com/next";
+    dispatchTestEvent(windowListeners, "message", {
+      source: windowObject,
+      data: { kind: "uf-page-url-changed/1", toUrl: pageUrl.href },
+    } as unknown as Event);
+    expect(currentToast()).toBeUndefined();
+    await applyLockState(listener);
+    await dispatchContentCommand(listener, "applySilentSelectors", { selectors: silentSelectors });
+    let resolveInvalidatedCopy: (() => void) | undefined;
+    writeText.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveInvalidatedCopy = resolve;
+    }));
+    documentListeners.get("click")?.(debugCopyEvent as unknown as Event);
+    await Promise.resolve();
     invalidate?.();
-    expect(engine.dispose).toHaveBeenCalledTimes(3);
+    resolveInvalidatedCopy?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(engine.dispose).toHaveBeenCalledTimes(4);
     expect(contentRoot?.isConnected).toBe(false);
+    expect(currentToast()).toBeUndefined();
     expect(shield?.dispose).toHaveBeenCalledOnce();
   });
 
@@ -3466,7 +3585,28 @@ describe("C4 rewrite content entrypoints", () => {
       element.attributes["data-uf-content-lock-confirm"] === "discard"
     );
     expect(inlineConfirmation?.textContent).toBe("Discard unsaved work in the current editor session?");
-    confirmButton?.listeners.get("click")?.({
+    const lockEscape = {
+      key: "Escape",
+      preventDefault: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    };
+    windowListeners.get("keydown")?.(lockEscape as unknown as Event);
+    expect(lockEscape.preventDefault).toHaveBeenCalledOnce();
+    expect(sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({ name: "lock.action" }));
+
+    // Escape only dismissed the confirmation. The canonical action remains
+    // available and runs exactly once after an explicit reopen + confirm.
+    const reopenedAccept = elements.filter((element) =>
+      element.attributes["data-uf-lock-action-kind"] === "accept-takeover"
+    ).at(-1);
+    reopenedAccept?.listeners.get("click")?.({
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as Event);
+    const reopenedConfirm = elements.filter((element) =>
+      element.attributes["data-uf-content-lock-confirm"] === "discard"
+    ).at(-1) ?? confirmButton;
+    reopenedConfirm?.listeners.get("click")?.({
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),
     } as unknown as Event);
@@ -3540,11 +3680,40 @@ describe("C4 rewrite content entrypoints", () => {
 
     queueSignal("run.completed", { sessionId: "run-1" });
     queueSignal("preview.opened", { origin: "post_ai" });
+    await applyLockState(listener);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const previewEscape = {
+      key: "Escape",
+      preventDefault: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    };
+    windowListeners.get("keydown")?.(previewEscape as unknown as Event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const previewEscapeFacts = () => sendMessage.mock.calls.filter(([frame]) =>
+      frame.name === "fact.reported" &&
+      (frame.payload as { sensation?: { reason?: string } }).sensation?.reason === "preview-escape-requested"
+    );
+    expect(previewEscape.preventDefault).toHaveBeenCalledOnce();
+    expect(previewEscape.stopImmediatePropagation).toHaveBeenCalledOnce();
+    expect(previewEscapeFacts()).toHaveLength(1);
+    expect(previewEscapeFacts()[0]?.[0]).toEqual(expect.objectContaining({
+      payload: expect.objectContaining({
+        sensation: expect.objectContaining({
+          facts: expect.objectContaining({ previewExitRequested: true }),
+        }),
+      }),
+    }));
+    // The local occurrence fence blocks a second physical Escape while the
+    // brain-owned restoration edge is in flight.
+    windowListeners.get("keydown")?.(previewEscape as unknown as Event);
+    expect(previewEscapeFacts()).toHaveLength(1);
+
     queueSignal("preview.exit.requested", { restore: true });
     await applyLockState(listener);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    // The popup only requested the exit. Content owns the one completion fact,
+    // The surface only requested the exit. Content owns the one completion fact,
     // after it has consumed the request and entered its restoring posture.
     expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       kind: "uf-bus/1",

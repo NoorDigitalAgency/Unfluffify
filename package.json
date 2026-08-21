@@ -27,6 +27,8 @@
     "performance:p16:smoke": "node ./scripts/performance/p16-render-inspection-browser-gate.mjs --smoke",
     "performance:p17": "node ./scripts/performance/p17-preview-browser-gate.mjs",
     "performance:p17:smoke": "node ./scripts/performance/p17-preview-browser-gate.mjs --smoke",
+    "performance:p18": "node ./scripts/performance/p18-transient-toast-browser-gate.mjs",
+    "performance:p18:smoke": "node ./scripts/performance/p18-transient-toast-browser-gate.mjs --smoke",
     "orchestrate:bus": "node ./orchestration/bus-server.mjs",
     "orchestrate:mock-client": "node ./orchestration/mock-client.mjs",
     "orchestrate:runner": "node ./orchestration/runner.mjs",
