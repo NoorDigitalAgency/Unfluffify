@@ -1,6 +1,9 @@
 import { createRewriteBrainRuntime } from "./rewrite-brain-runtime";
 import { createPropertyLockRuntime, PROPERTY_LOCK_HEARTBEAT_ALARM } from "./lock-runtime";
 import { createRenderEmulationRuntime } from "./render-emulation-runtime";
+import {
+  createRenderInspectionRuntime,
+} from "./render-inspection-runtime";
 import { managedEmulationDecision } from "./emulation-policy";
 import { createRewriteBackgroundServices } from "./services";
 import { createAuthTokenMonitor } from "./auth-token-monitor";
@@ -11,7 +14,7 @@ import {
   type LockBrowserApi,
 } from "./lock-browser-lifecycle";
 import { connectionSettingsOf, replaceConnectionProfile } from "../storage/settings";
-import { getInstalledBrowserApi } from "../common/browser";
+import { getBrowserRuntimeLastError, getInstalledBrowserApi } from "../common/browser";
 import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
 import {
@@ -101,6 +104,35 @@ export function startRewriteBackground(): void {
    * value means a navigation boundary was observed without a usable document
    * id, so content remains fenced until an authoritative id is available. */
   const mainDocumentByTab = new Map<number, string | null>();
+  type MainNavigationState = Readonly<{
+    epoch: number;
+    pending: boolean;
+    pageUrl: string | null;
+  }>;
+  const mainNavigationByTab = new Map<number, MainNavigationState>();
+  const normalizedPageUrl = (pageUrl: string | null): string | null => {
+    if (!pageUrl) return null;
+    try {
+      const parsed = new URL(pageUrl);
+      parsed.hash = "";
+      return parsed.toString();
+    } catch {
+      return null;
+    }
+  };
+  const advanceMainNavigation = (
+    tabId: number,
+    pending: boolean,
+    pageUrl: string | null,
+  ): MainNavigationState => {
+    const state = {
+      epoch: (mainNavigationByTab.get(tabId)?.epoch ?? 0) + 1,
+      pending,
+      pageUrl: normalizedPageUrl(pageUrl),
+    };
+    mainNavigationByTab.set(tabId, state);
+    return state;
+  };
   const mainDocumentWrites = new Map<number, Promise<void>>();
   const mainDocumentKey = (tabId: number): string => `uf:main-document:${tabId}`;
   const persistMainDocument = (tabId: number, documentId: string | null): void => {
@@ -124,8 +156,12 @@ export function startRewriteBackground(): void {
     // fallback merely because its first write completed last.
     persistMainDocument(tabId, documentId);
   };
-  const queryMainDocument = async (tabId: number): Promise<string | null | undefined> => {
-    type FrameDetails = Readonly<{ documentId?: string }> | null;
+  type MainFrameAuthority = Readonly<{
+    documentId: string | null;
+    pageUrl: string | null;
+  }>;
+  const queryMainFrame = async (tabId: number): Promise<MainFrameAuthority | undefined> => {
+    type FrameDetails = Readonly<{ documentId?: string; url?: string }> | null;
     type GetFrame = (
       details: Readonly<{ tabId: number; frameId: number }>,
       callback?: (details: FrameDetails) => void,
@@ -146,7 +182,12 @@ export function startRewriteBackground(): void {
         const maybePromise = getFrame.call(
           navigation,
           { tabId, frameId: 0 },
-          (details) => finish(() => resolve(details)),
+          (details) => {
+            const lastError = getBrowserRuntimeLastError();
+            finish(() => lastError
+              ? reject(new Error(lastError.message || "Unable to read main frame"))
+              : resolve(details));
+          },
         );
         if (maybePromise && typeof maybePromise.then === "function") {
           void maybePromise.then(
@@ -155,12 +196,101 @@ export function startRewriteBackground(): void {
           );
         }
       });
-      return typeof frame?.documentId === "string" && frame.documentId
-        ? frame.documentId
-        : null;
+      return {
+        documentId: typeof frame?.documentId === "string" && frame.documentId
+          ? frame.documentId
+          : null,
+        pageUrl: typeof frame?.url === "string" && frame.url
+          ? normalizedPageUrl(frame.url)
+          : null,
+      };
     } catch {
       return undefined;
     }
+  };
+  const queryMainDocument = async (tabId: number): Promise<string | null | undefined> =>
+    (await queryMainFrame(tabId))?.documentId;
+  const queryTabPresence = async (
+    tabId: number,
+  ): Promise<"present" | "missing" | "unknown"> => {
+    type TabDetails = Readonly<{ id?: number }> | null | undefined;
+    type GetTab = (
+      tabId: number,
+      callback?: (tab: TabDetails) => void,
+    ) => Promise<TabDetails> | void;
+    const tabsApi = api.tabs as unknown as { get?: GetTab } | undefined;
+    const getTab = tabsApi?.get;
+    if (!getTab) {
+      return "unknown";
+    }
+    try {
+      const tab = await new Promise<TabDetails>((resolve, reject) => {
+        let settled = false;
+        const finish = (operation: () => void): void => {
+          if (settled) return;
+          settled = true;
+          operation();
+        };
+        const maybePromise = getTab.call(tabsApi, tabId, (value) => {
+          const lastError = getBrowserRuntimeLastError();
+          finish(() => lastError
+            ? reject(new Error(lastError.message || "Unable to read tab"))
+            : resolve(value));
+        });
+        if (maybePromise && typeof maybePromise.then === "function") {
+          void maybePromise.then(
+            (value) => finish(() => resolve(value)),
+            (error) => finish(() => reject(error)),
+          );
+        }
+      });
+      return tab && typeof tab.id === "number" ? "present" : "unknown";
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return /no tab with id|invalid tab id|tab not found|unknown tab/i.test(message)
+        ? "missing"
+        : "unknown";
+    }
+  };
+  const listBrowserAlarms = async (): Promise<readonly Readonly<{ name: string }>[]> => {
+    type AlarmDetails = Readonly<{ name?: string }>;
+    type GetAllAlarms = (
+      callback?: (alarms: readonly AlarmDetails[]) => void,
+    ) => Promise<readonly AlarmDetails[]> | void;
+    const alarmsApi = api.alarms as unknown as { getAll?: GetAllAlarms } | undefined;
+    const getAll = alarmsApi?.getAll;
+    if (!getAll) {
+      return [];
+    }
+    const alarms = await new Promise<readonly AlarmDetails[]>((resolve, reject) => {
+      let settled = false;
+      const finish = (operation: () => void): void => {
+        if (settled) return;
+        settled = true;
+        operation();
+      };
+      try {
+        const maybePromise = getAll.call(
+          alarmsApi,
+          (value) => {
+            const lastError = getBrowserRuntimeLastError();
+            finish(() => lastError
+              ? reject(new Error(lastError.message || "Unable to list alarms"))
+              : resolve(value));
+          },
+        );
+        if (maybePromise && typeof maybePromise.then === "function") {
+          void maybePromise.then(
+            (value) => finish(() => resolve(value)),
+            (error) => finish(() => reject(error)),
+          );
+        }
+      } catch (error) {
+        finish(() => reject(error));
+      }
+    });
+    return alarms.flatMap((alarm) =>
+      typeof alarm.name === "string" && alarm.name ? [{ name: alarm.name }] : []);
   };
   const loadMainDocument = async (
     tabId: number,
@@ -203,8 +333,60 @@ export function startRewriteBackground(): void {
     const current = await loadMainDocument(tabId);
     return !current.known || current.documentId === documentId;
   };
+  type RenderInspectionDocumentFence = Readonly<{
+    documentId: string;
+    navigation: MainNavigationState;
+    pageUrl: string;
+  }>;
+  const admitRenderInspectionDocument = async (
+    tabId: number,
+    documentId: string,
+    pageUrl: string,
+  ): Promise<RenderInspectionDocumentFence | null> => {
+    const expectedPageUrl = normalizedPageUrl(pageUrl);
+    const navigationBeforeFrame = mainNavigationByTab.get(tabId);
+    if (!expectedPageUrl || navigationBeforeFrame?.pending) {
+      return null;
+    }
+    // Content identity is never reconstructed from the sender or a persisted
+    // document id alone. A fresh main-frame read closes the cold-worker gap in
+    // which session storage still names A after Chrome has already installed B.
+    const frame = await queryMainFrame(tabId);
+    if (
+      mainNavigationByTab.get(tabId) !== navigationBeforeFrame ||
+      !frame?.documentId ||
+      frame.documentId !== documentId ||
+      !frame.pageUrl ||
+      frame.pageUrl !== expectedPageUrl
+    ) {
+      return null;
+    }
+    if (
+      mainDocumentByTab.has(tabId) &&
+      mainDocumentByTab.get(tabId) !== documentId
+    ) {
+      return null;
+    }
+    if (!mainDocumentByTab.has(tabId)) {
+      observeMainDocument(tabId, documentId);
+    }
+    let navigation = navigationBeforeFrame;
+    if (!navigation) {
+      navigation = { epoch: 0, pending: false, pageUrl: frame.pageUrl };
+      mainNavigationByTab.set(tabId, navigation);
+    }
+    if (
+      navigation.pending ||
+      navigation.pageUrl !== frame.pageUrl ||
+      mainDocumentByTab.get(tabId) !== documentId
+    ) {
+      return null;
+    }
+    return { documentId, navigation, pageUrl: frame.pageUrl };
+  };
   const clearMainDocument = async (tabId: number): Promise<void> => {
     mainDocumentByTab.delete(tabId);
+    mainNavigationByTab.delete(tabId);
     await mainDocumentWrites.get(tabId);
     await Promise.resolve(api.storage?.session?.remove(mainDocumentKey(tabId)))
       .catch(() => undefined);
@@ -337,9 +519,13 @@ export function startRewriteBackground(): void {
     realm: "background",
     transport: createRuntimeTransport(api.runtime),
   });
+  let renderInspectionDetachHandler: ((tabId: number) => void) | null = null;
   const renderEmulation = createRenderEmulationRuntime({
     debuggerApi: api.debugger,
     tabs: api.tabs,
+    onDebuggerDetached(tabId) {
+      renderInspectionDetachHandler?.(tabId);
+    },
   });
   const pageContextRuntime = createPageContextRuntime({
     currentEnvironmentKey: services.lynx.currentEnvironmentKey,
@@ -349,6 +535,80 @@ export function startRewriteBackground(): void {
   const shieldPosture = createShieldPostureRuntime({
     repo: services.repos.shieldPostureRepo,
   });
+  type RenderInspectionOccurrence = Readonly<{
+    tabId: number;
+    documentId: string | null;
+    sourceDocumentId: string | null;
+    pageUrl: string;
+  }>;
+  const canRecoverRenderInspectionOccurrence = async (
+    record: RenderInspectionOccurrence,
+  ): Promise<boolean> => {
+    const navigationBeforeRead = mainNavigationByTab.get(record.tabId);
+    if (navigationBeforeRead?.pending) {
+      return false;
+    }
+    const frame = await queryMainFrame(record.tabId);
+    if (mainNavigationByTab.get(record.tabId) !== navigationBeforeRead) {
+      return false;
+    }
+    const expectedDocumentId = record.documentId ?? record.sourceDocumentId;
+    const expectedPageUrl = normalizedPageUrl(record.pageUrl);
+    return Boolean(
+      frame?.documentId &&
+      frame.pageUrl &&
+      expectedDocumentId &&
+      frame.documentId === expectedDocumentId &&
+      expectedPageUrl &&
+      frame.pageUrl === expectedPageUrl
+    );
+  };
+  const classifyRenderInspectionTabPresence = async (
+    record: Readonly<{
+      tabId: number;
+    }>,
+  ): Promise<"current" | "stale" | "unknown"> => {
+    const presence = await queryTabPresence(record.tabId);
+    return presence === "present"
+      ? "current"
+      : presence === "missing"
+        ? "stale"
+        : "unknown";
+  };
+  const renderInspection = createRenderInspectionRuntime({
+    repo: services.repos.renderInspectionRepo,
+    canRecover: canRecoverRenderInspectionOccurrence,
+    classifyTabCleanupOccurrence: classifyRenderInspectionTabPresence,
+    driver: {
+      setJavascriptEnabled: (tabId, enabled) =>
+        renderEmulation.setJavascriptEnabled(tabId, enabled),
+      reload: (tabId) => renderEmulation.reload(tabId),
+    },
+    async createAlarm(name, info) {
+      await Promise.resolve(api.alarms?.create(name, info));
+    },
+    async clearAlarm(name) {
+      await Promise.resolve(api.alarms?.clear(name));
+    },
+    listAlarms: listBrowserAlarms,
+  });
+  renderInspectionDetachHandler = (tabId) => {
+    void renderInspection.debuggerDetached(tabId).catch((error) => {
+      console.error("[Unfluffify][rewrite] Render inspection debugger detach failed", error);
+    });
+  };
+  const settleRenderInspection = async (
+    label: string,
+    operation: () => Promise<unknown>,
+  ): Promise<void> => {
+    try {
+      await operation();
+    } catch (error) {
+      // Inspection has already attempted its fail-open JavaScript restore. It
+      // must never prevent the broader tab/property terminal cleanup.
+      console.error(`[Unfluffify][rewrite] Render inspection ${label} failed`, error);
+    }
+  };
   const tabLifecycleOperations = new Map<number, Promise<void>>();
   const withTabLifecycleOperation = <T>(tabId: number, operation: () => Promise<T>): Promise<T> => {
     const previous = tabLifecycleOperations.get(tabId) ?? Promise.resolve();
@@ -363,6 +623,16 @@ export function startRewriteBackground(): void {
     return queued;
   };
   const tabTerminations = new Map<number, Promise<void>>();
+  const renderInspectionDocumentFenceIsCurrent = (
+    tabId: number,
+    fence: RenderInspectionDocumentFence,
+  ): boolean => {
+    const navigation = mainNavigationByTab.get(tabId);
+    return navigation === fence.navigation &&
+      !navigation.pending &&
+      navigation.pageUrl === fence.pageUrl &&
+      mainDocumentByTab.get(tabId) === fence.documentId;
+  };
   const awaitTabTermination = async (tabId: number): Promise<void> => {
     while (tabTerminations.has(tabId)) {
       await tabTerminations.get(tabId);
@@ -427,10 +697,16 @@ export function startRewriteBackground(): void {
     services,
     context: pageContextRuntime,
     tabs: api.tabs,
-    onAuthoritativeTransfer({ tabId }) {
+    onAuthoritativeTransfer({ tabId, environmentKey, siteId }) {
       // A foreign/rotated fence is the ownership boundary. Clear only the old
       // continuation; the passive client remains connected for future handoff.
       return beginTabCleanup(tabId, async () => {
+        await settleRenderInspection("property transfer cleanup", () => renderInspection.terminateProperty({
+          tabId,
+          environmentKey,
+          siteId,
+          reason: "extension-invalidated",
+        }));
         await drainLockFactOperations(tabId);
         await runtime.forgetBrain(tabId);
         await shieldPosture.clearDocumentPosture(tabId);
@@ -489,8 +765,66 @@ export function startRewriteBackground(): void {
   });
   const lockBrowserLifecycle = createLockBrowserLifecycle({
     api: api as unknown as LockBrowserApi,
-    onMainDocumentCommitted(tabId, documentId) {
+    onMainDocumentNavigationStarted(tabId, pageUrl) {
+      advanceMainNavigation(tabId, true, pageUrl);
+      const expectedInspectionReload = renderInspection.observeNavigationStart(tabId, pageUrl);
+      if (!expectedInspectionReload) {
+        void settleRenderInspection("navigation-start cleanup", () =>
+          renderInspection.navigationStarted(tabId));
+      }
+    },
+    onMainDocumentNavigationFailed(tabId, pageUrl) {
+      const failedState = mainNavigationByTab.get(tabId);
+      if (
+        !failedState?.pending ||
+        !failedState.pageUrl ||
+        normalizedPageUrl(pageUrl) !== failedState.pageUrl
+      ) {
+        return;
+      }
+      void settleRenderInspection("failed navigation cleanup", () =>
+        renderInspection.navigationFailed(tabId));
+      void queryMainFrame(tabId).then((frame) => {
+        if (
+          !failedState ||
+          mainNavigationByTab.get(tabId) !== failedState ||
+          !frame?.documentId ||
+          !frame.pageUrl
+        ) {
+          return;
+        }
+        mainNavigationByTab.set(tabId, {
+          epoch: failedState.epoch + 1,
+          pending: false,
+          pageUrl: frame.pageUrl,
+        });
+        observeMainDocument(tabId, frame.documentId);
+      });
+    },
+    onMainDocumentCommitted(tabId, documentId, pageUrl) {
+      const state = advanceMainNavigation(tabId, false, pageUrl);
       observeMainDocument(tabId, documentId);
+      const commit = {
+        tabId,
+        documentId,
+        pageUrl: state.pageUrl,
+      };
+      renderInspection.observeNavigationCommit(commit);
+      // Inspection owns a narrower per-tab FIFO and its JavaScript restore is
+      // safety-critical. Process the browser boundary immediately instead of
+      // waiting behind remote page-context/config work in the broader cleanup.
+      void settleRenderInspection("navigation cleanup", () =>
+        renderInspection.navigationCommitted(commit));
+    },
+    onMainDocumentHistoryChanged(tabId, documentId, pageUrl) {
+      const state = advanceMainNavigation(tabId, false, pageUrl);
+      if (documentId) {
+        observeMainDocument(tabId, documentId);
+      }
+      const commit = { tabId, documentId, pageUrl: state.pageUrl };
+      renderInspection.observeNavigationCommit(commit);
+      void settleRenderInspection("same-document navigation cleanup", () =>
+        renderInspection.navigationCommitted(commit));
     },
     onPresenceChanged(tabId, presence) {
       lockRuntime.presenceChanged(tabId, presence);
@@ -502,6 +836,8 @@ export function startRewriteBackground(): void {
       const preserveSignalHead = reason !== "tab-closed";
       return beginTabCleanup(tabId, async () => {
         if (reason === "tab-closed") {
+          await settleRenderInspection("tab-close cleanup", () =>
+            renderInspection.terminateTab(tabId, "tab-closed"));
           await clearConsentSuppression(tabId);
           await lockRuntime.terminateTab(tabId);
           await drainLockFactOperations(tabId);
@@ -521,12 +857,18 @@ export function startRewriteBackground(): void {
   void lockBrowserLifecycle.start().catch((error) => {
     console.error("[Unfluffify][rewrite] Unable to initialize browser lock presence", error);
   });
+  void renderInspection.initialize().catch((error) => {
+    console.error("[Unfluffify][rewrite] Unable to recover render inspection", error);
+  });
   // The lease belongs to the background editor session, not to the side-panel
   // document. Closing the panel therefore removes no client and no heartbeat.
   api.alarms?.create(PROPERTY_LOCK_HEARTBEAT_ALARM, { periodInMinutes: 0.5 });
   api.alarms?.onAlarm?.addListener((alarm) => {
     runtime.keepAlive.handleAlarm(alarm);
     void authTokenMonitor.handleAlarm(alarm);
+    void renderInspection.handleAlarm(alarm).catch((error) => {
+      console.error("[Unfluffify][rewrite] Render inspection alarm failed", error);
+    });
     if (alarm.name === PROPERTY_LOCK_HEARTBEAT_ALARM) {
       lockRuntime.heartbeat();
     }
@@ -893,6 +1235,12 @@ export function startRewriteBackground(): void {
       // Only a definitive property boundary may erase retained authority. A
       // same-page auth/access/network failure preserves the last validated
       // property and its durable config without pretending to revalidate it.
+      await settleRenderInspection("property-exit cleanup", () =>
+        renderInspection.terminateTab(tabId, "extension-invalidated"));
+      // Revoke the canonical page/edit projection immediately. A popup request
+      // queued behind this definitive context must not restart inspection from
+      // the old property even when the SPA reused its document id.
+      lockRuntime.navigationCommitted(tabId);
       await shieldPosture.clearTab(tabId);
     }
     return {
@@ -1051,7 +1399,206 @@ export function startRewriteBackground(): void {
       status: await registerConsentSuppression(request.tabId, documentId),
     }));
   });
-  bus.onCommand("renderMode.inspect", (request) => renderEmulation.inspect(request));
+  bus.onCommand("renderInspection.start", async (request, meta) => {
+    if (meta.source !== "popup" || parseSenderDocumentId(meta.sourceInstance) !== null) {
+      throw new Error("render-inspection-popup-required");
+    }
+    await awaitTabTermination(request.tabId);
+    return withTabLifecycleOperation(request.tabId, async () => {
+      const sameUrl = (left: string, right: string): boolean => {
+        try {
+          const leftUrl = new URL(left);
+          const rightUrl = new URL(right);
+          leftUrl.hash = "";
+          rightUrl.hash = "";
+          return leftUrl.toString() === rightUrl.toString();
+        } catch {
+          return false;
+        }
+      };
+      const sameBase = (left: string, right: string): boolean => {
+        try {
+          return new URL(left).origin === new URL(right).origin;
+        } catch {
+          return false;
+        }
+      };
+      const navigationBeforeFrame = mainNavigationByTab.get(request.tabId);
+      const queriedFrame = await queryMainFrame(request.tabId);
+      if (mainNavigationByTab.get(request.tabId) !== navigationBeforeFrame) {
+        throw new Error("render-inspection-navigation-changed");
+      }
+      if (queriedFrame?.documentId && !mainDocumentByTab.has(request.tabId)) {
+        observeMainDocument(request.tabId, queriedFrame.documentId);
+      }
+      if (!navigationBeforeFrame && queriedFrame?.pageUrl) {
+        mainNavigationByTab.set(request.tabId, {
+          epoch: 0,
+          pending: false,
+          pageUrl: queriedFrame.pageUrl,
+        });
+      }
+      const currentDocument = await loadMainDocument(request.tabId);
+      const navigation = mainNavigationByTab.get(request.tabId);
+      if (
+        !currentDocument.known ||
+        !currentDocument.documentId ||
+        !navigation ||
+        navigation.pending ||
+        !navigation.pageUrl ||
+        !sameUrl(navigation.pageUrl, request.pageUrl)
+      ) {
+        throw new Error("render-inspection-page-context-not-authorized");
+      }
+      const context = await pageContextRuntime.resolve({
+        tabId: request.tabId,
+        pageUrl: request.pageUrl,
+        refresh: false,
+      });
+      const managedProperty = context.status === "managed_candidate" ||
+        context.status === "managed_non_candidate" ||
+        context.status === "suspended_candidate_removed" ||
+        context.status === "suspended_candidate_feed_conflict";
+      if (
+        !managedProperty ||
+        !context.environmentKey ||
+        context.siteId === null ||
+        !context.baseUrl ||
+        context.environmentKey.trim().toLowerCase() !== request.property.environmentKey.trim().toLowerCase() ||
+        context.siteId !== request.property.siteId ||
+        !sameBase(context.baseUrl, request.property.baseUrl) ||
+        !sameUrl(context.observedUrl, request.pageUrl) ||
+        await consentSuppressionDisabled(request.tabId)
+      ) {
+        throw new Error("render-inspection-property-not-authorized");
+      }
+      const admittedNavigationEpoch = navigation.epoch;
+      const admittedDocumentId = currentDocument.documentId;
+      const stillCurrent = (): boolean => {
+        const currentNavigation = mainNavigationByTab.get(request.tabId);
+        return currentNavigation?.epoch === admittedNavigationEpoch &&
+          !currentNavigation.pending &&
+          Boolean(currentNavigation.pageUrl && sameUrl(currentNavigation.pageUrl, request.pageUrl)) &&
+          mainDocumentByTab.get(request.tabId) === admittedDocumentId &&
+          !tabTerminations.has(request.tabId);
+      };
+      // Context resolution and suppression storage both yield. Recheck the
+      // admitted epoch before the runtime can perform even its first CDP write;
+      // the runtime keeps the same callback for its own internal await points.
+      if (!stillCurrent()) {
+        throw new Error("render-inspection-navigation-changed");
+      }
+      const confirmedFrame = await queryMainFrame(request.tabId);
+      if (
+        !stillCurrent() ||
+        confirmedFrame?.documentId !== admittedDocumentId ||
+        !confirmedFrame.pageUrl ||
+        !sameUrl(confirmedFrame.pageUrl, request.pageUrl)
+      ) {
+        throw new Error("render-inspection-navigation-changed");
+      }
+      return renderInspection.start({
+        ...request,
+        sourceDocumentId: admittedDocumentId,
+        stillCurrent,
+      });
+    });
+  });
+  bus.onCommand("renderInspection.current", async (request, meta) => {
+    if (meta.source !== "popup" || parseSenderDocumentId(meta.sourceInstance) !== null) {
+      throw new Error("render-inspection-popup-required");
+    }
+    await awaitTabTermination(request.tabId);
+    return withTabLifecycleOperation(request.tabId, () => renderInspection.current(request.tabId));
+  });
+  bus.onCommand("renderInspection.cancel", async (request, meta) => {
+    if (meta.source !== "popup" || parseSenderDocumentId(meta.sourceInstance) !== null) {
+      throw new Error("render-inspection-popup-required");
+    }
+    await awaitTabTermination(request.tabId);
+    return withTabLifecycleOperation(request.tabId, () => renderInspection.cancel(request));
+  });
+  const renderInspectionDocument = (
+    request: Readonly<{ tabId?: number }>,
+    meta: Readonly<{ source: string; sourceInstance?: string }>,
+  ): Readonly<{ tabId: number; documentId: string }> | null => {
+    const senderTabId = parseSenderTabId(meta.sourceInstance);
+    const documentId = parseSenderDocumentId(meta.sourceInstance);
+    if (
+      meta.source !== "content" ||
+      senderTabId === null ||
+      senderTabId <= 0 ||
+      (request.tabId !== undefined && request.tabId !== senderTabId) ||
+      parseSenderFrameId(meta.sourceInstance) !== 0 ||
+      !documentId
+    ) {
+      return null;
+    }
+    return { tabId: senderTabId, documentId };
+  };
+  const staleRenderInspectionDocument = () => ({
+    status: "stale" as const,
+    reason: "stale-main-document",
+  });
+  const withRenderInspectionDocument = async <T>(
+    sender: Readonly<{ tabId: number; documentId: string }>,
+    pageUrl: string,
+    operation: () => Promise<T>,
+  ): Promise<T | ReturnType<typeof staleRenderInspectionDocument>> => {
+    if (await consentSuppressionDisabled(sender.tabId)) {
+      return staleRenderInspectionDocument();
+    }
+    const fence = await admitRenderInspectionDocument(
+      sender.tabId,
+      sender.documentId,
+      pageUrl,
+    );
+    if (!fence || await consentSuppressionDisabled(sender.tabId)) {
+      return staleRenderInspectionDocument();
+    }
+    const response = await operation();
+    return renderInspectionDocumentFenceIsCurrent(sender.tabId, fence) &&
+      !await consentSuppressionDisabled(sender.tabId)
+      ? response
+      : staleRenderInspectionDocument();
+  };
+  bus.onCommand("renderInspection.adopt", async (request, meta) => {
+    const sender = renderInspectionDocument(request, meta);
+    if (!sender) {
+      return Promise.resolve({ status: "stale" as const, reason: "main-content-document-required" });
+    }
+    return withRenderInspectionDocument(sender, request.pageUrl, () =>
+      renderInspection.adopt({
+        tabId: sender.tabId,
+        documentId: sender.documentId,
+        pageUrl: request.pageUrl,
+        documentNonce: request.documentNonce,
+      }));
+  });
+  bus.onCommand("renderInspection.ackPaint", async (request, meta) => {
+    const sender = renderInspectionDocument(request, meta);
+    if (!sender) {
+      return Promise.resolve({ status: "stale" as const, reason: "main-content-document-required" });
+    }
+    return withRenderInspectionDocument(sender, request.pageUrl, () =>
+      renderInspection.acknowledgePaint({
+        ...request,
+        tabId: sender.tabId,
+        documentId: sender.documentId,
+      }));
+  });
+  bus.onCommand("renderInspection.fail", async (request, meta) => {
+    const sender = renderInspectionDocument(request, meta);
+    if (!sender) {
+      return Promise.resolve({ status: "stale" as const, reason: "main-content-document-required" });
+    }
+    return withRenderInspectionDocument(sender, request.pageUrl, () =>
+      renderInspection.fail({
+        ...request,
+        tabId: sender.tabId,
+        documentId: sender.documentId,
+      }));
+  });
   bus.onCommand("transferPayload.put", async (request) => ({
     handle: await transferPayloads.put(request.scope, request.value),
   }));
@@ -1307,6 +1854,8 @@ export function startRewriteBackground(): void {
         ? currentDocument.documentId
         : await shieldPosture.adoptedDocumentKey(tabId);
       await disableConsentSuppression(tabId, blockedDocumentKey);
+      await settleRenderInspection("Unregister cleanup", () =>
+        renderInspection.terminateTab(tabId, "unregistered"));
       await lockRuntime.terminateTab(tabId);
       await drainLockFactOperations(tabId);
       await runtime.forgetBrain(tabId);

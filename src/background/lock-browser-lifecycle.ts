@@ -2,6 +2,11 @@ import type { PropertyLockPresence } from "../lock";
 
 export type LockTabTerminationReason = "navigation" | "tab-closed";
 
+export type MainDocumentCommit = Readonly<{
+  documentId: string | null;
+  pageUrl: string | null;
+}>;
+
 type BrowserEvent<TListener> = Readonly<{
   addListener(listener: TListener): void;
 }>;
@@ -33,10 +38,34 @@ export type LockBrowserApi = Readonly<{
     onStateChanged?: BrowserEvent<(state: "active" | "idle" | "locked") => void>;
   }>;
   webNavigation?: Readonly<{
+    onBeforeNavigate?: BrowserEvent<(details: Readonly<{
+      tabId: number;
+      frameId: number;
+      url?: string;
+    }>) => void>;
     onCommitted?: BrowserEvent<(details: Readonly<{
       tabId: number;
       frameId: number;
       documentId?: string;
+      url?: string;
+    }>) => void>;
+    onHistoryStateUpdated?: BrowserEvent<(details: Readonly<{
+      tabId: number;
+      frameId: number;
+      documentId?: string;
+      url?: string;
+    }>) => void>;
+    onReferenceFragmentUpdated?: BrowserEvent<(details: Readonly<{
+      tabId: number;
+      frameId: number;
+      documentId?: string;
+      url?: string;
+    }>) => void>;
+    onErrorOccurred?: BrowserEvent<(details: Readonly<{
+      tabId: number;
+      frameId: number;
+      url?: string;
+      error?: string;
     }>) => void>;
   }>;
 }>;
@@ -62,8 +91,15 @@ function suspensionReason(presence: Omit<PropertyLockPresence, "suspensionReason
 export function createLockBrowserLifecycle(input: Readonly<{
   api: LockBrowserApi;
   onPresenceChanged(tabId: number, presence: PropertyLockPresence): void;
-  onMainDocumentCommitted?(tabId: number, documentId: string | null): void;
-  onTabTerminated(tabId: number, reason: LockTabTerminationReason): Promise<void> | void;
+  onMainDocumentNavigationStarted?(tabId: number, pageUrl: string | null): void;
+  onMainDocumentNavigationFailed?(tabId: number, pageUrl: string | null): void;
+  onMainDocumentCommitted?(tabId: number, documentId: string | null, pageUrl: string | null): void;
+  onMainDocumentHistoryChanged?(tabId: number, documentId: string | null, pageUrl: string | null): void;
+  onTabTerminated(
+    tabId: number,
+    reason: LockTabTerminationReason,
+    commit?: MainDocumentCommit,
+  ): Promise<void> | void;
 }>) {
   const tabWindowById = new Map<number, number>();
   const activeTabByWindow = new Map<number, number>();
@@ -96,8 +132,12 @@ export function createLockBrowserLifecycle(input: Readonly<{
     input.onPresenceChanged(tabId, presence);
   };
 
-  const terminate = (tabId: number, reason: LockTabTerminationReason): void => {
-    void Promise.resolve(input.onTabTerminated(tabId, reason)).catch((error) => {
+  const terminate = (
+    tabId: number,
+    reason: LockTabTerminationReason,
+    commit?: MainDocumentCommit,
+  ): void => {
+    void Promise.resolve(input.onTabTerminated(tabId, reason, commit)).catch((error) => {
       console.error("[Unfluffify][rewrite] Unable to terminate tab-scoped lock state", error);
     });
   };
@@ -165,19 +205,58 @@ export function createLockBrowserLifecycle(input: Readonly<{
           publish(tabId);
         }
       });
-      webNavigation?.onCommitted?.addListener(({ tabId, frameId, documentId }) => {
+      webNavigation?.onBeforeNavigate?.addListener(({ tabId, frameId, url }) => {
+        if (frameId === 0) {
+          input.onMainDocumentNavigationStarted?.(
+            tabId,
+            typeof url === "string" && url ? url : null,
+          );
+        }
+      });
+      webNavigation?.onErrorOccurred?.addListener(({ tabId, frameId, url }) => {
+        if (frameId === 0) {
+          input.onMainDocumentNavigationFailed?.(
+            tabId,
+            typeof url === "string" && url ? url : null,
+          );
+        }
+      });
+      webNavigation?.onCommitted?.addListener(({ tabId, frameId, documentId, url }) => {
         if (frameId === 0) {
           // This event is Chrome's authoritative document boundary. Publish it
           // synchronously before any asynchronous cleanup so an old content
           // realm cannot present itself as the replacement document while the
           // cleanup operation is queued.
-          input.onMainDocumentCommitted?.(
-            tabId,
-            typeof documentId === "string" && documentId ? documentId : null,
-          );
-          terminate(tabId, "navigation");
+          const commit = {
+            documentId: typeof documentId === "string" && documentId ? documentId : null,
+            pageUrl: typeof url === "string" && url ? url : null,
+          };
+          input.onMainDocumentCommitted?.(tabId, commit.documentId, commit.pageUrl);
+          terminate(tabId, "navigation", commit);
         }
       });
+      const observeSameDocumentNavigation = ({
+        tabId,
+        frameId,
+        documentId,
+        url,
+      }: Readonly<{
+        tabId: number;
+        frameId: number;
+        documentId?: string;
+        url?: string;
+      }>): void => {
+        if (frameId === 0) {
+          const commit = {
+            documentId: typeof documentId === "string" && documentId ? documentId : null,
+            pageUrl: typeof url === "string" && url ? url : null,
+          };
+          input.onMainDocumentHistoryChanged?.(tabId, commit.documentId, commit.pageUrl);
+          terminate(tabId, "navigation", commit);
+        }
+      };
+      webNavigation?.onHistoryStateUpdated?.addListener(observeSameDocumentNavigation);
+      webNavigation?.onReferenceFragmentUpdated?.addListener(observeSameDocumentNavigation);
 
       idle?.setDetectionInterval?.(IDLE_DETECTION_SECONDS);
       const initialTabVersion = tabEventVersion;

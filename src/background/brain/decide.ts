@@ -113,20 +113,6 @@ export function decideSignals(prev: TabFacts | null, next: TabFacts): readonly S
       payload: { pageUrl, baseUrl },
     });
   }
-  if (prev?.inspectionPending !== true && next.inspectionPending === true) {
-    decisions.push({
-      name: "inspection.started",
-      cause: "inspection",
-      payload: { pageUrl },
-    });
-  }
-  if (prev?.inspectionPending === true && next.inspectionPending !== true) {
-    decisions.push({
-      name: "inspection.ended",
-      cause: "inspection",
-      payload: { pageUrl },
-    });
-  }
   const lockPresentationChanged =
     prev?.lockBlockedReason !== next.lockBlockedReason ||
     JSON.stringify(prev?.lockBanner) !== JSON.stringify(next.lockBanner);

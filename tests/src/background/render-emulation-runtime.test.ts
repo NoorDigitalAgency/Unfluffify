@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  createRenderEmulationRuntime,
-  RENDER_MODE_BACKGROUND_TIMEOUT_MS,
-} from "../../../src/background/render-emulation-runtime";
+import { createRenderEmulationRuntime } from "../../../src/background/render-emulation-runtime";
 
 const REAL_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
 
@@ -234,7 +231,7 @@ describe("render emulation runtime", () => {
     expect(staleTabs.reload).toHaveBeenCalledTimes(1);
   });
 
-  it("loads the requested JavaScript comparison view without inferring a verdict", async () => {
+  it("provides script-mode and reload primitives without declaring inspection success", async () => {
     const debuggerApi = fakeDebugger();
     const reload = vi.fn((_tabId, _options, callback) => callback?.());
     const runtime = createRenderEmulationRuntime({
@@ -242,8 +239,9 @@ describe("render emulation runtime", () => {
       tabs: { reload, sendMessage: vi.fn() },
     });
 
-    await expect(runtime.inspect({ tabId: 7, javascriptEnabled: false }))
-      .resolves.toEqual({ status: "ok", reclaimLockAfterReload: true });
+    await runtime.setJavascriptEnabled(7, false);
+    await runtime.reload(7);
+
     expect(debuggerApi.sent).toContainEqual({
       method: "Emulation.setScriptExecutionDisabled",
       params: { value: true },
@@ -251,26 +249,4 @@ describe("render emulation runtime", () => {
     expect(reload).toHaveBeenCalledWith(7, { bypassCache: true }, expect.any(Function));
   });
 
-  it("times out a stranded reload and restores JavaScript before allowing retry", async () => {
-    vi.useFakeTimers();
-    try {
-      const debuggerApi = fakeDebugger();
-      const runtime = createRenderEmulationRuntime({
-        debuggerApi: debuggerApi.api,
-        tabs: { reload: vi.fn(), sendMessage: vi.fn() },
-      });
-      const result = runtime.inspect({ tabId: 7, javascriptEnabled: false });
-      await flush();
-      await vi.advanceTimersByTimeAsync(RENDER_MODE_BACKGROUND_TIMEOUT_MS);
-
-      await expect(result).resolves.toEqual({ status: "error", reclaimLockAfterReload: true });
-      expect(debuggerApi.sent).toEqual(expect.arrayContaining([
-        { method: "Emulation.setScriptExecutionDisabled", params: { value: true } },
-        { method: "Emulation.setScriptExecutionDisabled", params: { value: false } },
-      ]));
-      expect(vi.getTimerCount()).toBe(0);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
 });

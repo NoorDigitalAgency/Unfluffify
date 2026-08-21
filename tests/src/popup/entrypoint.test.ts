@@ -3,6 +3,7 @@ import { createRewriteBrain } from "../../../src/background/rewrite-brain";
 import type { BusFrame } from "../../../src/messaging/contract";
 import type { BrainSensation } from "../../../src/background/brain/fold";
 import type { ConfigSnapshot } from "../../../src/storage/config";
+import type { RenderInspectionSession } from "../../../src/messaging/render-inspection";
 
 function backendConfig(): ConfigSnapshot {
   const page = (pageKey: string) => ({
@@ -32,6 +33,30 @@ function backendConfig(): ConfigSnapshot {
       removedPageKeys: [],
       relabelledPages: [],
     },
+  };
+}
+
+function renderInspectionSession(
+  overrides: Partial<RenderInspectionSession> = {},
+): RenderInspectionSession {
+  return {
+    token: "inspection-1",
+    generation: 1,
+    phase: "arming",
+    property: {
+      environmentKey: "example.com",
+      siteId: 1,
+      baseUrl: "https://example.com",
+    },
+    pageUrl: "https://example.com/page",
+    javascriptEnabled: false,
+    documentId: null,
+    documentNonce: null,
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+    deadlineAt: Date.now() + 30_000,
+    terminalReason: null,
+    ...overrides,
   };
 }
 
@@ -209,6 +234,10 @@ function makeRuntime(
   renderMode: "rendered" | "static" = "rendered",
   options: Readonly<{
     configLoad?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
+    renderInspectionCurrent?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
+    lockDirective?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
+    pageContextStatus?: "managed_candidate" | "managed_non_candidate";
+    delegatePageContextToHandler?: boolean;
   }> = {},
 ) {
   const factBrain = createRewriteBrain(77);
@@ -276,6 +305,9 @@ function makeRuntime(
         return replyFrame(frame, signals);
       }
       if (frame.name === "lock.directive") {
+        if (options.lockDirective) {
+          return await options.lockDirective(frame);
+        }
         return replyFrame(frame, {
           status: "ok",
           baseUrl: "https://example.com",
@@ -323,6 +355,29 @@ function makeRuntime(
         const payload = frame.payload as { rows?: unknown };
         return replyFrame(frame, { rows: Array.isArray(payload.rows) ? payload.rows : [] });
       }
+      if (frame.name === "page.context" && !options.delegatePageContextToHandler) {
+        const pageUrl = String((frame.payload as { pageUrl?: unknown }).pageUrl ?? "");
+        const url = new URL(pageUrl);
+        const status = options.pageContextStatus ?? "managed_candidate";
+        const pageKey = status === "managed_candidate" ? url.pathname || "/" : null;
+        return replyFrame(frame, {
+          status,
+          generation: 1,
+          observedUrl: pageUrl,
+          draftDisposition: "preserve",
+          environmentKey: url.hostname,
+          siteId: 1,
+          baseUrl: url.origin,
+          pageKey,
+          pageTypes: [],
+          membershipFingerprint: "membership",
+          assignmentFingerprint: "assignment",
+          conflicts: [],
+          upstreamCode: null,
+          renderModeSet: true,
+          todo: { covered: 0, actionable: 0, pageTypes: [] },
+        });
+      }
       if (frame.name === "config.load") {
         if (options.configLoad) {
           return await options.configLoad(frame);
@@ -333,6 +388,11 @@ function makeRuntime(
           renderMode,
           renderModeSource: "backend",
         });
+      }
+      if (frame.name === "renderInspection.current") {
+        return options.renderInspectionCurrent
+          ? await options.renderInspectionCurrent(frame)
+          : replyFrame(frame, { status: "inactive" });
       }
       return await handler(frame);
     }),
@@ -569,6 +629,819 @@ describe("rewrite popup entrypoint", () => {
     // which this test deliberately does not set up, so the point being made here
     // is only that the pick alone never reached the background at all.
     expect(remembered).toEqual([]);
+  });
+
+  it("starts an exactly bound durable inspection and adopts only paint acknowledgment", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "renderInspection.start") {
+        const request = message.payload as { javascriptEnabled: boolean };
+        return replyFrame(message, {
+          status: "started",
+          session: renderInspectionSession({
+            phase: "terminal",
+            javascriptEnabled: request.javascriptEnabled,
+            updatedAt: Date.now() + 1,
+            terminalReason: "paint-acknowledged",
+          }),
+        });
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: {
+        query,
+        sendMessage: makeTabsSendMessage(() => ({ ok: true, active: false })),
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await waitFor(() => render.mock.calls.length > 0, "popup render");
+    const lockCallsBefore = runtime.sendMessage.mock.calls
+      .filter(([frame]) => frame.name === "lock.directive").length;
+    render.mock.calls.at(-1)?.[0].props.onInspectRenderMode(false);
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.diagnostics.renderModeView === "without_javascript",
+      "paint-acknowledged static view",
+    );
+
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "renderInspection.start",
+      target: "background",
+      payload: {
+        tabId: 77,
+        property: {
+          environmentKey: "example.com",
+          siteId: 1,
+          baseUrl: "https://example.com",
+        },
+        pageUrl: "https://example.com/page",
+        javascriptEnabled: false,
+      },
+    }));
+    expect(render.mock.calls.at(-1)?.[0].props.diagnostics).toMatchObject({
+      renderModeView: "without_javascript",
+      renderModeBusy: false,
+      renderModeDetail: "",
+    });
+    expect(runtime.sendMessage.mock.calls
+      .filter(([frame]) => frame.name === "lock.directive").length).toBeGreaterThan(lockCallsBefore);
+    expect(runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "renderMode.inspect")).toBe(false);
+    expect(runtime.sendMessage.mock.calls
+      .filter(([frame]) => frame.name === "fact.reported")
+      .some(([frame]) => JSON.stringify(frame.payload).includes("inspectionPending"))).toBe(false);
+    // Disposal has no authority path: nothing implicitly cancelled this terminal
+    // generation after the popup finished projecting it.
+    expect(runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "renderInspection.cancel")).toBe(false);
+  });
+
+  it("keeps confirmed paint authoritative while post-paint lock refresh exceeds the popup watchdog", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    let holdNextLockRefresh = false;
+    let heldLockFrame: BusFrame | null = null;
+    let releaseLockRefresh!: (frame: BusFrame) => void;
+    const delayedLockRefresh = new Promise<BusFrame>((resolve) => {
+      releaseLockRefresh = resolve;
+    });
+    const editableLockReply = (message: BusFrame) => replyFrame(message, {
+      status: "ok",
+      baseUrl: "https://example.com",
+      siteId: 1,
+      lockRole: "editor",
+      configPresent: true,
+      canEdit: true,
+      blockedReason: "editor",
+      authority: {
+        environmentKey: "example.com",
+        editorSessionId: "editor-1",
+        lockToken: "lock-1",
+        propertyRevision: 4,
+        feedRevision: 2,
+      },
+      lockBanner: { visible: false, reason: "editor" },
+    });
+    const runtime = makeRuntime(
+      async (message) => {
+        if (message.name === "renderInspection.start") {
+          const request = message.payload as { javascriptEnabled: boolean };
+          return replyFrame(message, {
+            status: "started",
+            session: renderInspectionSession({
+              phase: "terminal",
+              javascriptEnabled: request.javascriptEnabled,
+              updatedAt: Date.now() + 1,
+              terminalReason: "paint-acknowledged",
+            }),
+          });
+        }
+        return replyFrame(message, []);
+      },
+      "rendered",
+      {
+        lockDirective: (message) => {
+          if (!holdNextLockRefresh) {
+            return editableLockReply(message);
+          }
+          holdNextLockRefresh = false;
+          heldLockFrame = message;
+          return delayedLockRefresh;
+        },
+      },
+    );
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: {
+        query,
+        sendMessage: makeTabsSendMessage(() => ({ ok: true, active: false })),
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await waitFor(() => render.mock.calls.length > 0, "popup render");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+
+    vi.useFakeTimers();
+    try {
+      holdNextLockRefresh = true;
+      props().onInspectRenderMode(false);
+      for (let index = 0; index < 100; index += 1) {
+        await Promise.resolve();
+      }
+
+      expect(heldLockFrame).not.toBeNull();
+      expect(props().diagnostics).toMatchObject({
+        renderModeView: "without_javascript",
+        renderModeBusy: false,
+        renderModeDetail: "",
+      });
+
+      await vi.advanceTimersByTimeAsync(20_000);
+      for (let index = 0; index < 20; index += 1) {
+        await Promise.resolve();
+      }
+
+      // The watchdog belongs to the inspection observation, which already
+      // settled. A slow lock refresh cannot demote exact paint success.
+      expect(props().diagnostics).toMatchObject({
+        renderModeView: "without_javascript",
+        renderModeBusy: false,
+        renderModeDetail: "",
+      });
+
+      releaseLockRefresh(editableLockReply(heldLockFrame as BusFrame));
+      for (let index = 0; index < 30; index += 1) {
+        await Promise.resolve();
+      }
+      expect(props().diagnostics).toMatchObject({
+        renderModeView: "without_javascript",
+        renderModeBusy: false,
+        renderModeDetail: "",
+      });
+      expect(runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "renderInspection.cancel")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("inspects a managed non-candidate page without borrowing edit-lock authority", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/off-candidate" }]);
+    const lockDirective = vi.fn((message: BusFrame) => replyFrame(message, {
+      status: "not_candidate",
+      baseUrl: "https://example.com",
+      siteId: null,
+      lockRole: "unknown",
+      configPresent: true,
+      canEdit: false,
+      blockedReason: "not-candidate",
+      lockBanner: { visible: true, reason: "not-candidate" },
+    }));
+    const runtime = makeRuntime(
+      async (message) => {
+        if (message.name === "renderInspection.start") {
+          return replyFrame(message, {
+            status: "started",
+            session: renderInspectionSession({
+              phase: "terminal",
+              pageUrl: "https://example.com/off-candidate",
+              javascriptEnabled: false,
+              updatedAt: Date.now() + 1,
+              terminalReason: "paint-acknowledged",
+            }),
+          });
+        }
+        return replyFrame(message, []);
+      },
+      "rendered",
+      {
+        lockDirective,
+        pageContextStatus: "managed_non_candidate",
+      },
+    );
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: {
+        query,
+        sendMessage: makeTabsSendMessage(() => ({ ok: true, active: false })),
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await waitFor(() => render.mock.calls.length > 0, "popup render");
+    render.mock.calls.at(-1)?.[0].props.onInspectRenderMode(false);
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.diagnostics.renderModeView === "without_javascript",
+      "off-candidate inspection paint",
+    );
+
+    expect(lockDirective).toHaveBeenCalled();
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "renderInspection.start",
+      payload: {
+        tabId: 77,
+        property: {
+          environmentKey: "example.com",
+          siteId: 1,
+          baseUrl: "https://example.com",
+        },
+        pageUrl: "https://example.com/off-candidate",
+        javascriptEnabled: false,
+      },
+    }));
+  });
+
+  it("reconstructs active and terminal inspection state when the popup reopens", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    let current = renderInspectionSession({
+      token: "reopened-inspection",
+      phase: "awaiting_document",
+      updatedAt: Date.now(),
+      deadlineAt: Date.now() + 30_000,
+    });
+    const lockDirective = vi.fn((message: BusFrame) => replyFrame(message, {
+      status: "not_candidate",
+      baseUrl: "https://example.com",
+      siteId: null,
+      lockRole: "unknown",
+      configPresent: true,
+      canEdit: false,
+      blockedReason: "not-candidate",
+      lockBanner: { visible: true, reason: "not-candidate" },
+    }));
+    const runtime = makeRuntime(
+      async (message) => replyFrame(message, []),
+      "rendered",
+      {
+        renderInspectionCurrent: (message) => replyFrame(message, {
+          status: current.phase === "terminal" ? "terminal" : "active",
+          session: current,
+        }),
+        pageContextStatus: "managed_non_candidate",
+        lockDirective,
+      },
+    );
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: {
+        query,
+        sendMessage: makeTabsSendMessage(() => ({ ok: true, active: false })),
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.diagnostics.renderModeBusy === true,
+      "reopened active inspection",
+    );
+    expect(render.mock.calls.at(-1)?.[0].props.diagnostics).toMatchObject({
+      renderModeBusy: true,
+      renderModeView: "unknown",
+    });
+    expect(runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "renderInspection.start")).toBe(false);
+
+    current = renderInspectionSession({
+      ...current,
+      phase: "terminal",
+      javascriptEnabled: false,
+      updatedAt: current.updatedAt + 1,
+      terminalReason: "paint-acknowledged",
+    });
+    const poll = globalThis.window.setInterval.mock.calls[0]?.[0] as (() => void) | undefined;
+    poll?.();
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.diagnostics.renderModeView === "without_javascript",
+      "reopened terminal inspection",
+    );
+    expect(render.mock.calls.at(-1)?.[0].props.diagnostics).toMatchObject({
+      renderModeBusy: false,
+      renderModeView: "without_javascript",
+      renderModeDetail: "",
+    });
+
+    current = renderInspectionSession({
+      ...current,
+      phase: "terminal",
+      updatedAt: current.updatedAt + 1,
+      terminalReason: "unexpected-navigation",
+    });
+    poll?.();
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.diagnostics.renderModeDetail !== "",
+      "same-generation navigation invalidation",
+    );
+    expect(render.mock.calls.at(-1)?.[0].props.diagnostics).toMatchObject({
+      renderModeBusy: false,
+      renderModeView: "without_javascript",
+    });
+    expect(render.mock.calls.at(-1)?.[0].props.diagnostics.renderModeDetail)
+      .toContain("navigated somewhere else");
+    expect(runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "renderInspection.cancel")).toBe(false);
+  });
+
+  it("keeps the last painted view when a newer durable inspection fails", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    let generation = 0;
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "renderInspection.start") {
+        generation += 1;
+        const request = message.payload as { javascriptEnabled: boolean };
+        return replyFrame(message, {
+          status: generation === 1 ? "started" : "error",
+          ...(generation === 2 ? { reason: "content did not acknowledge paint" } : {}),
+          session: renderInspectionSession({
+            token: `inspection-${generation}`,
+            generation,
+            phase: "terminal",
+            javascriptEnabled: request.javascriptEnabled,
+            updatedAt: Date.now() + generation,
+            terminalReason: generation === 1 ? "paint-acknowledged" : "content-failed",
+          }),
+        });
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: {
+        query,
+        sendMessage: makeTabsSendMessage(() => ({ ok: true, active: false })),
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await waitFor(() => render.mock.calls.length > 0, "popup render");
+    render.mock.calls.at(-1)?.[0].props.onInspectRenderMode(true);
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.diagnostics.renderModeView === "with_javascript",
+      "first painted inspection",
+    );
+    render.mock.calls.at(-1)?.[0].props.onInspectRenderMode(false);
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.diagnostics.renderModeDetail !== "",
+      "retryable failed inspection",
+    );
+
+    expect(render.mock.calls.at(-1)?.[0].props.diagnostics).toMatchObject({
+      renderModeBusy: false,
+      renderModeView: "with_javascript",
+    });
+    expect(render.mock.calls.at(-1)?.[0].props.diagnostics.renderModeDetail).toContain("could not confirm");
+  });
+
+  it("projects an already-active opposite view as a retryable conflict", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const existing = renderInspectionSession({
+      token: "existing-javascript-inspection",
+      generation: 7,
+      phase: "awaiting_document",
+      javascriptEnabled: true,
+      updatedAt: Date.now(),
+      deadlineAt: Date.now() + 30_000,
+    });
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "renderInspection.start") {
+        return replyFrame(message, {
+          status: "error",
+          reason: "inspection-already-active",
+          session: existing,
+        });
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: {
+        query,
+        sendMessage: makeTabsSendMessage(() => ({ ok: true, active: false })),
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await waitFor(() => render.mock.calls.length > 0, "popup render");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    props().onInspectRenderMode(false);
+    await waitFor(
+      () => props().diagnostics.renderModeDetail.includes("already loading"),
+      "already-active inspection conflict",
+    );
+
+    expect(props().diagnostics).toMatchObject({
+      renderModeBusy: false,
+      renderModeView: "unknown",
+    });
+    expect(props().diagnostics.renderModeDetail).toContain("with JavaScript");
+    expect(props().diagnostics.renderModeDetail).toContain("retry this view");
+  });
+
+  it("does not open connection settings until the static tab confirms JavaScript paint", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const staticTerminal = renderInspectionSession({
+      token: "static-inspection",
+      generation: 1,
+      phase: "terminal",
+      javascriptEnabled: false,
+      updatedAt: Date.now(),
+      terminalReason: "paint-acknowledged",
+    });
+    let javascriptStartFrame: BusFrame | null = null;
+    let resolveJavascriptStart: ((frame: BusFrame) => void) | null = null;
+    const javascriptStart = new Promise<BusFrame>((resolve) => {
+      resolveJavascriptStart = resolve;
+    });
+    const runtime = makeRuntime(
+      async (message) => {
+        if (message.name === "renderInspection.start") {
+          javascriptStartFrame = message;
+          return await javascriptStart;
+        }
+        return replyFrame(message, []);
+      },
+      "static",
+      {
+        renderInspectionCurrent: (message) => replyFrame(message, {
+          status: "terminal",
+          session: staticTerminal,
+        }),
+      },
+    );
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, active: false }));
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    await waitFor(
+      () => props().diagnostics.renderModeView === "without_javascript",
+      "authoritative static terminal",
+    );
+
+    props().onOpenConfiguration();
+    await waitFor(() => javascriptStartFrame !== null, "JavaScript restoration start");
+
+    expect(props().view).toBe("render-mode");
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "renderInspection.start",
+      payload: expect.objectContaining({ javascriptEnabled: true }),
+    }));
+    expect(tabsSendMessage.mock.calls.some(([, message]) =>
+      JSON.stringify(message).includes("activateContentMain"))).toBe(false);
+
+    const startFrame = javascriptStartFrame as BusFrame;
+    resolveJavascriptStart?.(replyFrame(startFrame, {
+      status: "started",
+      session: renderInspectionSession({
+        token: "javascript-inspection",
+        generation: 2,
+        phase: "terminal",
+        javascriptEnabled: true,
+        updatedAt: staticTerminal.updatedAt + 1,
+        terminalReason: "paint-acknowledged",
+      }),
+    }));
+    await waitFor(() => props().view === "configuration", "connection settings after JavaScript paint");
+
+    expect(props().diagnostics).toMatchObject({
+      renderModeBusy: false,
+      renderModeView: "with_javascript",
+    });
+  });
+
+  it("does not infer JavaScript restoration when reopened current authority times out", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const neverCurrent = new Promise<BusFrame>(() => undefined);
+    const runtime = makeRuntime(
+      async (message) => replyFrame(message, []),
+      "static",
+      { renderInspectionCurrent: async () => await neverCurrent },
+    );
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, active: false }));
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    vi.useFakeTimers();
+    try {
+      await import("../../../src/entrypoints/popup/main.tsx");
+      const props = () => render.mock.calls.at(-1)?.[0].props;
+      props().onOpenConfiguration();
+      for (let index = 0; index < 50; index += 1) {
+        await Promise.resolve();
+      }
+
+      // The popup-open reconstruction and the explicit exit each require their
+      // own authoritative current read. Neither timeout can mean "inactive".
+      await vi.advanceTimersByTimeAsync(20_000);
+      for (let index = 0; index < 20; index += 1) {
+        await Promise.resolve();
+      }
+      await vi.advanceTimersByTimeAsync(20_000);
+      for (let index = 0; index < 20; index += 1) {
+        await Promise.resolve();
+      }
+
+      expect(props().view).toBe("render-mode");
+      expect(props().diagnostics).toMatchObject({
+        renderModeBusy: false,
+        renderModeView: "unknown",
+      });
+      expect(runtime.sendMessage.mock.calls.some(([frame]) =>
+        frame.name === "renderInspection.start")).toBe(false);
+      expect(tabsSendMessage.mock.calls.some(([, message]) =>
+        JSON.stringify(message).includes("preparePageVisit"))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["timeout", "content-failed"] as const)(
+    "keeps render-mode open when authoritative terminal %s cannot restore JavaScript",
+    async (terminalReason) => {
+      installEntrypointDom("chrome-extension://extension-id/popup.html");
+      const render = createReactRenderProbe();
+      vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+      const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+      const priorFailure = renderInspectionSession({
+        token: "prior-failed-inspection",
+        generation: 3,
+        phase: "terminal",
+        updatedAt: Date.now(),
+        terminalReason,
+      });
+      const runtime = makeRuntime(
+        async (message) => {
+          if (message.name === "renderInspection.start") {
+            return replyFrame(message, {
+              status: "error",
+              reason: "restoration-failed",
+              session: renderInspectionSession({
+                token: "failed-javascript-restoration",
+                generation: 4,
+                phase: "terminal",
+                javascriptEnabled: true,
+                updatedAt: priorFailure.updatedAt + 1,
+                terminalReason,
+              }),
+            });
+          }
+          return replyFrame(message, []);
+        },
+        "static",
+        {
+          renderInspectionCurrent: (message) => replyFrame(message, {
+            status: "terminal",
+            session: priorFailure,
+          }),
+        },
+      );
+      const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, active: false }));
+      globalThis.chrome = {
+        runtime: { ...runtime },
+        tabs: { query, sendMessage: tabsSendMessage },
+      } as unknown as typeof chrome;
+
+      await import("../../../src/entrypoints/popup/main.tsx");
+      const props = () => render.mock.calls.at(-1)?.[0].props;
+      await waitFor(
+        () => props().diagnostics.renderModeDetail !== "",
+        "authoritative failed terminal",
+      );
+      props().onOpenConfiguration();
+      await waitFor(
+        () => runtime.sendMessage.mock.calls.some(([frame]) =>
+          frame.name === "renderInspection.start"),
+        "JavaScript restoration attempt",
+      );
+      await flushEntrypointWork();
+
+      expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+        name: "renderInspection.start",
+        payload: expect.objectContaining({ javascriptEnabled: true }),
+      }));
+      expect(props().view).toBe("render-mode");
+      expect(props().diagnostics).toMatchObject({
+        renderModeBusy: false,
+        renderModeView: "unknown",
+      });
+      expect(props().diagnostics.renderModeDetail).not.toBe("");
+      expect(tabsSendMessage.mock.calls.some(([, message]) =>
+        JSON.stringify(message).includes("preparePageVisit"))).toBe(false);
+    },
+  );
+
+  it("uses exact token and generation only for explicit active-view cancellation", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const active = renderInspectionSession({
+      token: "cancel-me",
+      generation: 7,
+      phase: "awaiting_document",
+      updatedAt: Date.now(),
+      deadlineAt: Date.now() + 30_000,
+    });
+    const runtime = makeRuntime(
+      async (message) => {
+        if (message.name === "renderInspection.cancel") {
+          return replyFrame(message, {
+            status: "ok",
+            session: renderInspectionSession({
+              ...active,
+              phase: "terminal",
+              updatedAt: active.updatedAt + 1,
+              terminalReason: "cancelled",
+            }),
+          });
+        }
+        return replyFrame(message, []);
+      },
+      "rendered",
+      {
+        renderInspectionCurrent: (message) => replyFrame(message, {
+          status: "active",
+          session: active,
+        }),
+      },
+    );
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: {
+        query,
+        sendMessage: makeTabsSendMessage(() => ({ ok: true, active: false })),
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.diagnostics.renderModeBusy === true,
+      "active inspection",
+    );
+    render.mock.calls.at(-1)?.[0].props.onRenderModeCancel();
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "renderInspection.cancel"),
+      "explicit inspection cancellation",
+    );
+
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "renderInspection.cancel",
+      target: "background",
+      payload: { tabId: 77, token: "cancel-me", generation: 7 },
+    }));
+  });
+
+  it("does not let an older inactive current completion erase a newer start", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    let resolveOldCurrent: ((frame: BusFrame) => void) | null = null;
+    const oldCurrent = new Promise<BusFrame>((resolve) => {
+      resolveOldCurrent = resolve;
+    });
+    let currentCalls = 0;
+    const runtime = makeRuntime(
+      async (message) => {
+        if (message.name === "renderInspection.start") {
+          return replyFrame(message, {
+            status: "started",
+            session: renderInspectionSession({
+              phase: "terminal",
+              javascriptEnabled: false,
+              updatedAt: Date.now() + 1,
+              terminalReason: "paint-acknowledged",
+            }),
+          });
+        }
+        return replyFrame(message, []);
+      },
+      "rendered",
+      {
+        renderInspectionCurrent: (message) => {
+          currentCalls += 1;
+          return currentCalls === 1 ? oldCurrent : replyFrame(message, { status: "inactive" });
+        },
+      },
+    );
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: {
+        query,
+        sendMessage: makeTabsSendMessage(() => ({ ok: true, active: false })),
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await waitFor(() => render.mock.calls.length > 0, "popup render while current is pending");
+    render.mock.calls.at(-1)?.[0].props.onInspectRenderMode(false);
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.diagnostics.renderModeView === "without_javascript",
+      "newer started generation",
+    );
+    const oldRequest = runtime.sendMessage.mock.calls
+      .map(([frame]) => frame as BusFrame)
+      .find((frame) => frame.name === "renderInspection.current");
+    expect(oldRequest).toBeDefined();
+    resolveOldCurrent?.(replyFrame(oldRequest as BusFrame, { status: "inactive" }));
+    await flushEntrypointWork();
+
+    expect(render.mock.calls.at(-1)?.[0].props.diagnostics).toMatchObject({
+      renderModeView: "without_javascript",
+      renderModeBusy: false,
+    });
+  });
+
+  it("releases only popup UI when its durable start watchdog expires", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "renderInspection.start") {
+        return await new Promise<BusFrame>(() => undefined);
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: {
+        query,
+        sendMessage: makeTabsSendMessage(() => ({ ok: true, active: false })),
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await waitFor(() => render.mock.calls.length > 0, "popup render");
+    vi.useFakeTimers();
+    try {
+      render.mock.calls.at(-1)?.[0].props.onInspectRenderMode(false);
+      for (let index = 0; index < 50; index += 1) {
+        await Promise.resolve();
+      }
+      expect(runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "renderInspection.start")).toBe(true);
+      await vi.advanceTimersByTimeAsync(20_000);
+      for (let index = 0; index < 10; index += 1) {
+        await Promise.resolve();
+      }
+
+      expect(render.mock.calls.at(-1)?.[0].props.diagnostics).toMatchObject({
+        renderModeBusy: false,
+        renderModeView: "unknown",
+      });
+      expect(render.mock.calls.at(-1)?.[0].props.diagnostics.renderModeDetail).toContain("background");
+      expect(runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "renderInspection.cancel")).toBe(false);
+      expect(runtime.sendMessage.mock.calls
+        .filter(([frame]) => frame.name === "fact.reported")
+        .some(([frame]) => JSON.stringify(frame.payload).includes("inspectionPending"))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("asks before discarding markings and keeps them when the operator declines", async () => {
@@ -1641,7 +2514,7 @@ describe("rewrite popup entrypoint", () => {
         }]);
       }
       return replyFrame(message, []);
-    });
+    }, "rendered", { delegatePageContextToHandler: true });
     globalThis.chrome = {
       runtime: {
         ...runtime,
@@ -2495,7 +3368,7 @@ describe("rewrite popup entrypoint", () => {
         });
       }
       return replyFrame(message, []);
-    });
+    }, "rendered", { delegatePageContextToHandler: true });
     const tabsUpdate = vi.fn();
     globalThis.chrome = {
       runtime: { ...runtime },

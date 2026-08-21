@@ -12,12 +12,28 @@ const shieldHarness = vi.hoisted(() => ({
     setActive: ReturnType<typeof vi.fn>;
     refresh: ReturnType<typeof vi.fn>;
     dispose: ReturnType<typeof vi.fn>;
+    extensionSurfaces: () => HTMLElement[];
+  }>,
+  create: vi.fn(),
+}));
+
+const inspectionCurtainHarness = vi.hoisted(() => ({
+  instances: [] as Array<{
+    adopt: ReturnType<typeof vi.fn>;
+    clearMatching: ReturnType<typeof vi.fn>;
+    failOpenMatching: ReturnType<typeof vi.fn>;
+    terminate: ReturnType<typeof vi.fn>;
+    refresh: ReturnType<typeof vi.fn>;
+    current: ReturnType<typeof vi.fn>;
+    element: ReturnType<typeof vi.fn>;
+    paint: (session: unknown) => void;
+    fail: (session: unknown, reason: string) => void;
   }>,
   create: vi.fn(),
 }));
 
 vi.mock("../src/content/interaction-shield", () => {
-  shieldHarness.create.mockImplementation(() => {
+  shieldHarness.create.mockImplementation((options: { extensionSurfaces?: () => HTMLElement[] }) => {
     const reasons = new Set<string>();
     const instance = {
       activate: vi.fn((reason: string) => {
@@ -40,11 +56,61 @@ vi.mock("../src/content/interaction-shield", () => {
       registerExtensionSurface: vi.fn(() => vi.fn()),
       refresh: vi.fn(),
       dispose: vi.fn(() => reasons.clear()),
+      extensionSurfaces: options.extensionSurfaces ?? (() => []),
     };
     shieldHarness.instances.push(instance);
     return instance;
   });
   return { createInteractionShield: shieldHarness.create };
+});
+
+vi.mock("../src/content/render-inspection-curtain", () => {
+  inspectionCurtainHarness.create.mockImplementation((options: {
+    onPaintReady: (session: unknown) => void;
+    onFailure?: (session: unknown, reason: string) => void;
+    onSurfaceChanged?: () => void;
+  }) => {
+    let active: Record<string, unknown> | null = null;
+    let terminated = false;
+    const root = { marker: "render-inspection-curtain" };
+    const matches = (identity: Record<string, unknown>): boolean => active !== null &&
+      active.token === identity.token &&
+      active.generation === identity.generation &&
+      active.documentNonce === identity.documentNonce;
+    const clear = vi.fn((identity: Record<string, unknown>) => {
+      if (!matches(identity)) {
+        return false;
+      }
+      active = null;
+      options.onSurfaceChanged?.();
+      return true;
+    });
+    const instance = {
+      adopt: vi.fn((session: Record<string, unknown>) => {
+        if (terminated) {
+          return false;
+        }
+        active = session;
+        options.onSurfaceChanged?.();
+        return true;
+      }),
+      clearMatching: clear,
+      failOpenMatching: vi.fn((identity: Record<string, unknown>) => clear(identity)),
+      terminate: vi.fn(() => {
+        active = null;
+        options.onSurfaceChanged?.();
+        terminated = true;
+      }),
+      refresh: vi.fn(),
+      current: vi.fn(() => active),
+      element: vi.fn(() => active ? root : null),
+      paint: options.onPaintReady,
+      fail: options.onFailure ?? (() => undefined),
+    };
+    inspectionCurtainHarness.instances.push(instance);
+    return instance;
+  });
+  return { createRenderInspectionCurtain: inspectionCurtainHarness.create };
 });
 
 type TestListenerRegistry = Map<string, Set<EventListener>>;
@@ -219,6 +285,116 @@ function managedPageContextReply(request: BusFrame, pageUrl: string): BusFrame {
   });
 }
 
+function adoptedInspectionSession(
+  pageUrl: string,
+  documentNonce: string,
+  generation = 1,
+  token = `inspection-${generation}`,
+) {
+  return {
+    token,
+    generation,
+    phase: "adopted" as const,
+    property: {
+      environmentKey: "example.com",
+      siteId: 1,
+      baseUrl: "https://example.com",
+    },
+    pageUrl,
+    javascriptEnabled: true,
+    documentId: `document-${generation}`,
+    documentNonce,
+    startedAt: 1,
+    updatedAt: 2,
+    deadlineAt: Date.now() + 30_000,
+    terminalReason: null,
+  };
+}
+
+function installMinimalContentDom() {
+  type Surface = {
+    id: string;
+    style: Record<string, string>;
+    children: Surface[];
+    attributes: Record<string, string>;
+    textContent: string;
+    title: string;
+    isConnected: boolean;
+    setAttribute: (name: string, value: string) => void;
+    appendChild: (child: Surface) => Surface;
+    replaceChildren: (...children: Surface[]) => void;
+    remove: () => void;
+    addEventListener: () => void;
+  };
+  const elements: Surface[] = [];
+  const createElement = (): Surface => {
+    const element: Surface = {
+      id: "",
+      style: {},
+      children: [],
+      attributes: {},
+      textContent: "",
+      title: "",
+      isConnected: false,
+      setAttribute(name, value) {
+        this.attributes[name] = value;
+      },
+      appendChild(child) {
+        child.isConnected = true;
+        this.children.push(child);
+        return child;
+      },
+      replaceChildren(...children) {
+        this.children = children;
+        for (const child of children) {
+          child.isConnected = true;
+        }
+      },
+      remove() {
+        this.isConnected = false;
+      },
+      addEventListener: vi.fn(),
+    };
+    elements.push(element);
+    return element;
+  };
+  const documentElement = createElement();
+  documentElement.isConnected = true;
+  Object.assign(documentElement, { className: "", nodeType: 1, tagName: "HTML" });
+  const documentListeners: TestListenerRegistry = new Map();
+  const windowListeners: TestListenerRegistry = new Map();
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: {
+      readyState: "complete",
+      visibilityState: "visible",
+      documentElement,
+      body: { nodeType: 1, scrollHeight: 0, offsetHeight: 0 },
+      createElement,
+      getElementById: (id: string) => elements.find((element) => element.id === id && element.isConnected) ?? null,
+      querySelectorAll: () => [],
+      addEventListener: (type: string, listener: EventListener) => addTestListener(documentListeners, type, listener),
+      removeEventListener: (type: string, listener: EventListener) => removeTestListener(documentListeners, type, listener),
+    },
+  });
+  const windowObject = {
+    innerHeight: 800,
+    scrollY: 0,
+    addEventListener: (type: string, listener: EventListener) => addTestListener(windowListeners, type, listener),
+    removeEventListener: (type: string, listener: EventListener) => removeTestListener(windowListeners, type, listener),
+    setInterval: vi.fn(() => 1),
+    clearInterval: vi.fn(),
+    setTimeout,
+    clearTimeout,
+    postMessage: vi.fn(),
+  };
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: windowObject,
+  });
+  return { documentElement, documentListeners, elements, windowListeners, windowObject };
+}
+
 describe("C4 rewrite content entrypoints", () => {
   afterEach(() => {
     vi.doUnmock("../src/content/stabilization");
@@ -226,6 +402,7 @@ describe("C4 rewrite content entrypoints", () => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
     shieldHarness.instances.splice(0);
+    inspectionCurtainHarness.instances.splice(0);
     delete globalThis.chrome;
     Reflect.deleteProperty(globalThis, "document");
     Reflect.deleteProperty(globalThis, "location");
@@ -268,6 +445,358 @@ describe("C4 rewrite content entrypoints", () => {
     await applyLockState(listener);
     const response = await dispatchContentCommand(listener, "activateContentMain");
     expect(response).toEqual({ ok: true, data: { ok: true, initialized: true, tree: "rewrite" } });
+  });
+
+  it("adopts durable inspection before page context and fences paint completion from generic and stale work", async () => {
+    const addListener = vi.fn();
+    const pageUrl = installTestLocation("https://example.com/replacement");
+    installMinimalContentDom();
+    const requestNames: string[] = [];
+    let adopted: ReturnType<typeof adoptedInspectionSession> | null = null;
+    let firstAck = true;
+    let releaseFirstAck: (() => void) | undefined;
+    const firstAckGate = new Promise<void>((resolve) => { releaseFirstAck = resolve; });
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      requestNames.push(message.name);
+      if (message.name === "renderInspection.adopt") {
+        const nonce = (message.payload as { documentNonce: string }).documentNonce;
+        adopted = adoptedInspectionSession(pageUrl.href, nonce);
+        return replyFrame(message, { status: "adopt", session: adopted });
+      }
+      if (message.name === "page.context") {
+        return managedPageContextReply(message, pageUrl.href);
+      }
+      if (message.name === "signals.pull") {
+        return replyFrame(message, [
+          {
+            kind: "uf-signal/1",
+            tabId: 77,
+            seq: 1,
+            name: "inspection.started",
+            source: "brain",
+            cause: "legacy-true",
+            at: 1,
+            payload: { pageUrl: pageUrl.href, active: true },
+          },
+          {
+            kind: "uf-signal/1",
+            tabId: 77,
+            seq: 2,
+            name: "inspection.ended",
+            source: "brain",
+            cause: "legacy-false",
+            at: 2,
+            payload: { pageUrl: pageUrl.href, active: false },
+          },
+        ]);
+      }
+      if (message.name === "renderInspection.ackPaint") {
+        const current = adopted!;
+        if (firstAck) {
+          firstAck = false;
+          await firstAckGate;
+        }
+        return replyFrame(message, {
+          status: "ok",
+          session: {
+            ...current,
+            phase: "terminal",
+            updatedAt: 3,
+            terminalReason: "paint-acknowledged",
+          },
+        });
+      }
+      return undefined;
+    });
+    globalThis.chrome = {
+      runtime: {
+        onMessage: { addListener },
+        sendMessage,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+      },
+    } as unknown as typeof chrome;
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as { main: () => void }).main();
+    for (let attempt = 0; attempt < 30 && !requestNames.includes("signals.pull"); attempt += 1) {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(requestNames[0]).toBe("renderInspection.adopt");
+    expect(requestNames.indexOf("page.context")).toBeGreaterThan(requestNames.indexOf("renderInspection.adopt"));
+    const curtain = inspectionCurtainHarness.instances.at(-1);
+    expect(curtain?.adopt).toHaveBeenCalledWith(adopted);
+    expect(curtain?.clearMatching).not.toHaveBeenCalled();
+    expect(curtain?.failOpenMatching).not.toHaveBeenCalled();
+    expect(curtain?.terminate).not.toHaveBeenCalled();
+    expect(shieldHarness.instances.at(-1)?.extensionSurfaces()).toContain(curtain?.element());
+    expect(shieldHarness.instances.at(-1)?.setActive)
+      .toHaveBeenCalledWith("render-inspection", true);
+
+    // The old generation's exact ack starts, then a newer durable generation is
+    // adopted before its response. That late response cannot clear generation 2.
+    curtain?.paint(adopted);
+    for (let attempt = 0; attempt < 20 && !requestNames.includes("renderInspection.ackPaint"); attempt += 1) {
+      await Promise.resolve();
+    }
+    const newer = adoptedInspectionSession(
+      pageUrl.href,
+      adopted!.documentNonce,
+      2,
+      "inspection-2",
+    );
+    curtain?.adopt(newer);
+    adopted = newer;
+    releaseFirstAck?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(curtain?.current()).toBe(newer);
+    expect(curtain?.clearMatching).not.toHaveBeenCalled();
+
+    curtain?.paint(newer);
+    for (let attempt = 0; attempt < 20 && curtain?.current() !== null; attempt += 1) {
+      await Promise.resolve();
+    }
+    expect(curtain?.clearMatching).toHaveBeenCalledWith({
+      token: "inspection-2",
+      generation: 2,
+      documentNonce: newer.documentNonce,
+    });
+    expect(shieldHarness.instances.at(-1)?.setActive)
+      .toHaveBeenCalledWith("render-inspection", false);
+  });
+
+  it("fails open on pagehide and does not revive a terminal inspection on pageshow", async () => {
+    const addListener = vi.fn();
+    const pageUrl = installTestLocation("https://example.com/bfcache-terminal");
+    const { windowListeners } = installMinimalContentDom();
+    let adoptionRequests = 0;
+    let adopted: ReturnType<typeof adoptedInspectionSession> | null = null;
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "renderInspection.adopt") {
+        adoptionRequests += 1;
+        const nonce = (message.payload as { documentNonce: string }).documentNonce;
+        adopted ??= adoptedInspectionSession(pageUrl.href, nonce);
+        if (adoptionRequests === 1) {
+          return replyFrame(message, { status: "adopt", session: adopted });
+        }
+        return replyFrame(message, {
+          status: "terminal",
+          session: {
+            ...adopted,
+            phase: "terminal",
+            updatedAt: 3,
+            terminalReason: "cancelled",
+          },
+        });
+      }
+      if (message.name === "page.context") {
+        return managedPageContextReply(message, pageUrl.href);
+      }
+      if (message.name === "signals.pull") {
+        return replyFrame(message, []);
+      }
+      return undefined;
+    });
+    globalThis.chrome = {
+      runtime: { onMessage: { addListener }, sendMessage },
+    } as unknown as typeof chrome;
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as { main: () => void }).main();
+    for (let attempt = 0; attempt < 20 && inspectionCurtainHarness.instances.length === 0; attempt += 1) {
+      await Promise.resolve();
+    }
+    const curtain = inspectionCurtainHarness.instances.at(-1);
+    expect(curtain?.current()).toEqual(adopted);
+
+    dispatchTestEvent(windowListeners, "pagehide", {} as Event);
+
+    expect(curtain?.failOpenMatching).toHaveBeenCalledWith({
+      token: adopted!.token,
+      generation: adopted!.generation,
+      documentNonce: adopted!.documentNonce,
+    });
+    expect(curtain?.current()).toBeNull();
+    expect(shieldHarness.instances.at(-1)?.dispose).toHaveBeenCalledOnce();
+
+    // Queued paint work from the hidden page has lost its local identity and
+    // therefore cannot acknowledge after pagehide.
+    curtain?.paint(adopted);
+    await Promise.resolve();
+    expect(sendMessage.mock.calls.some(([frame]) =>
+      (frame as BusFrame).name === "renderInspection.ackPaint")).toBe(false);
+
+    dispatchTestEvent(windowListeners, "pageshow", {} as Event);
+    for (let attempt = 0; attempt < 20 && adoptionRequests < 2; attempt += 1) {
+      await Promise.resolve();
+    }
+
+    expect(adoptionRequests).toBe(2);
+    expect(curtain?.refresh).not.toHaveBeenCalled();
+    expect(curtain?.adopt).toHaveBeenCalledTimes(1);
+    expect(curtain?.current()).toBeNull();
+  });
+
+  it("waits for fresh same-document authority before re-adopting after BFCache restore", async () => {
+    const addListener = vi.fn();
+    const pageUrl = installTestLocation("https://example.com/bfcache-active");
+    const { windowListeners } = installMinimalContentDom();
+    let adoptionRequests = 0;
+    let adopted: ReturnType<typeof adoptedInspectionSession> | null = null;
+    let releaseRestore: (() => void) | undefined;
+    const restoreGate = new Promise<void>((resolve) => { releaseRestore = resolve; });
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "renderInspection.adopt") {
+        adoptionRequests += 1;
+        const nonce = (message.payload as { documentNonce: string }).documentNonce;
+        adopted ??= adoptedInspectionSession(pageUrl.href, nonce);
+        if (adoptionRequests > 1) {
+          await restoreGate;
+        }
+        return replyFrame(message, { status: "adopt", session: adopted });
+      }
+      if (message.name === "page.context") {
+        return managedPageContextReply(message, pageUrl.href);
+      }
+      if (message.name === "signals.pull") {
+        return replyFrame(message, []);
+      }
+      return undefined;
+    });
+    globalThis.chrome = {
+      runtime: { onMessage: { addListener }, sendMessage },
+    } as unknown as typeof chrome;
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as { main: () => void }).main();
+    for (let attempt = 0; attempt < 20 && inspectionCurtainHarness.instances.length === 0; attempt += 1) {
+      await Promise.resolve();
+    }
+    const curtain = inspectionCurtainHarness.instances.at(-1);
+    expect(curtain?.current()).toEqual(adopted);
+
+    // The initial (non-BFCache) pageshow must not duplicate document-start
+    // adoption; only a pagehide/pageshow restoration pair needs reconciliation.
+    dispatchTestEvent(windowListeners, "pageshow", {} as Event);
+    await Promise.resolve();
+    expect(adoptionRequests).toBe(1);
+
+    dispatchTestEvent(windowListeners, "pagehide", {} as Event);
+    dispatchTestEvent(windowListeners, "pageshow", {} as Event);
+    for (let attempt = 0; attempt < 20 && adoptionRequests < 2; attempt += 1) {
+      await Promise.resolve();
+    }
+
+    expect(adoptionRequests).toBe(2);
+    expect(curtain?.current()).toBeNull();
+    expect(curtain?.refresh).not.toHaveBeenCalled();
+    expect(curtain?.adopt).toHaveBeenCalledTimes(1);
+
+    releaseRestore?.();
+    for (let attempt = 0; attempt < 20 && curtain?.current() === null; attempt += 1) {
+      await Promise.resolve();
+    }
+
+    expect(curtain?.adopt).toHaveBeenCalledTimes(2);
+    expect(curtain?.current()).toEqual(adopted);
+    expect(shieldHarness.instances.at(-1)?.setActive)
+      .toHaveBeenCalledWith("render-inspection", true);
+  });
+
+  it("does not revive a delayed bootstrap adoption after terminal invalidation", async () => {
+    const addListener = vi.fn();
+    const pageUrl = installTestLocation("https://example.com/replacement");
+    installMinimalContentDom();
+    let invalidate: (() => void) | undefined;
+    let releaseAdoption: (() => void) | undefined;
+    const adoptionGate = new Promise<void>((resolve) => { releaseAdoption = resolve; });
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "renderInspection.adopt") {
+        const nonce = (message.payload as { documentNonce: string }).documentNonce;
+        await adoptionGate;
+        return replyFrame(message, {
+          status: "adopt",
+          session: adoptedInspectionSession(pageUrl.href, nonce),
+        });
+      }
+      if (message.name === "page.context") {
+        return managedPageContextReply(message, pageUrl.href);
+      }
+      return undefined;
+    });
+    globalThis.chrome = {
+      runtime: { onMessage: { addListener }, sendMessage },
+    } as unknown as typeof chrome;
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as {
+      main: (context: { onInvalidated: (handler: () => void) => void }) => void;
+    }).main({ onInvalidated: (handler) => { invalidate = handler; } });
+    invalidate?.();
+    releaseAdoption?.();
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await Promise.resolve();
+    }
+
+    expect(inspectionCurtainHarness.create).not.toHaveBeenCalled();
+  });
+
+  it("terminal invalidation disposes an already adopted inspection curtain", async () => {
+    const addListener = vi.fn();
+    const pageUrl = installTestLocation("https://example.com/replacement");
+    installMinimalContentDom();
+    let invalidate: (() => void) | undefined;
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "renderInspection.adopt") {
+        const nonce = (message.payload as { documentNonce: string }).documentNonce;
+        return replyFrame(message, {
+          status: "adopt",
+          session: adoptedInspectionSession(pageUrl.href, nonce),
+        });
+      }
+      if (message.name === "page.context") {
+        return managedPageContextReply(message, pageUrl.href);
+      }
+      if (message.name === "signals.pull") {
+        return replyFrame(message, []);
+      }
+      return undefined;
+    });
+    globalThis.chrome = {
+      runtime: { onMessage: { addListener }, sendMessage },
+    } as unknown as typeof chrome;
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as {
+      main: (context: { onInvalidated: (handler: () => void) => void }) => void;
+    }).main({ onInvalidated: (handler) => { invalidate = handler; } });
+    for (let attempt = 0; attempt < 20 && inspectionCurtainHarness.instances.length === 0; attempt += 1) {
+      await Promise.resolve();
+    }
+    const curtain = inspectionCurtainHarness.instances.at(-1);
+    expect(curtain?.current()).not.toBeNull();
+
+    invalidate?.();
+
+    expect(curtain?.terminate).toHaveBeenCalledOnce();
+    expect(curtain?.current()).toBeNull();
   });
 
   it("mounts a retained silent shield before the remote page context settles", async () => {

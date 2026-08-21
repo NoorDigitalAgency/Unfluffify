@@ -15,6 +15,12 @@ import {
   createInteractionShield,
   type InteractionShieldController,
 } from "../content/interaction-shield";
+import {
+  createRenderInspectionCurtain,
+  type AdoptedRenderInspectionSession,
+  type RenderInspectionCurtainController,
+  type RenderInspectionIdentity,
+} from "../content/render-inspection-curtain";
 import { createMarkingEngine } from "../content/marking";
 import { createPhysicalActionDeduper, openMarkingContextMenu } from "../content/marking/interaction";
 import {
@@ -33,6 +39,7 @@ import type {
   ShieldPostureProjection,
   ShieldPostureUpdate,
 } from "../messaging/shield-posture";
+import type { RenderInspectionSession } from "../messaging/render-inspection";
 import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
 import { pullRewriteSignals, type RewriteSignalBus } from "../messaging/rewrite-signals";
@@ -127,6 +134,10 @@ let silentInteractionShieldActive = false;
 let contentToastText = "";
 let contentToastClearHandle: ReturnType<typeof setTimeout> | null = null;
 let interactionShield: InteractionShieldController | null = null;
+let renderInspectionCurtain: RenderInspectionCurtainController | null = null;
+let renderInspectionAdoptionGeneration = 0;
+const RENDER_INSPECTION_DOCUMENT_NONCE = globalThis.crypto?.randomUUID?.()
+  ?? `render-inspection-${Date.now()}-${Math.random()}`;
 // Fail closed until page.context establishes a managed property or re-adopts a
 // validated durable property lease. Popup commands are intent, not authority.
 let interactionShieldAuthorityActive = false;
@@ -151,6 +162,7 @@ const SILENT_SHIELD_REASON = "silent-highlights";
 const PREVIEW_SHIELD_REASON = "preview";
 const BLOCKED_ORGAN_SHIELD_REASON = "blocked-organ";
 const DURABLE_POSTURE_SHIELD_REASON = "durable-posture";
+const RENDER_INSPECTION_SHIELD_REASON = "render-inspection";
 
 const CONTENT_LOCK_ACTION_LABEL: Readonly<Record<LockActionKind, string>> = {
   "continue-here": "Continue here",
@@ -320,6 +332,232 @@ function getContentBus(): RewriteSignalBus {
     });
   }
   return contentBus;
+}
+
+function renderInspectionIdentity(
+  session: Pick<RenderInspectionSession, "token" | "generation" | "documentNonce">,
+): RenderInspectionIdentity | null {
+  return session.documentNonce
+    ? {
+        token: session.token,
+        generation: session.generation,
+        documentNonce: session.documentNonce,
+      }
+    : null;
+}
+
+function isCurrentRenderInspection(identity: RenderInspectionIdentity): boolean {
+  const current = renderInspectionCurtain?.current() ?? null;
+  return current !== null &&
+    current.token === identity.token &&
+    current.generation === identity.generation &&
+    current.documentNonce === identity.documentNonce;
+}
+
+function ensureRenderInspectionCurtain(): RenderInspectionCurtainController | null {
+  if (
+    renderInspectionCurtain ||
+    typeof document === "undefined" ||
+    typeof window === "undefined"
+  ) {
+    return renderInspectionCurtain;
+  }
+  renderInspectionCurtain = createRenderInspectionCurtain({
+    document,
+    window,
+    onPaintReady(session) {
+      void acknowledgeRenderInspectionPaint(session);
+    },
+    onFailure(session, reason) {
+      void reportRenderInspectionFailure(session, reason);
+    },
+    onSurfaceChanged() {
+      // The durable inspection is its own background-authorized lease and can
+      // arrive before ordinary page.context establishes P15 property authority.
+      // Synchronizing here both identity-orders the trusted curtain and mounts
+      // the lower shield that neutralizes page-owned HTML top-layer surfaces.
+      syncInteractionShield();
+    },
+  });
+  return renderInspectionCurtain;
+}
+
+function adoptAuthoritativeRenderInspection(
+  session: RenderInspectionSession,
+): boolean {
+  if (
+    session.phase !== "adopted" ||
+    session.pageUrl !== currentPageUrl() ||
+    session.documentNonce !== RENDER_INSPECTION_DOCUMENT_NONCE
+  ) {
+    return false;
+  }
+  return ensureRenderInspectionCurtain()?.adopt(session) ?? false;
+}
+
+function reconcileRenderInspectionMutation(
+  identity: RenderInspectionIdentity,
+  response: Readonly<{
+    status: "inactive" | "ok" | "stale";
+    session?: RenderInspectionSession;
+  }>,
+): void {
+  // A reply from an older paint/failure attempt has no authority over a newer
+  // local adoption, even when the background helpfully includes its session.
+  if (!isCurrentRenderInspection(identity)) {
+    return;
+  }
+  if (
+    response.session?.phase === "adopted" &&
+    response.session.documentNonce === RENDER_INSPECTION_DOCUMENT_NONCE &&
+    response.session.pageUrl === currentPageUrl()
+  ) {
+    adoptAuthoritativeRenderInspection(response.session);
+    return;
+  }
+  if (response.status === "ok" && response.session) {
+    const responseIdentity = renderInspectionIdentity(response.session);
+    if (
+      responseIdentity &&
+      responseIdentity.token === identity.token &&
+      responseIdentity.generation === identity.generation &&
+      responseIdentity.documentNonce === identity.documentNonce &&
+      response.session.phase === "terminal"
+    ) {
+      renderInspectionCurtain?.clearMatching(identity);
+    }
+    return;
+  }
+  // The exact document-fenced request was authoritative, but the session is no
+  // longer active. Fail open only for the still-current local identity.
+  renderInspectionCurtain?.failOpenMatching(identity);
+}
+
+async function acknowledgeRenderInspectionPaint(
+  session: AdoptedRenderInspectionSession,
+): Promise<void> {
+  const identity = renderInspectionIdentity(session);
+  if (!identity || !isCurrentRenderInspection(identity)) {
+    return;
+  }
+  const pageUrl = session.pageUrl;
+  if (pageUrl !== currentPageUrl()) {
+    await reportRenderInspectionFailure(session, "same-document-navigation");
+    renderInspectionCurtain?.failOpenMatching(identity);
+    return;
+  }
+  const lifecycleGeneration = contentLifecycleGeneration;
+  const routeGeneration = documentLifecycleGeneration;
+  try {
+    const response = await getContentBus().request("renderInspection.ackPaint", {
+      token: identity.token,
+      generation: identity.generation,
+      pageUrl,
+      documentNonce: identity.documentNonce,
+    }, { target: "background" });
+    if (
+      !isCurrentRenderInspection(identity) ||
+      lifecycleGeneration !== contentLifecycleGeneration ||
+      routeGeneration !== documentLifecycleGeneration ||
+      pageUrl !== currentPageUrl()
+    ) {
+      return;
+    }
+    if (!response.ok) {
+      await reportRenderInspectionFailure(session, "paint-acknowledgement-rejected");
+      return;
+    }
+    reconcileRenderInspectionMutation(identity, response.data);
+  } catch {
+    await reportRenderInspectionFailure(session, "paint-acknowledgement-unavailable");
+  }
+}
+
+async function reportRenderInspectionFailure(
+  session: AdoptedRenderInspectionSession,
+  reason: string,
+): Promise<void> {
+  const identity = renderInspectionIdentity(session);
+  if (!identity || !isCurrentRenderInspection(identity)) {
+    return;
+  }
+  // The durable session's URL is part of its exact fence. During a same-document
+  // navigation location.href already names the new route, while the session that
+  // must be failed still owns the previous one.
+  const pageUrl = session.pageUrl;
+  try {
+    const response = await getContentBus().request("renderInspection.fail", {
+      token: identity.token,
+      generation: identity.generation,
+      pageUrl,
+      documentNonce: identity.documentNonce,
+      reason,
+    }, { target: "background" });
+    if (!isCurrentRenderInspection(identity)) {
+      return;
+    }
+    if (response.ok) {
+      reconcileRenderInspectionMutation(identity, response.data);
+    } else {
+      renderInspectionCurtain?.failOpenMatching(identity);
+    }
+  } catch {
+    // The curtain is an operator aid, never a permanent page lock. If even the
+    // fenced failure report cannot reach the worker, the current session fails
+    // open and the durable background deadline remains the final cleanup path.
+    renderInspectionCurtain?.failOpenMatching(identity);
+  }
+}
+
+async function adoptRenderInspectionSession(): Promise<void> {
+  const pageUrl = currentPageUrl();
+  if (!pageUrl) {
+    return;
+  }
+  const adoptionGeneration = ++renderInspectionAdoptionGeneration;
+  const lifecycleGeneration = contentLifecycleGeneration;
+  const routeGeneration = documentLifecycleGeneration;
+  let response;
+  try {
+    response = await getContentBus().request("renderInspection.adopt", {
+      pageUrl,
+      documentNonce: RENDER_INSPECTION_DOCUMENT_NONCE,
+    }, { target: "background" });
+  } catch {
+    return;
+  }
+  if (
+    adoptionGeneration !== renderInspectionAdoptionGeneration ||
+    lifecycleGeneration !== contentLifecycleGeneration ||
+    routeGeneration !== documentLifecycleGeneration ||
+    pageUrl !== currentPageUrl()
+  ) {
+    return;
+  }
+  if (response.ok && response.data.status === "adopt") {
+    adoptAuthoritativeRenderInspection(response.data.session);
+    return;
+  }
+  const current = renderInspectionCurtain?.current() ?? null;
+  const identity = current ? renderInspectionIdentity(current) : null;
+  if (identity) {
+    // inactive/terminal/stale is the background's current answer for this exact
+    // document request; it may fail open this local generation, but cannot touch
+    // a later adoption because adoptionGeneration fences the continuation.
+    renderInspectionCurtain?.failOpenMatching(identity);
+  }
+}
+
+function releaseLocalRenderInspectionForPageHide(): void {
+  // A BFCache hide keeps this content realm alive, so invalidate both an
+  // in-flight adoption response and the curtain controller's queued paint
+  // callbacks before the hidden document can be restored later.
+  renderInspectionAdoptionGeneration += 1;
+  const current = renderInspectionCurtain?.current() ?? null;
+  const identity = current ? renderInspectionIdentity(current) : null;
+  if (identity) {
+    renderInspectionCurtain?.failOpenMatching(identity);
+  }
 }
 
 function applyContentSignal(signal: BrainSignal): boolean {
@@ -1018,6 +1256,10 @@ function extensionSurfacesForShield(): HTMLElement[] {
   if (contentSurfaceRoot) {
     surfaces.push(contentSurfaceRoot);
   }
+  const inspectionRoot = renderInspectionCurtain?.element();
+  if (inspectionRoot) {
+    surfaces.push(inspectionRoot);
+  }
   return surfaces;
 }
 
@@ -1050,8 +1292,10 @@ function syncInteractionShield(): void {
   const previewActive = previewInteractionActive();
   const silentActive = silentInteractionShieldActive;
   const blockedOrganActive = contentPresentation.pageInputBlocked && !previewActive;
-  const shouldBeActive = interactionShieldAuthorityActive && (
-    silentActive || previewActive || blockedOrganActive || durablePostureShieldActive
+  const inspectionActive = renderInspectionCurtain?.current() !== null;
+  const shouldBeActive = inspectionActive || (
+    interactionShieldAuthorityActive &&
+    (silentActive || previewActive || blockedOrganActive || durablePostureShieldActive)
   );
   if (!shouldBeActive) {
     markingEngine?.setInputTransparent?.(false);
@@ -1059,6 +1303,7 @@ function syncInteractionShield(): void {
     interactionShield?.setActive(PREVIEW_SHIELD_REASON, false);
     interactionShield?.setActive(BLOCKED_ORGAN_SHIELD_REASON, false);
     interactionShield?.setActive(DURABLE_POSTURE_SHIELD_REASON, false);
+    interactionShield?.setActive(RENDER_INSPECTION_SHIELD_REASON, false);
     return;
   }
   const controller = ensureInteractionShield();
@@ -1077,11 +1322,15 @@ function syncInteractionShield(): void {
   if (durablePostureShieldActive) {
     controller.setActive(DURABLE_POSTURE_SHIELD_REASON, true);
   }
+  if (inspectionActive) {
+    controller.setActive(RENDER_INSPECTION_SHIELD_REASON, true);
+  }
   markingEngine?.setInputTransparent?.(true);
   controller.setActive(SILENT_SHIELD_REASON, silentActive);
   controller.setActive(PREVIEW_SHIELD_REASON, previewActive);
   controller.setActive(BLOCKED_ORGAN_SHIELD_REASON, blockedOrganActive);
   controller.setActive(DURABLE_POSTURE_SHIELD_REASON, durablePostureShieldActive);
+  controller.setActive(RENDER_INSPECTION_SHIELD_REASON, inspectionActive);
   controller.refresh();
 }
 
@@ -1121,6 +1370,7 @@ function disposeTerminalContentSurfaces(): void {
 
 function terminateInteractionShieldAuthority(): void {
   contentLifecycleGeneration += 1;
+  renderInspectionAdoptionGeneration += 1;
   shieldPostureMutationGeneration += 1;
   interactionShieldAuthorityActive = false;
   silentInteractionShieldActive = false;
@@ -1128,6 +1378,7 @@ function terminateInteractionShieldAuthority(): void {
   durableSilentAdoptionGeneration += 1;
   pendingNavigationBoundary = null;
   currentShieldPosture = { status: "inactive", revision: 0 };
+  renderInspectionCurtain?.terminate();
   disposeTerminalContentSurfaces();
   disposeInteractionShield();
 }
@@ -2345,6 +2596,15 @@ function handleUrlChanged(nextUrl?: string): void {
     return;
   }
   const previousUrl = lastKnownPageUrl;
+  renderInspectionAdoptionGeneration += 1;
+  const activeInspection = renderInspectionCurtain?.current() ?? null;
+  const activeInspectionIdentity = activeInspection
+    ? renderInspectionIdentity(activeInspection)
+    : null;
+  if (activeInspection && activeInspectionIdentity) {
+    void reportRenderInspectionFailure(activeInspection, "same-document-navigation");
+    renderInspectionCurtain?.failOpenMatching(activeInspectionIdentity);
+  }
   const shouldReportNavigation = markingActive ||
     interactionShieldAuthorityActive ||
     stateHasDocumentShieldPosture(contentState.name) ||
@@ -2782,14 +3042,30 @@ export default defineContentScript({
   runAt: "document_start",
   main(ctx) {
     installNavigationWatcher();
-    const disposeLocalShield = (): void => disposeInteractionShield();
+    let localSurfacesSuspended = false;
+    const suspendLocalSurfaces = (): void => {
+      localSurfacesSuspended = true;
+      releaseLocalRenderInspectionForPageHide();
+      disposeInteractionShield();
+    };
     if (typeof window !== "undefined") {
       // BFCache can hide/show the same document more than once. Keep this
-      // listener for the lifetime of the content realm so every pagehide drops
-      // the local physical node; pageshow re-adopts from the retained reasons.
-      window.addEventListener("pagehide", disposeLocalShield);
-      window.addEventListener("unload", disposeLocalShield, { once: true });
-      window.addEventListener("pageshow", () => syncInteractionShield());
+      // listener for the lifetime of the content realm. Every hide drops both
+      // local physical layers without revoking their durable background leases.
+      window.addEventListener("pagehide", suspendLocalSurfaces);
+      window.addEventListener("unload", suspendLocalSurfaces, { once: true });
+      window.addEventListener("pageshow", () => {
+        // Start a new exact document-fenced reconciliation before rebuilding
+        // local surfaces. Only an authoritative `adopt` response may remount
+        // the inspection curtain; terminal/inactive answers leave it fail-open.
+        if (localSurfacesSuspended) {
+          localSurfacesSuspended = false;
+          void adoptRenderInspectionSession();
+        }
+        // Ordinary P15 reasons remain locally retained across BFCache. They can
+        // remount immediately because pagehide already removed inspection state.
+        syncInteractionShield();
+      });
     }
     ctx?.onInvalidated?.(() => {
       requestTerminalShieldClear("extension-invalidation");
@@ -2801,12 +3077,16 @@ export default defineContentScript({
       }
     });
     getContentBus().onCommand("command.dispatch", (command) => createContentRouter().dispatch(command));
-    // First mount any locally validated retained silent posture. This closes the
+    // Ask for the durable render-inspection session before page.context, signal
+    // polling, or any other ordinary remote work. A replacement document can
+    // then paint its independently fenced curtain at document_start.
+    const inspectionAdoption = adoptRenderInspectionSession();
+    // Also mount any locally validated retained silent posture. This closes the
     // replacement-document interaction gap while the ordinary page-context call
     // performs remote classification/config validation. The latter remains the
     // final authority and can retain or tear this provisional adoption down.
     const retainedAdoption = adoptRetainedShieldPosture();
-    pageContextBindQueue = retainedAdoption.catch(() => undefined);
+    pageContextBindQueue = Promise.allSettled([inspectionAdoption, retainedAdoption]).then(() => undefined);
     // Bind and adopt the authoritative current posture before consuming signals.
     // A rehydrated worker can have a signal head without replayable history.
     void establishPageContext().finally(() => ensureContentSignalPolling());

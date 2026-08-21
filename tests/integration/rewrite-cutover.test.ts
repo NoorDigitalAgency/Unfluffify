@@ -70,6 +70,10 @@ const PENDING_DELETION_PATHS = new Set<string>();
 const BUILD_AUTHORED_SOURCES = new Set([
   normalize("src/page-world/program.ts"),
 ]);
+const RETIRED_BRAIN_SIGNAL_NAMES = new Set([
+  "inspection.started",
+  "inspection.ended",
+]);
 
 const LEGACY_GOD_FILES = [
   "src/background.ts",
@@ -280,12 +284,17 @@ describe("P10 cutover guard", () => {
     expect(orphaned.map((file) => relative(".", file))).toEqual([]);
   });
 
-  it("requires the reachable rewrite brain to decide every signal in the public signal schema", () => {
+  it("requires the reachable rewrite brain to decide every active public signal", () => {
     expect(pathIsReachable(buildEntrypointReachability(), "src/background/brain/decide.ts")).toBe(true);
     const decided = new Set(decidedSignalNames());
-    const missing = brainSignalNames().filter((name) => !decided.has(name));
+    const publicSignals = brainSignalNames();
+    const missing = publicSignals.filter((name) =>
+      !RETIRED_BRAIN_SIGNAL_NAMES.has(name) && !decided.has(name)
+    );
 
     expect(missing).toEqual([]);
+    expect([...RETIRED_BRAIN_SIGNAL_NAMES].filter((name) => !publicSignals.includes(name))).toEqual([]);
+    expect([...RETIRED_BRAIN_SIGNAL_NAMES].filter((name) => decided.has(name))).toEqual([]);
   });
 
   it("boots at least one new-tree entrypoint in the generated extension", async () => {

@@ -39,6 +39,18 @@ import {
   ShieldPostureReadResponseSchema,
   ShieldPostureSetRequestSchema,
 } from "./shield-posture";
+import {
+  RenderInspectionAckPaintRequestSchema,
+  RenderInspectionAdoptRequestSchema,
+  RenderInspectionAdoptResponseSchema,
+  RenderInspectionCancelRequestSchema,
+  RenderInspectionCurrentRequestSchema,
+  RenderInspectionCurrentResponseSchema,
+  RenderInspectionFailRequestSchema,
+  RenderInspectionMutationResponseSchema,
+  RenderInspectionStartRequestSchema,
+  RenderInspectionStartResponseSchema,
+} from "./render-inspection";
 
 const LockDirectiveRequestSchema = z.object({
   tabId: z.number().int().nonnegative(),
@@ -103,18 +115,6 @@ const EmulationStateResponseSchema = z.object({
   /** True when the document was loaded under a different identity than the one now
    *  in force, so what the operator is looking at is not what the override says. */
   identityStale: z.boolean().optional(),
-});
-
-/* Comparing the two views is the operator's job, so the command only reloads
-   the tab in the requested JavaScript mode; nothing is captured or judged. */
-const RenderModeInspectRequestSchema = z.object({
-  tabId: z.number().int().positive(),
-  javascriptEnabled: z.boolean(),
-});
-
-const RenderModeInspectResponseSchema = z.object({
-  status: z.enum(["ok", "unavailable", "error"]),
-  reclaimLockAfterReload: z.boolean(),
 });
 
 /** What a content script needs to know about the page it just loaded, before any
@@ -420,9 +420,29 @@ export const applicationContract = defineContract({
       request: z.object({ url: z.string() }),
       response: StaticHtmlFetchResponseSchema,
     },
-    "renderMode.inspect": {
-      request: RenderModeInspectRequestSchema,
-      response: RenderModeInspectResponseSchema,
+    "renderInspection.start": {
+      request: RenderInspectionStartRequestSchema,
+      response: RenderInspectionStartResponseSchema,
+    },
+    "renderInspection.current": {
+      request: RenderInspectionCurrentRequestSchema,
+      response: RenderInspectionCurrentResponseSchema,
+    },
+    "renderInspection.cancel": {
+      request: RenderInspectionCancelRequestSchema,
+      response: RenderInspectionMutationResponseSchema,
+    },
+    "renderInspection.adopt": {
+      request: RenderInspectionAdoptRequestSchema,
+      response: RenderInspectionAdoptResponseSchema,
+    },
+    "renderInspection.ackPaint": {
+      request: RenderInspectionAckPaintRequestSchema,
+      response: RenderInspectionMutationResponseSchema,
+    },
+    "renderInspection.fail": {
+      request: RenderInspectionFailRequestSchema,
+      response: RenderInspectionMutationResponseSchema,
     },
     "transferPayload.put": {
       request: z.object({

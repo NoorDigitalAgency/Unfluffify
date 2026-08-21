@@ -12,6 +12,7 @@ import {
   createDefaultStore,
   createEditorSessionRepo,
   createLocalPropertyRepo,
+  createRenderInspectionRepo,
   createRunRecordRepo,
   createSettingsRepo,
   createShieldPostureRepo,
@@ -131,6 +132,7 @@ export function createRewriteBackgroundServices(input: Readonly<{
   const tabStateRepo = createTabStateRepo(store);
   const configRepo = createConfigRepo(store);
   const runRecordRepo = createRunRecordRepo(store);
+  const renderInspectionRepo = createRenderInspectionRepo(store);
   const shieldPostureRepo = createShieldPostureRepo(store);
   const editorSessionRepo = createEditorSessionRepo(store);
   const localPropertyRepo = createLocalPropertyRepo(store);
@@ -261,6 +263,7 @@ export function createRewriteBackgroundServices(input: Readonly<{
       tabStateRepo,
       configRepo,
       runRecordRepo,
+      renderInspectionRepo,
       shieldPostureRepo,
       editorSessionRepo,
       localPropertyRepo,

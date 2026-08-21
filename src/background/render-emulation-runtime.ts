@@ -1,5 +1,5 @@
 import { getBrowserRuntimeLastError } from "../common/browser";
-import { applyEmulationViaCdp, clearEmulationViaCdp, deriveGooglebotSmartphoneUserAgent, loadPageWithJavascript, restoreJavascriptViaCdp, type EmulationMode } from "../content/stabilization";
+import { applyEmulationViaCdp, clearEmulationViaCdp, deriveGooglebotSmartphoneUserAgent, type EmulationMode } from "../content/stabilization";
 
 type Debuggee = Readonly<{ tabId?: number }>;
 type DebuggerApi = Readonly<{
@@ -47,27 +47,10 @@ function callbackToPromise<T>(invoke: (callback: (value?: T) => void) => Promise
   });
 }
 
-export const RENDER_MODE_BACKGROUND_TIMEOUT_MS = 15_000;
-
-async function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  try {
-    return await Promise.race([
-      operation,
-      new Promise<T>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error("Render-mode reload timed out")), timeoutMs);
-      }),
-    ]);
-  } finally {
-    if (timer !== null) {
-      clearTimeout(timer);
-    }
-  }
-}
-
 export function createRenderEmulationRuntime(input: Readonly<{
   debuggerApi?: DebuggerApi;
   tabs?: TabsApi;
+  onDebuggerDetached?: (tabId: number, reason?: string) => void;
 }>) {
   type HeldPosture = Readonly<{ mode: EmulationMode; scale: number; epoch: number }>;
   const attachedTabs = new Set<number>();
@@ -112,6 +95,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
     if (typeof tabId !== "number") {
       return;
     }
+    input.onDebuggerDetached?.(tabId, reason);
     attachedTabs.delete(tabId);
     realUserAgents.delete(tabId);
     const held = heldPostures.get(tabId);
@@ -306,29 +290,22 @@ export function createRenderEmulationRuntime(input: Readonly<{
         return cleared;
       });
     },
-    /** Loads the tab with JavaScript on or off so the operator can compare the
-     *  two views themselves. The reload drops the property lock and the content
-     *  script, so the caller has to re-establish both. */
-    async inspect(inputRequest: Readonly<{ tabId: number; javascriptEnabled: boolean }>) {
-      const tabs = input.tabs;
-      if (!tabs) {
-        return { status: "unavailable" as const, reclaimLockAfterReload: false };
+    /** Render inspection owns the durable session; this runtime only performs
+     * the serialized CDP side effect. Keeping it in the same queue as viewport
+     * posture prevents a detach/reassert race from becoming the final writer. */
+    async setJavascriptEnabled(tabId: number, enabled: boolean): Promise<void> {
+      await withEmulationOperation(tabId, async () => {
+        await send(tabId, "Emulation.setScriptExecutionDisabled", { value: !enabled });
+      });
+    },
+    /** Initiates the load. Its callback acknowledges only that Chrome accepted
+     * the reload request; render inspection success belongs to the replacement
+     * document's matching post-paint acknowledgement. */
+    async reload(tabId: number): Promise<void> {
+      if (!input.tabs) {
+        throw new Error("Tabs API unavailable");
       }
-      try {
-        await withTimeout(
-          loadPageWithJavascript(
-            { send: (method, params) => send(inputRequest.tabId, method, params) },
-            () => callbackToPromise<void>((callback) => tabs.reload(inputRequest.tabId, { bypassCache: true }, callback)),
-            inputRequest.javascriptEnabled,
-          ),
-          RENDER_MODE_BACKGROUND_TIMEOUT_MS,
-        );
-        return { status: "ok" as const, reclaimLockAfterReload: true };
-      } catch {
-        // Leave the tab usable rather than stuck with scripts disabled.
-        await restoreJavascriptViaCdp({ send: (method, params) => send(inputRequest.tabId, method, params) }).catch(() => undefined);
-        return { status: "error" as const, reclaimLockAfterReload: true };
-      }
+      await callbackToPromise<void>((callback) => input.tabs?.reload(tabId, { bypassCache: true }, callback));
     },
   };
 }

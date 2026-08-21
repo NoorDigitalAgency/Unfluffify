@@ -57,7 +57,7 @@ const RunSelectorsSchema = z.object({
   inclusionSelectors: z.array(z.string()),
 });
 
-export const TabFactsSchema = z.object({
+const TabFactsCompatibilitySchema = z.object({
   tabId: z.number().int().nonnegative(),
   siteId: SiteIdSchema.nullable().optional(),
   baseUrl: z.string().url().nullable().optional(),
@@ -80,6 +80,8 @@ export const TabFactsSchema = z.object({
   savedSeq: z.number().int().nonnegative().optional(),
   discardedSeq: z.number().int().nonnegative().optional(),
   hasUnsavedWork: z.boolean().default(false),
+  /** @deprecated P16 render inspection is owned by its durable background
+   *  session. Accept this field only so pre-P16 durable records can migrate. */
   inspectionPending: z.boolean().optional(),
   lockRole: LockRoleSchema.default("unknown"),
   lockCanEdit: z.boolean().optional(),
@@ -90,6 +92,11 @@ export const TabFactsSchema = z.object({
   reconciliationReason: z.string().optional(),
   lastSignalSeq: z.number().int().nonnegative().default(0),
 });
+
+export const TabFactsSchema = TabFactsCompatibilitySchema.transform(({
+  inspectionPending: _retiredInspectionPending,
+  ...facts
+}) => facts);
 
 export type LockRole = z.infer<typeof LockRoleSchema>;
 export type LockActionKind = z.infer<typeof LockActionKindSchema>;

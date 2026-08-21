@@ -51,7 +51,21 @@ import { pageTypeForCandidate } from "../../domain/todo";
 import type { PageContextResolution } from "../../domain/schema/context";
 import { todoRefreshDue } from "../../popup/todo-recovery";
 import { executeConfirmedCandidateNavigation } from "../../popup/candidate-navigation";
-import { watchRenderModeInspection } from "../../popup/render-mode-inspection";
+import {
+  EMPTY_RENDER_INSPECTION_PROJECTION,
+  RENDER_MODE_INSPECTION_POLL_MS,
+  projectInactiveRenderInspection,
+  renderInspectionMatchesBinding,
+  projectRenderInspectionSession,
+  projectRenderInspectionStarting,
+  projectRenderInspectionWatchdog,
+  watchRenderModeInspection,
+  type RenderInspectionProjection,
+} from "../../popup/render-mode-inspection";
+import type {
+  RenderInspectionPropertyScope,
+  RenderInspectionSession,
+} from "../../messaging/render-inspection";
 import { AI_RUN_TIMEOUT_MS } from "../../lynx/ai";
 import {
   evaluatePublicationChecklist,
@@ -147,9 +161,16 @@ let confirmedRenderMode: RenderMode | null = null;
  *  the control edits a pending value and `Set` commits it, so a stray click
  *  cannot relabel every later capture. Cleared on commit, cancel and rebind. */
 let pendingRenderMode: RenderMode | null = null;
-let renderModeView: RenderModeView = "unknown";
-let renderModeDetail = "";
-let renderModeBusy = false;
+let renderInspectionProjection: RenderInspectionProjection = EMPTY_RENDER_INSPECTION_PROJECTION;
+/** A new start/cancel/binding invalidates every older async inspection owner. */
+let renderInspectionOperationEpoch = 0;
+/** Current reads are observational, but only their newest completion may apply an
+ *  `inactive` response because that response carries no generation of its own. */
+let renderInspectionCurrentEpoch = 0;
+/** `inactive` has no generation, so current reads are admitted FIFO. Without
+ *  this, a faster later inactive reply could erase an earlier active snapshot. */
+let renderInspectionCurrentTail: Promise<void> = Promise.resolve();
+let renderInspectionStartPending = false;
 /** Attempted, not loaded: a failed read must not re-request on every 500ms
  *  poll. The Refresh button clears this to retry deliberately. */
 let configLoadAttemptedSiteId: number | null = null;
@@ -193,6 +214,16 @@ const EMPTY_TODO_COVERAGE: TodoCoverage = { covered: 0, actionable: 0, pageTypes
 let todoStatus: PageContextResolution["status"] | "unresolved" = "unresolved";
 let todoCoverage: TodoCoverage = EMPTY_TODO_COVERAGE;
 let todoRefreshedAt = 0;
+type ManagedRenderInspectionContext = Readonly<{
+  tabId: number;
+  requestKey: string;
+  pageUrl: string;
+  property: RenderInspectionPropertyScope;
+}>;
+/** Inspection is a managed-property read posture, not an editing mutation.
+ *  Keep its identity from page.context so off-candidate pages do not need an
+ *  editor lease merely to compare their rendered and static documents. */
+let managedRenderInspectionContext: ManagedRenderInspectionContext | null = null;
 let lynxChecklist: LynxChecklistState = EMPTY_LYNX_CHECKLIST_STATE;
 let pendingPublicationRequest: PropertyPublishRequest | null = null;
 const eventLog = createEventLog();
@@ -312,9 +343,9 @@ function buildDiagnostics(): PopupDiagnostics {
     authMessage,
     renderMode: confirmedRenderMode,
     renderModePending: pendingRenderMode,
-    renderModeView,
-    renderModeDetail,
-    renderModeBusy,
+    renderModeView: renderInspectionProjection.view as RenderModeView,
+    renderModeDetail: renderInspectionProjection.detail,
+    renderModeBusy: renderInspectionProjection.busy,
     todoStatus,
     todo: todoCoverage,
     log: eventLog.entries(),
@@ -523,6 +554,11 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
 }
 
 function resetBoundSessionState(): void {
+  renderInspectionOperationEpoch += 1;
+  renderInspectionCurrentEpoch += 1;
+  renderInspectionCurrentTail = Promise.resolve();
+  renderInspectionStartPending = false;
+  renderInspectionProjection = EMPTY_RENDER_INSPECTION_PROJECTION;
   brainSignals.reset();
   appliedEmulationMode = null;
   pendingRenderMode = null;
@@ -546,6 +582,7 @@ function resetBoundSessionState(): void {
   todoStatus = "unresolved";
   todoCoverage = EMPTY_TODO_COVERAGE;
   todoRefreshedAt = 0;
+  managedRenderInspectionContext = null;
   lynxChecklist = EMPTY_LYNX_CHECKLIST_STATE;
   pendingPublicationRequest = null;
   silentSelectorsAppliedKey = null;
@@ -618,10 +655,7 @@ async function handleBoundContext(context: TargetTabContext): Promise<string> {
   return binding.key;
 }
 
-function ensureSignalPolling(context: TargetTabContext): void {
-  void handleBoundContext(context).catch((error: unknown) => {
-    console.error("[Unfluffify][rewrite] Unable to bind popup tab", error);
-  });
+function ensureSignalPolling(): void {
   if (signalPollHandle !== null) {
     return;
   }
@@ -658,10 +692,45 @@ async function refreshTodoContext(
   todoRefreshedAt = Date.now();
   if (!response.ok) {
     todoStatus = "unavailable";
+    managedRenderInspectionContext = null;
     return;
   }
   todoStatus = response.data.status;
   todoCoverage = response.data.todo;
+  const managedProperty = response.data.status === "managed_candidate" ||
+    response.data.status === "managed_non_candidate" ||
+    response.data.status === "suspended_candidate_removed" ||
+    response.data.status === "suspended_candidate_feed_conflict";
+  managedRenderInspectionContext =
+    managedProperty &&
+    response.data.environmentKey !== null &&
+    response.data.siteId !== null &&
+    response.data.baseUrl !== null &&
+    response.data.observedUrl === context.url &&
+    requestKey !== null
+      ? {
+          tabId: context.tabId,
+          requestKey,
+          pageUrl: response.data.observedUrl,
+          property: {
+            environmentKey: response.data.environmentKey,
+            siteId: response.data.siteId,
+            baseUrl: response.data.baseUrl,
+          },
+        }
+      : null;
+}
+
+function managedRenderInspectionPropertyFor(
+  context: TargetTabContext,
+  requestKey: string,
+): RenderInspectionPropertyScope | null {
+  const managed = managedRenderInspectionContext;
+  return managed?.tabId === context.tabId &&
+    managed.requestKey === requestKey &&
+    managed.pageUrl === context.url
+    ? managed.property
+    : null;
 }
 
 function publicationAuthorityOf(lock: LockDirectiveResponse | null): PublicationAuthority | null {
@@ -1006,14 +1075,19 @@ async function pollCurrentTabSignals(): Promise<void> {
   if (hasStoredToken) {
     await adoptAuthStatus();
   }
+  const requestKey = await handleBoundContext(context);
+  await refreshTodoContext(context, requestKey);
+  const inspectionProperty = managedRenderInspectionPropertyFor(context, requestKey);
   if (!isConfigurationComplete()) {
+    // Durable inspection projection is useful even while account/configuration
+    // setup is unavailable; it belongs to the tab, not to this popup's form.
+    await observeCurrentRenderInspection(context, requestKey, inspectionProperty);
     render();
     return;
   }
-  const requestKey = await handleBoundContext(context);
   await pullSignals(context.tabId, requestKey);
   await refreshLockDirective(context, requestKey);
-  await refreshTodoContext(context, requestKey);
+  await observeCurrentRenderInspection(context, requestKey, inspectionProperty);
   // Guarded by the attempted-site id, so this is one request per property once
   // the site resolves — not one per tick.
   await maybeLoadPropertyConfig();
@@ -1135,9 +1209,16 @@ async function initializePopupSignals(): Promise<void> {
   if (context === null) {
     return;
   }
-  ensureSignalPolling(context);
-  await pullSignals(context.tabId, boundTabKey);
-  await reconcileContentStatus(context, boundTabKey);
+  ensureSignalPolling();
+  const requestKey = await handleBoundContext(context);
+  await refreshTodoContext(context, requestKey);
+  await observeCurrentRenderInspection(
+    context,
+    requestKey,
+    managedRenderInspectionPropertyFor(context, requestKey),
+  );
+  await pullSignals(context.tabId, requestKey);
+  await reconcileContentStatus(context, requestKey);
   render();
 }
 
@@ -1507,7 +1588,7 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     return;
   }
   if (enabled && directModeActive) {
-    ensureSignalPolling(context);
+    ensureSignalPolling();
     await applySessionEmulation(context);
     const activated = await sendContentMessage(context.tabId, {
       type: "activateContentMain",
@@ -1532,7 +1613,7 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     return;
   }
   if (enabled) {
-    ensureSignalPolling(context);
+    ensureSignalPolling();
     await pullSignals(context.tabId, requestKey);
     const lock = await refreshLockDirective(context, requestKey);
     if (!lock || !lockAllowsEditing(lock)) {
@@ -1676,8 +1757,17 @@ async function adoptContentRows(tabId: number, requestKey = boundTabKey): Promis
 /** The unchecking half of the discard confirmation. The navigation half is the
  *  native beforeunload gate, armed by the content script on the page itself —
  *  nothing here can interrupt a navigation the operator started. */
-/** Legacy's handleOpenConfigurationView. */
-function openConfiguration(): void {
+/** Legacy's handleOpenConfigurationView. A durable inspection can outlive the
+ *  popup that started it, so this exit first re-reads background authority and
+ *  keeps the operator in the render-mode view until JavaScript paint is exact. */
+async function openConfiguration(): Promise<void> {
+  requestedView = "render-mode";
+  render();
+  if (!await restoreJavascriptView()) {
+    logEvent("Connection settings blocked", "restore the JavaScript view before leaving", "warn");
+    render();
+    return;
+  }
   requestedView = "configuration";
   logEvent("Opened connection settings");
   render();
@@ -1717,12 +1807,51 @@ function pickRenderMode(mode: RenderMode): void {
  *  cancelling — puts JavaScript back if the last load was the static one. The
  *  chosen render mode is a fact about the property, not a posture for the tab:
  *  a static property is still browsed with scripts on. */
-async function restoreJavascriptView(): Promise<void> {
-  if (renderModeView !== "without_javascript") {
-    return;
+async function restoreJavascriptView(): Promise<boolean> {
+  const context = await resolveTargetTabContext();
+  if (context === null) {
+    return false;
+  }
+  const requestKey = await handleBoundContext(context);
+  await refreshTodoContext(context, requestKey, { force: true });
+  const observed = await observeCurrentRenderInspection(
+    context,
+    requestKey,
+    managedRenderInspectionPropertyFor(context, requestKey),
+  );
+  if (observed === "inactive") {
+    return true;
+  }
+  if (observed === "unavailable" || observed === "stale") {
+    return false;
+  }
+  const current = renderInspectionProjection.session;
+  const javascriptPaintAlreadyConfirmed =
+    observed === "terminal" &&
+    current?.phase === "terminal" &&
+    current.terminalReason === "paint-acknowledged" &&
+    current.javascriptEnabled &&
+    renderInspectionProjection.view === "with_javascript";
+  if (javascriptPaintAlreadyConfirmed) {
+    return true;
+  }
+  const active = observed === "active" && current?.phase !== "terminal";
+  if (active) {
+    await cancelActiveRenderInspection(context, requestKey);
   }
   logEvent("Restoring the page", "reloading with JavaScript");
   await loadRenderModeView(true);
+  const restored = renderInspectionProjection.session;
+  const javascriptPaintConfirmed =
+    restored?.phase === "terminal" &&
+    restored.terminalReason === "paint-acknowledged" &&
+    restored.javascriptEnabled &&
+    renderInspectionProjection.view === "with_javascript";
+  if (!javascriptPaintConfirmed) {
+    logEvent("JavaScript view not confirmed", "stay here and retry before leaving", "warn");
+    render();
+  }
+  return javascriptPaintConfirmed;
 }
 
 /** A property with no render mode had nothing worth preparing at page load, and the
@@ -1741,7 +1870,7 @@ async function preparePageAfterRenderMode(): Promise<void> {
 }
 
 /** Legacy's `Set`. Serves the first choice and every later edit alike. */
-function commitRenderMode(): void {
+async function commitRenderMode(): Promise<void> {
   const chosen = pendingRenderMode ?? confirmedRenderMode;
   if (chosen === null) {
     logEvent("Cannot set the render mode", "choose one of the two first", "warn");
@@ -1749,25 +1878,34 @@ function commitRenderMode(): void {
     return;
   }
   pendingRenderMode = null;
-  requestedView = null;
   // Re-confirming the mode already in force is a no-op for setRenderMode, which
-  // is why leaving the view happens here rather than inside it.
+  // is why leaving the view happens here rather than inside it. The view stays
+  // put until the replacement document has acknowledged a JavaScript-on paint.
   setRenderMode(chosen);
   render();
-  // Order matters: restore the page first, because the ritual has to run on the
+  if (!await restoreJavascriptView()) {
+    return;
+  }
+  requestedView = null;
+  render();
+  // Order matters: restoration finished first, so the ritual runs on the
   // document the operator will actually be marking.
-  void restoreJavascriptView().then(() => preparePageAfterRenderMode());
+  await preparePageAfterRenderMode();
 }
 
 /** Only offered once a mode exists, so there is always something to fall back
  *  on and a session to return to. */
-function cancelRenderMode(): void {
+async function cancelRenderMode(): Promise<void> {
   pendingRenderMode = null;
+  render();
+  if (!await restoreJavascriptView()) {
+    return;
+  }
   requestedView = null;
   render();
   // Cancelling leaves an established mode in place, so the page still wants
   // preparing — the ritual's own guard makes this a no-op if it already ran.
-  void restoreJavascriptView().then(() => preparePageAfterRenderMode());
+  await preparePageAfterRenderMode();
 }
 
 function confirmDiscardMarkings(): boolean {
@@ -1807,6 +1945,11 @@ async function refreshPopup(): Promise<void> {
   await pullSignals(context.tabId, requestKey);
   const lock = await refreshLockDirective(context, requestKey);
   await refreshTodoContext(context, requestKey, { force: true });
+  await observeCurrentRenderInspection(
+    context,
+    requestKey,
+    managedRenderInspectionPropertyFor(context, requestKey),
+  );
   await reconcileContentStatus(context, requestKey);
   await adoptAuthStatus();
   // An explicit refresh is the retry for a config read that failed.
@@ -1944,61 +2087,358 @@ function setRenderMode(mode: RenderMode): void {
     });
 }
 
-/** Loads the tab with JavaScript on or off so the operator can compare the two
- *  renders and choose the mode. The reload drops the property lock and the
- *  content script, so both are re-established afterwards. */
+function renderInspectionStillOwns(
+  context: TargetTabContext,
+  requestKey: string,
+  operationEpoch: number,
+): boolean {
+  return boundTabId === context.tabId &&
+    boundTabKey === requestKey &&
+    renderInspectionOperationEpoch === operationEpoch;
+}
+
+async function adoptRenderInspectionSession(
+  context: TargetTabContext,
+  requestKey: string,
+  session: RenderInspectionSession,
+  property: RenderInspectionPropertyScope | null = null,
+  authoritativeCurrent = false,
+): Promise<"active" | "terminal" | "ignored"> {
+  if (boundTabId !== context.tabId || boundTabKey !== requestKey) {
+    return "ignored";
+  }
+  const binding = { pageUrl: context.url, property };
+  if (!renderInspectionMatchesBinding(session, binding)) {
+    if (authoritativeCurrent) {
+      renderInspectionProjection = projectInactiveRenderInspection();
+      render();
+    }
+    return "ignored";
+  }
+
+  const previous = renderInspectionProjection;
+  const result = projectRenderInspectionSession(previous, session, binding);
+  if (result.status === "ignored") {
+    return "ignored";
+  }
+  renderInspectionProjection = result.projection;
+  if (
+    session.phase !== "terminal" &&
+    session.deadlineAt <= Date.now()
+  ) {
+    // The durable runtime remains authoritative and may still publish a terminal
+    // result. This only prevents a reopened popup from staying permanently busy
+    // while the worker is recovering.
+    renderInspectionProjection = projectRenderInspectionWatchdog(renderInspectionProjection);
+  }
+  render();
+
+  if (result.status === "updated" && session.phase === "terminal") {
+    if (session.terminalReason === "paint-acknowledged") {
+      logEvent(
+        "Render-mode view loaded",
+        session.javascriptEnabled ? "with JavaScript" : "without JavaScript",
+        "success",
+      );
+    } else {
+      logEvent(
+        "Render-mode view incomplete",
+        session.terminalReason ?? "unknown terminal reason",
+        "warn",
+      );
+    }
+  }
+
+  if (result.refreshLock && boundTabId === context.tabId && boundTabKey === requestKey) {
+    // Paint acknowledgement is the terminal inspection result. Publish it to
+    // the caller immediately; lock/content reconciliation is follow-up work and
+    // must not keep the popup-local watchdog alive long enough to overwrite an
+    // already-confirmed view with retry feedback.
+    void (async () => {
+      await refreshLockDirective(context, requestKey);
+      if (boundTabId !== context.tabId || boundTabKey !== requestKey) {
+        return;
+      }
+      await reconcileContentStatus(context, requestKey);
+      if (boundTabId === context.tabId && boundTabKey === requestKey) {
+        render();
+      }
+    })().catch((error: unknown) => {
+      console.error("[Unfluffify][rewrite] Unable to refresh after render inspection", error);
+    });
+  }
+  return session.phase === "terminal" ? "terminal" : "active";
+}
+
+type RenderInspectionObservation =
+  | "active"
+  | "terminal"
+  | "inactive"
+  | "unavailable"
+  | "stale";
+
+type RenderInspectionStartObservation = RenderInspectionObservation | "conflict";
+
+async function observeCurrentRenderInspection(
+  context: TargetTabContext,
+  requestKey: string,
+  property: RenderInspectionPropertyScope | null = null,
+  operationEpoch = renderInspectionOperationEpoch,
+): Promise<RenderInspectionObservation> {
+  const previous = renderInspectionCurrentTail;
+  let release!: () => void;
+  renderInspectionCurrentTail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous.catch(() => undefined);
+  try {
+    if (
+      renderInspectionStartPending ||
+      !renderInspectionStillOwns(context, requestKey, operationEpoch)
+    ) {
+      return "stale";
+    }
+    const currentEpoch = ++renderInspectionCurrentEpoch;
+    const watched = await watchRenderModeInspection(() => getPopupBus().request(
+      "renderInspection.current",
+      { tabId: context.tabId },
+      { target: "background" },
+    ));
+    if (
+      !renderInspectionStillOwns(context, requestKey, operationEpoch) ||
+      currentEpoch !== renderInspectionCurrentEpoch
+    ) {
+      return "stale";
+    }
+    if (watched.status === "timeout") {
+      if (renderInspectionProjection.busy) {
+        renderInspectionProjection = projectRenderInspectionWatchdog(renderInspectionProjection);
+        render();
+      }
+      return "unavailable";
+    }
+    const response = watched.value;
+    if (!response.ok) {
+      return "unavailable";
+    }
+    if (response.data.status === "inactive") {
+      renderInspectionProjection = projectInactiveRenderInspection();
+      render();
+      return "inactive";
+    }
+    const adopted = await adoptRenderInspectionSession(
+      context,
+      requestKey,
+      response.data.session,
+      property,
+      true,
+    );
+    return adopted === "ignored" ? "stale" : adopted;
+  } finally {
+    release();
+  }
+}
+
+/** Explicitly leaving the render-mode view may cancel its active generation.
+ *  Popup disposal and rebinding never call this path. */
+async function cancelActiveRenderInspection(
+  context: TargetTabContext,
+  requestKey: string,
+): Promise<void> {
+  const session = renderInspectionProjection.session;
+  if (!session || session.phase === "terminal") {
+    return;
+  }
+  const operationEpoch = ++renderInspectionOperationEpoch;
+  renderInspectionCurrentEpoch += 1;
+  renderInspectionCurrentTail = Promise.resolve();
+  renderInspectionStartPending = false;
+  renderInspectionProjection = projectRenderInspectionStarting(renderInspectionProjection);
+  render();
+
+  const watched = await watchRenderModeInspection(() => getPopupBus().request(
+    "renderInspection.cancel",
+    {
+      tabId: context.tabId,
+      token: session.token,
+      generation: session.generation,
+    },
+    { target: "background" },
+  ));
+  if (!renderInspectionStillOwns(context, requestKey, operationEpoch)) {
+    return;
+  }
+  if (watched.status === "timeout") {
+    renderInspectionOperationEpoch += 1;
+    renderInspectionCurrentEpoch += 1;
+    renderInspectionCurrentTail = Promise.resolve();
+    renderInspectionProjection = projectRenderInspectionWatchdog(
+      renderInspectionProjection,
+      "The page view cancellation is still running in the background.",
+    );
+    render();
+    return;
+  }
+  const response = watched.value;
+  if (!response.ok) {
+    renderInspectionProjection = projectRenderInspectionWatchdog(
+      renderInspectionProjection,
+      "The page view cancellation could not be observed. Retry when the tab is ready.",
+    );
+    render();
+    return;
+  }
+  if (response.data.status === "inactive") {
+    renderInspectionProjection = projectInactiveRenderInspection();
+    render();
+    return;
+  }
+  if (response.data.session) {
+    await adoptRenderInspectionSession(
+      context,
+      requestKey,
+      response.data.session,
+      session.property,
+    );
+    return;
+  }
+  renderInspectionProjection = projectRenderInspectionWatchdog(
+    renderInspectionProjection,
+    "A newer page view replaced this cancellation. Retry if the page is not ready.",
+  );
+  render();
+}
+
+async function waitForRenderInspectionPoll(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, RENDER_MODE_INSPECTION_POLL_MS);
+  });
+}
+
+/**
+ * Starts a durable background inspection, then observes that generation until
+ * its terminal snapshot arrives. Closing the popup simply destroys this local
+ * observer; the background session keeps running and is reconstructed by
+ * `current` when a popup opens again.
+ */
 async function loadRenderModeView(javascriptEnabled: boolean): Promise<void> {
   const context = await resolveTargetTabContext();
   if (context === null) {
     return;
   }
   const requestKey = await handleBoundContext(context);
-  const lock = await refreshLockDirective(context, requestKey);
-  if (!lock || !lockAllowsEditing(lock) || !lock.authority) {
-    renderModeDetail = "Editing is blocked, so the page cannot be reloaded.";
+  await refreshTodoContext(context, requestKey, { force: true });
+  const managed = managedRenderInspectionContext;
+  const property =
+    managed?.tabId === context.tabId &&
+    managed.requestKey === requestKey &&
+    managed.pageUrl === context.url
+      ? managed.property
+      : null;
+  if (property === null) {
+    renderInspectionProjection = projectRenderInspectionWatchdog(
+      renderInspectionProjection,
+      "The managed property context is unavailable, so this page view cannot be reloaded.",
+    );
     render();
     return;
   }
-  renderModeBusy = true;
-  renderModeDetail = "";
+
+  const operationEpoch = ++renderInspectionOperationEpoch;
+  renderInspectionCurrentEpoch += 1;
+  renderInspectionCurrentTail = Promise.resolve();
+  renderInspectionStartPending = true;
+  renderInspectionProjection = projectRenderInspectionStarting(renderInspectionProjection);
   render();
-  await reportPopupFactAndPull(context, "render-mode-inspection-started", {
-    inspectionPending: true,
-  }, requestKey).catch(() => undefined);
-  try {
-    const watched = await watchRenderModeInspection(() => getPopupBus().request(
-      "renderMode.inspect",
-      { tabId: context.tabId, javascriptEnabled },
+
+  const watched = await watchRenderModeInspection(async (): Promise<RenderInspectionStartObservation> => {
+    const response = await getPopupBus().request(
+      "renderInspection.start",
+      {
+        tabId: context.tabId,
+        property,
+        pageUrl: context.url,
+        javascriptEnabled,
+      },
       { target: "background" },
-    ));
-    if (watched.status === "timeout") {
-      renderModeDetail = "The page reload timed out. The page was restored when possible; retry this view.";
-      logEvent("Render-mode view timed out", javascriptEnabled ? "with JavaScript" : "without JavaScript", "warn");
-      return;
+    );
+    if (!renderInspectionStillOwns(context, requestKey, operationEpoch)) {
+      return "stale";
     }
-    const response = watched.value;
-    if (!response.ok || response.data.status !== "ok") {
-      renderModeDetail = "The page could not be reloaded in that mode. Retry when the tab is ready.";
-      logEvent("Render-mode view failed", response.ok ? response.data.status : response.failure.code, "warn");
-      return;
+    renderInspectionStartPending = false;
+    if (!response.ok) {
+      return "unavailable";
     }
-    renderModeView = javascriptEnabled ? "with_javascript" : "without_javascript";
-    logEvent("Render-mode view loaded", javascriptEnabled ? "with JavaScript" : "without JavaScript");
-    if (response.data.reclaimLockAfterReload) {
-      await refreshLockDirective(context, requestKey);
+    const first = await adoptRenderInspectionSession(
+      context,
+      requestKey,
+      response.data.session,
+      property,
+    );
+    if (
+      response.data.status === "error" &&
+      response.data.reason === "inspection-already-active"
+    ) {
+      if (first === "ignored") {
+        return "stale";
+      }
+      renderInspectionProjection = projectRenderInspectionWatchdog(
+        renderInspectionProjection,
+        `Another page view is already loading ${response.data.session.javascriptEnabled
+          ? "with JavaScript"
+          : "without JavaScript"}. Wait for it to finish, then retry this view.`,
+      );
+      logEvent("Render-mode view not started", "another inspection is already active", "warn");
+      render();
+      return "conflict";
     }
-  } finally {
-    // Reload is a terminal tab boundary and may have cleared the first rising
-    // edge from the background brain. Reassert then lower the fact: on the old
-    // brain it is idempotent; on a fresh brain it guarantees an ended signal.
-    await reportPopupFactAndPull(context, "render-mode-inspection-settling", {
-      inspectionPending: true,
-    }, requestKey).catch(() => undefined);
-    await reportPopupFactAndPull(context, "render-mode-inspection-ended", {
-      inspectionPending: false,
-    }, requestKey).catch(() => undefined);
-    renderModeBusy = false;
-    await reconcileContentStatus(context, requestKey);
+    if (first !== "active") {
+      return first === "ignored" ? "stale" : first;
+    }
+
+    while (renderInspectionStillOwns(context, requestKey, operationEpoch)) {
+      await waitForRenderInspectionPoll();
+      const observed = await observeCurrentRenderInspection(
+        context,
+        requestKey,
+        property,
+        operationEpoch,
+      );
+      if (observed === "stale") {
+        continue;
+      }
+      if (observed !== "active") {
+        return observed;
+      }
+    }
+    return "stale";
+  });
+
+  if (!renderInspectionStillOwns(context, requestKey, operationEpoch)) {
+    return;
+  }
+  renderInspectionStartPending = false;
+  if (watched.status === "timeout") {
+    // Invalidate the still-running observer before changing local presentation.
+    // No cancel or restoration is sent: the background remains the sole owner.
+    renderInspectionOperationEpoch += 1;
+    renderInspectionCurrentEpoch += 1;
+    renderInspectionCurrentTail = Promise.resolve();
+    renderInspectionProjection = projectRenderInspectionWatchdog(renderInspectionProjection);
+    logEvent(
+      "Render-mode view still loading",
+      javascriptEnabled ? "with JavaScript" : "without JavaScript",
+      "warn",
+    );
+    render();
+    return;
+  }
+  if (watched.value === "unavailable") {
+    renderInspectionProjection = projectRenderInspectionWatchdog(
+      renderInspectionProjection,
+      "The page reload could not be observed. It may still be running; retry this view.",
+    );
+    logEvent("Render-mode view unavailable", "background did not answer", "warn");
     render();
   }
 }

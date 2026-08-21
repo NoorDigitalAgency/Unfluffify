@@ -35,6 +35,8 @@ export const TabFactsPatchSchema = z.object({
   savedSeq: z.number().int().nonnegative().optional(),
   discardedSeq: z.number().int().nonnegative().optional(),
   hasUnsavedWork: z.boolean().optional(),
+  /** @deprecated Accepted only as a no-op migration input. P16 inspection
+   *  authority lives in the durable background inspection session. */
   inspectionPending: z.boolean().optional(),
   lockRole: z.enum(["unknown", "editor", "passive"]).optional(),
   lockCanEdit: z.boolean().optional(),

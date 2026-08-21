@@ -383,6 +383,63 @@ describe("P3 background brain", () => {
     expect(brain.snapshot()).toMatchObject({ lastSignalSeq: 11 });
   });
 
+  it("accepts legacy inspection facts as no-op migration input", () => {
+    const brain = createRewriteBrain(9);
+    const observeLegacyInspection = (inspectionPending: boolean) => brain.observe({
+      tabId: 9,
+      source: "popup",
+      reason: "legacy-render-inspection",
+      facts: {
+        tabId: 9,
+        pageUrl: "https://example.com/page",
+        inspectionPending,
+      },
+    });
+
+    expect(observeLegacyInspection(true)).toEqual([]);
+    expect(observeLegacyInspection(false)).toEqual([]);
+    expect(brain.snapshot()).not.toHaveProperty("inspectionPending");
+    expect(brain.pullSignals(0).map((signal) => signal.name)).not.toEqual(
+      expect.arrayContaining(["inspection.started", "inspection.ended"]),
+    );
+  });
+
+  it("retires a legacy inspection flag while rehydrating durable brain facts", async () => {
+    const rehydrate = vi.fn(async () => ({
+      tabId: 9,
+      pageUrl: "https://example.com/page",
+      markingEnabled: false,
+      lockRole: "unknown" as const,
+      configPresent: false,
+      reconciliationPending: false,
+      hasUnsavedWork: false,
+      inspectionPending: true,
+      lastSignalSeq: 10,
+    }));
+    const runtime = createRewriteBrainRuntime({
+      addMessageListener() {},
+      rehydrateDurableFacts: rehydrate,
+    });
+
+    const brain = await runtime.getBrain(9);
+    expect(rehydrate).toHaveBeenCalledOnce();
+    expect(brain.snapshot()).not.toHaveProperty("inspectionPending");
+
+    const observed = await runtime.handle({
+      type: "uf.rewriteBrain.observe",
+      sensation: {
+        tabId: 9,
+        source: "content",
+        reason: "post-rehydrate-heartbeat",
+        facts: { tabId: 9, candidate: true },
+      },
+    }) as { signals: Array<{ name: string }> };
+
+    expect(observed.signals).toEqual([]);
+    expect(brain.snapshot()).toMatchObject({ candidate: true, lastSignalSeq: 10 });
+    expect(brain.snapshot()).not.toHaveProperty("inspectionPending");
+  });
+
   it("does not let non-emitting patches roll back the brain-owned signal head", () => {
     const brain = createRewriteBrain(9, {
       tabId: 9,

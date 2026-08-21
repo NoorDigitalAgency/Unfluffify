@@ -23,6 +23,8 @@
     "performance:p14:smoke": "node ./scripts/performance/p14-marking-browser-gate.mjs --smoke",
     "performance:p15": "node ./scripts/performance/p15-frozen-shield-browser-gate.mjs",
     "performance:p15:smoke": "node ./scripts/performance/p15-frozen-shield-browser-gate.mjs --smoke",
+    "performance:p16": "node ./scripts/performance/p16-render-inspection-browser-gate.mjs",
+    "performance:p16:smoke": "node ./scripts/performance/p16-render-inspection-browser-gate.mjs --smoke",
     "orchestrate:bus": "node ./orchestration/bus-server.mjs",
     "orchestrate:mock-client": "node ./orchestration/mock-client.mjs",
     "orchestrate:runner": "node ./orchestration/runner.mjs",

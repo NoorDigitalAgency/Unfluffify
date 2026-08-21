@@ -1,13 +1,228 @@
+import type {
+  RenderInspectionPropertyScope,
+  RenderInspectionSession,
+  RenderInspectionTerminalReason,
+} from "../messaging/render-inspection";
+
 export const RENDER_MODE_INSPECTION_WATCHDOG_MS = 20_000;
+export const RENDER_MODE_INSPECTION_POLL_MS = 250;
+
+export type InspectedRenderModeView = "unknown" | "with_javascript" | "without_javascript";
+
+export type RenderInspectionBinding = Readonly<{
+  pageUrl: string;
+  property?: RenderInspectionPropertyScope | null;
+}>;
+
+export type RenderInspectionProjection = Readonly<{
+  /** The last authoritative generation seen for this tab binding. */
+  session: RenderInspectionSession | null;
+  view: InspectedRenderModeView;
+  busy: boolean;
+  detail: string;
+  /** A popup-only release valve. It never changes the durable session. */
+  watchdogReleased: boolean;
+}>;
+
+export type RenderInspectionProjectionResult = Readonly<{
+  status: "updated" | "unchanged" | "ignored";
+  projection: RenderInspectionProjection;
+  refreshLock: boolean;
+}>;
+
+export const EMPTY_RENDER_INSPECTION_PROJECTION: RenderInspectionProjection = {
+  session: null,
+  view: "unknown",
+  busy: false,
+  detail: "",
+  watchdogReleased: false,
+};
+
+export const RENDER_INSPECTION_WATCHDOG_DETAIL =
+  "The page reload is still running in the background. You can retry this view.";
+
+const TERMINAL_DETAIL: Readonly<Record<Exclude<RenderInspectionTerminalReason, "paint-acknowledged">, string>> = {
+  cancelled: "The page view change was cancelled. Retry when you are ready.",
+  superseded: "A newer page view replaced this reload. Retry the view you want to inspect.",
+  "start-failed": "The page could not start reloading in that mode. Retry when the tab is ready.",
+  "content-failed": "The reloaded page could not confirm that view. Retry when the tab is ready.",
+  "unexpected-navigation": "The tab navigated somewhere else before the view was ready. Return to the page and retry.",
+  timeout: "The page reload timed out. Retry this view.",
+  unregistered: "The tab was unregistered before the view was ready. Register it again and retry.",
+  "tab-closed": "The tab closed before the view was ready. Open the page again and retry.",
+  "extension-invalidated": "The extension was reloaded before the view was ready. Reopen it and retry.",
+};
+
+function sameProperty(
+  left: RenderInspectionPropertyScope,
+  right: RenderInspectionPropertyScope,
+): boolean {
+  return left.environmentKey === right.environmentKey &&
+    left.siteId === right.siteId &&
+    left.baseUrl === right.baseUrl;
+}
+
+export function renderInspectionMatchesBinding(
+  session: RenderInspectionSession,
+  binding: RenderInspectionBinding,
+): boolean {
+  return session.pageUrl === binding.pageUrl &&
+    (!binding.property || sameProperty(session.property, binding.property));
+}
+
+function sessionProgress(session: RenderInspectionSession): number {
+  switch (session.phase) {
+    case "arming": return 0;
+    case "awaiting_document": return 1;
+    case "adopted": return 2;
+    case "terminal": return 3;
+  }
+}
+
+function sameSessionSnapshot(left: RenderInspectionSession, right: RenderInspectionSession): boolean {
+  return left.token === right.token &&
+    left.generation === right.generation &&
+    left.phase === right.phase &&
+    left.updatedAt === right.updatedAt &&
+    left.terminalReason === right.terminalReason &&
+    left.documentId === right.documentId &&
+    left.documentNonce === right.documentNonce &&
+    left.javascriptEnabled === right.javascriptEnabled;
+}
+
+/**
+ * Projects one durable background snapshot. Generation, token, timestamp and
+ * phase are all fenced so an older popup request can never repaint a newer
+ * result. Only a paint acknowledgment is evidence of which view is visible.
+ */
+export function projectRenderInspectionSession(
+  previous: RenderInspectionProjection,
+  session: RenderInspectionSession,
+  binding: RenderInspectionBinding,
+): RenderInspectionProjectionResult {
+  if (!renderInspectionMatchesBinding(session, binding)) {
+    return { status: "ignored", projection: previous, refreshLock: false };
+  }
+
+  const prior = previous.session;
+  if (prior) {
+    if (session.generation < prior.generation) {
+      return { status: "ignored", projection: previous, refreshLock: false };
+    }
+    if (session.generation === prior.generation) {
+      if (session.token !== prior.token || session.updatedAt < prior.updatedAt) {
+        return { status: "ignored", projection: previous, refreshLock: false };
+      }
+      // A successful paint can be invalidated later by the background when the
+      // same document generation unexpectedly navigates. That one successor is
+      // authoritative, but it must not erase the view whose paint was already
+      // confirmed. Every other terminal mutation remains fenced out.
+      if (prior.phase === "terminal") {
+        if (sameSessionSnapshot(prior, session)) {
+          return { status: "unchanged", projection: previous, refreshLock: false };
+        }
+        const invalidatesPaintAcknowledgement =
+          prior.terminalReason === "paint-acknowledged" &&
+          session.phase === "terminal" &&
+          session.terminalReason !== "paint-acknowledged" &&
+          session.updatedAt > prior.updatedAt;
+        if (!invalidatesPaintAcknowledgement) {
+          return { status: "ignored", projection: previous, refreshLock: false };
+        }
+      }
+      if (sessionProgress(session) < sessionProgress(prior)) {
+        return { status: "ignored", projection: previous, refreshLock: false };
+      }
+      if (sameSessionSnapshot(prior, session)) {
+        return { status: "unchanged", projection: previous, refreshLock: false };
+      }
+    }
+  }
+
+  if (session.phase !== "terminal") {
+    const projection: RenderInspectionProjection = previous.watchdogReleased
+      ? {
+          ...previous,
+          session,
+          busy: false,
+          detail: RENDER_INSPECTION_WATCHDOG_DETAIL,
+        }
+      : {
+          ...previous,
+          session,
+          busy: true,
+          detail: "",
+        };
+    return { status: "updated", projection, refreshLock: false };
+  }
+
+  if (session.terminalReason === "paint-acknowledged") {
+    return {
+      status: "updated",
+      projection: {
+        session,
+        view: session.javascriptEnabled ? "with_javascript" : "without_javascript",
+        busy: false,
+        detail: "",
+        watchdogReleased: false,
+      },
+      refreshLock: true,
+    };
+  }
+
+  return {
+    status: "updated",
+    projection: {
+      ...previous,
+      session,
+      busy: false,
+      detail: session.terminalReason === null
+        ? "The page view did not finish. Retry when the tab is ready."
+        : TERMINAL_DETAIL[session.terminalReason],
+      watchdogReleased: false,
+    },
+    refreshLock: false,
+  };
+}
+
+/** An authoritative inactive reply removes every active or successful inference. */
+export function projectInactiveRenderInspection(): RenderInspectionProjection {
+  return EMPTY_RENDER_INSPECTION_PROJECTION;
+}
+
+export function projectRenderInspectionStarting(
+  previous: RenderInspectionProjection,
+): RenderInspectionProjection {
+  return {
+    ...previous,
+    busy: true,
+    detail: "",
+    watchdogReleased: false,
+  };
+}
+
+/** Releases only this popup's controls. The background session remains intact. */
+export function projectRenderInspectionWatchdog(
+  previous: RenderInspectionProjection,
+  detail = RENDER_INSPECTION_WATCHDOG_DETAIL,
+): RenderInspectionProjection {
+  return {
+    ...previous,
+    busy: false,
+    detail,
+    watchdogReleased: true,
+  };
+}
 
 export type WatchedInspection<T> =
   | Readonly<{ status: "settled"; value: T }>
   | Readonly<{ status: "timeout" }>;
 
-/** The browser API can strand a reload callback. This watchdog owns only the UI
- * wait: the background has its own shorter recovery timeout that restores
- * JavaScript. Clearing this timer on every exit keeps a retry from inheriting
- * stale teardown work. */
+/**
+ * A disposable popup must not own inspection termination. This timer releases
+ * only its local wait; it never invokes cancel, restores JavaScript, or mutates
+ * the durable background session.
+ */
 export async function watchRenderModeInspection<T>(
   run: () => Promise<T>,
   timeoutMs = RENDER_MODE_INSPECTION_WATCHDOG_MS,
