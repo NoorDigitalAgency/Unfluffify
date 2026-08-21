@@ -849,7 +849,25 @@ in the owning phase and rerun its focused gate plus P9–P11.
   - `pnpm vitest run tests/src/content/consent.test.ts tests/src/content/marking/dom-bridge.test.ts tests/c4-content-entrypoint.test.ts tests/src/background/startup.test.ts tests/src/messaging/contracts.test.ts tests/src/popup/entrypoint.test.ts tests/src/page-world/program.test.ts tests/page-world-source-parity.test.ts --reporter=dot` — 8 files / 147 tests passed.
   - `pnpm lint`, `pnpm check`, and `git diff --check` passed; `pnpm test -- --reporter=dot` — 91 files / 696 tests passed.
   - `ACCEPT-P13-CAPTURE-SANITIZER` and `ACCEPT-P13-CONSENT-LIFECYCLE` remain registered for the P20 retained browser artifacts.
-- [ ] P14 — Single-pass interaction and real-browser performance
+- [x] P14 — Single-pass interaction and real-browser performance
+  - Commits: `3c9a7e5f` (`Initialize marking engine in one pass`),
+    `f6c93c52` (`Optimize marking interactions and add browser gate`), and
+    `355d1507` (`Reduce marking paint latency`).
+  - `pnpm verify` passed lint, generated page-world parity, all TypeScript
+    checks, 92 files / 711 tests, the production build, and all 7 generated
+    manifest assertions.
+  - `pnpm performance:p14` passed on clean commit `355d1507b82f` with 192/192
+    real-Chromium scenarios, 3 warmups plus 21 measured samples per pair,
+    10/10 semantic comparisons, 96/96 rewrite activation transactions, and
+    16/16 performance budgets. Large marking activation rewrite p50/p95 was
+    307.2/370.7 ms versus legacy 224.2/328.9 ms; strict physical click
+    p50/p95 was 84.1/124.8 ms versus legacy 194.8/333.5 ms.
+  - Retained artifact:
+    `output/playwright/p14-marking-performance/acceptance-2026-08-21T13-18-32-297Z.json`
+    (SHA-256 `66f0217733dc3bdf5794c518528256ca96c7246922c667404cf0680f10621fde`),
+    Chromium `151.0.7922.108`, 1280×900 at DPR 1. Source identity, exact run
+    plan, finite timings, page-error, cleanup, environment, and profiler-absence
+    checks all passed.
 - [ ] P15 — Frozen-page interaction shield
 - [ ] P16 — Durable background-owned render inspection
 - [ ] P17 — Canonical preview transport and projection
