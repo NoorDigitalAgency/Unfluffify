@@ -868,7 +868,23 @@ in the owning phase and rerun its focused gate plus P9–P11.
     Chromium `151.0.7922.108`, 1280×900 at DPR 1. Source identity, exact run
     plan, finite timings, page-error, cleanup, environment, and profiler-absence
     checks all passed.
-- [ ] P15 — Frozen-page interaction shield
+- [x] P15 — Frozen-page interaction shield
+  - Commit: `65281eda` (`Freeze managed property pages behind interaction shield`).
+  - `pnpm verify` passed lint, generated page-world parity, all TypeScript
+    checks, 99 files / 853 tests, the production build, and all 7 generated
+    manifest assertions.
+  - `pnpm performance:p15` passed on clean commit `65281edaf2be` with 36/36
+    required real-Chromium checks, including physical page/shadow/top-layer
+    blocking, native wheel/touch scrolling, extension UI interaction, early
+    retained-posture adoption before deferred page context, same-document and
+    full reload behavior, and every named terminal cleanup path. Page and
+    console errors were empty.
+  - Retained artifact:
+    `output/playwright/p15-frozen-shield/acceptance-2026-08-21T16-01-16-817Z.json`
+    (SHA-256 `08e204ba61d86aad5cd4169ac33ef5bcb71d01fda4357b0c29722cb74d21b619`),
+    Chromium `151.0.7922.108`, 1280×900 at DPR 1. Source identity, exact check
+    catalog, clean-worktree, viewport, fatal-error, and controller-cleanup
+    assertions all passed.
 - [ ] P16 — Durable background-owned render inspection
 - [ ] P17 — Canonical preview transport and projection
 - [ ] P18 — Transient surfaces and production toasts
