@@ -1,62 +1,22 @@
-import { z } from "zod";
-
 import {
-  LockBannerVocabularySchema,
-  LockReasonSchema,
+  BrainSensationSchema,
+  BrainSensationSourceSchema,
+  TabFactsPatchSchema,
   TabFactsSchema,
+  type BrainSensation,
+  type BrainSensationSource,
   type TabFacts,
+  type TabFactsPatch,
 } from "../../domain/schema/facts";
 
-export const BrainSensationSourceSchema = z.enum(["background", "content", "popup", "page"]);
-
-export const TabFactsPatchSchema = z.object({
-  tabId: z.number().int().nonnegative(),
-  siteId: z.number().int().positive().nullable().optional(),
-  baseUrl: z.string().url().nullable().optional(),
-  pageUrl: z.string().url().nullable().optional(),
-  renderMode: z.enum(["rendered", "static"]).nullable().optional(),
-  candidate: z.boolean().optional(),
-  markingEnabled: z.boolean().optional(),
-  /** Monotonic count of operator toggles. Never a row count: the page moves
-   *  that on its own. */
-  markingToggleSeq: z.number().int().nonnegative().optional(),
-  runPhase: z.enum(["idle", "running", "completed", "failed"]).optional(),
-  runSessionId: z.string().optional(),
-  runDeadlineAt: z.number().int().nonnegative().optional(),
-  runAiSessionId: z.string().optional(),
-  runSelectors: z.object({
-    exclusionSelectors: z.array(z.string()),
-    inclusionSelectors: z.array(z.string()),
-  }).optional(),
-  runFailureReason: z.string().optional(),
-  previewActive: z.boolean().optional(),
-  previewOrigin: z.enum(["silent", "post_ai", "marking"]).optional(),
-  previewExitRequested: z.boolean().optional(),
-  savedSeq: z.number().int().nonnegative().optional(),
-  discardedSeq: z.number().int().nonnegative().optional(),
-  hasUnsavedWork: z.boolean().optional(),
-  /** @deprecated Accepted only as a no-op migration input. P16 inspection
-   *  authority lives in the durable background inspection session. */
-  inspectionPending: z.boolean().optional(),
-  lockRole: z.enum(["unknown", "editor", "passive"]).optional(),
-  lockCanEdit: z.boolean().optional(),
-  lockBlockedReason: LockReasonSchema.optional(),
-  lockBanner: LockBannerVocabularySchema.optional(),
-  configPresent: z.boolean().optional(),
-  reconciliationPending: z.boolean().optional(),
-  reconciliationReason: z.string().optional(),
-});
-
-export const BrainSensationSchema = z.object({
-  tabId: z.number().int().nonnegative(),
-  source: BrainSensationSourceSchema,
-  reason: z.string().min(1),
-  facts: TabFactsPatchSchema,
-});
-
-export type BrainSensationSource = z.infer<typeof BrainSensationSourceSchema>;
-export type TabFactsPatch = z.infer<typeof TabFactsPatchSchema>;
-export type BrainSensation = z.infer<typeof BrainSensationSchema>;
+export {
+  BrainSensationSchema,
+  BrainSensationSourceSchema,
+  TabFactsPatchSchema,
+  type BrainSensation,
+  type BrainSensationSource,
+  type TabFactsPatch,
+};
 
 export function createInitialTabFacts(tabId: number): TabFacts {
   return TabFactsSchema.parse({ tabId });

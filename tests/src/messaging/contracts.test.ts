@@ -1,10 +1,27 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  BrainSensationSchema,
+  BrainSensationSourceSchema,
+  TabFactsPatchSchema,
+} from "../../../src/domain/schema/facts";
+import {
+  BrainSensationSchema as FoldBrainSensationSchema,
+  BrainSensationSourceSchema as FoldBrainSensationSourceSchema,
+  TabFactsPatchSchema as FoldTabFactsPatchSchema,
+} from "../../../src/background/brain/fold";
 import { createRealmBus } from "../../../src/messaging/realms";
 import { CommandEnvelopeSchema, FactEnvelopeSchema, SignalFrameSchema } from "../../../src/messaging/contracts";
 import { applicationContract } from "../../../src/messaging/realms";
 
 describe("corrective messaging application contracts", () => {
+  it("uses the domain-owned sensation schemas through the fold compatibility surface", () => {
+    expect(FoldBrainSensationSourceSchema).toBe(BrainSensationSourceSchema);
+    expect(FoldTabFactsPatchSchema).toBe(TabFactsPatchSchema);
+    expect(FoldBrainSensationSchema).toBe(BrainSensationSchema);
+    expect(FactEnvelopeSchema.shape.sensation).toBe(BrainSensationSchema);
+  });
+
   it("validates command, fact, and signal envelopes", () => {
     expect(CommandEnvelopeSchema.parse({
       kind: "uf-command/1",
