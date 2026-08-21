@@ -182,13 +182,19 @@ describe("C4 rewrite content entrypoints", () => {
 
   it("sweeps a managed non-candidate before render-mode gates and re-sweeps late insertions", async () => {
     const hideConsentOverlays = vi.fn(() => ({ hidden: 0, bypassInstalled: false }));
-    vi.doMock("../src/content/consent", () => ({ hideConsentOverlays }));
+    const restoreConsentOverlays = vi.fn(() => 1);
+    vi.doMock("../src/content/consent", async (importOriginal) => ({
+      ...await importOriginal<typeof import("../src/content/consent")>(),
+      hideConsentOverlays,
+      restoreConsentOverlays,
+    }));
     vi.doMock("wxt/utils/define-content-script", () => ({
       defineContentScript: (config: unknown) => config,
     }));
 
     let onMutation: MutationCallback | null = null;
     const observe = vi.fn();
+    const disconnect = vi.fn();
     Object.defineProperty(globalThis, "MutationObserver", {
       configurable: true,
       value: class {
@@ -196,35 +202,63 @@ describe("C4 rewrite content entrypoints", () => {
           onMutation = callback;
         }
         observe = observe;
-        disconnect = vi.fn();
+        disconnect = disconnect;
       },
     });
+    const locationValue = { href: "https://example.com/not-a-candidate" };
     Object.defineProperty(globalThis, "location", {
       configurable: true,
-      value: { href: "https://example.com/not-a-candidate" },
+      value: locationValue,
     });
     Object.defineProperty(globalThis, "document", {
       configurable: true,
       value: { documentElement: { nodeType: 1 }, body: { nodeType: 1 } },
     });
+    const windowListeners: TestListenerRegistry = new Map();
+    const windowObject = {
+      addEventListener: vi.fn((type: string, listener: EventListener) => {
+        addTestListener(windowListeners, type, listener);
+      }),
+      removeEventListener: vi.fn((type: string, listener: EventListener) => {
+        removeTestListener(windowListeners, type, listener);
+      }),
+      setInterval: vi.fn(() => 1),
+    };
     Object.defineProperty(globalThis, "window", {
       configurable: true,
-      value: {
-        addEventListener: vi.fn(),
-        setInterval: vi.fn(() => 1),
-      },
+      value: windowObject,
     });
     const sendMessage = vi.fn(async (message: BusFrame) => {
       if (message.name === "page.context") {
+        const pageUrl = (message.payload as { pageUrl?: string }).pageUrl ?? locationValue.href;
+        if (pageUrl.endsWith("/outside")) {
+          return replyFrame(message, {
+            status: "unmanaged",
+            generation: 3,
+            observedUrl: pageUrl,
+            draftDisposition: "terminate",
+            environmentKey: "example.com",
+            siteId: null,
+            baseUrl: null,
+            pageKey: null,
+            pageTypes: [],
+            membershipFingerprint: null,
+            assignmentFingerprint: null,
+            conflicts: [],
+            upstreamCode: null,
+            renderModeSet: false,
+            todo: { covered: 0, actionable: 0, pageTypes: [] },
+          });
+        }
         return replyFrame(message, {
           status: "managed_non_candidate",
           generation: 1,
-          observedUrl: "https://example.com/not-a-candidate",
+          observedUrl: pageUrl,
           draftDisposition: "preserve",
           environmentKey: "example.com",
           siteId: 1,
           baseUrl: "https://example.com",
-          pageKey: "/not-a-candidate",
+          pageKey: new URL(pageUrl).pathname,
           pageTypes: [{
             pageType: "detail",
             pages: [{ pageKey: "/candidate", wordsCount: 42 }],
@@ -251,26 +285,77 @@ describe("C4 rewrite content entrypoints", () => {
       }
       return undefined;
     });
+    const addListener = vi.fn();
     globalThis.chrome = {
       runtime: {
-        onMessage: { addListener: vi.fn() },
+        onMessage: { addListener },
         sendMessage,
       },
     } as unknown as typeof chrome;
 
     const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
-    const contentScript = entrypoint.default as { main: () => void };
-    contentScript.main();
+    const onInvalidated = vi.fn();
+    const contentScript = entrypoint.default as {
+      main: (ctx?: { onInvalidated(callback: () => void): void }) => void;
+    };
+    contentScript.main({ onInvalidated });
+    expect(onInvalidated).toHaveBeenCalledTimes(1);
     for (let index = 0; index < 20 && hideConsentOverlays.mock.calls.length === 0; index += 1) {
       await Promise.resolve();
     }
 
     expect(hideConsentOverlays).toHaveBeenCalledTimes(1);
-    expect(observe).toHaveBeenCalledWith(document.documentElement, { childList: true, subtree: true });
+    expect(observe).toHaveBeenCalledWith(document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["open", "class", "id", "role", "aria-modal", "aria-label"],
+    });
 
     onMutation?.([], {} as MutationObserver);
 
     expect(hideConsentOverlays).toHaveBeenCalledTimes(2);
+
+    locationValue.href = "https://example.com/another-page";
+    dispatchTestEvent(windowListeners, "message", {
+      source: windowObject,
+      data: { kind: "uf-page-url-changed/1", toUrl: locationValue.href },
+    } as unknown as Event);
+    for (let index = 0; index < 20 && hideConsentOverlays.mock.calls.length < 3; index += 1) {
+      await Promise.resolve();
+    }
+
+    expect(hideConsentOverlays).toHaveBeenCalledTimes(3);
+    expect(observe).toHaveBeenCalledTimes(1);
+    expect(disconnect).not.toHaveBeenCalled();
+    expect(restoreConsentOverlays).not.toHaveBeenCalled();
+
+    locationValue.href = "https://example.com/outside";
+    dispatchTestEvent(windowListeners, "message", {
+      source: windowObject,
+      data: { kind: "uf-page-url-changed/1", toUrl: locationValue.href },
+    } as unknown as Event);
+    for (let index = 0; index < 20 && restoreConsentOverlays.mock.calls.length === 0; index += 1) {
+      await Promise.resolve();
+    }
+
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(restoreConsentOverlays).toHaveBeenCalledTimes(1);
+
+    const listener = addListener.mock.calls[0]?.[0] as (
+      message: unknown,
+      sender: unknown,
+      sendResponse: (value: unknown) => void
+    ) => unknown;
+    const terminal = await dispatchContentCommand(listener, "terminateConsentSuppression");
+
+    expect(terminal).toEqual({
+      ok: true,
+      data: { ok: true, restored: 1, tree: "rewrite" },
+    });
+    expect(disconnect).toHaveBeenCalledTimes(1);
+    expect(restoreConsentOverlays).toHaveBeenCalledTimes(2);
+    expect(restoreConsentOverlays).toHaveBeenCalledWith(document);
   });
 
   it("reuses one marking engine while enabled and disposes overlays on deactivate", async () => {

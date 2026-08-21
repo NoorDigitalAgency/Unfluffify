@@ -10,6 +10,18 @@ import {
 
 class FakeStyle {
   readonly set = new Map<string, { value: string; priority: string }>();
+  get length(): number {
+    return this.set.size;
+  }
+  item(index: number): string {
+    return [...this.set.keys()][index] ?? "";
+  }
+  getPropertyValue(name: string): string {
+    return this.set.get(name)?.value ?? "";
+  }
+  getPropertyPriority(name: string): string {
+    return this.set.get(name)?.priority ?? "";
+  }
   setProperty(name: string, value: string, priority = ""): void {
     this.set.set(name, { value, priority });
   }
@@ -31,6 +43,9 @@ class FakeElement {
   setAttribute(name: string, value: string): void {
     this.attributes.set(name, value);
   }
+  getAttribute(name: string): string | null {
+    return this.attributes.get(name) ?? null;
+  }
   removeAttribute(name: string): void {
     this.attributes.delete(name);
   }
@@ -46,10 +61,25 @@ class FakeElement {
 /** Matches by an explicit selector list per element, so a test says exactly which
  *  selector it is exercising rather than re-implementing CSS matching. */
 function fakeDocument(elements: readonly FakeElement[], options: { rejectSelector?: string; head?: boolean } = {}) {
-  const appended: Array<{ id: string; textContent: string }> = [];
+  const appended: Array<{ id: string; textContent: string; removed: boolean }> = [];
   const byId = new Map<string, unknown>();
+  let headPresent = options.head !== false;
+  const head = {
+    appendChild(node: { id: string; textContent: string; removed: boolean; remove(): void }) {
+      node.remove = () => {
+        node.removed = true;
+        byId.delete(node.id);
+      };
+      appended.push(node);
+      byId.set(node.id, node);
+      return node;
+    },
+  };
   return {
     appended,
+    setHeadPresent(value: boolean) {
+      headPresent = value;
+    },
     document: {
       querySelectorAll(selector: string) {
         if (options.rejectSelector === selector) {
@@ -64,14 +94,10 @@ function fakeDocument(elements: readonly FakeElement[], options: { rejectSelecto
         return byId.get(id);
       },
       createElement(_tag: string) {
-        return { id: "", textContent: "" };
+        return { id: "", textContent: "", removed: false, remove() {} };
       },
-      head: options.head === false ? null : {
-        appendChild(node: { id: string; textContent: string }) {
-          appended.push(node);
-          byId.set(node.id, node);
-          return node;
-        },
+      get head() {
+        return headPresent ? head : null;
       },
     },
   };
@@ -108,6 +134,18 @@ describe("consent overlay hiding", () => {
 
     expect(dialog.closeCalls).toBe(1);
     expect(dialog.attributes.get(CONSENT_HIDDEN_ATTR)).toBe("true");
+  });
+
+  it("re-closes a marked native dialog when the site opens it again", () => {
+    const dialog = new FakeElement("DIALOG", [DIALOG]);
+    dialog.open = true;
+    const { document } = fakeDocument([dialog]);
+
+    hideConsentOverlays(document);
+    dialog.open = true;
+    hideConsentOverlays(document);
+
+    expect(dialog.closeCalls).toBe(2);
   });
 
   it("still hides a dialog that refuses to close", () => {
@@ -203,8 +241,21 @@ describe("consent overlay hiding", () => {
     expect(result.bypassInstalled).toBe(false);
   });
 
+  it("installs the bypass after the head appears even when the overlay was already marked", () => {
+    const banner = new FakeElement("DIV", [COOKIE_BANNER]);
+    const fake = fakeDocument([banner], { head: false });
+
+    expect(hideConsentOverlays(fake.document).bypassInstalled).toBe(false);
+    fake.setHeadPresent(true);
+
+    expect(hideConsentOverlays(fake.document)).toEqual({ hidden: 0, bypassInstalled: true });
+  });
+
   it("restores exactly what it hid, and nothing else", () => {
     const banner = new FakeElement("DIV", [COOKIE_BANNER]);
+    banner.style.setProperty("opacity", "0.65", "important");
+    banner.style.setProperty("visibility", "collapse");
+    banner.style.setProperty("color", "red");
     const untouched = new FakeElement("DIV", []);
     untouched.style.setProperty("opacity", "0.5");
     const { document } = fakeDocument([banner, untouched]);
@@ -214,9 +265,23 @@ describe("consent overlay hiding", () => {
 
     expect(restored).toBe(1);
     expect(banner.hasAttribute(CONSENT_HIDDEN_ATTR)).toBe(false);
-    expect(banner.style.set.size).toBe(0);
+    expect(banner.style.set.get("opacity")).toEqual({ value: "0.65", priority: "important" });
+    expect(banner.style.set.get("visibility")).toEqual({ value: "collapse", priority: "" });
+    expect(banner.style.set.get("pointer-events")).toBeUndefined();
+    expect(banner.style.set.get("color")).toEqual({ value: "red", priority: "" });
     // The site's own inline style is never guessed at.
     expect(untouched.style.set.get("opacity")).toEqual({ value: "0.5", priority: "" });
+  });
+
+  it("removes its bypass style on terminal restoration", () => {
+    const banner = new FakeElement("DIV", [COOKIE_BANNER]);
+    const fake = fakeDocument([banner]);
+    hideConsentOverlays(fake.document);
+
+    restoreConsentOverlays(fake.document);
+
+    expect(fake.appended[0]?.removed).toBe(true);
+    expect(fake.document.getElementById(CONSENT_BYPASS_STYLE_ID)).toBeUndefined();
   });
 
   it("keeps the selector list free of words that match real content", () => {

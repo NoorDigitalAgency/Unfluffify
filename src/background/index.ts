@@ -82,6 +82,34 @@ export function startRewriteBackground(): void {
   const services = createRewriteBackgroundServices();
   const transferPayloads = createTransferPayloadStore();
   const actionIcons = createActionIconController(api.action);
+  /** An explicit Unregister must survive the reload it initiates. Content cannot
+   *  own that fact because its realm is replaced by the reload. storage.session
+   *  survives MV3 worker suspension/restart while remaining tab-session scoped. */
+  const consentSuppressionFallback = new Set<number>();
+  const consentSuppressionKey = (tabId: number): string => `uf:consent-suppression-disabled:${tabId}`;
+  const consentSuppressionDisabled = async (tabId: number): Promise<boolean> => {
+    const key = consentSuppressionKey(tabId);
+    try {
+      const stored = await api.storage?.session?.get(key);
+      if (stored) {
+        return stored[key] === true;
+      }
+    } catch {
+      // Tests and older hosts can lack storage.session; retain safe process-local
+      // behaviour rather than turning a storage failure into re-authorization.
+    }
+    return consentSuppressionFallback.has(tabId);
+  };
+  const disableConsentSuppression = async (tabId: number): Promise<void> => {
+    consentSuppressionFallback.add(tabId);
+    await Promise.resolve(api.storage?.session?.set({ [consentSuppressionKey(tabId)]: true }))
+      .catch(() => undefined);
+  };
+  const registerConsentSuppression = async (tabId: number): Promise<void> => {
+    consentSuppressionFallback.delete(tabId);
+    await Promise.resolve(api.storage?.session?.remove(consentSuppressionKey(tabId)))
+      .catch(() => undefined);
+  };
   const runtime = createRewriteBrainRuntime({
     addMessageListener() {},
     rehydrateDurableFacts: services.persistence.rehydrateDurableFacts,
@@ -218,6 +246,7 @@ export function startRewriteBackground(): void {
       const preserveSignalHead = reason !== "tab-closed";
       return beginTabCleanup(tabId, async () => {
         if (reason === "tab-closed") {
+          await registerConsentSuppression(tabId);
           await lockRuntime.terminateTab(tabId);
         } else {
           lockRuntime.navigationCommitted(tabId);
@@ -372,7 +401,16 @@ export function startRewriteBackground(): void {
       context.pageKey,
       new Set(Object.keys(authoritativeConfig?.pages ?? {})),
     );
-    return { ...context, renderModeSet, todo };
+    return {
+      ...context,
+      consentSuppressionAllowed: !await consentSuppressionDisabled(tabId),
+      renderModeSet,
+      todo,
+    };
+  });
+  bus.onCommand("consent.suppression.register", async ({ tabId }) => {
+    await registerConsentSuppression(tabId);
+    return { status: "ok" as const };
   });
   bus.onCommand("renderMode.inspect", (request) => renderEmulation.inspect(request));
   bus.onCommand("transferPayload.put", async (request) => ({
@@ -616,6 +654,7 @@ export function startRewriteBackground(): void {
   });
   bus.onCommand("cache.clearDomain", ({ origin }) => clearDomainCache(api.browsingData, origin));
   bus.onCommand("session.unregister", async ({ tabId }) => {
+    await disableConsentSuppression(tabId);
     await beginTabCleanup(tabId, async () => {
       await lockRuntime.terminateTab(tabId);
       await clearTabContinuation(tabId);

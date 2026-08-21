@@ -2015,6 +2015,7 @@ async function saveStoredSettings(): Promise<void> {
     const context = await resolveTargetTabContext();
     if (context) {
       await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
+      await sendContentMessage(context.tabId, { type: "terminateConsentSuppression" });
       const terminated = await getPopupBus().request(
         "session.unregister",
         { tabId: context.tabId },
@@ -2103,6 +2104,7 @@ async function unregisterCurrentTab(): Promise<void> {
   maintenanceMessage = "";
   render();
   await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
+  await sendContentMessage(context.tabId, { type: "terminateConsentSuppression" });
   const response = await getPopupBus().request(
     "session.unregister",
     { tabId: context.tabId },

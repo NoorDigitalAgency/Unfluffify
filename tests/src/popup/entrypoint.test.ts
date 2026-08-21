@@ -2280,6 +2280,7 @@ describe("rewrite popup entrypoint", () => {
       payload: { tabId: 77 },
     }));
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("deactivateContentMain", {}));
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("terminateConsentSuppression", {}));
     expect(props().view).toBe("configuration");
     expect(props().diagnostics).toMatchObject({
       configurationComplete: false,
@@ -2340,6 +2341,7 @@ describe("rewrite popup entrypoint", () => {
       payload: { tabId: 77 },
     }));
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("deactivateContentMain", {}));
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("terminateConsentSuppression", {}));
     expect(reload).toHaveBeenCalledTimes(2);
     expect(close).toHaveBeenCalledOnce();
   });

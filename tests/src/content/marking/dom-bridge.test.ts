@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  CONSENT_BYPASS_STYLE_ID,
+  CONSENT_HIDDEN_ATTR,
+  LEGACY_CONSENT_BYPASS_STYLE_ID,
+  CONSENT_STYLE_STATE_ATTR,
+} from "../../../../src/content/consent";
+import {
   createDomBridgeView,
   createMarkingEngine,
   createOverlayRenderer,
@@ -11,6 +17,7 @@ import {
   MARKING_OVERLAY_STYLE_ID,
   markClosedShadowHost,
 } from "../../../../src/content/marking";
+import { stripUncapturableHtml } from "../../../../src/content/marking/submit";
 
 type Rect = { left: number; top: number; width: number; height: number; right: number; bottom: number };
 
@@ -1317,6 +1324,104 @@ describe("P6 DOM bridge", () => {
     expect(captureFlattenedHtml(host as unknown as Element)).toBe(
       "<section><p>Before</p><p>Assigned</p><p>After</p><p>Unassigned light</p></section>",
     );
+  });
+
+  it("flattens a slot nested below a shadow wrapper without duplicating its assigned light node", () => {
+    const doc = new FakeDocument();
+    const host = new FakeElement("X-CARD", rect(0, 0, 300, 300));
+    const wrapper = new FakeElement("DIV", rect(0, 0, 300, 100));
+    const slot = new FakeElement("SLOT", rect(0, 20, 100, 20));
+    const assigned = new FakeElement("P", rect(0, 20, 100, 20), "Assigned nested");
+    const unassigned = new FakeElement("P", rect(0, 60, 100, 20), "Unassigned light");
+    for (const element of [host, wrapper, slot, assigned, unassigned]) {
+      element.ownerDocument = doc;
+    }
+    wrapper.shadowHost = host;
+    slot.shadowHost = host;
+    assigned.shadowHost = host;
+    wrapper.appendChild(slot);
+    slot.assigned = [assigned];
+    host.shadowRoot = {
+      children: [wrapper],
+      childNodes: [wrapper],
+      elementsFromPoint: () => [],
+    };
+    host.appendChild(assigned);
+    host.appendChild(unassigned);
+
+    expect(captureFlattenedHtml(host as unknown as Element)).toBe(
+      "<x-card><div><p>Assigned nested</p></div><p>Unassigned light</p></x-card>",
+    );
+    expect([...createDomBridgeView(host as unknown as Element).byXpath.keys()]).toEqual([
+      "/x-card[1]/div[1]/p[1]",
+      "/x-card[1]/div[1]",
+      "/x-card[1]/p[1]",
+      "/x-card[1]",
+    ]);
+  });
+
+  it("serializes the live composed DOM without consent helper styles or artifacts", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("SECTION", rect(0, 0, 300, 300), "Consent copy");
+    root.ownerDocument = doc;
+    root.setAttribute("class", "cookie-modal");
+    root.setAttribute("style", "color: red; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; border: 0");
+    root.setAttribute(CONSENT_HIDDEN_ATTR, "true");
+    root.setAttribute(CONSENT_STYLE_STATE_ATTR, encodeURIComponent(JSON.stringify([
+      ["opacity", "0.65", "important"],
+      ["visibility", "collapse", ""],
+      ["pointer-events", "", ""],
+    ])));
+
+    const before = new Map(root.attributes);
+    const captured = captureFlattenedHtml(root as unknown as Element);
+    const submission = createMarkingEngine(root as unknown as Element).buildSubmission({
+      baseUrl: "https://example.com",
+      renderMode: "rendered",
+      pageUrl: "https://example.com/page",
+    });
+
+    expect(captured).toBe(
+      '<section class="cookie-modal" style="color: red; border: 0; opacity: 0.65 !important; visibility: collapse">Consent copy</section>',
+    );
+    expect(submission.pages[0]?.renderedHtml).toBe(captured);
+    expect(root.attributes).toEqual(before);
+  });
+
+  it("omits current and live-update legacy consent bypass styles from every capture path", () => {
+    for (const bypassId of [CONSENT_BYPASS_STYLE_ID, LEGACY_CONSENT_BYPASS_STYLE_ID]) {
+      const doc = new FakeDocument();
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+      const bypass = new FakeElement("STYLE", rect(0, 0, 0, 0), "helper");
+      const content = new FakeElement("P", rect(0, 20, 100, 20), "Content");
+      bypass.id = bypassId;
+      for (const element of [root, bypass, content]) {
+        element.ownerDocument = doc;
+      }
+      root.appendChild(bypass);
+      root.appendChild(content);
+
+      expect(captureFlattenedHtml(root as unknown as Element)).toBe("<main><p>Content</p></main>");
+      expect(stripUncapturableHtml(`<main><style id="${bypassId}">helper</style><p>Content</p></main>`))
+        .toBe("<main><p>Content</p></main>");
+    }
+  });
+
+  it("sanitizes legacy consent helper declarations without corrupting adjacent CSS", () => {
+    expect(stripUncapturableHtml(
+      '<div data-uf-consent-hidden="true" style="color: red; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; border: 0">Copy</div>',
+    )).toBe('<div style="color: red; border: 0">Copy</div>');
+  });
+
+  it("uses consent provenance when sanitizing an HTML string", () => {
+    const state = encodeURIComponent(JSON.stringify([
+      ["opacity", "0.4", ""],
+      ["visibility", "", ""],
+      ["pointer-events", "auto", "important"],
+    ]));
+    expect(stripUncapturableHtml(
+      `<div ${CONSENT_HIDDEN_ATTR}="true" ${CONSENT_STYLE_STATE_ATTR}="${state}" style="color: blue; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important">Copy</div>`,
+    )).toBe('<div style="color: blue; opacity: 0.4; pointer-events: auto !important">Copy</div>');
   });
 
   it("submits a row for direct open-shadow text captured on the host", () => {

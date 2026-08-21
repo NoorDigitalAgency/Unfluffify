@@ -2,6 +2,11 @@ import { DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS } from "../../domain/constants";
 import { AiRunPayloadSnapshotSchema, type AiRunPayloadSnapshot } from "../../domain/schema/submission";
 import type { RenderMode } from "../../domain/schema/property";
 import type { EvaluationResult } from "../../domain/evaluate";
+import {
+  CONSENT_HIDDEN_ATTR,
+  CONSENT_STYLE_STATE_ATTR,
+  sanitizeConsentStyleText,
+} from "../consent";
 
 export function buildSubmissionSnapshot(input: Readonly<{
   baseUrl: string;
@@ -31,7 +36,7 @@ export function stripUncapturableHtml(html: string): string {
     /<(browser-mcp-container)\b[^>]*>/i,
     /<([a-zA-Z][\w:-]*)(?=[^>]*\sdata-uf-extension-ui=(?:"true"|'true'))[^>]*>/i,
     /<([a-zA-Z][\w:-]*)(?=[^>]*\sdata-wxt-shadow-root(?:\s|=|>))[^>]*>/i,
-    /<([a-zA-Z][\w:-]*)(?=[^>]*\sid=(?:"(?:browser-mcp-container|unfluffify-[^"]*)"|'(?:browser-mcp-container|unfluffify-[^']*)'))[^>]*>/i,
+    /<([a-zA-Z][\w:-]*)(?=[^>]*\sid=(?:"(?:browser-mcp-container|uf-consent-bypass|unfluffify-[^"]*)"|'(?:browser-mcp-container|uf-consent-bypass|unfluffify-[^']*)'))[^>]*>/i,
   ];
   for (const openPattern of artifactOpenPatterns) {
     let match = openPattern.exec(output);
@@ -46,14 +51,22 @@ export function stripUncapturableHtml(html: string): string {
   return output.replace(
     /<([a-zA-Z][\w:-]*)([^>]*)>/g,
     (openTag, tagName: string, attributes: string) => {
-      const consentHidden = /\sdata-uf-consent-hidden(?:=(?:"true"|'true'|true))?/i.test(attributes);
+      const consentHiddenPattern = new RegExp(
+        `\\s${CONSENT_HIDDEN_ATTR}(?:=(?:"true"|'true'|true))?`,
+        "i",
+      );
+      const statePattern = new RegExp(
+        `\\s${CONSENT_STYLE_STATE_ATTR}=(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`,
+        "i",
+      );
+      const consentHidden = consentHiddenPattern.test(attributes);
+      const stateMatch = statePattern.exec(attributes);
+      const encodedState = stateMatch?.[1] ?? stateMatch?.[2] ?? stateMatch?.[3] ?? null;
       let sanitized = attributes;
       if (consentHidden) {
         sanitized = sanitized.replace(/\sstyle=("([^"]*)"|'([^']*)')/i, (_style, quoted: string, double: string, single: string) => {
           const quote = quoted[0];
-          const value = (double ?? single ?? "")
-            .replace(/(?:^|;)\s*(?:opacity\s*:\s*0|visibility\s*:\s*hidden|pointer-events\s*:\s*none)\s*!important\s*;?/gi, "")
-            .trim();
+          const value = sanitizeConsentStyleText(double ?? single ?? "", encodedState);
           return value ? ` style=${quote}${value}${quote}` : "";
         });
       }

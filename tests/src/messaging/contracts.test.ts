@@ -139,7 +139,7 @@ describe("corrective messaging application contracts", () => {
 
     expect(context.request.parse({ tabId: 7, pageUrl: "https://example.com/detail", refresh: true }))
       .toEqual({ tabId: 7, pageUrl: "https://example.com/detail", refresh: true });
-    expect(context.response.safeParse({
+    const parsed = context.response.safeParse({
       status: "managed_candidate",
       generation: 2,
       observedUrl: "https://example.com/detail",
@@ -164,7 +164,18 @@ describe("corrective messaging application contracts", () => {
           candidates: [{ pageKey: "/detail", wordsCount: 100, marked: true, current: true }],
         }],
       },
-    }).success).toBe(true);
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.consentSuppressionAllowed).toBe(true);
+    }
+  });
+
+  it("requires an explicit tab registration to clear terminal consent suppression", () => {
+    const registration = applicationContract.commands["consent.suppression.register"];
+
+    expect(registration.request.parse({ tabId: 77 })).toEqual({ tabId: 77 });
+    expect(registration.response.parse({ status: "ok" })).toEqual({ status: "ok" });
   });
 
   it("requires fenced Hub publication and an authoritative snapshot for definitive outcomes", () => {

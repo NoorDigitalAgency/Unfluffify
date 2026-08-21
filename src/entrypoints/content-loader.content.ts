@@ -9,7 +9,7 @@ import {
   createDefaultContentAuthority,
   type ContentAuthorityState,
 } from "../content/command-router";
-import { hideConsentOverlays } from "../content/consent";
+import { hideConsentOverlays, restoreConsentOverlays } from "../content/consent";
 import { filterContentInput, shouldBlockPageInput } from "../content/input-firewall";
 import { createMarkingEngine } from "../content/marking";
 import { createPhysicalActionDeduper, openMarkingContextMenu } from "../content/marking/interaction";
@@ -89,6 +89,16 @@ let removeNavigationGate: (() => void) | null = null;
 /** Watches for consent chrome injected after the first sweep, which is the norm:
  *  most frameworks mount their dialog once their own script has loaded. */
 let consentObserver: MutationObserver | null = null;
+type ConsentPropertyAuthority = Readonly<{
+  identity: string;
+  baseUrl: string | null;
+}>;
+/** Suppression authority belongs to a property, not to marking or popup state. */
+let consentPropertyAuthority: ConsentPropertyAuthority | null = null;
+/** Explicit Unregister/config removal ends the guarantee for this document. A
+ *  later background probe must not silently re-arm it before the terminal flow
+ *  reloads or otherwise establishes a new content-script lifetime. */
+let consentSuppressionTerminated = false;
 /** The page URL the background has already been asked about, so one page load costs
  *  one question. Cleared on navigation, and on a failed ask so it can be retried. */
 let pageContextProbedUrl = "";
@@ -1102,7 +1112,7 @@ function renderContentSurface(): void {
  *  comparison, and can be dismissed by a stray click — which records a consent
  *  decision that changes what every later load looks like. */
 function sweepConsentOverlays(): void {
-  if (typeof document === "undefined") {
+  if (typeof document === "undefined" || !consentPropertyAuthority || consentSuppressionTerminated) {
     return;
   }
   const result = hideConsentOverlays(document);
@@ -1112,25 +1122,93 @@ function sweepConsentOverlays(): void {
   observeLateConsentOverlays();
 }
 
-/** Re-sweeps on DOM growth. Cheap by construction: the sweep skips everything it
- *  has already hidden, so a busy page costs a query and no writes. */
+/** Re-sweeps on DOM growth and on the attributes which can turn an existing node
+ *  into consent chrome (including reopening a native dialog). */
 function observeLateConsentOverlays(): void {
-  if (consentObserver !== null || typeof document === "undefined" || typeof MutationObserver === "undefined") {
+  if (
+    consentObserver !== null ||
+    !consentPropertyAuthority ||
+    consentSuppressionTerminated ||
+    typeof document === "undefined" ||
+    typeof MutationObserver === "undefined"
+  ) {
     return;
   }
-  const target = document.documentElement ?? document.body;
+  // At document_start there may not be a documentElement yet. Document itself is
+  // a valid observation target and sees the root/head/body arrive.
+  const target = document.documentElement ?? document;
   if (!target) {
     return;
   }
   consentObserver = new MutationObserver(() => {
-    hideConsentOverlays(document);
+    if (consentPropertyAuthority && !consentSuppressionTerminated) {
+      hideConsentOverlays(document);
+    }
   });
-  consentObserver.observe(target, { childList: true, subtree: true });
+  consentObserver.observe(target, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: ["open", "class", "id", "role", "aria-modal", "aria-label"],
+  });
 }
 
 function stopConsentObserver(): void {
   consentObserver?.disconnect();
   consentObserver = null;
+}
+
+function consentIdentity(environmentKey: string | null, siteId: number | null): string | null {
+  return environmentKey && siteId !== null ? `${environmentKey}\u0000${siteId}` : null;
+}
+
+function terminateConsentSuppression(options: Readonly<{ terminal?: boolean }> = {}): number {
+  stopConsentObserver();
+  const restored = typeof document === "undefined" ? 0 : restoreConsentOverlays(document);
+  consentPropertyAuthority = null;
+  if (options.terminal === true) {
+    consentSuppressionTerminated = true;
+  }
+  return restored;
+}
+
+async function resumeConsentSuppression(tabId: number): Promise<boolean> {
+  if (!consentSuppressionTerminated) {
+    return true;
+  }
+  const registered = await getContentBus().request(
+    "consent.suppression.register",
+    { tabId },
+    { target: "background" },
+  );
+  if (!registered.ok) {
+    return false;
+  }
+  consentSuppressionTerminated = false;
+  pageContextProbedUrl = "";
+  await establishPageContext();
+  return true;
+}
+
+function applyConsentPropertyAuthority(input: Readonly<{
+  environmentKey: string | null;
+  siteId: number;
+  baseUrl: string | null;
+}>): void {
+  if (consentSuppressionTerminated) {
+    return;
+  }
+  const identity = consentIdentity(input.environmentKey, input.siteId);
+  if (!identity) {
+    return;
+  }
+  if (consentPropertyAuthority && consentPropertyAuthority.identity !== identity) {
+    // Same-document routing can cross property mappings. End the old guarantee
+    // before establishing the new one so no old helper provenance survives.
+    terminateConsentSuppression();
+  }
+  consentPropertyAuthority = { identity, baseUrl: input.baseUrl };
+  sweepConsentOverlays();
 }
 
 /** Asks the background what this page is, and acts on the answer. Runs at document
@@ -1171,12 +1249,28 @@ async function establishPageContext(options: Readonly<{ ritualRequiresCandidate?
     // Navigated while asking; the answer describes a page that is gone.
     return;
   }
+  if (!response.data.consentSuppressionAllowed) {
+    terminateConsentSuppression({ terminal: true });
+    return;
+  }
   // A transient answer may carry the last valid canonical context for this exact
   // page. A null site id means there is no trustworthy property fact to act on.
   if (response.data.siteId === null) {
+    const definitiveExit = response.data.status === "unmanaged" ||
+      response.data.status === "environment_not_registered" ||
+      response.data.draftDisposition === "terminate";
+    if (definitiveExit && consentPropertyAuthority) {
+      terminateConsentSuppression();
+    }
+    // Authentication/access/unavailability are transient. If this document
+    // already has property authority, its observer and hidden UI remain intact.
     return;
   }
-  sweepConsentOverlays();
+  applyConsentPropertyAuthority({
+    environmentKey: response.data.environmentKey,
+    siteId: response.data.siteId,
+    baseUrl: response.data.baseUrl,
+  });
   // The ritual prepares pages the crawler wants, so a stored marking record is what
   // picks them out — but only where the property HAS records. One with none has no
   // way to say which pages matter, and requiring a record of it would mean such a
@@ -1641,10 +1735,9 @@ function handleUrlChanged(nextUrl?: string): void {
   const previousUrl = lastKnownPageUrl;
   lastKnownPageUrl = currentUrl;
   spaGuard.onUrlChange(currentUrl);
-  // A same-document navigation keeps this script alive, so the sweep has to be
-  // re-armed for the new URL — the next page's consent chrome is a fresh mount and
-  // the observer is watching a document that has been rewritten underneath it.
-  stopConsentObserver();
+  // Keep the current property observer alive while the new URL is being resolved.
+  // This closes the gap in which a same-property SPA could mount clickable consent
+  // chrome. establishPageContext ends it only on a definitive property exit.
   pageContextProbedUrl = "";
   ritualRanForUrl = "";
   ritualPendingForUrl = "";
@@ -1901,7 +1994,12 @@ function createContentRouter() {
     },
     handlers: {
       "lock.state.changed": (payload) => applyContentLockState(payload),
-      activateContentMain,
+      activateContentMain: async (payload, command) => {
+        if (!await resumeConsentSuppression(command.tabId)) {
+          return { ok: false, initialized: false, tree: "rewrite", reason: "consent-registration-failed" };
+        }
+        return activateContentMain(payload);
+      },
       getContentMainStatus: () => contentStatus(),
       pauseContentMainInteractions: () => ({ ok: pauseMarkingInteractions(), active: markingActive, dirty: isUserMarkingDirty(), tree: "rewrite" }),
       resumeContentMainInteractions: () => contentAuthority.lockBlocked || contentPresentation.markingEditsBlocked
@@ -1913,12 +2011,25 @@ function createContentRouter() {
         deactivateMarking();
         return { ok: true, initialized: false, tree: "rewrite" };
       },
-      enterSilentContentMain: () => {
+      terminateConsentSuppression: () => ({
+        ok: true,
+        restored: terminateConsentSuppression({ terminal: true }),
+        tree: "rewrite",
+      }),
+      enterSilentContentMain: async (_payload, command) => {
+        if (!await resumeConsentSuppression(command.tabId)) {
+          return { ok: false, initialized: false, tree: "rewrite", reason: "consent-registration-failed" };
+        }
         deactivateMarking("silent");
         return { ok: true, initialized: false, tree: "rewrite" };
       },
       resetContentMain: () => ({ ok: resetMarking(), initialized: true, tree: "rewrite" }),
-      applySilentSelectors,
+      applySilentSelectors: async (payload, command) => {
+        if (!await resumeConsentSuppression(command.tabId)) {
+          return { ok: false, applied: false, tree: "rewrite", reason: "consent-registration-failed" };
+        }
+        return applySilentSelectors(payload);
+      },
       clearSilentSelectors: () => clearSilentSelectors(),
       emphasizePreviewRow,
       activatePreviewRow,
@@ -1927,7 +2038,10 @@ function createContentRouter() {
        *  preparing, and the inspection's own reloads would have wasted the one
        *  ritual this visit gets. Re-probes first, because setting the mode is
        *  exactly what changes the answer the page-load probe got. */
-      preparePageVisit: async () => {
+      preparePageVisit: async (_payload, command) => {
+        if (!await resumeConsentSuppression(command.tabId)) {
+          return { ok: false, prepared: false, reason: "consent-registration-failed" };
+        }
         pageContextProbedUrl = "";
         await establishPageContext({ ritualRequiresCandidate: false });
         return { ok: true, prepared: ritualRanForUrl === currentPageUrl() };
@@ -1940,8 +2054,11 @@ function createContentRouter() {
 export default defineContentScript({
   matches: ["<all_urls>"],
   runAt: "document_start",
-  main() {
+  main(ctx) {
     installNavigationWatcher();
+    ctx?.onInvalidated?.(() => {
+      terminateConsentSuppression({ terminal: true });
+    });
     getContentBus().onCommand("command.dispatch", (command) => createContentRouter().dispatch(command));
     ensureContentSignalPolling();
     // A content script can be reinjected while the tab's lock state is unchanged.

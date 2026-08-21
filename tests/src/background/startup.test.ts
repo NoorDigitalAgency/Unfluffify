@@ -494,6 +494,16 @@ describe("rewrite background startup", () => {
 
   it("round-trips connection settings so the popup can configure the endpoints", async () => {
     const addMessageListener = vi.fn();
+    const sessionValues: Record<string, unknown> = {};
+    const sessionStorage = {
+      get: vi.fn(async (key: string) => ({ [key]: sessionValues[key] })),
+      set: vi.fn(async (values: Record<string, unknown>) => {
+        Object.assign(sessionValues, values);
+      }),
+      remove: vi.fn(async (key: string) => {
+        delete sessionValues[key];
+      }),
+    };
     globalThis.chrome = {
       runtime: {
         sendMessage: vi.fn(),
@@ -504,22 +514,30 @@ describe("rewrite background startup", () => {
         clear: vi.fn(),
         onAlarm: { addListener: vi.fn() },
       },
+      storage: { session: sessionStorage },
     } as unknown as typeof chrome;
 
     const { startRewriteBackground } = await import("../../../src/background/index");
     startRewriteBackground();
     const runtimeListener = addMessageListener.mock.calls[0]?.[0] as (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown;
 
-    const call = async (name: string, payload: unknown, id: string, seq: number): Promise<unknown> => {
+    const callWith = async (
+      listener: typeof runtimeListener,
+      name: string,
+      payload: unknown,
+      id: string,
+      seq: number,
+      source: "popup" | "content" = "popup",
+    ): Promise<unknown> => {
       let response: unknown;
-      runtimeListener({
+      listener({
         kind: "uf-bus/1",
         frameType: "request",
         id,
         seq,
         name,
-        source: "popup",
-        sourceInstance: "popup:test",
+        source,
+        sourceInstance: source === "popup" ? "popup:test" : "tab:77:frame:0:content:test",
         target: "background",
         payload,
       }, {}, (value: unknown) => {
@@ -528,6 +546,13 @@ describe("rewrite background startup", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       return response;
     };
+    const call = (
+      name: string,
+      payload: unknown,
+      id: string,
+      seq: number,
+      source: "popup" | "content" = "popup",
+    ) => callWith(runtimeListener, name, payload, id, seq, source);
 
     expect(await call("settings.load", {}, "settings-load-1", 1)).toMatchObject({
       ok: true,
@@ -550,6 +575,59 @@ describe("rewrite background startup", () => {
     expect(await call("session.unregister", { tabId: 77 }, "unregister-1", 4)).toMatchObject({
       ok: true,
       payload: { status: "ok" },
+    });
+    expect(await call(
+      "page.context",
+      { tabId: 77, pageUrl: "https://example.com/detail" },
+      "content-context-after-unregister",
+      5,
+      "content",
+    )).toMatchObject({
+      ok: true,
+      payload: { consentSuppressionAllowed: false },
+    });
+    expect(sessionStorage.set).toHaveBeenCalledWith({
+      "uf:consent-suppression-disabled:77": true,
+    });
+
+    // MV3 may tear the worker down between Unregister and the reload's context
+    // probe. A fresh module instance must still read the storage.session tombstone.
+    vi.resetModules();
+    const restarted = await import("../../../src/background/index");
+    restarted.startRewriteBackground();
+    const restartedListener = addMessageListener.mock.calls.at(-1)?.[0] as typeof runtimeListener;
+    expect(await callWith(
+      restartedListener,
+      "page.context",
+      { tabId: 77, pageUrl: "https://example.com/detail" },
+      "content-context-after-worker-restart",
+      1,
+      "content",
+    )).toMatchObject({
+      ok: true,
+      payload: { consentSuppressionAllowed: false },
+    });
+    expect(await callWith(
+      restartedListener,
+      "consent.suppression.register",
+      { tabId: 77 },
+      "explicit-consent-reregister",
+      2,
+      "content",
+    )).toMatchObject({
+      ok: true,
+      payload: { status: "ok" },
+    });
+    expect(await callWith(
+      restartedListener,
+      "page.context",
+      { tabId: 77, pageUrl: "https://example.com/detail" },
+      "content-context-after-explicit-register",
+      3,
+      "content",
+    )).toMatchObject({
+      ok: true,
+      payload: { consentSuppressionAllowed: true },
     });
   });
 

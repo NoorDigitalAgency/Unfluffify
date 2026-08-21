@@ -3,6 +3,11 @@ import { isStructuralBoundary as isDomainStructuralBoundary } from "../../domain
 import { isImmutableTag } from "../../domain/taxonomy";
 import { isUserVisible, type VisibilityGeometry } from "../../domain/visibility";
 import type { XPathNodeView } from "../../domain/xpath";
+import {
+  CONSENT_HIDDEN_ATTR,
+  LEGACY_CONSENT_BYPASS_STYLE_ID,
+  consentStyleForCapture,
+} from "../consent";
 import { isActuallyPaintReachable } from "./paint-reachability";
 
 export type DomBridgeNode = Readonly<{
@@ -100,28 +105,52 @@ function isSilentWhitespaceExclusion(
 }
 
 function flattenedChildNodes(element: Element): Node[] {
+  const isSlot = (node: Node): node is HTMLSlotElement =>
+    node.nodeType === 1 && (node as Element).tagName.toUpperCase() === "SLOT";
+  const slotReplacements = (slot: HTMLSlotElement, assigned?: Set<Node>): Node[] => {
+    const assignedNodes = (() => {
+      try {
+        return typeof slot.assignedNodes === "function"
+          ? slot.assignedNodes({ flatten: true })
+          : [];
+      } catch {
+        return [];
+      }
+    })();
+    if (assignedNodes.length > 0) {
+      for (const node of assignedNodes) {
+        assigned?.add(node);
+      }
+      return assignedNodes;
+    }
+    return Array.from(slot.childNodes);
+  };
+  const expandDirectSlot = (node: Node, assigned?: Set<Node>): Node[] =>
+    isSlot(node) ? slotReplacements(node, assigned) : [node];
   const shadowRoot = (element as Element & { shadowRoot?: ShadowRoot | null }).shadowRoot;
   if (!shadowRoot) {
-    return Array.from(element.childNodes);
+    // A slot may sit under an arbitrary wrapper inside a shadow root. Expanding
+    // direct slot children at every level preserves that wrapper while replacing
+    // the slot itself with the actual composed children.
+    return Array.from(element.childNodes).flatMap((node) => expandDirectSlot(node));
   }
   const assigned = new Set<Node>();
-  const expandSlot = (node: Node): Node[] => {
-    const slot = node.nodeType === 1 && (node as Element).tagName.toUpperCase() === "SLOT"
-      ? node as HTMLSlotElement
-      : null;
-    if (!slot) {
-      return [node];
+  const collectAssigned = (node: Node): void => {
+    if (isSlot(node)) {
+      slotReplacements(node, assigned);
+      return;
     }
-    const assignedNodes = typeof slot.assignedNodes === "function"
-      ? slot.assignedNodes({ flatten: true })
-      : [];
-    const replacements = assignedNodes.length > 0 ? assignedNodes : Array.from(slot.childNodes);
-    for (const replacement of replacements) {
-      assigned.add(replacement);
+    if (node.nodeType === 1) {
+      for (const child of Array.from(node.childNodes)) {
+        collectAssigned(child);
+      }
     }
-    return replacements;
   };
-  const shadowNodes = Array.from(shadowRoot.childNodes).flatMap(expandSlot);
+  for (const node of Array.from(shadowRoot.childNodes)) {
+    collectAssigned(node);
+  }
+  const shadowNodes = Array.from(shadowRoot.childNodes)
+    .flatMap((node) => expandDirectSlot(node, assigned));
   const remainingLightNodes = Array.from(element.childNodes).filter((node) => !assigned.has(node));
   return [...shadowNodes, ...remainingLightNodes];
 }
@@ -291,6 +320,7 @@ function isExtensionUi(element: Element): boolean {
     element.getAttribute("data-uf-extension-ui") === "true" ||
   element.tagName.toLowerCase() === "browser-mcp-container" ||
   element.id === "browser-mcp-container" ||
+    element.id === LEGACY_CONSENT_BYPASS_STYLE_ID ||
     element.id.startsWith("unfluffify-");
 }
 
@@ -434,10 +464,26 @@ function escapeHtml(value: string): string {
     .replaceAll(">", "&gt;");
 }
 
+function escapeHtmlAttribute(value: string): string {
+  return escapeHtml(value).replaceAll('"', "&quot;");
+}
+
 function serializeAttributes(element: Element): string {
-  return element.getAttributeNames()
-    .filter((name) => !name.startsWith("data-uf-"))
-    .map((name) => ` ${name}="${escapeHtml(element.getAttribute(name) ?? "")}"`)
+  const consentHidden = element.hasAttribute(CONSENT_HIDDEN_ATTR);
+  const safeConsentStyle = consentHidden ? consentStyleForCapture(element) : null;
+  const names = element.getAttributeNames()
+    .filter((name) => !name.startsWith("data-uf-"));
+  if (consentHidden && safeConsentStyle && !names.includes("style")) {
+    names.push("style");
+  }
+  return names
+    .filter((name) => name !== "style" || !consentHidden || safeConsentStyle !== null)
+    .map((name) => {
+      const value = name === "style" && consentHidden
+        ? safeConsentStyle ?? ""
+        : element.getAttribute(name) ?? "";
+      return ` ${name}="${escapeHtmlAttribute(value)}"`;
+    })
     .join("");
 }
 

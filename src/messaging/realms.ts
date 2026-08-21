@@ -118,6 +118,9 @@ const PageContextRequestSchema = z.object({
 });
 
 const PageContextResponseSchema = PageContextResolutionSchema.extend({
+  /** Explicit Unregister is tab-scoped and survives its reload. Only the separate
+   *  consent.suppression.register command clears this background-owned tombstone. */
+  consentSuppressionAllowed: z.boolean().default(true),
   /** Whether the property has an established render mode. Marks taken under an
    *  unestablished one describe a page nobody has looked at, and the ritual is part
    *  of preparing the page to be marked. */
@@ -376,6 +379,10 @@ export const applicationContract = defineContract({
     "page.context": {
       request: PageContextRequestSchema,
       response: PageContextResponseSchema,
+    },
+    "consent.suppression.register": {
+      request: z.object({ tabId: z.number().int().positive() }),
+      response: z.object({ status: z.literal("ok") }),
     },
     "staticHtml.fetch": {
       request: z.object({ url: z.string() }),
