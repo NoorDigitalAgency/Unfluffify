@@ -921,7 +921,30 @@ in the owning phase and rerun its focused gate plus P9–P11.
     Chromium `151.0.7922.108`, 1280×900 at DPR 1. Source identity,
     clean-worktree, exact catalog, production/debug bundle manifests,
     fatal-error, and process/build cleanup assertions all passed.
-- [ ] P18 — Transient surfaces and production toasts
+- [x] P18 — Transient surfaces and production toasts
+  - Commits: `0544f5f3` (`Coordinate transient surfaces and toasts`),
+    `01b88bc5` (`Fix P18 manual-close occurrence isolation`), and
+    `7ddfa208` (`Use raw hit test for P18 toast close`).
+  - `pnpm verify` passed lint, generated page-world parity, all TypeScript
+    checks, 109 files / 1006 tests, the production build, and all 7 generated
+    manifest assertions.
+  - `pnpm performance:p18` passed on clean commit `7ddfa2080691` with 14/14
+    required real-Chromium checks. Competing menus, outside pointer dismissal,
+    nested/topmost Escape, busy protection, Preview fallback, panel scroll
+    restoration, canonical right-click marking, and post-dismissal marking all
+    passed without running Save, Discard, marking disablement, or another
+    terminal action. Production popup/content toasts replaced in place, exposed
+    exact physical close controls, stayed dismissed, and matched debug
+    disclosure policy. Paused production-clock checks proved success, warning,
+    and danger present at 1799/3999/5999 ms and absent exactly at
+    1800/4000/6000 ms.
+  - Retained artifact:
+    `output/playwright/p18-transient-toast/acceptance-2026-08-21T21-17-49-127Z.json`
+    (SHA-256 `6984d521b51c924fcb36f7f01f8527c27f24ef2cde9cc94ae9077069581ed5f3`),
+    Chromium `151.0.7922.108`, 1280×900 at DPR 1. Source identity,
+    clean-worktree, exact catalog, production/debug bundle manifests,
+    page/console/fatal-error absence, and process/build cleanup assertions all
+    passed.
 - [ ] P19 — Targeted post-correction decomposition
 - [ ] P20 — Integrated release gates and witnessed live acceptance
 
