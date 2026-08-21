@@ -902,7 +902,25 @@ in the owning phase and rerun its focused gate plus P9–P11.
     (SHA-256 `a348dc7781b317a857300904dfe9f8505ddb247606ba627ebf8fcf0163c1fd61`),
     Chromium `151.0.7922.108`, 1280×900 at DPR 1. Source identity, clean-worktree,
     exact session scope, fatal-error, and controller-cleanup assertions all passed.
-- [ ] P17 — Canonical preview transport and projection
+- [x] P17 — Canonical preview transport and projection
+  - Commit: `a4bcd4db` (`Transport canonical preview model`).
+  - `pnpm verify` passed lint, generated page-world parity, all TypeScript
+    checks, 106 files / 977 tests, the production build, and all 7 generated
+    manifest assertions.
+  - `pnpm performance:p17` passed on clean commit `a4bcd4db38ec` with 19/19
+    required real-Chromium checks. The exact six-state corpus survived the typed
+    content-to-popup bus; production exposed only readable included/excluded
+    rows while debug retained classification, XPath, selector, shadow detail,
+    and tooltips. Physical hover, leave, click-to-center, pointer-only focus,
+    selector reprojection, per-preview occurrence fencing, stable element/React
+    identity, stale-XPath rejection, and active-hover mutation rebind/removal all
+    passed with no page or console errors.
+  - Retained artifact:
+    `output/playwright/p17-preview/acceptance-2026-08-21T19-44-18-338Z.json`
+    (SHA-256 `37ec1923581ed60185233cf62e739b73cb9919d5503395d36d49d9b96da39ae9`),
+    Chromium `151.0.7922.108`, 1280×900 at DPR 1. Source identity,
+    clean-worktree, exact catalog, production/debug bundle manifests,
+    fatal-error, and process/build cleanup assertions all passed.
 - [ ] P18 — Transient surfaces and production toasts
 - [ ] P19 — Targeted post-correction decomposition
 - [ ] P20 — Integrated release gates and witnessed live acceptance

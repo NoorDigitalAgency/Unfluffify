@@ -59,7 +59,7 @@ note by itself is not decision evidence.
 | U-10 | P1 | `tests/src/background/brain.test.ts::runs a headless observe -> signal -> projection loop` | P9 event/reconciliation scenario |
 | U-11 | P6 | `tests/src/popup/entrypoint.test.ts::keeps observing the opening tab when browser focus moves elsewhere` | P11 bound-tab observation |
 | U-12 | P3 | `tests/c4-content-entrypoint.test.ts::uses one transaction for marking and silent-selector entrypoints and disposes overlays` | P11 Space passthrough |
-| U-13 | P2 | `tests/src/content/marking/dom-bridge.test.ts::links preview rows back to the exact composed element without rebuilding the model` | P9 shadow/preview scenario |
+| U-13 | P2 | `tests/src/content/marking/dom-bridge.test.ts::keeps preview row identity and exact targeting when a same-tag sibling shifts XPath`; `tests/src/content/marking/dom-bridge.test.ts::rotates projection authority between preview occurrences while preserving element row identity` | `ACCEPT-P17-PREVIEW-TRANSPORT` |
 | U-14 | P2 | `tests/src/domain/boundary.test.ts::shares one toggleable-boundary decision for closed and silent surfaces` | P9 canonical marking scenario |
 | U-15 | P1 | — | `ACCEPT-P19-DECOMPOSITION` |
 | U-16 | P1 | `tests/transfer-payload-store.test.ts::deduplicates one scoped payload and returns an integrity-bearing handle` | P9 large-corpus scenario |
@@ -67,7 +67,7 @@ note by itself is not decision evidence.
 | U-18a | P8 | `tests/src/popup/entrypoint.test.ts::clears only the bound domain and explicitly unregisters then reloads the opening tab` | P11 cache and unregister flow |
 | U-18b | P7 | `tests/src/popup/app.test.ts::offers a load for each JavaScript mode rather than an automated verdict` | P11 manual inspection with both JavaScript loads |
 | U-18c | P6 | `tests/src/background/page-context-runtime.test.ts::reuses a settled canonical context until an explicit refresh` | P11 feed-owned page types |
-| U-18d | P7 | `tests/src/popup/preview-classification.test.ts::keeps the expanded model in debug and collapses production to included/excluded` | production/debug build gates |
+| U-18d | P7 | `tests/src/popup/preview-classification.test.ts::keeps the expanded model in debug and collapses production to included/excluded`; `tests/src/popup/app.test.ts::renders readable production rows without technical detail and exact debug rows behind the pure seam` | `ACCEPT-P17-PREVIEW-COPY` |
 | U-18e | P8 | `tests/c3-popup-entrypoint.test.ts::gates the popup diagnostic toolkit behind the debug build literal` | production/debug build gates |
 | D-01 | P2 | `tests/src/content/marking/dom-bridge.test.ts::seeds toggleable default exclusions before the first read-only render` | P9 toggle/branch scenario |
 | D-02 | P2 | `tests/src/content/marking/dom-bridge.test.ts::initializes selector marks in the same single transaction with inclusion winning` | P9 selector-vs-user equivalence |
@@ -84,9 +84,9 @@ note by itself is not decision evidence.
 | D-13 | P7 | `tests/src/popup/render-mode-inspection.test.ts::releases a stalled UI for retry and leaves no stale timer` | `ACCEPT-P16-INSPECTION-LIFECYCLE` |
 | D-14 | P3 | `tests/build-artifact-parity.test.ts::generated extension manifest and resources resolve` | production/debug build gates |
 | D-15 | P3 | `tests/src/content/marking/dom-bridge.test.ts::sizes the capture overlay to RTL scrollbar gutters and refreshed zoom geometry` | P11 geometry matrix |
-| D-16 | P3 | `tests/src/popup/app.test.ts::replaces the session with a preview surface that has one explicit exit` | production popup inspection |
-| D-17 | P7 | `tests/src/content/marking/dom-bridge.test.ts::links preview rows back to the exact composed element without rebuilding the model` | P11 preview-list hover, click-to-scroll, and exit interaction |
-| D-18 | P7 | `tests/src/popup/preview-classification.test.ts::keeps the expanded model in debug and collapses production to included/excluded` | production/debug build gates |
+| D-16 | P3 | `tests/src/popup/app.test.ts::renders readable production rows without technical detail and exact debug rows behind the pure seam` | `ACCEPT-P17-PREVIEW-COPY` |
+| D-17 | P7 | `tests/src/content/marking/dom-bridge.test.ts::keeps preview row identity and exact targeting when a same-tag sibling shifts XPath`; `tests/src/content/marking/dom-bridge.test.ts::rebinds active preview hover after XPath rebase and forgets it when the row disappears` | `ACCEPT-P17-PREVIEW-COPY` |
+| D-18 | P7 | `tests/src/domain/evaluate.test.ts::produces all six preview classifications without downstream reconstruction`; `tests/src/popup/preview-classification.test.ts::keeps the expanded model in debug and collapses production to included/excluded` | `ACCEPT-P17-PREVIEW-TRANSPORT` |
 | D-19 | P7 | `tests/src/content/input-firewall.test.ts::blocks page actions and leaves extension-owned overlay input alone` | P11 blocked-actions/allowed-scroll matrix |
 | D-20 | P4 | `tests/src/content/stabilization/stabilization.test.ts::defers and coalesces hidden-document runs until visibility returns` | P11 hidden-tab activation |
 | D-21 | P4 | `tests/src/content/stabilization/stabilization.test.ts::joins concurrent reveal attempts to the one authoritative ritual` | P11 concurrent activation |
@@ -104,12 +104,12 @@ note by itself is not decision evidence.
 | N-01 | P13 | `tests/src/content/marking/dom-bridge.test.ts::serializes the live composed DOM without consent helper styles or artifacts`; `tests/src/content/marking/dom-bridge.test.ts::uses consent provenance when sanitizing an HTML string` | `ACCEPT-P13-CAPTURE-SANITIZER` |
 | N-02 | P15 | — | `ACCEPT-P15-FROZEN-SHIELD` |
 | N-03 | P16 | — | `ACCEPT-P16-INSPECTION-LIFECYCLE` |
-| N-04 | P17 | — | `ACCEPT-P17-PREVIEW-TRANSPORT` |
+| N-04 | P17 | `tests/src/domain/evaluate.test.ts::produces all six preview classifications without downstream reconstruction`; `tests/src/messaging/contracts.test.ts::transports the canonical six-state preview corpus without binary collapse`; `tests/c4-content-entrypoint.test.ts::registers typed preview rows and retires their hover and bridge across exit and A-to-B navigation` | `ACCEPT-P17-PREVIEW-TRANSPORT` |
 | N-05 | P14 | `tests/src/content/marking/dom-bridge.test.ts::initializes and refreshes defaults in one bridge, evaluation, candidate-index, and render transaction`; `tests/src/content/marking/dom-bridge.test.ts::initializes selector marks in the same single transaction with inclusion winning`; `tests/src/content/marking/dom-bridge.test.ts::initializes silent selector highlighting with one bridge, evaluation, index, and silent render`; `tests/c4-content-entrypoint.test.ts::uses one transaction for marking and silent-selector entrypoints and disposes overlays` | `ACCEPT-P14-SINGLE-PASS` |
 | N-06 | P14 | `tests/marking-performance-equivalence.test.ts::keeps pure branch evaluation exact and p95 within the pure full-tree evaluation budget`; `tests/p14-browser-performance-contract.test.ts::keeps the default plan at three warmups and 21 samples with alternating runtime order`; `tests/p14-browser-performance-contract.test.ts::locks every operation budget for both fixtures and keeps click comparison strict` | `ACCEPT-P14-BROWSER-PERFORMANCE` |
 | N-07 | P18 | — | `ACCEPT-P18-TRANSIENT-ESCAPE` |
 | N-08 | P18 | — | `ACCEPT-P18-TOASTS` |
-| N-09 | P17 | — | `ACCEPT-P17-PREVIEW-COPY` |
+| N-09 | P17 | `tests/src/popup/app.test.ts::renders readable production rows without technical detail and exact debug rows behind the pure seam`; `tests/src/popup/preview-classification.test.ts::collapses the exact six-way model to the public included/excluded distinction` | `ACCEPT-P17-PREVIEW-COPY` |
 | N-10 | P13 | `tests/src/page-world/program.test.ts::captures early closed shadow roots as retrievable open roots`; `tests/src/content/marking/dom-bridge.test.ts::flattens a slot nested below a shadow wrapper without duplicating its assigned light node` | P20 forced-open formerly closed shadow content is markable, capturable, and artifact-free |
 | N-11 | P13 | `tests/c4-content-entrypoint.test.ts::sweeps a managed non-candidate before render-mode gates and re-sweeps late insertions`; `tests/src/content/consent.test.ts::re-closes a marked native dialog when the site opens it again`; `tests/src/content/consent.test.ts::restores exactly what it hid, and nothing else` | `ACCEPT-P13-CONSENT-LIFECYCLE` |
 | N-12 | P12 | `tests/decision-traceability.test.ts::validates the complete decision register, executable assertions, and acceptance catalog` | P20 traceability mutation gate |
@@ -144,5 +144,10 @@ phase has passed. The named artifact must be retained when that phase runs.
   `pnpm verify` plus production/debug reachability and performance gates.
 - **P11:** production build on `bonliva.se` against live Alpha, with the matrix
   and artifact identities recorded in the active execution plan.
+- **P17:** clean-source Chromium acceptance on commit `a4bcd4db38ec` retained
+  `output/playwright/p17-preview/acceptance-2026-08-21T19-44-18-338Z.json`
+  (SHA-256 `37ec1923581ed60185233cf62e739b73cb9919d5503395d36d49d9b96da39ae9`),
+  with all 19 canonical transport, disclosure, pointer, occurrence, mutation,
+  focus-order, error, and cleanup checks passing.
 - **P20:** reruns every acceptance ID still applicable after P13–P19 and records
   the required artifacts above.
