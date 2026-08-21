@@ -497,10 +497,42 @@ async (page) => {
     });
 
     await check("production-toast-manual-close-stays-dismissed", async () => {
-      await toastPage.locator(`[data-popup-toast-close="${popupReplacementEvidence.popupSecondOccurrence.id}"]`).click();
+      const popupManualOccurrence = await popupCall(toastPage, "emitToast", "Fresh popup close", "danger");
+      await waitForPopupToastTone(toastPage, "danger");
+      const popupBeforeClose = await popupCall(toastPage, "snapshot");
+      assertion(
+        popupManualOccurrence.id > popupReplacementEvidence.popupSecondOccurrence.id &&
+          popupBeforeClose.toast?.id === String(popupManualOccurrence.id) &&
+          popupBeforeClose.toast?.tone === "danger",
+        "Fresh popup danger occurrence was not projected before manual close",
+        { priorOccurrence: popupReplacementEvidence.popupSecondOccurrence, popupManualOccurrence, popupBeforeClose },
+      );
+
+      const priorContentOccurrenceId = contentReplacementEvidence.replacement.id;
+      await contentPage.mouse.click(1_100, 700);
+      await contentPage.waitForFunction(
+        (priorId) => {
+          const toast = document.querySelector("[data-uf-content-toast=\"true\"]");
+          return toast?.getAttribute("data-uf-content-toast-tone") === "warning" &&
+            toast.getAttribute("data-uf-content-toast-id") !== priorId;
+        },
+        priorContentOccurrenceId,
+        { timeout: 5_000 },
+      );
+      const contentBeforeClose = await contentCall(contentPage, "snapshot");
+      assertion(
+        contentBeforeClose.toast?.tone === "warning" &&
+          Number(contentBeforeClose.toast.id) > Number(priorContentOccurrenceId),
+        "Fresh content warning occurrence was not projected before manual close",
+        { priorContentOccurrenceId, contentBeforeClose },
+      );
+
+      await toastPage.locator(`[data-popup-toast-close="${popupManualOccurrence.id}"]`).click();
       await toastPage.waitForSelector("[data-popup-toast]", { state: "hidden" });
       const popupAfterClose = await popupCall(toastPage, "snapshot");
-      await contentPage.locator('[data-uf-content-toast-close="true"]').click();
+      await contentPage.locator(
+        `[data-uf-content-toast="true"][data-uf-content-toast-id="${contentBeforeClose.toast.id}"] [data-uf-content-toast-close="true"]`,
+      ).click();
       await contentPage.waitForSelector('[data-uf-content-toast="true"]', { state: "hidden" });
       const contentAfterClose = await contentCall(contentPage, "snapshot");
       await Promise.all([
@@ -511,7 +543,15 @@ async (page) => {
       const contentAfterDeadlines = await contentCall(contentPage, "snapshot");
       assertion(popupAfterClose.toast === null && popupAfterDeadlines.toast === null, "Manually closed popup toast returned", { popupAfterClose, popupAfterDeadlines });
       assertion(contentAfterClose.toast === null && contentAfterDeadlines.toast === null, "Manually closed content toast returned", { contentAfterClose, contentAfterDeadlines });
-      return { popupAfterClose, popupAfterDeadlines, contentAfterClose, contentAfterDeadlines };
+      return {
+        popupManualOccurrence,
+        popupBeforeClose,
+        popupAfterClose,
+        popupAfterDeadlines,
+        contentBeforeClose,
+        contentAfterClose,
+        contentAfterDeadlines,
+      };
     });
 
     await check("toast-deadlines-exact-1800-4000-6000", async () => {
