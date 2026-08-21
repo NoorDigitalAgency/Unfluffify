@@ -290,16 +290,16 @@ describe("rewrite/legacy decision traceability", () => {
 
   it("rejects blank, undefined, duplicate, and incomplete acceptance evidence", () => {
     const { specification, traceability } = documents();
-    const n01 = decisionLine(traceability, "N-01");
-    const blankN01 = n01.replace("`ACCEPT-P13-CAPTURE-SANITIZER`", "—");
+    const n02 = decisionLine(traceability, "N-02");
+    const blankN02 = n02.replace("`ACCEPT-P15-FROZEN-SHIELD`", "—");
     const definition = traceability.split("\n")
       .find((line) => line.startsWith("| ACCEPT-P13-CAPTURE-SANITIZER |"));
     if (!definition) {
       throw new Error("Missing acceptance fixture");
     }
 
-    expect(auditTraceability(specification, traceability.replace(n01, blankN01)))
-      .toContain("N-01 has neither an executable assertion nor a registered acceptance");
+    expect(auditTraceability(specification, traceability.replace(n02, blankN02)))
+      .toContain("N-02 has neither an executable assertion nor a registered acceptance");
     expect(auditTraceability(
       specification,
       traceability.replace("`ACCEPT-P13-CAPTURE-SANITIZER`", "`ACCEPT-P99-UNDEFINED`")

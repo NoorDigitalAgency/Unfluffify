@@ -101,7 +101,7 @@ note by itself is not decision evidence.
 | D-30 | P8 | `tests/manifest-permissions.test.ts::manifest does not register global keyboard shortcuts` | `ACCEPT-P18-TRANSIENT-ESCAPE` |
 | D-31 | P1 | `tests/src/popup/root-recovery.test.ts::recreates a detached root, re-renders the latest UI, and rehydrates once` | P11 panel corruption recovery |
 | D-32 | P8 | `tests/src/popup/scroll-lock.test.ts::is idempotent and restores the captured panel position on every terminal path` | P11 modal/busy teardown |
-| N-01 | P13 | — | `ACCEPT-P13-CAPTURE-SANITIZER` |
+| N-01 | P13 | `tests/src/content/marking/dom-bridge.test.ts::serializes the live composed DOM without consent helper styles or artifacts`; `tests/src/content/marking/dom-bridge.test.ts::uses consent provenance when sanitizing an HTML string` | `ACCEPT-P13-CAPTURE-SANITIZER` |
 | N-02 | P15 | — | `ACCEPT-P15-FROZEN-SHIELD` |
 | N-03 | P16 | — | `ACCEPT-P16-INSPECTION-LIFECYCLE` |
 | N-04 | P17 | — | `ACCEPT-P17-PREVIEW-TRANSPORT` |
@@ -110,8 +110,8 @@ note by itself is not decision evidence.
 | N-07 | P18 | — | `ACCEPT-P18-TRANSIENT-ESCAPE` |
 | N-08 | P18 | — | `ACCEPT-P18-TOASTS` |
 | N-09 | P17 | — | `ACCEPT-P17-PREVIEW-COPY` |
-| N-10 | P13 | `tests/src/page-world/program.test.ts::captures early closed shadow roots as retrievable open roots` | P20 forced-open formerly closed shadow content is markable, capturable, and artifact-free |
-| N-11 | P13 | — | `ACCEPT-P13-CONSENT-LIFECYCLE` |
+| N-10 | P13 | `tests/src/page-world/program.test.ts::captures early closed shadow roots as retrievable open roots`; `tests/src/content/marking/dom-bridge.test.ts::flattens a slot nested below a shadow wrapper without duplicating its assigned light node` | P20 forced-open formerly closed shadow content is markable, capturable, and artifact-free |
+| N-11 | P13 | `tests/c4-content-entrypoint.test.ts::sweeps a managed non-candidate before render-mode gates and re-sweeps late insertions`; `tests/src/content/consent.test.ts::re-closes a marked native dialog when the site opens it again`; `tests/src/content/consent.test.ts::restores exactly what it hid, and nothing else` | `ACCEPT-P13-CONSENT-LIFECYCLE` |
 | N-12 | P12 | `tests/decision-traceability.test.ts::validates the complete decision register, executable assertions, and acceptance catalog` | P20 traceability mutation gate |
 | N-13 | P19 | — | `ACCEPT-P19-DECOMPOSITION` |
 

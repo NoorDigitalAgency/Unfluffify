@@ -844,7 +844,11 @@ in the owning phase and rerun its focused gate plus P9–P11.
     executable titles, and resolved acceptance procedures with retained artifacts.
   - `pnpm lint && pnpm check` passed; `pnpm test -- --reporter=dot` — 91 files /
     686 tests passed.
-- [ ] P13 — Clean capture, shadow, and consent lifecycle
+- [x] P13 — Clean capture, shadow, and consent lifecycle
+  - Commit: `cfa60970` (`Preserve consent DOM across property lifecycle`).
+  - `pnpm vitest run tests/src/content/consent.test.ts tests/src/content/marking/dom-bridge.test.ts tests/c4-content-entrypoint.test.ts tests/src/background/startup.test.ts tests/src/messaging/contracts.test.ts tests/src/popup/entrypoint.test.ts tests/src/page-world/program.test.ts tests/page-world-source-parity.test.ts --reporter=dot` — 8 files / 147 tests passed.
+  - `pnpm lint`, `pnpm check`, and `git diff --check` passed; `pnpm test -- --reporter=dot` — 91 files / 696 tests passed.
+  - `ACCEPT-P13-CAPTURE-SANITIZER` and `ACCEPT-P13-CONSENT-LIFECYCLE` remain registered for the P20 retained browser artifacts.
 - [ ] P14 — Single-pass interaction and real-browser performance
 - [ ] P15 — Frozen-page interaction shield
 - [ ] P16 — Durable background-owned render inspection
