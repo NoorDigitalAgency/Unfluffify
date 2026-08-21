@@ -835,7 +835,13 @@ in the owning phase and rerun its focused gate plus P9–P11.
     7 manifest assertions.
   - Hub remained clean at the already-live `9bdce9f`; no Alpha redeploy was
     required.
-- [ ] P12 — Executable traceability repair
+- [x] P12 — Executable traceability repair
+  - Commit: `6417cda2` (`Enforce executable decision traceability`).
+  - `pnpm vitest run tests/decision-traceability.test.ts` — 1 file / 3 tests
+    passed. The gate covers all 104 exact IDs, duplicate rejection, executable
+    local evidence, nonexistent paths, and specifically named live/build checks.
+  - `pnpm lint && pnpm check` passed; `pnpm test -- --reporter=dot` — 91 files /
+    686 tests passed.
 - [ ] P13 — Clean capture, shadow, and consent lifecycle
 - [ ] P14 — Single-pass interaction and real-browser performance
 - [ ] P15 — Frozen-page interaction shield
