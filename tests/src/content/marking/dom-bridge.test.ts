@@ -185,6 +185,7 @@ function rect(left: number, top: number, width: number, height: number): Rect {
 function createRendererTestSeam() {
   const markingRender = vi.fn();
   const silentRender = vi.fn();
+  const silentBranchRender = vi.fn();
   const createRenderer = vi.fn((options: Parameters<typeof createOverlayRenderer>[0]) => {
     const renderer = createOverlayRenderer(options);
     return {
@@ -197,9 +198,13 @@ function createRendererTestSeam() {
         silentRender();
         renderer.renderSilentHighlights(...args);
       },
+      renderSilentHighlightsBranch(...args: Parameters<typeof renderer.renderSilentHighlightsBranch>): void {
+        silentBranchRender();
+        renderer.renderSilentHighlightsBranch(...args);
+      },
     };
   });
-  return { createRenderer, markingRender, silentRender };
+  return { createRenderer, markingRender, silentRender, silentBranchRender };
 }
 
 describe("P6 DOM bridge", () => {
@@ -594,6 +599,53 @@ describe("P6 DOM bridge", () => {
     expect(box?.style.left).toBe("20px");
     expect(box?.style.top).toBe("40px");
     expect(box?.getAttribute("data-uf-overlay-xpath")).toBe("/main[1]/section[1]");
+    renderer.dispose();
+  });
+
+  it("paints only canonical implicit rows while retaining non-implicit wrapper states", () => {
+    const doc = new FakeDocument();
+    const wrapper = new FakeElement("SECTION", rect(0, 0, 240, 120));
+    const paragraph = new FakeElement("P", rect(10, 10, 200, 20), "Canonical text");
+    const locked = new FakeElement("IMG", rect(10, 40, 40, 40));
+    for (const element of [wrapper, paragraph, locked]) {
+      element.ownerDocument = doc;
+    }
+    doc.pointHits = (_x, y) => y < 35 ? [paragraph, wrapper] : [locked, wrapper];
+    const renderer = createOverlayRenderer({ document: doc as unknown as Document });
+    const targets = new Map([
+      ["/section[1]", { element: wrapper as unknown as Element, visible: true }],
+      ["/section[1]/p[1]", { element: paragraph as unknown as Element, visible: true }],
+      ["/section[1]/img[1]", { element: locked as unknown as Element, visible: true }],
+    ]);
+
+    renderer.render({
+      rows: [{ xpath: "/section[1]/p[1]", excluded: false }],
+      overlay: new Map([
+        ["/section[1]", "implicit-include"],
+        ["/section[1]/p[1]", "implicit-include"],
+        ["/section[1]/img[1]", "immutable"],
+      ]),
+    }, targets);
+
+    const paintedXpaths = renderer.root.children
+      .flatMap((layer) => layer.children)
+      .map((box) => box.getAttribute("data-uf-overlay-xpath"));
+    expect(paintedXpaths).not.toContain("/section[1]");
+    expect(paintedXpaths).toContain("/section[1]/p[1]");
+    expect(paintedXpaths).toContain("/section[1]/img[1]");
+
+    renderer.renderBranch({
+      rows: [{ xpath: "/section[1]/p[1]", excluded: false }],
+      overlay: new Map([
+        ["/section[1]", "implicit-include"],
+        ["/section[1]/p[1]", "implicit-include"],
+        ["/section[1]/img[1]", "immutable"],
+      ]),
+    }, targets);
+    expect(renderer.root.children
+      .flatMap((layer) => layer.children)
+      .map((box) => box.getAttribute("data-uf-overlay-xpath")))
+      .not.toContain("/section[1]");
     renderer.dispose();
   });
 
@@ -1061,7 +1113,59 @@ describe("P6 DOM bridge", () => {
     vi.useRealTimers();
   });
 
-  it("hides layers only for viewport scroll and redraws after the 250 ms debounce", () => {
+  it("keeps the 250 ms marking debounce when silent highlights are also armed", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const animationFrames: Array<() => void> = [];
+      const listeners = new Map<string, (event?: Event) => void>();
+      Object.assign(doc.defaultView, {
+        requestAnimationFrame(callback: () => void) {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+        addEventListener(type: string, listener: (event?: Event) => void) {
+          listeners.set(type, listener);
+        },
+        removeEventListener(type: string) {
+          listeners.delete(type);
+        },
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+      const paragraph = new FakeElement("P", rect(0, 0, 120, 20), "First");
+      root.ownerDocument = doc;
+      paragraph.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      root.appendChild(paragraph);
+      doc.hits = [paragraph, root];
+      const engine = createMarkingEngine(root as unknown as Element, { render: true });
+      engine.renderSilentHighlights();
+
+      listeners.get("scroll")?.({ target: paragraph } as unknown as Event);
+      expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
+      while (animationFrames.length > 0) {
+        animationFrames.shift()?.();
+      }
+
+      listeners.get("scroll")?.({ target: doc } as unknown as Event);
+      expect(engine.overlayRoot().className).toContain("uf-scrolling");
+      vi.advanceTimersByTime(249);
+      expect(engine.overlayRoot().className).toContain("uf-scrolling");
+      vi.advanceTimersByTime(1);
+      expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
+      expect(animationFrames).toHaveLength(1);
+      animationFrames.shift()?.();
+      // A settled viewport scroll goes straight to its repaint. It must not
+      // enqueue the general stabilizer's sampling frames first.
+      expect(animationFrames).toHaveLength(0);
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("repositions a silent-only engine in one render frame after its 120 ms debounce", () => {
     vi.useFakeTimers();
     try {
       const doc = new FakeDocument();
@@ -1088,21 +1192,18 @@ describe("P6 DOM bridge", () => {
       root.appendChild(paragraph);
       doc.hits = [paragraph, root];
       const engine = createMarkingEngine(root as unknown as Element);
-      engine.renderReadOnly();
-
-      listeners.get("scroll")?.({ target: paragraph } as unknown as Event);
-      expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
-      animationFrames.shift()?.();
+      engine.renderSilentHighlights();
 
       listeners.get("scroll")?.({ target: doc } as unknown as Event);
       expect(engine.overlayRoot().className).toContain("uf-scrolling");
-      animationFrames.shift()?.();
-      vi.advanceTimersByTime(249);
-      expect(engine.overlayRoot().className).toContain("uf-scrolling");
+      vi.advanceTimersByTime(119);
+      expect(animationFrames).toHaveLength(0);
       vi.advanceTimersByTime(1);
       expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
       expect(animationFrames).toHaveLength(1);
+
       animationFrames.shift()?.();
+      expect(animationFrames).toHaveLength(0);
       engine.dispose();
     } finally {
       vi.useRealTimers();
@@ -1156,6 +1257,78 @@ describe("P6 DOM bridge", () => {
     expect(rightOverlaysBefore.length).toBeGreaterThan(20);
     // One interaction acknowledgement plus one new branch classification box.
     expect(doc.createElementCount - createdBefore).toBe(2);
+  });
+
+  it("updates armed silent highlights only inside the toggled branch", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 600, 1000));
+    const left = new FakeElement("ARTICLE", rect(0, 0, 280, 100));
+    const leftText = new FakeElement("P", rect(10, 10, 240, 20), "Left");
+    const right = new FakeElement("ARTICLE", rect(300, 0, 280, 1000));
+    const rightTexts: FakeElement[] = [];
+    for (const element of [root, left, leftText, right]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    left.appendChild(leftText);
+    root.appendChild(left);
+    root.appendChild(right);
+    for (let index = 0; index < 40; index += 1) {
+      const paragraph = new FakeElement("P", rect(310, index * 22, 240, 20), `Right ${index}`);
+      paragraph.ownerDocument = doc;
+      right.appendChild(paragraph);
+      rightTexts.push(paragraph);
+    }
+    doc.pointHits = (x, y) => {
+      if (x < 300) {
+        return [leftText, left, root];
+      }
+      const paragraph = rightTexts.find((element) =>
+        y >= element.rect.top && y <= element.rect.bottom
+      );
+      return paragraph ? [paragraph, right, root] : [right, root];
+    };
+    const renderer = createRendererTestSeam();
+    const stages: string[] = [];
+    const engine = createMarkingEngine(root as unknown as Element, {
+      render: true,
+      instrumentation: {
+        createRenderer: renderer.createRenderer,
+        onWorkStage: (stage) => stages.push(stage),
+      },
+    });
+    engine.renderSilentHighlights();
+
+    const rightXpath = "/main[1]/article[2]";
+    const silentBoxes = (): FakeElement[] => engine.overlayRoot().children
+      .flatMap((layer) => layer.children)
+      .filter((overlay) => overlay.getAttribute("data-uf-silent-highlight")?.startsWith(rightXpath));
+    const rightBoxesBefore = silentBoxes();
+    expect(rightBoxesBefore).toHaveLength(40);
+    expect(renderer.silentRender).toHaveBeenCalledTimes(1);
+    expect(renderer.silentBranchRender).not.toHaveBeenCalled();
+    for (const element of [right, ...rightTexts]) {
+      element.rectReadCount = 0;
+    }
+    stages.length = 0;
+
+    const target = engine.resolveAtPoint(20, 15, "exclude");
+    expect(target?.xpath).toBe("/main[1]/article[1]/p[1]");
+    expect(engine.toggle(target!, "exclude")).toBe(true);
+
+    expect(renderer.silentRender).toHaveBeenCalledTimes(1);
+    expect(renderer.silentBranchRender).toHaveBeenCalledTimes(1);
+    expect(stages).toEqual(["silent-render"]);
+    expect(silentBoxes()).toEqual(rightBoxesBefore);
+    expect([right, ...rightTexts].every((element) => element.rectReadCount === 0)).toBe(true);
+    const leftSilentBoxes = engine.overlayRoot().children
+      .flatMap((layer) => layer.children)
+      .filter((overlay) => overlay.getAttribute("data-uf-silent-highlight") === "/main[1]/article[1]/p[1]");
+    expect(leftSilentBoxes.map((overlay) => overlay.className)).toEqual([
+      "uf-silent-rect uf-silent-excluded",
+    ]);
+    engine.dispose();
   });
 
   it("rejects a stale toggle target after the DOM generation is rebuilt", () => {

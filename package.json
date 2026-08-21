@@ -19,6 +19,8 @@
     "test": "vitest run",
     "browser:live": "node ./scripts/launch-test-browser.mjs",
     "browser:observe": "node ./scripts/observe-live-console.mjs",
+    "performance:p14": "node ./scripts/performance/p14-marking-browser-gate.mjs",
+    "performance:p14:smoke": "node ./scripts/performance/p14-marking-browser-gate.mjs --smoke",
     "orchestrate:bus": "node ./orchestration/bus-server.mjs",
     "orchestrate:mock-client": "node ./orchestration/mock-client.mjs",
     "orchestrate:runner": "node ./orchestration/runner.mjs",

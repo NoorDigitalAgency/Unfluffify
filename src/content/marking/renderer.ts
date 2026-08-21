@@ -342,12 +342,15 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     finalizeClassification(used);
   };
 
-  const drawSilent = (byXpath: ReadonlyMap<string, OverlayRenderTarget>): void => {
+  const drawSilent = (
+    byXpath: ReadonlyMap<string, OverlayRenderTarget>,
+    affected?: ReadonlySet<string>,
+  ): void => {
     const used = new Set<string>();
-    for (const [xpath, requestedPresentation] of silentPresentationByXpath) {
+    const drawPresentation = (xpath: string, requestedPresentation: string): void => {
       const target = byXpath.get(xpath);
       if (!target) {
-        continue;
+        return;
       }
       const presentation = requestedPresentation === "uf-silent-content" && !target.visible
         ? "uf-silent-content uf-silent-content-ghost"
@@ -359,7 +362,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
           : "silent-content";
       const layer = layers.get(layerKey);
       if (!layer) {
-        continue;
+        return;
       }
       let rects = clientRectsFor(target.element, options.document);
       if (rects.length === 0 && presentation.includes("uf-silent-content-ghost")) {
@@ -388,9 +391,21 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         placeOverlay(record.overlay, rects[index]!);
         used.add(key);
       }
+    };
+    if (affected) {
+      for (const xpath of affected) {
+        const presentation = silentPresentationByXpath.get(xpath);
+        if (presentation) {
+          drawPresentation(xpath, presentation);
+        }
+      }
+    } else {
+      for (const [xpath, presentation] of silentPresentationByXpath) {
+        drawPresentation(xpath, presentation);
+      }
     }
     for (const [key, record] of silentBoxes) {
-      if (!used.has(key)) {
+      if ((!affected || affected.has(record.xpath)) && !used.has(key)) {
         record.overlay.remove();
         silentBoxes.delete(key);
       }
@@ -465,18 +480,28 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   return {
     root,
     render(evaluation: EvaluationResult, byXpath: ReadonlyMap<string, OverlayRenderTarget>): void {
+      const submittedXpaths = new Set(evaluation.rows.map((row) => row.xpath));
       classificationByXpath.clear();
       for (const [xpath, classification] of evaluation.overlay) {
-        classificationByXpath.set(xpath, classification);
+        // The evaluator intentionally classifies structural wrappers so they
+        // remain valid hover/widen candidates, but legacy marking paint only
+        // draws implicit content that is part of the canonical row corpus.
+        // Keep richer evaluator state out of this presentation-only filter.
+        if (classification !== "implicit-include" || submittedXpaths.has(xpath)) {
+          classificationByXpath.set(xpath, classification);
+        }
       }
       drawCurrentClassifications(byXpath);
     },
     renderBranch(evaluation: EvaluationResult, byXpath: ReadonlyMap<string, OverlayRenderTarget>): void {
       const affected = new Set(byXpath.keys());
+      const submittedXpaths = new Set(evaluation.rows.map((row) => row.xpath));
       const used = new Set<string>();
       for (const xpath of byXpath.keys()) {
         const classification = evaluation.overlay.get(xpath);
-        if (!classification) {
+        if (!classification || (
+          classification === "implicit-include" && !submittedXpaths.has(xpath)
+        )) {
           classificationByXpath.delete(xpath);
           continue;
         }
@@ -529,6 +554,29 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         silentPresentationByXpath.set(xpath, "uf-silent-excluded");
       }
       drawSilent(byXpath);
+    },
+    renderSilentHighlightsBranch(
+      xpaths: readonly string[],
+      byXpath: ReadonlyMap<string, OverlayRenderTarget>,
+      categories: Readonly<{
+        immutableXpaths?: readonly string[];
+        excludedXpaths?: readonly string[];
+      }> = {},
+    ): void {
+      const affected = new Set(byXpath.keys());
+      for (const xpath of affected) {
+        silentPresentationByXpath.delete(xpath);
+      }
+      for (const xpath of categories.immutableXpaths ?? []) {
+        silentPresentationByXpath.set(xpath, "uf-silent-immutable");
+      }
+      for (const xpath of xpaths) {
+        silentPresentationByXpath.set(xpath, "uf-silent-content");
+      }
+      for (const xpath of categories.excludedXpaths ?? []) {
+        silentPresentationByXpath.set(xpath, "uf-silent-excluded");
+      }
+      drawSilent(byXpath, affected);
     },
     acknowledge(element: Element, xpath: string, mode: "include" | "exclude"): void {
       clearAcknowledgement();

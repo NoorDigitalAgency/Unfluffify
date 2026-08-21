@@ -16,6 +16,13 @@ pnpm-debug.log*
 .wxt/browser-profile/
 .wxt/browser-profile-reuse/
 .playwright-mcp/
+# P14 retains completed acceptance reports, but not local intermediates or
+# convenience reports from smoke/diagnostic runs.
+output/playwright/p14-marking-performance/build/
+output/playwright/p14-marking-performance/latest.json
+output/playwright/p14-marking-performance/diagnostic-*.json
+output/playwright/p14-marking-performance/failure-*.json
+output/playwright/p14-marking-performance/smoke-*.json
 
 # Non-Copilot local agent state
 .agents/

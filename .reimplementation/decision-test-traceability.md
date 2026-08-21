@@ -58,7 +58,7 @@ note by itself is not decision evidence.
 | U-09 | P8 | `tests/src/lock/copy.test.ts::has local copy for every lock banner reason` | `ACCEPT-P20-LOCK-COPY` |
 | U-10 | P1 | `tests/src/background/brain.test.ts::runs a headless observe -> signal -> projection loop` | P9 event/reconciliation scenario |
 | U-11 | P6 | `tests/src/popup/entrypoint.test.ts::keeps observing the opening tab when browser focus moves elsewhere` | P11 bound-tab observation |
-| U-12 | P3 | `tests/c4-content-entrypoint.test.ts::reuses one marking engine while enabled and disposes overlays on deactivate` | P11 Space passthrough |
+| U-12 | P3 | `tests/c4-content-entrypoint.test.ts::uses one transaction for marking and silent-selector entrypoints and disposes overlays` | P11 Space passthrough |
 | U-13 | P2 | `tests/src/content/marking/dom-bridge.test.ts::links preview rows back to the exact composed element without rebuilding the model` | P9 shadow/preview scenario |
 | U-14 | P2 | `tests/src/domain/boundary.test.ts::shares one toggleable-boundary decision for closed and silent surfaces` | P9 canonical marking scenario |
 | U-15 | P1 | — | `ACCEPT-P19-DECOMPOSITION` |
@@ -70,7 +70,7 @@ note by itself is not decision evidence.
 | U-18d | P7 | `tests/src/popup/preview-classification.test.ts::keeps the expanded model in debug and collapses production to included/excluded` | production/debug build gates |
 | U-18e | P8 | `tests/c3-popup-entrypoint.test.ts::gates the popup diagnostic toolkit behind the debug build literal` | production/debug build gates |
 | D-01 | P2 | `tests/src/content/marking/dom-bridge.test.ts::seeds toggleable default exclusions before the first read-only render` | P9 toggle/branch scenario |
-| D-02 | P2 | `tests/src/content/marking/dom-bridge.test.ts::forgets selector provenance after applying selectors as ordinary user marks` | P9 selector-vs-user equivalence |
+| D-02 | P2 | `tests/src/content/marking/dom-bridge.test.ts::initializes selector marks in the same single transaction with inclusion winning` | P9 selector-vs-user equivalence |
 | D-03 | P2 | `tests/src/content/marking/dom-bridge.test.ts::keeps a collapsed wrapper XPath while drawing its visible descendant geometry` | P11 overlay identity check |
 | D-04 | P2 | `tests/src/content/marking/dom-bridge.test.ts::flattens and marks a closed root captured by early instrumentation` | P11 shadow marking/capture |
 | D-05 | P2 | `tests/src/content/marking/marking.test.ts::preserves captured-shadow hosts while stripping extension and automation artifacts` | P11 artifact-free payload |
@@ -79,7 +79,7 @@ note by itself is not decision evidence.
 | D-08 | P3 | `tests/src/content/marking/interaction.test.ts::renders the four right-click actions and commits only the chosen enabled action` | P11 right-click flow |
 | D-09 | P3 | `tests/src/content/marking/interaction.test.ts::deduplicates one physical gesture without swallowing a rapid distinct gesture` | P11 rapid-click flow |
 | D-10 | P3 | `tests/src/content/marking/dom-bridge.test.ts::draws an immediate mode-coloured acknowledgement and clears it after the pulse` | P11 invalid-target flow |
-| D-11 | P3 | `tests/c4-content-entrypoint.test.ts::reuses one marking engine while enabled and disposes overlays on deactivate` | `ACCEPT-P20-SPACE-RECOVERY` |
+| D-11 | P3 | `tests/c4-content-entrypoint.test.ts::uses one transaction for marking and silent-selector entrypoints and disposes overlays` | `ACCEPT-P20-SPACE-RECOVERY` |
 | D-12 | P3 | `tests/src/content/marking/dom-bridge.test.ts::renders layered overlays and drives a real-element MarkingEngine facade` | P11 passthrough/busy visuals |
 | D-13 | P7 | `tests/src/popup/render-mode-inspection.test.ts::releases a stalled UI for retry and leaves no stale timer` | `ACCEPT-P16-INSPECTION-LIFECYCLE` |
 | D-14 | P3 | `tests/build-artifact-parity.test.ts::generated extension manifest and resources resolve` | production/debug build gates |
@@ -105,8 +105,8 @@ note by itself is not decision evidence.
 | N-02 | P15 | — | `ACCEPT-P15-FROZEN-SHIELD` |
 | N-03 | P16 | — | `ACCEPT-P16-INSPECTION-LIFECYCLE` |
 | N-04 | P17 | — | `ACCEPT-P17-PREVIEW-TRANSPORT` |
-| N-05 | P14 | — | `ACCEPT-P14-SINGLE-PASS` |
-| N-06 | P14 | `tests/marking-performance-equivalence.test.ts::keeps branch toggle-to-paint output exact and p95 within the legacy full-tree budget` | `ACCEPT-P14-BROWSER-PERFORMANCE` |
+| N-05 | P14 | `tests/src/content/marking/dom-bridge.test.ts::initializes and refreshes defaults in one bridge, evaluation, candidate-index, and render transaction`; `tests/src/content/marking/dom-bridge.test.ts::initializes selector marks in the same single transaction with inclusion winning`; `tests/src/content/marking/dom-bridge.test.ts::initializes silent selector highlighting with one bridge, evaluation, index, and silent render`; `tests/c4-content-entrypoint.test.ts::uses one transaction for marking and silent-selector entrypoints and disposes overlays` | `ACCEPT-P14-SINGLE-PASS` |
+| N-06 | P14 | `tests/marking-performance-equivalence.test.ts::keeps pure branch evaluation exact and p95 within the pure full-tree evaluation budget`; `tests/p14-browser-performance-contract.test.ts::keeps the default plan at three warmups and 21 samples with alternating runtime order`; `tests/p14-browser-performance-contract.test.ts::locks every operation budget for both fixtures and keeps click comparison strict` | `ACCEPT-P14-BROWSER-PERFORMANCE` |
 | N-07 | P18 | — | `ACCEPT-P18-TRANSIENT-ESCAPE` |
 | N-08 | P18 | — | `ACCEPT-P18-TOASTS` |
 | N-09 | P17 | — | `ACCEPT-P17-PREVIEW-COPY` |

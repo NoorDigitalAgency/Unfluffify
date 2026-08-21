@@ -298,6 +298,9 @@ export function createMarkingEngine(
   type RenderWork = "geometry" | "silent-geometry" | "structural";
   let scheduledWork: RenderWork | null = null;
   let silentHighlightsArmed = false;
+  // Silent borders can also be armed on top of the interactive marking UI, so
+  // they cannot identify which scroll debounce the engine should use.
+  let interactiveMarkingRendered = options.render === true;
   let hoverResolution: Readonly<{
     x: number;
     y: number;
@@ -391,6 +394,40 @@ export function createMarkingEngine(
       }
     }
     renderer.renderSilentHighlights(xpaths, byXpath, { immutableXpaths, excludedXpaths });
+    instrumentation?.onWorkStage?.("silent-render");
+    return xpaths;
+  };
+  const renderSilentBranch = (
+    evaluation: ReturnType<typeof store.currentEvaluation>,
+    byXpath: ReadonlyMap<string, OverlayRenderTarget>,
+  ): readonly string[] => {
+    const affectedXpaths = new Set(byXpath.keys());
+    const branchRows = evaluation.rows.filter((row) => affectedXpaths.has(row.xpath));
+    const geometryByXpath = new Map<string, VisibilityGeometry>();
+    for (const row of branchRows) {
+      if (row.excluded || row.explicit === true) {
+        continue;
+      }
+      const target = byXpath.get(row.xpath);
+      if (target) {
+        geometryByXpath.set(row.xpath, geometryForElement(target.element));
+      }
+    }
+    const xpaths = buildSilentHighlights({
+      rows: branchRows,
+      overlay: evaluation.overlay,
+    }, geometryByXpath);
+    const immutableXpaths: string[] = [];
+    const excludedXpaths: string[] = [];
+    for (const xpath of affectedXpaths) {
+      const classification = evaluation.overlay.get(xpath);
+      if (classification === "immutable" || classification === "closed-shadow") {
+        immutableXpaths.push(xpath);
+      } else if (classification === "exception") {
+        excludedXpaths.push(xpath);
+      }
+    }
+    renderer.renderSilentHighlightsBranch(xpaths, byXpath, { immutableXpaths, excludedXpaths });
     instrumentation?.onWorkStage?.("silent-render");
     return xpaths;
   };
@@ -536,7 +573,11 @@ export function createMarkingEngine(
     const finishViewportScroll = (): void => {
       viewportScrollHandle = null;
       renderer.setScrolling(false);
-      stabilizeGeometry("geometry");
+      // Viewport scrolling has already been quiet for the mode-specific
+      // debounce below. Re-entering the general geometry stabilizer here adds
+      // two sampling frames before the actual repaint even though scrolling
+      // cannot change the viewport or root dimensions that it samples.
+      scheduleRender("geometry");
     };
     const scheduleGeometryRender = (event?: Event): void => {
       const target = event?.target;
@@ -551,7 +592,10 @@ export function createMarkingEngine(
         if (viewportScrollHandle !== null) {
           clearTimeout(viewportScrollHandle);
         }
-        viewportScrollHandle = setTimeout(finishViewportScroll, 250);
+        // Match the legacy paths: silent highlights settle sooner, while the
+        // interactive marking UI retains its more conservative scroll pause.
+        const settleDelay = interactiveMarkingRendered ? 250 : 120;
+        viewportScrollHandle = setTimeout(finishViewportScroll, settleDelay);
         return;
       }
       stabilizeGeometry("geometry");
@@ -582,6 +626,9 @@ export function createMarkingEngine(
 
   return {
     refresh(refreshOptions: MarkingEngineRefreshOptions = {}): boolean {
+      if (refreshOptions.render !== undefined) {
+        interactiveMarkingRendered = refreshOptions.render;
+      }
       return refreshBridge(refreshOptions);
     },
     lastInitializationSeededSelectors(): boolean {
@@ -629,9 +676,11 @@ export function createMarkingEngine(
         }
         const toggled = store.toggle(node, mode);
         candidateByXpath = null;
-        renderer.renderBranch(toggled, byXpathElementsForBranch(toggled.branchRoot));
+        interactiveMarkingRendered = true;
+        const branchTargets = byXpathElementsForBranch(toggled.branchRoot);
+        renderer.renderBranch(toggled, branchTargets);
         if (silentHighlightsArmed) {
-          renderSilent();
+          renderSilentBranch(toggled, branchTargets);
         }
         return true;
       } finally {
@@ -665,9 +714,11 @@ export function createMarkingEngine(
           return false;
         }
         candidateByXpath = null;
-        renderer.renderBranch(cleared, byXpathElementsForBranch(cleared.branchRoot));
+        interactiveMarkingRendered = true;
+        const branchTargets = byXpathElementsForBranch(cleared.branchRoot);
+        renderer.renderBranch(cleared, branchTargets);
         if (silentHighlightsArmed) {
-          renderSilent();
+          renderSilentBranch(cleared, branchTargets);
         }
         return true;
       } finally {
@@ -703,6 +754,7 @@ export function createMarkingEngine(
       return null;
     },
     renderReadOnly(): void {
+      interactiveMarkingRendered = true;
       renderCurrent();
     },
     hoverAtPoint(x: number, y: number, mode: MarkMode = "exclude", shiftActive = false): void {
@@ -747,6 +799,7 @@ export function createMarkingEngine(
     clearOverlays(): void {
       hoverResolution = null;
       silentHighlightsArmed = false;
+      interactiveMarkingRendered = false;
       renderer.clear();
     },
     dispose(): void {
