@@ -1,19 +1,21 @@
 # Rewrite–Legacy Decision Execution Plan
 
-**Status:** Active implementation plan
+**Status:** Active follow-up implementation plan
 
 **Authority:** [`rewrite-legacy-decision-spec.md`](./rewrite-legacy-decision-spec.md)
 
-**Created:** 2026-08-20
+**Created:** 2026-08-20; extended 2026-08-21
 
 **Branch:** `re-write`
 
 ## 1. Outcome
 
-Bring the rewrite into conformance with all 91 resolved rewrite-versus-legacy
+Bring the rewrite into conformance with all 104 resolved rewrite-versus-legacy
 decisions without weakening its architecture, data-authority model, or marking
-semantics. Delivery is complete only after automated gates and a witnessed
-production-build browser run pass.
+semantics. P0–P11 established and accepted the original 91-decision baseline.
+P12–P20 own the 13 decisions from the follow-up deep comparison. Delivery is
+complete only after automated gates and a witnessed production-build browser
+run pass.
 
 This plan supersedes `parity-plan.md` as the active resume pointer. The older
 plan remains useful provenance and defect evidence.
@@ -60,11 +62,20 @@ P0 Contract alignment
                   -> P9 End-to-end integration
                     -> P10 Automated release gates
                       -> P11 Witnessed live acceptance
+                        -> P12 Executable traceability repair
+                          -> P13 Clean capture, shadow, and consent lifecycle
+                            -> P14 Single-pass interaction and browser benchmark
+                              -> P15 Frozen-page interaction shield
+                                -> P16 Durable render inspection
+                                  -> P17 Canonical preview projection
+                                    -> P18 Transient UI and production toasts
+                                      -> P19 Targeted decomposition
+                                        -> P20 Integrated release and live acceptance
 ```
 
-The sequence is intentionally conservative. A later phase may start early only
-when it consumes stable public contracts from all predecessors and does not
-modify their source of truth.
+P0–P11 are the completed baseline. The follow-up sequence is intentionally
+conservative. A later phase may start early only when it consumes stable public
+contracts from all predecessors and does not modify their source of truth.
 
 ## 4. Phase plan
 
@@ -452,6 +463,246 @@ Record the extension commit, Hub commit/deployed Alpha version, build artifact,
 browser version, property/site identity, and pass/fail evidence. Fix any failure
 in the owning phase and rerun its focused gate plus P9–P11.
 
+### P12 — Repair the contract and make traceability executable
+
+**Primary decision:** N-12.
+
+**Work**
+
+- Extend the decision register and traceability corpus from 91 to 104 decisions
+  without renumbering the original I/U/D rows.
+- Make the traceability validator require every decision exactly once in the
+  register and at least one decision-specific executable assertion or explicitly
+  named live/build acceptance check in the matrix.
+- Validate every referenced automated-evidence path on disk. Repair the stale
+  references currently named as `tests/popup-view-projector.test.ts`,
+  `tests/page-toast.test.ts`, `tests/property-lock-banner-mode.test.ts`,
+  `tests/mark-mode-fsm.test.ts`, `tests/popup-render-mode.test.ts`,
+  `tests/render-mode-inspector.test.ts`,
+  `tests/render-mode-inspection-handlers.test.ts`, and
+  `tests/preview-tooltip.test.ts`.
+- Add or relocate focused tests for behavior those stale paths were meant to
+  prove. Do not satisfy traceability by deleting evidence or retaining
+  non-executable prose alone.
+
+**Exit gate**
+
+- The checker fails for a missing decision, duplicate register row, nonexistent
+  test path, or evidence entry without an executable/live/build acceptance.
+- All 104 rows pass the repaired traceability gate.
+
+### P13 — Make capture artifact-free and consent property-scoped
+
+**Primary decisions:** N-01, N-10, N-11; reinforces D-04 and D-05.
+
+**Work**
+
+- While serializing the live composed DOM, identify consent-helper changes by
+  their marker, remove only extension-added inline style properties, and only
+  then strip the marker and all remaining `data-uf-*` artifacts.
+- Feed direct rendered capture, fingerprints, and AI submission from that one
+  clean representation. Never restore or mutate the live consent UI merely to
+  capture it.
+- Move consent suppression under recognized-property authority so it runs on
+  candidate and non-candidate pages, including pages without an editor or panel.
+  Keep ordinary consent subtrees in place but invisible and non-interactive;
+  close native HTML dialogs so their modal state cannot block the document.
+- Observe and suppress late-added consent UI continuously. Retain suppression
+  through Save, Discard, preview/marking changes, and same-property navigation;
+  end it only on Unregister, property-configuration removal, leaving the
+  property, or extension unload.
+- Retain the early force-open closed-shadow hook and its documented observable
+  `host.shadowRoot` compatibility tradeoff. Keep MAIN-world generation parity
+  and artifact stripping mandatory.
+
+**Exit gate**
+
+- Focused tests cover direct capture, fingerprinting, and submission through the
+  real serialization pipeline, including no leaked marker or helper style.
+- Composed-DOM fixtures cover open, forced-open formerly closed, nested, and
+  slotted shadow content without extension artifacts.
+- Browser/integration tests cover non-candidate property pages, ordinary
+  overlays, native dialogs, late insertion, same-property transitions, and all
+  terminal cleanup paths.
+
+### P14 — Initialize once and prove interaction performance in a browser
+
+**Primary decisions:** N-05 and N-06.
+
+**Work**
+
+- Give the marking/silent engine one initialization transaction that calculates
+  defaults, applies selector seed rows as ordinary explicit user markings,
+  builds indexes, and renders through one composed-DOM bridge pass.
+- Remove redundant whole-document refreshes from constructors, activation, and
+  selector seeding. Reuse geometry and branch caches without changing canonical
+  evaluation or selector influence.
+- Retain the pure evaluator equivalence gate but rename its descriptions and
+  evidence so it does not claim browser interaction coverage.
+- Add deterministic real-browser rewrite-versus-preserved-legacy benchmarks for
+  silent activation, marking activation, hover, physical click through committed
+  and painted overlay, scroll repositioning, and mutation stabilization.
+- Assert identical rows and classifications before comparing timings. Use fixed
+  fixtures, warmup, samples, percentiles, explicit budgets, and retained output
+  so CI failures are diagnosable rather than timing noise.
+
+**Exit gate**
+
+- Instrumented initialization proves one composed-document traversal/bridge
+  activation for defaults plus optional selector seed.
+- Pure semantic equivalence and real-browser semantic/performance gates pass on
+  both small and large fixtures with recorded percentile evidence.
+
+### P15 — Freeze page interaction with a transparent shield
+
+**Primary decision:** N-02; refines D-19.
+
+**Work**
+
+- Mount a reversible transparent shield above page content and below every
+  extension-owned marking, preview, and debug surface during silent highlighting
+  and post-AI preview.
+- Ensure the underlying page cannot become the pointer target, so CSS-only hover,
+  JavaScript hover/click handlers, buttons, menus, selections, and navigation do
+  not activate.
+- Preserve native wheel and touch scrolling and all extension highlight/preview
+  interactions, including debug copy controls, without granting general page
+  interaction.
+- Cover document, composed shadow content, viewport/zoom changes, route changes,
+  and every terminal teardown path without leaving an orphan shield.
+
+**Exit gate**
+
+- Real-browser tests prove that CSS-only and JavaScript hover menus do not open,
+  page clicks do not fire, scrolling still works, and extension UI remains
+  operable in silent and post-AI modes.
+- Save, Discard, Unregister, property exit, reload, failure, and extension unload
+  all remove or correctly re-adopt the shield.
+
+### P16 — Make render inspection a durable background-owned session
+
+**Primary decision:** N-03; reinforces D-13 and D-26.
+
+**Work**
+
+- Persist an inspection session token, generation, property/tab scope, intended
+  mode, and terminal status in the background-owned repository so the session
+  survives MV3 worker restart, page reload, and panel closure.
+- Have the replacement document adopt the pending session during earliest
+  content bootstrap, render the requested inspection surface, then acknowledge
+  paint with the matching token and generation after browser paint opportunity.
+- Clear the session only for matching success, explicit failure, bounded timeout,
+  cancellation, terminal navigation, Unregister, or teardown. Ignore stale
+  acknowledgements and never let a prior `true`/`false` pull end the new session.
+- Fail open with retryable operator feedback if inspection cannot be restored;
+  do not infer or silently fabricate the render mode.
+
+**Exit gate**
+
+- Integration tests cover replacement-document adoption, paint acknowledgement,
+  stale generation rejection, panel close, worker restart, timeout, navigation,
+  failure, cancellation, and Unregister.
+- A browser reload test proves the inspection surface is present before the
+  background clears the matching session.
+
+### P17 — Transport and project the canonical preview model
+
+**Primary decisions:** N-04 and N-09; reinforces D-16–D-18 and U-18d.
+
+**Work**
+
+- Project explicit-included, implicit-included, excluded, undetected, immutable,
+  and closed-shadow classifications directly from the canonical evaluator into
+  the content bus contract. Do not collapse to binary and reconstruct later.
+- Extract concise, safe, human-readable page text for each row. Production leads
+  with that text and a simple included/excluded status; debug adds XPath, full
+  classification, selector/technical details, and diagnostic tooltips.
+- Preserve pointer-only row behavior, exact-target hover emphasis, click-to-scroll,
+  shadow provenance, and stable row identity across mutations.
+- Add a production-build negative assertion for XPath, internal classifications,
+  selector detail, and diagnostics, plus a debug-build positive assertion.
+
+**Exit gate**
+
+- A canonical corpus proves all six classifications survive transport unchanged
+  and are projected correctly in production and debug.
+- Browser tests prove readable text, pointer hover/click behavior, exact scroll
+  targeting, shadow rows, mutation stability, and absence of keyboard focus.
+
+### P18 — Centralize transient surfaces and production toasts
+
+**Primary decisions:** N-07 and N-08; reinforces U-03, U-06, and D-30.
+
+**Work**
+
+- Introduce one context-sensitive transient-surface manager for popup menus,
+  marking context menus, tooltips, previews, dialogs, and similar dismissible UI.
+- Opening one menu closes competing menus; outside-click closes the applicable
+  surface; Escape closes only the topmost dismissible surface. When none exists,
+  Escape exits preview through normal restoration.
+- Never bind Escape to Save, Discard, marking disablement, or cancellation of
+  irreversible/busy work. Integrate the right-click marking menu without
+  bypassing canonical marking commands.
+- Make production toasts replaceable and manually closable. Auto-dismiss success
+  after 1.8 seconds, warning after 4 seconds, and danger/error after 6 seconds;
+  keep persistent conditions in notices, banners, or status surfaces.
+
+**Exit gate**
+
+- Focused ordering tests cover mutual exclusion, outside-click, nested/topmost
+  Escape handling, preview exit, right-click integration, busy protection, and
+  restoration of scroll/interaction state.
+- Fake-clock and browser tests prove tone-specific timing, visible manual close,
+  replacement behavior, cleanup, and production/debug consistency.
+
+### P19 — Decompose only after behavior is stable
+
+**Primary decision:** N-13; continues U-15.
+
+**Work**
+
+- Freeze each corrected behavior with characterization and contract tests before
+  moving code.
+- Incrementally extract typed configuration, render-inspection, preview, Todo,
+  maintenance, consent, and transient-surface controllers, plus focused React
+  sections with narrow props and explicit background-owned commands.
+- Move one cohesive seam per commit. Preserve public contracts, authority,
+  lifecycle cleanup, signal ordering, and the completed P12–P18 evidence.
+- Avoid a big-bang component rewrite or any new popup/content decision authority.
+
+**Exit gate**
+
+- The large popup/content entrypoints no longer own the listed cohesive concerns;
+  import-boundary and authority tests remain green.
+- Each extraction commit passes its characterization tests, `pnpm lint`,
+  `pnpm check`, and the full suite without snapshot-only behavioral claims.
+
+### P20 — Run integrated release gates and witnessed live acceptance
+
+**Primary decisions:** N-01–N-13 integrated acceptance.
+
+**Work**
+
+- Run and retain `pnpm lint`, `pnpm check`, `pnpm test`, `pnpm build:debug`, and
+  `pnpm verify`, plus the pure and real-browser performance/equivalence gates.
+- Inspect the production artifact for debug-only exclusions and the debug artifact
+  for required internal preview and inspection capabilities.
+- Exercise a production build against the live Alpha backend and `bonliva.se`:
+  non-candidate consent suppression, native-dialog closure, late consent UI,
+  silent/post-AI shield behavior and scrolling, inspection across reload/panel
+  closure, human-readable preview rows, debug classifications, transient/Escape
+  behavior, tone-aware toasts, shadow content, and interaction performance.
+- Record extension commit, production artifact digest, browser version, property
+  identity, site URL, benchmark output, Hub commit, and deployed Alpha version.
+- If `UnfluffifyHub` changes, commit and push `develop`, run
+  `gh workflow run 'Alpha Release'`, and monitor until that version is live before
+  final browser acceptance.
+
+**Exit gate**
+
+- All automated, build, benchmark, and witnessed live checks pass with retained
+  evidence. A failure returns to its owning P12–P19 phase and reruns P20.
+
 ## 5. Resume checklist
 
 - [x] P0 — Contract alignment and baseline
@@ -584,6 +835,15 @@ in the owning phase and rerun its focused gate plus P9–P11.
     7 manifest assertions.
   - Hub remained clean at the already-live `9bdce9f`; no Alpha redeploy was
     required.
+- [ ] P12 — Executable traceability repair
+- [ ] P13 — Clean capture, shadow, and consent lifecycle
+- [ ] P14 — Single-pass interaction and real-browser performance
+- [ ] P15 — Frozen-page interaction shield
+- [ ] P16 — Durable background-owned render inspection
+- [ ] P17 — Canonical preview transport and projection
+- [ ] P18 — Transient surfaces and production toasts
+- [ ] P19 — Targeted post-correction decomposition
+- [ ] P20 — Integrated release gates and witnessed live acceptance
 
 For each completed item, append the commit SHA(s), exact test command, result,
 and any live artifact/version directly beneath the checkbox. The first unchecked
@@ -604,7 +864,17 @@ Cross-cutting decisions may be tested again later, but each has one primary owne
 | P6 | I-14, I-16, I-17, I-23–I-25, I-34, I-37; U-08, U-11, U-18c; D-25, D-27 |
 | P7 | U-18b, U-18d; D-13, D-17–D-19, D-26 |
 | P8 | I-29, I-30; U-01, U-03–U-06, U-09, U-18a, U-18e; D-29, D-30, D-32 |
+| P12 | N-12 |
+| P13 | N-01, N-10, N-11 |
+| P14 | N-05, N-06 |
+| P15 | N-02 |
+| P16 | N-03 |
+| P17 | N-04, N-09 |
+| P18 | N-07, N-08 |
+| P19 | N-13 |
+| P20 | N-01–N-13 integrated acceptance |
 
 U-10 is implemented primarily in P1 and exercised again in P6. U-02 is owned by
-P3 for overlay assets and exercised again in P8 for panel branding. All decisions
-are integrated and revalidated in P9–P11.
+P3 for overlay assets and exercised again in P8 for panel branding. The original
+91 decisions were integrated and revalidated in P9–P11. All 104 decisions are
+integrated and revalidated in P20.

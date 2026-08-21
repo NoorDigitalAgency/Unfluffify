@@ -2,10 +2,11 @@
 
 **Status:** Binding product and implementation specification
 
-**Decision date:** 2026-08-20
+**Decision dates:** 2026-08-20; follow-up comparison resolved 2026-08-21
 
-**Scope:** 91 resolved decision units: 37 Intentional, 22 Unsure (U-18 split into
-five independently decided parts), and 32 Diverged.
+**Scope:** 104 resolved decision units: the original 91 (37 Intentional,
+22 Unsure, and 32 Diverged) plus 13 findings from the post-implementation deep
+comparison.
 
 This document records the point-by-point rewrite-versus-legacy Q&A. It is the
 latest authority for every difference listed here. It preserves the rewrite's
@@ -76,6 +77,24 @@ The following rules combine decisions that otherwise appear to overlap:
     generation checks, branch splicing, observer coalescing, geometry sampling,
     and render caches may improve latency, but stale work must be rejected and no
     optimization may alter include/exclude results.
+11. **Consent suppression is property-scoped, not candidate- or session-scoped.**
+    Every recognized property page continuously suppresses ordinary consent UI
+    without removing its DOM and closes native HTML dialogs through the extension.
+    Marking state, candidacy, preview state, panel presence, Save, Discard, and
+    same-property navigation do not release that suppression.
+12. **Frozen surfaces own pointer targeting.** Silent highlighting and post-AI
+    preview place a reversible transparent interaction shield above page content
+    and below extension UI. The shield prevents CSS and JavaScript hover/click
+    activation while preserving wheel/touch scrolling and extension interaction.
+13. **Reload-spanning inspection is background-owned.** Render-mode inspection
+    has a durable token and generation in the background. A replacement document
+    adopts and paints the pending state before acknowledging it; only a matching
+    terminal outcome may clear the inspection surface.
+14. **Performance evidence measures the real browser path.** Pure evaluator
+    benchmarks remain useful but may not be called toggle-to-paint evidence.
+    Release evidence must cover DOM discovery, hit testing, geometry, overlay
+    commit, browser paint, scrolling, stabilization, and silent/marking startup
+    against preserved legacy behavior on deterministic fixtures.
 
 ## 3. Intentional differences — keep the rewrite decision
 
@@ -183,11 +202,33 @@ The following rules combine decisions that otherwise appear to overlap:
 | D-31 | Add React panel recovery: error boundary, detached/corrupted root detection, UI-root recreation, and rehydration from background authority without page reload, lost session, or duplicate subscriptions. |
 | D-32 | Connect scroll locking only to blocking panel operations and modal confirmations. Preserve panel scroll position and unlock on every terminal path. Never lock the inspected page's permitted preview/silent scrolling. |
 
-## 6. Conformance definition
+## 6. Follow-up deep-comparison decisions
+
+These decisions resolve the findings discovered after P11. They are equally
+binding with the original 91 decisions. Where a row refines an earlier I/U/D
+decision, this row is the more specific authority.
+
+| ID | Binding outcome |
+|---|---|
+| N-01 | Sanitize consent-helper changes while serializing the live composed DOM, before removing their internal marker. Remove only extension-added consent properties and every `data-uf-*` artifact. Direct rendered capture, fingerprints, and AI submission must all receive the same clean representation without restoring or mutating the live consent UI for capture. |
+| N-02 | Use a reversible transparent interaction shield in silent highlighting and post-AI preview. It sits above page content and below extension UI, prevents both CSS and JavaScript hover/click targeting, permits native wheel and touch scrolling, and is removed on every terminal path. Event interception alone is insufficient. |
+| N-03 | Make render-mode inspection a durable, tokenized background-owned session. It survives reload and panel closure, is adopted by the new content document, waits for an acknowledgement that the inspection surface painted, and clears only for a matching success, failure, timeout, cancellation, navigation, unregister, or teardown outcome. |
+| N-04 | Transport the complete internal preview model from the canonical evaluator: explicit-included, implicit-included, excluded, undetected, immutable, and closed-shadow. Production projects these to simple operator-facing included/excluded states; debug exposes the complete internal classification. No downstream layer may reconstruct information discarded by content. |
+| N-05 | Initialize a marking or silent engine in one transaction and one composed-DOM bridge pass: calculate defaults, apply optional selectors as ordinary explicit user marks, build indexes, and render. Constructors, activation, and selector seeding must not perform redundant whole-document refreshes. |
+| N-06 | Add deterministic real-browser rewrite-versus-legacy performance gates. Measure silent activation, marking activation, hover, physical click through committed and painted overlay, scroll repositioning, and post-mutation stabilization while asserting identical rows/classifications. The existing pure `evaluateBranch` comparison must be retained but named and scoped accurately. |
+| N-07 | Add one context-sensitive transient-surface manager. Opening one menu closes competing menus; outside-click closes menus; Escape closes only the topmost dismissible surface and, when none exists, exits preview through normal restoration. Escape never saves, discards, disables marking, or cancels irreversible/busy work. |
+| N-08 | Production toasts are replaceable and transient, with a visible manual close control. Success auto-dismisses after 1.8 seconds, warnings after 4 seconds, and danger/error after 6 seconds. Persistent conditions belong in notices, banners, or status surfaces rather than toasts. |
+| N-09 | Production preview rows lead with concise extracted human-readable page text and simple included/excluded status. XPath, full classification, selector/technical detail, and diagnostic tooltips are debug-only. Rows remain pointer-only under D-16. |
+| N-10 | Retain force-open early closed-shadow instrumentation. A page that requests `mode: "closed"` may observe an open `shadowRoot`; this compatibility tradeoff is explicitly accepted to obtain direct, complete flattening, hit testing, geometry, marking, and capture. Generated MAIN-world source parity and artifact stripping remain mandatory. |
+| N-11 | Continuously suppress consent UI on every recognized property page, including non-candidates and pages with no active editor. Ordinary consent elements remain in the DOM but are invisible and non-interactive; native HTML dialogs are closed by the extension so the underlying document can be used. Late-added consent UI is suppressed continuously. Save, Discard, preview, marking changes, and same-property page transitions never restore it. Explicit Unregister, property-configuration removal, leaving the property, or extension unload ends the guarantee. |
+| N-12 | Make decision-to-test traceability executable. Every referenced automated-evidence path must exist; every decision must map to a decision-specific executable assertion or an explicitly named live/build acceptance check. Repair stale paths and add missing behavior tests rather than satisfying the gate with non-empty prose. |
+| N-13 | After the behavioral corrections above are stable, incrementally extract typed configuration, render-inspection, preview, Todo, maintenance, consent, and transient-surface controllers plus focused React sections. Preserve authority boundaries and behavior; do not perform another big-bang rewrite. |
+
+## 7. Conformance definition
 
 An implementation conforms only when all of the following are true:
 
-- Every row above has at least one automated contract assertion or a documented
+- Every I/U/D/N row above has at least one automated contract assertion or a documented
   live-browser acceptance scenario; high-risk rows have both.
 - Production and debug builds are separately tested for capability gating.
 - Optimized marking output is byte-for-byte/structurally equivalent to the
