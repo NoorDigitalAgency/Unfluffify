@@ -885,7 +885,23 @@ in the owning phase and rerun its focused gate plus P9–P11.
     Chromium `151.0.7922.108`, 1280×900 at DPR 1. Source identity, exact check
     catalog, clean-worktree, viewport, fatal-error, and controller-cleanup
     assertions all passed.
-- [ ] P16 — Durable background-owned render inspection
+- [x] P16 — Durable background-owned render inspection
+  - Commit: `3bc84cdb` (`Add durable render inspection lifecycle`).
+  - `pnpm verify` passed lint, generated page-world parity, all TypeScript
+    checks, 104 files / 958 tests, the production build, and all 7 generated
+    manifest assertions.
+  - `pnpm performance:p16` passed on clean commit `3bc84cdbb6f4` with 13/13
+    required real-Chromium checks, including replacement-document adoption
+    before deferred page context, a physically painted exact-identity curtain
+    before acknowledgement, panel-close and worker-restart durability, stale
+    acknowledgement rejection, the complete terminal matrix, monotonic
+    generations, and retirement of legacy inspection-fact authority. Page and
+    console errors were empty.
+  - Retained artifact:
+    `output/playwright/p16-render-inspection/acceptance-2026-08-21T18-31-12-749Z.json`
+    (SHA-256 `a348dc7781b317a857300904dfe9f8505ddb247606ba627ebf8fcf0163c1fd61`),
+    Chromium `151.0.7922.108`, 1280×900 at DPR 1. Source identity, clean-worktree,
+    exact session scope, fatal-error, and controller-cleanup assertions all passed.
 - [ ] P17 — Canonical preview transport and projection
 - [ ] P18 — Transient surfaces and production toasts
 - [ ] P19 — Targeted post-correction decomposition
