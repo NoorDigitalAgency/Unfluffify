@@ -1,4 +1,4 @@
-import type { PopupLogEntry } from "./App";
+import type { PopupLogEntry } from "./presentation";
 
 /** The popup's activity feed: newest first, capped, and every entry identified.
  *
