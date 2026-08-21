@@ -23,6 +23,7 @@ import {
 } from "../content/render-inspection-curtain";
 import { createMarkingEngine } from "../content/marking";
 import { createPhysicalActionDeduper, openMarkingContextMenu } from "../content/marking/interaction";
+import { createPreviewController } from "../content/preview-controller";
 import {
   INITIAL_CONTENT_STATE,
   memoryForContent,
@@ -239,6 +240,22 @@ function contentRowsFromEngine(): Array<{ xpath: string; classification: "includ
     classification: row.excluded ? "excluded" : "included",
   }));
 }
+
+const previewController = createPreviewController({
+  currentPageUrl,
+  currentEngine: () => markingEngine,
+  ensureEngine: () => {
+    if (markingEngine) {
+      return markingEngine;
+    }
+    if (typeof document === "undefined" || !document.documentElement) {
+      return null;
+    }
+    markingEngine = createMarkingEngine(document.documentElement);
+    return markingEngine;
+  },
+  interactionActive: previewInteractionActive,
+});
 
 function getRuntimeBrowser() {
   return getInstalledBrowserApi() ?? browser;
@@ -574,6 +591,15 @@ function applyContentSignal(signal: BrainSignal): boolean {
   const previousStateName = contentState.name;
   const completesPreviewExit = signal.name === "preview.exit.requested" && nextState.name === "exit_restoring";
   const previousPresentation = contentPresentation;
+  const leavesPreviewInteraction = (
+    contentState.name === "preview_open" || contentState.name === "silent_preview"
+  ) && nextState.name !== "preview_open" && nextState.name !== "silent_preview";
+  if (leavesPreviewInteraction) {
+    // Preview targeting is content-owned physical state. Remove it while the
+    // page is still interaction-blocked, before preview.exited can resume page
+    // interactions and expose authority or hover from the prior occurrence.
+    previewController.retireProjection();
+  }
   contentState = nextState;
   if (signal.name === "session.navigated") {
     const toUrl = typeof signal.payload.pageUrl === "string"
@@ -2636,6 +2662,16 @@ function handleUrlChanged(nextUrl?: string): void {
   void establishPageContext();
   if (markingActive) {
     deactivateMarking();
+  } else if (markingEngine) {
+    // Preview projection can create an engine without a marking session. A
+    // same-document URL edge must synchronously retire that old DOM bridge so
+    // an immediate projection for the new URL cannot reuse pre-navigation
+    // elements, row membership, or hover state.
+    markingEngine.clearHover();
+    markingEngine.setInputTransparent?.(false);
+    markingEngine.dispose();
+    markingEngine = null;
+    removeSilentDebugCopyListener?.();
   }
   if (!shouldReportNavigation) {
     return;
@@ -3076,7 +3112,11 @@ export default defineContentScript({
         contentSignalPollHandle = null;
       }
     });
-    getContentBus().onCommand("command.dispatch", (command) => createContentRouter().dispatch(command));
+    const bus = getContentBus();
+    bus.onCommand("command.dispatch", (command) => createContentRouter().dispatch(command));
+    bus.onCommand("preview.project", (request) => previewController.project(request));
+    bus.onCommand("preview.emphasize", (request) => previewController.emphasize(request));
+    bus.onCommand("preview.activate", (request) => previewController.activate(request));
     // Ask for the durable render-inspection session before page.context, signal
     // polling, or any other ordinary remote work. A replacement document can
     // then paint its independently fenced curtain at document_start.

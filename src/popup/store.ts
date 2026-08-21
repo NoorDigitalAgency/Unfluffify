@@ -1,5 +1,6 @@
 import type { BrainSignal } from "../domain/schema/signals";
-import { INITIAL_POPUP_STATE, transitionPopupState, type PopupContentRow, type PopupState } from "./organ/machine";
+import type { PreviewProjection } from "../domain/schema/preview";
+import { INITIAL_POPUP_STATE, transitionPopupState, type PopupMarkingRow, type PopupState } from "./organ/machine";
 import { memoryFor, type PopupPresentation } from "./organ/memory";
 
 export function createPopupStore(initialState: PopupState = INITIAL_POPUP_STATE) {
@@ -23,8 +24,17 @@ export function createPopupStore(initialState: PopupState = INITIAL_POPUP_STATE)
     /** Display-only row refresh. Seeded marks are the session's starting point,
      *  not an operator edit, so they must reach the panel without the dirty
      *  transition a markings.changed signal would cause. */
-    setContentRows(rows: readonly PopupContentRow[]): PopupState {
-      state = { ...state, contentRows: rows };
+    setMarkingRows(rows: readonly PopupMarkingRow[]): PopupState {
+      state = { ...state, markingRows: rows };
+      listeners.forEach((listener) => listener(state));
+      return state;
+    },
+    /** A preview projection is content-owned, page-fenced display state. It never
+     * mutates canonical markings or makes a marking session dirty. */
+    setPreviewProjection(projection: PreviewProjection | null): PopupState {
+      state = projection
+        ? { ...state, previewProjection: projection }
+        : { ...state, previewProjection: undefined };
       listeners.forEach((listener) => listener(state));
       return state;
     },

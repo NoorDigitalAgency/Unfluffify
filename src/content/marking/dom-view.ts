@@ -1,4 +1,5 @@
 import type { EvaluationNode } from "../../domain/evaluate";
+import type { PreviewShadowProvenance } from "../../domain/schema/preview";
 import { isStructuralBoundary as isDomainStructuralBoundary } from "../../domain/boundary";
 import { isImmutableTag } from "../../domain/taxonomy";
 import { isUserVisible, type VisibilityGeometry } from "../../domain/visibility";
@@ -19,7 +20,12 @@ export type DomBridgeNode = Readonly<{
 export type DomBridgeView = Readonly<{
   root: EvaluationNode;
   byElement: Pick<WeakMap<Element, DomBridgeNode>, "get" | "has">;
+  byKey: ReadonlyMap<string, DomBridgeNode>;
   byXpath: ReadonlyMap<string, DomBridgeNode>;
+}>;
+
+export type DomBridgeOptions = Readonly<{
+  keyForElement?: (element: Element) => string;
 }>;
 
 type DomBridgePass = Readonly<{
@@ -339,19 +345,50 @@ function xpathTag(element: Element): string {
   return element.tagName.toLowerCase();
 }
 
+function shadowProvenanceFor(element: Element): PreviewShadowProvenance {
+  const closedHost = element.getAttribute("data-uf-closed-shadow-host") === "true";
+  const ownShadowRoot = (element as Element & { shadowRoot?: ShadowRoot | null }).shadowRoot;
+  if (closedHost) {
+    return ownShadowRoot ? "force-open-closed" : "inaccessible-closed";
+  }
+
+  let cursor: Element | null = element;
+  let enteredShadow = false;
+  const visited = new Set<Element>();
+  while (cursor && !visited.has(cursor)) {
+    visited.add(cursor);
+    const root: Node | null = typeof cursor.getRootNode === "function" ? cursor.getRootNode() : null;
+    const host: Element | null = root && typeof root === "object" && "host" in root
+      ? (root as ShadowRoot).host
+      : null;
+    if (!host) {
+      break;
+    }
+    enteredShadow = true;
+    if (host.getAttribute("data-uf-closed-shadow-host") === "true") {
+      return "force-open-closed";
+    }
+    cursor = host;
+  }
+  return enteredShadow ? "open" : "light";
+}
+
 function buildNode(
   element: Element,
   parent: XPathNodeView | null,
   xpath: string,
   byElement: WeakMap<Element, DomBridgeNode>,
+  byKey: Map<string, DomBridgeNode>,
   byXpath: Map<string, DomBridgeNode>,
   pass: DomBridgePass,
+  options: DomBridgeOptions,
 ): DomBridgeNode | null {
   if (isExtensionUi(element)) {
     return null;
   }
+  const key = options.keyForElement?.(element) ?? xpath;
   const xpathNode = {
-    key: xpath,
+    key,
     tagName: element.tagName,
     parent,
   } as XPathNodeView & { children?: XPathNodeView[]; shadowChildren?: XPathNodeView[] };
@@ -368,7 +405,16 @@ function buildNode(
       const tag = xpathTag(child);
       const nextIndex = (seenTags.get(tag) ?? 0) + 1;
       seenTags.set(tag, nextIndex);
-      const built = buildNode(child, xpathNode, `${xpath}/${tag}[${nextIndex}]`, byElement, byXpath, pass);
+      const built = buildNode(
+        child,
+        xpathNode,
+        `${xpath}/${tag}[${nextIndex}]`,
+        byElement,
+        byKey,
+        byXpath,
+        pass,
+        options,
+      );
       if (built) {
         childNodes.push(built.xpathNode);
         childEvaluations.push(built.evaluationNode);
@@ -380,8 +426,9 @@ function buildNode(
   const structuralRole = structuralRoleFor(element);
   const geometry = geometryFor(element, pass);
   const visible = isUserVisible(element, geometry);
+  const shadow = shadowProvenanceFor(element);
   const evaluationNode: EvaluationNode = {
-    key: xpath,
+    key,
     tagName,
     xpath,
     visible,
@@ -392,6 +439,10 @@ function buildNode(
     landmarkCount: landmarks,
     chrome: isExtensionUi(element),
     immutable,
+    shadow,
+    // An inaccessible authored root does not make the host's accessible light
+    // children uncapturable. Preview classification uses `shadow`; the marking
+    // evaluator's terminal flag remains reserved for wholly synthetic branches.
     closedShadow: false,
     silentWhitespaceExclusion: !immutable && isSilentWhitespaceExclusion(
       element,
@@ -402,12 +453,14 @@ function buildNode(
   };
   const bridgeNode = { element, xpathNode, evaluationNode };
   byElement.set(element, bridgeNode);
+  byKey.set(key, bridgeNode);
   byXpath.set(xpath, bridgeNode);
   return bridgeNode;
 }
 
-export function createDomBridgeView(rootElement: Element): DomBridgeView {
+export function createDomBridgeView(rootElement: Element, options: DomBridgeOptions = {}): DomBridgeView {
   const byElement = new WeakMap<Element, DomBridgeNode>();
+  const byKey = new Map<string, DomBridgeNode>();
   const byXpath = new Map<string, DomBridgeNode>();
   const pass: DomBridgePass = {
     childrenByElement: new WeakMap(),
@@ -419,13 +472,23 @@ export function createDomBridgeView(rootElement: Element): DomBridgeView {
     srOnlyByElement: new WeakMap(),
     interactionGatedByElement: new WeakMap(),
   };
-  const root = buildNode(rootElement, null, `/${xpathTag(rootElement)}[1]`, byElement, byXpath, pass);
+  const root = buildNode(
+    rootElement,
+    null,
+    `/${xpathTag(rootElement)}[1]`,
+    byElement,
+    byKey,
+    byXpath,
+    pass,
+    options,
+  );
   if (!root) {
     throw new Error("Unable to build marking DOM bridge view for root element");
   }
   return {
     root: root.evaluationNode,
     byElement,
+    byKey,
     byXpath,
   };
 }

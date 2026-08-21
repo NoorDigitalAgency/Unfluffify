@@ -2,8 +2,18 @@ import { chooseWidenTarget, type WidenNode } from "../../domain/widening";
 import { applySelectorSeed } from "../../domain/selector-seed";
 import type { SelectorSet } from "../../storage/config";
 import type { CanonicalMarkSet, Classification, MarkMode, MarkRow } from "../../domain/schema/marking";
-import type { EvaluationNode } from "../../domain/evaluate";
-import { captureFlattenedHtml, createDomBridgeView, type DomBridgeView } from "./dom-view";
+import {
+  evaluatePreview,
+  type EvaluationNode,
+  type PreviewSelectorMatchContext,
+} from "../../domain/evaluate";
+import type { PreviewProjection, PreviewRow } from "../../domain/schema/preview";
+import {
+  captureFlattenedHtml,
+  createDomBridgeView,
+  type DomBridgeOptions,
+  type DomBridgeView,
+} from "./dom-view";
 import { getComposedHitElements } from "./hit-testing";
 import { isPaintReachableWithinHits } from "./paint-reachability";
 import { createMarkingStore } from "./store";
@@ -27,6 +37,111 @@ function evaluationNodeFingerprint(node: EvaluationNode): string {
     node.closedShadow ? "1" : "0",
     ...(node.children ?? []).map((child) => child.xpath),
   ].join("\u0000");
+}
+
+function createPreviewProjectionId(): string {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  return uuid ? `preview-${uuid}` : `preview-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+const PREVIEW_TEXT_BLOCKED_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"]);
+
+function previewTextElementExcluded(element: Element, root: Element): boolean {
+  if (PREVIEW_TEXT_BLOCKED_TAGS.has(element.tagName.toUpperCase())) {
+    return true;
+  }
+  if (element !== root && (
+    element.hasAttribute("data-wxt-shadow-root") ||
+    element.getAttribute("data-uf-extension-ui") === "true" ||
+    element.tagName.toLowerCase() === "browser-mcp-container" ||
+    element.id === "browser-mcp-container" ||
+    element.id.startsWith("unfluffify-")
+  )) {
+    return true;
+  }
+  return element.getAttribute("aria-hidden") === "true" ||
+    element.hasAttribute("hidden") ||
+    (element as HTMLElement).hidden === true;
+}
+
+function safePreviewFallbackText(root: Element): string {
+  const fragments: string[] = [];
+  const visited = new Set<Node>();
+  const visit = (node: Node): void => {
+    if (visited.has(node)) {
+      return;
+    }
+    visited.add(node);
+    if (node.nodeType === 3) {
+      fragments.push(node.textContent ?? "");
+      return;
+    }
+    if (node.nodeType !== 1) {
+      return;
+    }
+    const element = node as Element;
+    if (previewTextElementExcluded(element, root)) {
+      return;
+    }
+    const shadowRoot = (element as Element & { shadowRoot?: ShadowRoot | null }).shadowRoot;
+    const children = shadowRoot ? Array.from(shadowRoot.childNodes) : Array.from(element.childNodes);
+    for (const child of children) {
+      if (
+        child.nodeType === 1 &&
+        (child as Element).tagName.toUpperCase() === "SLOT" &&
+        typeof (child as HTMLSlotElement).assignedNodes === "function"
+      ) {
+        let assigned: Node[] = [];
+        try {
+          assigned = (child as HTMLSlotElement).assignedNodes({ flatten: true });
+        } catch {
+          // A realm-specific slot implementation can reject the flatten option.
+        }
+        for (const assignedNode of assigned.length > 0 ? assigned : Array.from(child.childNodes)) {
+          visit(assignedNode);
+        }
+      } else {
+        visit(child);
+      }
+    }
+  };
+  visit(root);
+  return fragments.join(" ");
+}
+
+function normalizePreviewText(value: string): string {
+  const withoutControls = Array.from(value, (character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 0x1f || (codePoint >= 0x7f && codePoint <= 0x9f)
+      ? " "
+      : character;
+  }).join("");
+  return withoutControls
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+export function previewTextForElement(element: Element): string {
+  const htmlElement = element as HTMLElement;
+  const containsExcludedDescendant = (() => {
+    try {
+      return Array.from(element.querySelectorAll?.("*") ?? [])
+        .some((descendant) => previewTextElementExcluded(descendant, element));
+    } catch {
+      return true;
+    }
+  })();
+  const innerText = !containsExcludedDescendant && typeof htmlElement.innerText === "string"
+    ? normalizePreviewText(htmlElement.innerText)
+    : "";
+  const deterministicText = normalizePreviewText(safePreviewFallbackText(element));
+  const fallback = innerText || deterministicText ||
+    normalizePreviewText(element.getAttribute("aria-label") ?? "") ||
+    normalizePreviewText(element.getAttribute("alt") ?? "") ||
+    normalizePreviewText(element.getAttribute("title") ?? "") ||
+    element.tagName.toLowerCase();
+  const codePoints = Array.from(fallback);
+  return codePoints.length > 80 ? `${codePoints.slice(0, 77).join("")}...` : fallback;
 }
 
 function buildCandidateIndex(
@@ -166,7 +281,7 @@ export type MarkingEngineWorkStage =
 
 export type MarkingEngineInstrumentation = Readonly<{
   /** Test seam: the returned bridge is the bridge the engine actually uses. */
-  createBridge?: (rootElement: Element) => DomBridgeView;
+  createBridge?: (rootElement: Element, options?: DomBridgeOptions) => DomBridgeView;
   /** Test seam: the returned renderer receives every engine render operation. */
   createRenderer?: typeof createOverlayRenderer;
   onWorkStage?: (stage: MarkingEngineWorkStage) => void;
@@ -188,17 +303,34 @@ export type MarkingEngineRefreshOptions = Readonly<{
  * deliberately bridge-first: document.querySelectorAll cannot enter shadow roots,
  * while an Element can answer whether it matches regardless of how it was reached.
  */
+type BridgeSelectorSeed = Readonly<{
+  excludeXpaths: readonly string[];
+  includeXpaths: readonly string[];
+  seeded: boolean;
+  matches: PreviewSelectorMatchContext;
+}>;
+
 function selectorSeedForBridge(
   bridge: DomBridgeView,
   selectors: SelectorSet | null | undefined,
-): Readonly<{ excludeXpaths: readonly string[]; includeXpaths: readonly string[]; seeded: boolean }> {
+): BridgeSelectorSeed {
   if (!selectors) {
-    return { excludeXpaths: [], includeXpaths: [], seeded: false };
+    return {
+      excludeXpaths: [],
+      includeXpaths: [],
+      seeded: false,
+      matches: {
+        inclusionSelectorByKey: new Map(),
+        exclusionSelectorByKey: new Map(),
+      },
+    };
   }
   const excludeXpaths: string[] = [];
   const includeXpaths: string[] = [];
-  const documentMatches = (candidates: readonly string[]): Set<Element> => {
-    const matches = new Set<Element>();
+  const inclusionSelectorByKey = new Map<string, string>();
+  const exclusionSelectorByKey = new Map<string, string>();
+  const documentMatches = (candidates: readonly string[]): Map<Element, string> => {
+    const matches = new Map<Element, string>();
     const ownerDocument = bridge.byXpath.values().next().value?.element.ownerDocument;
     if (!ownerDocument?.querySelectorAll) {
       return matches;
@@ -215,7 +347,9 @@ function selectorSeedForBridge(
       }
       try {
         for (const element of ownerDocument.querySelectorAll(selector)) {
-          matches.add(element);
+          if (!matches.has(element)) {
+            matches.set(element, selector);
+          }
         }
       } catch {
         // Invalid selectors remain isolated from the rest of the seed set.
@@ -228,35 +362,44 @@ function selectorSeedForBridge(
   const matchesAny = (
     element: Element,
     candidates: readonly string[],
-    scopedDocumentMatches: ReadonlySet<Element>,
-  ): boolean => {
-    if (scopedDocumentMatches.has(element)) {
-      return true;
+    scopedDocumentMatches: ReadonlyMap<Element, string>,
+  ): string | undefined => {
+    const scopedSelector = scopedDocumentMatches.get(element);
+    if (scopedSelector) {
+      return scopedSelector;
     }
     for (const selector of candidates) {
       try {
         if (element.matches?.(selector)) {
-          return true;
+          return selector;
         }
       } catch {
         // One invalid or realm-specific selector must not block the remaining
         // selector set or the initialization transaction.
       }
     }
-    return false;
+    return undefined;
   };
   for (const [xpath, entry] of bridge.byXpath) {
-    if (matchesAny(entry.element, selectors.exclusionSelectors, documentExcludeMatches)) {
+    const exclusionSelector = matchesAny(entry.element, selectors.exclusionSelectors, documentExcludeMatches);
+    if (exclusionSelector) {
       excludeXpaths.push(xpath);
+      exclusionSelectorByKey.set(entry.evaluationNode.key, exclusionSelector);
     }
-    if (matchesAny(entry.element, selectors.inclusionSelectors, documentIncludeMatches)) {
+    const inclusionSelector = matchesAny(entry.element, selectors.inclusionSelectors, documentIncludeMatches);
+    if (inclusionSelector) {
       includeXpaths.push(xpath);
+      inclusionSelectorByKey.set(entry.evaluationNode.key, inclusionSelector);
     }
   }
   return {
     excludeXpaths,
     includeXpaths,
     seeded: excludeXpaths.length > 0 || includeXpaths.length > 0,
+    matches: {
+      inclusionSelectorByKey,
+      exclusionSelectorByKey,
+    },
   };
 }
 
@@ -280,8 +423,26 @@ export function createMarkingEngine(
   options: MarkingEngineInitializationOptions = {},
 ) {
   const instrumentation = options.instrumentation;
+  const previewIdentityNamespace = createPreviewProjectionId();
+  let previewOccurrence = 0;
+  let activePreviewProjectionId: string | null = null;
+  const previewIdByElement = new WeakMap<Element, string>();
+  let nextPreviewId = 0;
+  const keyForElement = (element: Element): string => {
+    const existing = previewIdByElement.get(element);
+    if (existing) {
+      return existing;
+    }
+    nextPreviewId += 1;
+    const id = `${previewIdentityNamespace}-row-${nextPreviewId}`;
+    previewIdByElement.set(element, id);
+    return id;
+  };
+  const bridgeOptions: DomBridgeOptions = { keyForElement };
   const buildBridge = (): DomBridgeView => {
-    const nextBridge = (instrumentation?.createBridge ?? createDomBridgeView)(rootElement);
+    const nextBridge = instrumentation?.createBridge
+      ? instrumentation.createBridge(rootElement, bridgeOptions)
+      : createDomBridgeView(rootElement, bridgeOptions);
     instrumentation?.onWorkStage?.("bridge");
     return nextBridge;
   };
@@ -312,7 +473,11 @@ export function createMarkingEngine(
   let overlayTargets = new Map<string, OverlayRenderTarget>();
   let widenByKey = new Map<string, WidenNode>();
   let bridgeGeneration = 0;
+  let previewRevision = 0;
   let toggleInProgress = false;
+  let previewEmphasizedRowId: string | null = null;
+  let lastPreviewRequest: Readonly<{ pageUrl: string; selectors: SelectorSet }> | null = null;
+  let currentPreviewProjection: PreviewProjection | null = null;
   const generationByNode = new WeakMap<EvaluationNode, number>();
   const fingerprintByNode = new WeakMap<EvaluationNode, string>();
 
@@ -341,6 +506,67 @@ export function createMarkingEngine(
     return candidateByXpath;
   };
 
+  const buildPreviewProjection = (pageUrl: string, selectors: SelectorSet): PreviewProjection => {
+    if (!activePreviewProjectionId) {
+      previewOccurrence += 1;
+      activePreviewProjectionId = `${previewIdentityNamespace}-occurrence-${previewOccurrence}`;
+    }
+    const seed = selectorSeedForBridge(bridge, selectors);
+    const defaults = mergeDefaultExclusions(bridge.root, { rows: [] });
+    const marks = seed.seeded ? applySelectorSeed(defaults, seed) : defaults;
+    const evaluated = evaluatePreview(marks, { root: bridge.root }, seed.matches);
+    const rows: PreviewRow[] = evaluated.flatMap((row) => {
+      const entry = bridge.byKey.get(row.id);
+      if (!entry) {
+        return [];
+      }
+      return [{
+        id: row.id,
+        classification: row.classification,
+        text: previewTextForElement(entry.element),
+        xpath: row.xpath,
+        ...(row.selector ? { selector: row.selector } : {}),
+        shadow: entry.evaluationNode.shadow ?? "light",
+      }];
+    });
+    return {
+      projectionId: activePreviewProjectionId,
+      // A selector-only reprojection is just as material as a DOM rebase. Keep
+      // one monotonic projection clock so consumers can adopt either change
+      // without relying on XPath or selector equality heuristics.
+      revision: ++previewRevision,
+      pageUrl,
+      rows,
+    };
+  };
+
+  const refreshCurrentPreviewProjection = (): void => {
+    if (!lastPreviewRequest) {
+      return;
+    }
+    currentPreviewProjection = buildPreviewProjection(
+      lastPreviewRequest.pageUrl,
+      lastPreviewRequest.selectors,
+    );
+  };
+
+  const reconcilePreviewEmphasis = (): void => {
+    const rowId = previewEmphasizedRowId;
+    if (!rowId) {
+      return;
+    }
+    const rowStillProjected = currentPreviewProjection?.rows.some((row) => row.id === rowId) === true;
+    const target = rowStillProjected ? bridge.byKey.get(rowId) : undefined;
+    if (!target || (target.element as Element & { isConnected?: boolean }).isConnected === false) {
+      previewEmphasizedRowId = null;
+      renderer.setHover(null);
+      return;
+    }
+    // The Element identity can survive while its positional XPath changes. Move
+    // the physical emphasis to the freshly bridged element/current diagnostic.
+    renderer.setHover(target.element, target.evaluationNode.xpath);
+  };
+
   const refreshBridge = (refreshOptions: MarkingEngineRefreshOptions = {}): boolean => {
     hoverResolution = null;
     const previousMarks = store.canonicalSet();
@@ -350,6 +576,8 @@ export function createMarkingEngine(
     store = createMarkingStore({ root: bridge.root }, next.marks);
     instrumentation?.onWorkStage?.("store-evaluate");
     rebuildBridgeIndexes();
+    refreshCurrentPreviewProjection();
+    reconcilePreviewEmphasis();
     if (refreshOptions.render) {
       renderCurrent();
     }
@@ -657,7 +885,7 @@ export function createMarkingEngine(
         const widenNode = widenByKey.get(resolved.key) ?? widenByKey.get(resolved.xpath);
         const widened = widenNode ? chooseWidenTarget(widenNode) : null;
         return widened
-          ? bridge.byXpath.get(widened.key)?.evaluationNode ?? bridge.byXpath.get(resolved.xpath)?.evaluationNode ?? null
+          ? bridge.byKey.get(widened.key)?.evaluationNode ?? bridge.byXpath.get(resolved.xpath)?.evaluationNode ?? null
           : bridge.byXpath.get(resolved.xpath)?.evaluationNode ?? null;
       }
       return bridge.byXpath.get(resolved.xpath)?.evaluationNode ?? null;
@@ -781,7 +1009,68 @@ export function createMarkingEngine(
       renderer.setHover(element, node?.xpath ?? "");
     },
     clearHover(): void {
+      previewEmphasizedRowId = null;
       renderer.setHover(null);
+    },
+    projectPreview(pageUrl: string, selectors: SelectorSet): PreviewProjection {
+      lastPreviewRequest = {
+        pageUrl,
+        selectors: {
+          inclusionSelectors: [...selectors.inclusionSelectors],
+          exclusionSelectors: [...selectors.exclusionSelectors],
+        },
+      };
+      currentPreviewProjection = buildPreviewProjection(pageUrl, lastPreviewRequest.selectors);
+      reconcilePreviewEmphasis();
+      return currentPreviewProjection;
+    },
+    currentPreviewProjection(): PreviewProjection | null {
+      return currentPreviewProjection;
+    },
+    retirePreviewProjection(): void {
+      previewEmphasizedRowId = null;
+      lastPreviewRequest = null;
+      currentPreviewProjection = null;
+      activePreviewProjectionId = null;
+      renderer.setHover(null);
+    },
+    emphasizePreviewRow(targetProjectionId: string, rowId: string, active: boolean): boolean {
+      if (
+        currentPreviewProjection?.projectionId !== targetProjectionId ||
+        !currentPreviewProjection.rows.some((row) => row.id === rowId)
+      ) {
+        return false;
+      }
+      if (!active) {
+        if (previewEmphasizedRowId === rowId) {
+          previewEmphasizedRowId = null;
+          renderer.setHover(null);
+        }
+        return true;
+      }
+      const target = bridge.byKey.get(rowId);
+      if (!target || (target.element as Element & { isConnected?: boolean }).isConnected === false) {
+        return false;
+      }
+      previewEmphasizedRowId = rowId;
+      renderer.setHover(target.element, target.evaluationNode.xpath);
+      return true;
+    },
+    activatePreviewRow(targetProjectionId: string, rowId: string): boolean {
+      if (
+        currentPreviewProjection?.projectionId !== targetProjectionId ||
+        !currentPreviewProjection.rows.some((row) => row.id === rowId)
+      ) {
+        return false;
+      }
+      const target = bridge.byKey.get(rowId);
+      if (!target || (target.element as Element & { isConnected?: boolean }).isConnected === false) {
+        return false;
+      }
+      previewEmphasizedRowId = rowId;
+      renderer.setHover(target.element, target.evaluationNode.xpath);
+      target.element.scrollIntoView?.({ block: "center", inline: "nearest", behavior: "smooth" });
+      return true;
     },
     emphasizeXpath(xpath: string): boolean {
       const target = byXpathElements().get(xpath);
@@ -813,6 +1102,10 @@ export function createMarkingEngine(
     },
     dispose(): void {
       hoverResolution = null;
+      previewEmphasizedRowId = null;
+      lastPreviewRequest = null;
+      currentPreviewProjection = null;
+      activePreviewProjectionId = null;
       observerCleanup?.();
       observerCleanup = null;
       renderer.dispose();

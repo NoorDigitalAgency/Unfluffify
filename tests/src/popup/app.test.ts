@@ -9,6 +9,7 @@ import {
   EMPTY_POPUP_DIAGNOSTICS,
   EMPTY_POPUP_SETTINGS_FORM,
   resolvePopupCurtainKind,
+  PreviewRowList,
   type PopupCredentialsForm,
   type PopupDiagnostics,
   type PopupSettingsForm,
@@ -116,10 +117,33 @@ const EDITING: PopupState = {
   lastConsumedSeq: 4,
   reconciliationReason: "",
   enableToggleChecked: true,
-  contentRows: [
+  markingRows: [
     { xpath: "/html[1]/body[1]/div[1]/nav[1]", classification: "excluded" },
     { xpath: "/html[1]/body[1]/div[1]/p[1]", classification: "included" },
     { xpath: "/html[1]/body[1]/div[1]/p[2]", classification: "included" },
+  ],
+};
+
+const PREVIEW_PROJECTION = {
+  projectionId: "projection-1",
+  revision: 7,
+  pageUrl: "https://example.com/page",
+  rows: [
+    {
+      id: "row-explicit",
+      classification: "explicit-included" as const,
+      text: "Readable article introduction",
+      xpath: "/html[1]/body[1]/main[1]/p[1]",
+      selector: "main > p:first-child",
+      shadow: "light" as const,
+    },
+    {
+      id: "row-closed",
+      classification: "closed-shadow" as const,
+      text: "Closed component summary",
+      xpath: "/html[1]/body[1]/x-card[1]",
+      shadow: "force-open-closed" as const,
+    },
   ],
 };
 
@@ -271,11 +295,8 @@ describe("popup App surface", () => {
       priorState: "post_ai_clean",
       reconciliationReason: "post_ai",
       selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
-      contentRows: [
-        ...(EDITING.contentRows ?? []),
-        { xpath: "/html[1]/body[1]/img[1]", classification: "immutable" },
-        { xpath: "/html[1]/body[1]/x-card[1]", classification: "closed-shadow" },
-      ],
+      markingRows: EDITING.markingRows,
+      previewProjection: PREVIEW_PROJECTION,
     };
     const markup = renderApp(state, { ...SIGNED_IN, stateName: "preview_open", renderMode: "rendered" });
 
@@ -284,13 +305,16 @@ describe("popup App surface", () => {
     expect(markup).toContain('id="preview-exit"');
     expect(markup).toContain('aria-label="Exit Preview"');
     expect(markup).toContain("Exit preview to resume editing.");
-    expect(markup).toContain("/html[1]/body[1]/div[1]/nav[1]");
+    expect(markup).toContain("Point to a row to compare it with the page");
+    expect(markup).toContain("Readable article introduction");
     expect(markup).toContain('class="preview-sidebar__item-button"');
     expect(markup).not.toContain('class="preview-sidebar__item-button" tabindex=');
     expect(markup).not.toContain('<button class="preview-sidebar__item-button"');
-    expect(markup).toContain('data-row-classification="immutable"');
-    expect(markup).toContain('data-row-classification="closed-shadow"');
-    expect(markup).toContain('data-row-internal-classification="immutable"');
+    expect(markup).toContain('data-preview-row-debug="true"');
+    expect(markup).toContain("explicit-included");
+    expect(markup).toContain("/html[1]/body[1]/main[1]/p[1]");
+    expect(markup).toContain("main &gt; p:first-child");
+    expect(markup).toContain("force-open-closed");
     for (const id of ["toggle-enabled", "page-save", "page-revert", "marking-preview", "config-header-open"]) {
       expect(markup, `#${id} must not remain interactive behind preview`).not.toContain(`id="${id}"`);
     }
@@ -302,6 +326,73 @@ describe("popup App surface", () => {
     expect(restoring).toContain('aria-busy="true"');
     expect(restoring).toMatch(/id="preview-exit"[^>]*disabled/);
     expect(restoring).toContain("Restoring the page…");
+  });
+
+  it("renders readable production rows without technical detail and exact debug rows behind the pure seam", () => {
+    const classifications = [
+      "explicit-included",
+      "implicit-included",
+      "excluded",
+      "undetected",
+      "immutable",
+      "closed-shadow",
+    ] as const;
+    const shadows = ["light", "open", "force-open-closed", "inaccessible-closed"] as const;
+    const projection = {
+      projectionId: "projection-private",
+      revision: 12,
+      pageUrl: "https://example.com/page",
+      rows: classifications.map((classification, index) => ({
+        id: `stable-row-${index + 1}`,
+        classification,
+        text: `Readable row ${index + 1}`,
+        xpath: `/html[1]/body[1]/main[1]/p[${index + 1}]`,
+        selector: `main > p:nth-child(${index + 1})`,
+        shadow: shadows[index % shadows.length]!,
+      })),
+    };
+    const renderRows = (debug: boolean) => renderToStaticMarkup(createElement(PreviewRowList, {
+      projection,
+      debug,
+      hoveredRowId: null,
+    }));
+
+    const production = renderRows(false);
+    expect(production.indexOf("Readable row 1")).toBeLessThan(production.indexOf("Included"));
+    expect(production).toContain("Included");
+    expect(production).toContain("Excluded");
+    for (const detail of [
+      ...classifications,
+      ...shadows,
+      ...projection.rows.flatMap((row) => [row.id, row.xpath, row.selector, row.selector.replaceAll(">", "&gt;")]),
+    ]) {
+      expect(production, `production leaked ${detail}`).not.toContain(detail);
+    }
+    expect(production).not.toContain("title=");
+    expect(production).not.toContain("data-");
+    expect(production).not.toContain("tabindex=");
+    expect(production).not.toContain("<button");
+    expect(production).not.toContain(" role=");
+
+    const debug = renderRows(true);
+    for (const detail of [
+      ...classifications,
+      ...shadows,
+      ...projection.rows.flatMap((row) => [row.id, row.xpath, row.selector.replaceAll(">", "&gt;")]),
+    ]) {
+      expect(debug, `debug omitted ${detail}`).toContain(detail);
+    }
+    expect(debug).toContain('data-preview-row-debug="true"');
+    expect(debug).toContain('data-preview-row-debug-detail="true"');
+    const debugTitles = [...debug.matchAll(/\stitle="([^"]*)"/g)].map((match) => match[1]!);
+    expect(debugTitles).toHaveLength(projection.rows.length);
+    projection.rows.forEach((row, index) => {
+      const title = debugTitles[index]!;
+      expect(title).toContain(`Classification: ${row.classification}`);
+      expect(title).toContain(`XPath: ${row.xpath}`);
+      expect(title).toContain(`Selector: ${row.selector.replaceAll(">", "&gt;")}`);
+      expect(title).toContain(`Shadow: ${row.shadow}`);
+    });
   });
 
   it("offers silent preview only when saved selectors exist", () => {

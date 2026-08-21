@@ -23,6 +23,7 @@ import {
   type LynxChecklistState,
 } from "../../popup/App";
 import { createPopupStore } from "../../popup/store";
+import type { PopupState } from "../../popup/organ/machine";
 import { createPopupRootRecovery } from "../../popup/root-recovery";
 import type { BrainSignal } from "../../domain/schema/signals";
 import type { AiRunPayloadSnapshot } from "../../domain/schema/submission";
@@ -40,6 +41,13 @@ import type { ConfigSnapshot, PropertyPublishRequest, PropertySaveRequest, Selec
 import { canonicalPageKey } from "../../storage/property-snapshot-authority";
 import type { ConnectionSettings } from "../../storage/settings";
 import type { RenderMode } from "../../domain/schema/property";
+import type {
+  PreviewEmphasizeRequest,
+  PreviewProjectRequest,
+  PreviewProjection,
+  PreviewTargetRequest,
+  PreviewTargetResponse,
+} from "../../domain/schema/preview";
 import { isRenderModeConfirmed } from "../../storage/config";
 import { resolvePopupView, type PopupView, type PopupViewRequest } from "../../popup/view";
 import { createSignalCursor } from "../../popup/signal-cursor";
@@ -114,6 +122,9 @@ let boundTabKey: string | null = null;
  *  gets a fresh realm and may deliberately establish authority again. */
 let contentCommandTerminal = false;
 let contentCommandEpoch = 0;
+/** Only the newest projection request for the current binding may adopt. The
+ * content engine also supplies a per-projection revision for monotonic refresh. */
+let previewProjectionRequestEpoch = 0;
 const TERMINAL_CONTENT_COMMANDS = new Set([
   "deactivateContentMain",
   "terminateConsentSuppression",
@@ -246,6 +257,7 @@ function safeOrigin(url: string): string {
 /** A tab binding owns one popup organ instance. Rebinding creates a fresh organ;
  *  state changes within that binding still happen only through decided signals. */
 function replacePopupStore(): void {
+  previewProjectionRequestEpoch += 1;
   unsubscribeStore?.();
   store = createPopupStore({
     name: "silent",
@@ -508,17 +520,30 @@ const SIGNAL_TONES: Readonly<Partial<Record<BrainSignal["name"], PopupLogEntry["
 };
 
 function dispatchSignal(signal: BrainSignal): void {
-  const before = store.getState().name;
+  const beforeState = store.getState();
+  const before = beforeState.name;
   store.dispatch(signal);
   if (signal.name === "markings.changed") {
     contentDirty = true;
   }
-  const after = store.getState().name;
+  const afterState = store.getState();
+  const after = afterState.name;
+  if (popupStateHasOpenPreview(beforeState) && !popupStateHasOpenPreview(afterState)) {
+    // Leaving Preview retires every request that was authorized by that preview
+    // occurrence. A delayed content reply must not repopulate the projection the
+    // preview.exited transition just cleared.
+    previewProjectionRequestEpoch += 1;
+  }
   logEvent(
     signal.name,
     before === after ? `#${signal.seq} · ${signal.source}` : `#${signal.seq} · ${before} → ${after}`,
     SIGNAL_TONES[signal.name] ?? "info",
   );
+}
+
+function popupStateHasOpenPreview(state: PopupState): boolean {
+  const visibleState = state.name === "locked" ? state.priorState : state.name;
+  return visibleState === "preview_open" || visibleState === "silent_preview";
 }
 
 function signalMatchesBinding(signal: BrainSignal, tabId: number, requestKey: string | null): boolean {
@@ -627,7 +652,7 @@ async function pullSignals(tabId: number, requestKey = boundTabKey): Promise<num
     if (markingChanged) {
       // Rows no longer ride the signal, so fetch them once for the whole batch
       // rather than once per signal.
-      await adoptContentRows(tabId, requestKey);
+      await adoptMarkingRows(tabId, requestKey);
     }
     return applied;
   });
@@ -1086,6 +1111,12 @@ async function pollCurrentTabSignals(): Promise<void> {
     return;
   }
   await pullSignals(context.tabId, requestKey);
+  if (previewStateIsOpen()) {
+    // Preview rows are a live content projection rather than a brain fact. Poll
+    // the cheap current bridge so structural mutations advance its revision even
+    // when no marking signal was emitted.
+    await ensurePreviewProjection(context, requestKey);
+  }
   await refreshLockDirective(context, requestKey);
   await observeCurrentRenderInspection(context, requestKey, inspectionProperty);
   // Guarded by the attempted-site id, so this is one request per property once
@@ -1273,6 +1304,68 @@ async function requestContentMessage(tabId: number, message: Record<string, unkn
     console.error("[Unfluffify][rewrite] Unable to request content command", error);
     return null;
   }
+}
+
+async function requestTypedPreviewContent<T>(
+  tabId: number,
+  send: (bus: ReturnType<typeof createRealmBus>) => Promise<
+    Readonly<{ ok: true; data: T }> | Readonly<{ ok: false; failure: unknown }>
+  >,
+): Promise<T | null> {
+  const requestEpoch = contentCommandEpoch;
+  if (contentCommandTerminal) {
+    return null;
+  }
+  const bus = createRealmBus({
+    realm: "popup",
+    transport: createTabTransport(getRuntimeBrowser().tabs, tabId),
+  });
+  try {
+    const response = await send(bus);
+    if (contentCommandTerminal || contentCommandEpoch !== requestEpoch) {
+      return null;
+    }
+    if (!response.ok) {
+      contentReachable = false;
+      if (!contentUnreachableReported) {
+        contentUnreachableReported = true;
+        logEvent("Content script unreachable", "reload the page to inject it", "warn");
+      }
+      return null;
+    }
+    contentReachable = true;
+    contentUnreachableReported = false;
+    return response.data;
+  } catch (error) {
+    console.error("[Unfluffify][rewrite] Unable to request typed preview command", error);
+    return null;
+  } finally {
+    bus.dispose();
+  }
+}
+
+function requestPreviewProjection(
+  tabId: number,
+  request: PreviewProjectRequest,
+): Promise<PreviewProjection | null> {
+  return requestTypedPreviewContent(tabId, (bus) =>
+    bus.request("preview.project", request, { target: "content" }));
+}
+
+function requestPreviewEmphasis(
+  tabId: number,
+  request: PreviewEmphasizeRequest,
+): Promise<PreviewTargetResponse | null> {
+  return requestTypedPreviewContent(tabId, (bus) =>
+    bus.request("preview.emphasize", request, { target: "content" }));
+}
+
+function requestPreviewActivation(
+  tabId: number,
+  request: PreviewTargetRequest,
+): Promise<PreviewTargetResponse | null> {
+  return requestTypedPreviewContent(tabId, (bus) =>
+    bus.request("preview.activate", request, { target: "content" }));
 }
 
 function beginContentCommandTerminal(): number {
@@ -1570,7 +1663,10 @@ async function reconcileContentStatus(context: TargetTabContext, requestKey = bo
       // on the next poll tick half a second later.
       await pullSignals(context.tabId, requestKey);
     }
-    await adoptContentRows(context.tabId, requestKey);
+    await adoptMarkingRows(context.tabId, requestKey);
+  }
+  if (previewStateIsOpen()) {
+    await ensurePreviewProjection(context, requestKey);
   }
 }
 
@@ -1598,7 +1694,7 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     });
     contentActive = activated;
     if (activated) {
-      await adoptContentRows(context.tabId, requestKey);
+      await adoptMarkingRows(context.tabId, requestKey);
       await reportPopupFact(context, "debug-direct-marking-activated", { markingEnabled: true }, requestKey);
     }
     logEvent(activated ? "Direct marking enabled" : "Direct marking failed", context.url, activated ? "success" : "danger");
@@ -1648,7 +1744,7 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     if (activated) {
       // The seeded marks are the session's starting point, so show them without
       // pretending the operator has edited anything.
-      await adoptContentRows(context.tabId, requestKey);
+      await adoptMarkingRows(context.tabId, requestKey);
     }
     logEvent(
       activated ? "Marking enabled" : "Marking activation failed",
@@ -1742,15 +1838,21 @@ async function reportPopupFactAndPull(
 /** Pulls the engine's current rows into the projection for display only. Used
  *  after activation, where the rows come from the selector seed rather than from
  *  an operator edit and so must not mark the session dirty. */
-async function adoptContentRows(tabId: number, requestKey = boundTabKey): Promise<void> {
+async function adoptMarkingRows(tabId: number, requestKey = boundTabKey): Promise<void> {
   const response = await requestContentMessage(tabId, { type: "getContentMainStatus" });
   if (boundTabKey !== requestKey || !response || typeof response !== "object" || !("ok" in response) || response.ok !== true) {
     return;
   }
   const rows = (response as { contentRows?: unknown }).contentRows;
   if (Array.isArray(rows)) {
-    store.setContentRows(rows.filter((row): row is { xpath: string; classification: "included" | "excluded" } =>
-      Boolean(row) && typeof row === "object" && typeof (row as { xpath?: unknown }).xpath === "string"));
+    store.setMarkingRows(rows.filter((row): row is { xpath: string; classification: "included" | "excluded" } => {
+      if (!row || typeof row !== "object") {
+        return false;
+      }
+      const candidate = row as { xpath?: unknown; classification?: unknown };
+      return typeof candidate.xpath === "string" &&
+        (candidate.classification === "included" || candidate.classification === "excluded");
+    }));
   }
 }
 
@@ -2967,6 +3069,105 @@ async function saveSession(): Promise<void> {
   render();
 }
 
+function currentPreviewProjection(): PreviewProjection | null {
+  return store.getState().previewProjection ?? null;
+}
+
+type PreviewProjectionCandidate = Readonly<{
+  operationEpoch: number;
+  projection: PreviewProjection;
+}>;
+
+async function requestPreviewProjectionForContext(
+  context: TargetTabContext,
+  requestKey = boundTabKey,
+): Promise<PreviewProjectionCandidate | null> {
+  const operationEpoch = ++previewProjectionRequestEpoch;
+  const selectors = store.getPresentation().selectors;
+  const projection = await requestPreviewProjection(context.tabId, {
+    pageUrl: context.url,
+    selectors: {
+      inclusionSelectors: [...selectors.inclusionSelectors],
+      exclusionSelectors: [...selectors.exclusionSelectors],
+    },
+  });
+  if (
+    !projection ||
+    projection.pageUrl !== context.url ||
+    boundTabId !== context.tabId ||
+    boundTabKey !== requestKey ||
+    operationEpoch !== previewProjectionRequestEpoch
+  ) {
+    return null;
+  }
+  return { operationEpoch, projection };
+}
+
+function adoptPreviewProjectionForContext(
+  candidate: PreviewProjectionCandidate,
+  context: TargetTabContext,
+  requestKey = boundTabKey,
+): PreviewProjection | null {
+  const { operationEpoch, projection } = candidate;
+  if (
+    !previewStateIsOpen() ||
+    projection.pageUrl !== context.url ||
+    boundTabId !== context.tabId ||
+    boundTabKey !== requestKey ||
+    operationEpoch !== previewProjectionRequestEpoch
+  ) {
+    return null;
+  }
+  const current = currentPreviewProjection();
+  if (
+    current?.pageUrl === projection.pageUrl &&
+    current.projectionId === projection.projectionId
+  ) {
+    if (projection.revision <= current.revision) {
+      return current;
+    }
+  }
+  store.setPreviewProjection(projection);
+  return projection;
+}
+
+async function projectPreviewForContext(
+  context: TargetTabContext,
+  requestKey = boundTabKey,
+): Promise<PreviewProjection | null> {
+  const candidate = await requestPreviewProjectionForContext(context, requestKey);
+  return candidate
+    ? adoptPreviewProjectionForContext(candidate, context, requestKey)
+    : null;
+}
+
+async function ensurePreviewProjection(
+  context: TargetTabContext,
+  requestKey = boundTabKey,
+): Promise<PreviewProjection | null> {
+  return await projectPreviewForContext(context, requestKey);
+}
+
+async function recoverStalePreviewProjection(
+  context: TargetTabContext,
+  requestKey: string | null,
+  staleProjectionId: string,
+): Promise<void> {
+  if (
+    !previewStateIsOpen() ||
+    boundTabId !== context.tabId ||
+    boundTabKey !== requestKey ||
+    currentPreviewProjection()?.projectionId !== staleProjectionId
+  ) {
+    return;
+  }
+  // Fail closed: remove stale controls before asking content for the exact current
+  // projection. A failed recovery therefore cannot keep targeting old elements.
+  store.setPreviewProjection(null);
+  await projectPreviewForContext(context, requestKey);
+  render();
+}
+
 async function showPreview(): Promise<void> {
   const context = await resolveTargetTabContext();
   if (context === null) {
@@ -2996,6 +3197,12 @@ async function showPreview(): Promise<void> {
     render();
     return;
   }
+  const candidate = await requestPreviewProjectionForContext(context, requestKey);
+  if (!candidate) {
+    logEvent("Preview unavailable", "detected content could not be read", "warn");
+    render();
+    return;
+  }
   await reportPopupFactAndPull(context, "preview-opened", {
     previewActive: true,
     previewOrigin: origin,
@@ -3003,6 +3210,20 @@ async function showPreview(): Promise<void> {
     // prior cycle here makes a second open/exit pair observable to the brain.
     previewExitRequested: false,
   }, requestKey);
+  const projection = adoptPreviewProjectionForContext(candidate, context, requestKey);
+  const current = currentPreviewProjection();
+  const candidateIsStillDisplayed = current?.pageUrl === candidate.projection.pageUrl &&
+    current.projectionId === candidate.projection.projectionId &&
+    current.revision === candidate.projection.revision;
+  const contextIsInvalid = !previewStateIsOpen() ||
+    boundTabId !== context.tabId ||
+    boundTabKey !== requestKey;
+  if (!projection && candidateIsStillDisplayed && contextIsInvalid) {
+    // A newer poll may have superseded the opening request while the Preview
+    // fact was in flight. Never erase that winner just because this older
+    // candidate can no longer adopt.
+    store.setPreviewProjection(null);
+  }
   render();
 }
 
@@ -3032,25 +3253,79 @@ async function exitPreview(): Promise<void> {
   render();
 }
 
-async function hoverPreviewRow(xpath: string | null): Promise<void> {
-  if (!previewStateIsOpen() || boundTabId === null) {
+async function hoverPreviewRow(rowId: string, active: boolean): Promise<void> {
+  const projection = currentPreviewProjection();
+  if (
+    !previewStateIsOpen() ||
+    boundTabId === null ||
+    boundTabKey === null ||
+    !projection ||
+    !projection.rows.some((row) => row.id === rowId)
+  ) {
     return;
   }
-  await sendContentMessage(boundTabId, {
-    type: "emphasizePreviewRow",
-    ...(xpath ? { xpath } : {}),
+  const context = { tabId: boundTabId, url: projection.pageUrl };
+  const requestKey = boundTabKey;
+  const result = await requestPreviewEmphasis(boundTabId, {
+    pageUrl: projection.pageUrl,
+    projectionId: projection.projectionId,
+    rowId,
+    active,
   });
+  if (!previewTargetOccurrenceIsCurrent(context, requestKey, projection.projectionId)) {
+    return;
+  }
+  if (
+    result?.targeted === false &&
+    currentPreviewProjection()?.projectionId === projection.projectionId
+  ) {
+    await recoverStalePreviewProjection(context, requestKey, projection.projectionId);
+  }
 }
 
-async function activatePreviewRow(xpath: string): Promise<void> {
-  if (!previewStateIsOpen() || boundTabId === null) {
+async function activatePreviewRow(rowId: string): Promise<void> {
+  const projection = currentPreviewProjection();
+  if (
+    !previewStateIsOpen() ||
+    boundTabId === null ||
+    boundTabKey === null ||
+    !projection ||
+    !projection.rows.some((row) => row.id === rowId)
+  ) {
     return;
   }
-  const result = await sendContentMessage(boundTabId, { type: "activatePreviewRow", xpath });
-  if (!result) {
-    logEvent("Preview row unavailable", xpath, "warn");
-    render();
+  const context = { tabId: boundTabId, url: projection.pageUrl };
+  const requestKey = boundTabKey;
+  const result = await requestPreviewActivation(boundTabId, {
+    pageUrl: projection.pageUrl,
+    projectionId: projection.projectionId,
+    rowId,
+  });
+  if (!previewTargetOccurrenceIsCurrent(context, requestKey, projection.projectionId)) {
+    return;
   }
+  if (!result) {
+    logEvent("Preview row unavailable", "the page did not answer", "warn");
+    render();
+    return;
+  }
+  if (result.targeted === false) {
+    logEvent("Preview row changed", "refreshing detected content", "warn");
+    await recoverStalePreviewProjection(context, requestKey, projection.projectionId);
+  }
+}
+
+function previewTargetOccurrenceIsCurrent(
+  context: TargetTabContext,
+  requestKey: string,
+  projectionId: string,
+): boolean {
+  const current = currentPreviewProjection();
+  return previewStateIsOpen() &&
+    boundTabId === context.tabId &&
+    boundTabKey === requestKey &&
+    current?.pageUrl === context.url &&
+    current.projectionId === projectionId;
 }
 
 async function discardMarkings(): Promise<void> {
@@ -3158,8 +3433,8 @@ function render(): void {
       onDiscard={() => { void discardMarkings(); }}
       onPreview={() => { void showPreview(); }}
       onExitPreview={() => { void exitPreview(); }}
-      onPreviewRowHover={(xpath) => { void hoverPreviewRow(xpath); }}
-      onPreviewRowActivate={(xpath) => { void activatePreviewRow(xpath); }}
+      onPreviewRowHover={(rowId, active) => { void hoverPreviewRow(rowId, active); }}
+      onPreviewRowActivate={(rowId) => { void activatePreviewRow(rowId); }}
       onRefresh={() => { void refreshPopup(); }}
       onLockAction={(action) => { void dispatchLockAction(action); }}
       onSettingsChange={updateSettingsField}

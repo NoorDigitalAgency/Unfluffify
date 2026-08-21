@@ -1,9 +1,10 @@
 import React from "react";
 import { todoSectionExpanded } from "./todo-recovery";
-import { projectPreviewClassification } from "./preview-classification";
+import { projectPreviewRow } from "./preview-classification";
 import { createPanelScrollLock } from "./scroll-lock";
 
 import type { RenderMode } from "../domain/schema/property";
+import type { PreviewProjection } from "../domain/schema/preview";
 import { DEFAULT_POPUP_VIEW, type PopupView } from "./view";
 import type { PopupPresentation } from "./organ/memory";
 import type { TodoCoverage } from "../domain/schema/todo";
@@ -341,7 +342,7 @@ function configStatusTone(diagnostics: PopupDiagnostics): string {
   return diagnostics.configPresent ? "u-color-muted" : "u-color-danger";
 }
 
-function countRows(rows: PopupPresentation["contentRows"], classification: string): number {
+function countRows(rows: PopupPresentation["markingRows"], classification: string): number {
   return rows.filter((row) => row.classification === classification).length;
 }
 
@@ -379,6 +380,78 @@ function StatRow({ icon, label, value, tone }: Readonly<{
       </span>
       <span className={`u-font-mono ${tone ?? "u-color-muted"}`} data-stat={label}>{value}</span>
     </div>
+  );
+}
+
+export type PreviewRowListProps = Readonly<{
+  projection: PreviewProjection | null;
+  debug: boolean;
+  hoveredRowId: string | null;
+  onRowHover?: (rowId: string, active: boolean) => void;
+  onRowActivate?: (rowId: string) => void;
+}>;
+
+/** Pure rendering seam for proving both disclosure modes even though the normal
+ * Vitest compilation intentionally uses a debug extension build. */
+export function PreviewRowList({
+  projection,
+  debug,
+  hoveredRowId,
+  onRowHover,
+  onRowActivate,
+}: PreviewRowListProps) {
+  if (!projection || projection.rows.length === 0) {
+    return <p className="preview-sidebar__empty">No content detected</p>;
+  }
+  return (
+    <ul className="preview-sidebar__list">
+      {projection.rows.map((row, index) => {
+        const display = projectPreviewRow(row, debug);
+        const detail = display.debugDetail;
+        const debugTitle = detail
+          ? [
+              `Classification: ${detail.classification}`,
+              `XPath: ${detail.xpath}`,
+              `Selector: ${detail.selector ?? "—"}`,
+              `Shadow: ${detail.shadow}`,
+            ].join("\n")
+          : undefined;
+        const tone = display.classification === "included" ? "keep" : "remove";
+        return (
+          <li
+            key={display.id}
+            className={`preview-sidebar__item preview-sidebar__item--${tone} ${hoveredRowId === display.id ? "preview-sidebar__item--active" : ""}`}
+            title={debugTitle}
+            {...(debug ? {
+              "data-preview-row-debug": "true",
+              "data-preview-row-id": display.id,
+            } : {})}
+            onPointerEnter={() => onRowHover?.(display.id, true)}
+            onPointerLeave={() => onRowHover?.(display.id, false)}
+            onClick={() => onRowActivate?.(display.id)}
+          >
+            {/* D16: correspondence remains pointer-only, not a focus stop. */}
+            <div className="preview-sidebar__item-button">
+              <span className="preview-sidebar__item-index" aria-hidden="true">{index + 1}.</span>
+              <span className="preview-sidebar__item-text">
+                <span className="preview-sidebar__item-copy">{display.text}</span>
+                <span className={`preview-sidebar__item-public-classification ${CLASSIFICATION_TONE[display.classification] ?? "u-color-muted"}`}>
+                  {CLASSIFICATION_LABEL[display.classification]}
+                </span>
+                {detail ? (
+                  <span className="preview-sidebar__item-debug" data-preview-row-debug-detail="true">
+                    <span>Classification: <code>{detail.classification}</code></span>
+                    <span>XPath: <code>{detail.xpath}</code></span>
+                    <span>Selector: <code>{detail.selector ?? "—"}</code></span>
+                    <span>Shadow: <code>{detail.shadow}</code></span>
+                  </span>
+                ) : null}
+              </span>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -437,8 +510,8 @@ export function App({
   onDiscard?: () => void;
   onPreview?: () => void;
   onExitPreview?: () => void;
-  onPreviewRowHover?: (xpath: string | null) => void;
-  onPreviewRowActivate?: (xpath: string) => void;
+  onPreviewRowHover?: (rowId: string, active: boolean) => void;
+  onPreviewRowActivate?: (rowId: string) => void;
   onRefresh?: () => void;
   onLockAction?: (action: LockAction) => void;
   onSettingsChange?: (field: PopupSettingsField, value: string) => void;
@@ -473,13 +546,21 @@ export function App({
   >({});
   const [todoExpandedOverrides, setTodoExpandedOverrides] = React.useState<Record<string, boolean>>({});
   const [pendingCandidatePageKey, setPendingCandidatePageKey] = React.useState<string | null>(null);
-  const [previewHoveredXpath, setPreviewHoveredXpath] = React.useState<string | null>(null);
+  const [previewHoveredRowId, setPreviewHoveredRowId] = React.useState<string | null>(null);
   const [pendingMaintenanceAction, setPendingMaintenanceAction] = React.useState<"cache" | "unregister" | null>(null);
   React.useEffect(() => {
     if (!diagnostics.settingsDirty && Object.keys(settingsFieldOriginals).length > 0) {
       setSettingsFieldOriginals({});
     }
   }, [diagnostics.settingsDirty, settingsFieldOriginals]);
+  const previewHoveredRowPresent = previewHoveredRowId === null || Boolean(
+    presentation.previewProjection?.rows.some((row) => row.id === previewHoveredRowId),
+  );
+  React.useEffect(() => {
+    if (!previewHoveredRowPresent) {
+      setPreviewHoveredRowId(null);
+    }
+  }, [previewHoveredRowPresent]);
   const todoPropertyKey = `${diagnostics.siteId ?? "none"}|${diagnostics.baseUrl}`;
   const requestCandidateNavigation = (pageKey: string): void => {
     setPendingCandidatePageKey(pageKey);
@@ -524,8 +605,8 @@ export function App({
   const curtainKind = resolvePopupCurtainKind(presentation);
   const renderModeViewText = diagnostics.renderModeDetail || RENDER_MODE_VIEW_LABEL[diagnostics.renderModeView];
   const renderModeSet = diagnostics.renderMode !== null;
-  const includedCount = countRows(presentation.contentRows, "included");
-  const excludedCount = countRows(presentation.contentRows, "excluded");
+  const includedCount = countRows(presentation.markingRows, "included");
+  const excludedCount = countRows(presentation.markingRows, "excluded");
   const selectorCount = presentation.selectors.inclusionSelectors.length + presentation.selectors.exclusionSelectors.length;
   /* Every one of these renders as the same "Property lock unavailable" in the
      lock strip, and each needs a different fix — so name which one it is. The
@@ -707,47 +788,18 @@ export function App({
           <p className="hint preview-sidebar__hint">
             {presentation.previewExitPending
               ? "Restoring the page…"
-              : "Click a row or included page content to compare both sides. Exit preview to resume editing."}
+              : "Point to a row to compare it with the page. Click a row to bring it into view. Exit preview to resume editing."}
           </p>
-          {presentation.contentRows.length === 0 ? (
-            <p className="preview-sidebar__empty">No content detected</p>
-          ) : (
-            <ul className="preview-sidebar__list">
-              {presentation.contentRows.map((row, index) => {
-                const classification = projectPreviewClassification(row.classification, debugBuild);
-                return (
-                <li
-                  key={row.xpath}
-                  className={`preview-sidebar__item preview-sidebar__item--${classification} ${previewHoveredXpath === row.xpath ? "preview-sidebar__item--active" : ""}`}
-                  data-row-classification={classification}
-                  {...(debugBuild ? { "data-row-internal-classification": row.classification } : {})}
-                  onPointerEnter={() => {
-                    setPreviewHoveredXpath(row.xpath);
-                    onPreviewRowHover?.(row.xpath);
-                  }}
-                  onPointerLeave={() => {
-                    setPreviewHoveredXpath((current) => current === row.xpath ? null : current);
-                    onPreviewRowHover?.(null);
-                  }}
-                  onClick={() => onPreviewRowActivate?.(row.xpath)}
-                >
-                  {/* Deliberately not a button and not focusable: this is mouse
-                      correspondence for non-technical operators, not a new
-                      keyboard interaction model. */}
-                  <div className="preview-sidebar__item-button">
-                    <span className="preview-sidebar__item-index">{index + 1}.</span>
-                    <span className="preview-sidebar__item-text">
-                      <span className={`u-d-block ${CLASSIFICATION_TONE[classification] ?? "u-color-muted"}`}>
-                        {CLASSIFICATION_LABEL[classification] ?? classification}
-                      </span>
-                      <span className="u-font-mono">{row.xpath}</span>
-                    </span>
-                  </div>
-                </li>
-                );
-              })}
-            </ul>
-          )}
+          <PreviewRowList
+            projection={presentation.previewProjection}
+            debug={debugBuild}
+            hoveredRowId={previewHoveredRowId}
+            onRowHover={(rowId, active) => {
+              setPreviewHoveredRowId((current) => active ? rowId : current === rowId ? null : current);
+              onPreviewRowHover?.(rowId, active);
+            }}
+            onRowActivate={onPreviewRowActivate}
+          />
         </section>
 
         <output data-silent-mode={presentation.silentModeActive} data-temp-disabled={presentation.temporarilyDisabledOverlay} />
@@ -1332,7 +1384,7 @@ export function App({
         <StatRow
           icon="mdi-selection-marker"
           label="Marked rows"
-          value={`${presentation.contentRows.length} (${includedCount} in / ${excludedCount} out)`}
+          value={`${presentation.markingRows.length} (${includedCount} in / ${excludedCount} out)`}
         />
         <StatRow
           icon="mdi-auto-fix"
@@ -1485,15 +1537,15 @@ export function App({
             <i className="mdi mdi-eye-outline btn-icon" aria-hidden="true" />
             <span>Marked rows</span>
           </span>
-          <span className="hint u-font-mono">{presentation.contentRows.length}</span>
+          <span className="hint u-font-mono">{presentation.markingRows.length}</span>
         </div>
-        {presentation.contentRows.length === 0 ? (
+        {presentation.markingRows.length === 0 ? (
           <p className="preview-sidebar__empty">
             Nothing marked yet. Enable marking, then alt-click to include and click to exclude.
           </p>
         ) : (
           <ul className="preview-sidebar__list">
-            {presentation.contentRows.map((row, index) => (
+            {presentation.markingRows.map((row, index) => (
               <li
                 key={row.xpath}
                 className={`preview-sidebar__item preview-sidebar__item--${row.classification}`}

@@ -1,4 +1,5 @@
-import type { PopupContentRow, PopupSelectorList, PopupState, PopupStateName, PropertyLockBanner } from "./machine";
+import type { PreviewProjection } from "../../domain/schema/preview";
+import type { PopupMarkingRow, PopupSelectorList, PopupState, PopupStateName, PropertyLockBanner } from "./machine";
 
 export type PopupPresentation = Readonly<{
   mainUiHidden: boolean;
@@ -15,7 +16,8 @@ export type PopupPresentation = Readonly<{
   saveBlockedReason: string;
   discardBlockedReason: string;
   showPreviewBlockedReason: string;
-  contentRows: readonly PopupContentRow[];
+  markingRows: readonly PopupMarkingRow[];
+  previewProjection: PreviewProjection | null;
   selectors: PopupSelectorList;
   enableToggleChecked: boolean;
   desktopPreviewChecked: boolean;
@@ -38,7 +40,7 @@ const EMPTY_LOCK_BANNER: PropertyLockBanner = {
   text: "",
 };
 
-function baseSurface(state: PopupState, now: number): Pick<PopupPresentation, "contentRows" | "selectors" | "enableToggleChecked" | "desktopPreviewChecked" | "previewVisible" | "previewExitPending" | "countdownText" | "lockBanner"> {
+function baseSurface(state: PopupState, now: number): Pick<PopupPresentation, "markingRows" | "previewProjection" | "selectors" | "enableToggleChecked" | "desktopPreviewChecked" | "previewVisible" | "previewExitPending" | "countdownText" | "lockBanner"> {
   const remainingMs = state.name === "running" && state.runDeadlineAt ? Math.max(0, state.runDeadlineAt - now) : 0;
   const totalSeconds = Math.ceil(remainingMs / 1000);
   const minutes = Math.floor(totalSeconds / 60);
@@ -49,7 +51,8 @@ function baseSurface(state: PopupState, now: number): Pick<PopupPresentation, "c
   const visibleState = state.name === "locked" && state.priorState ? state.priorState : state.name;
   const matrixForcesUnchecked = ["silent", "silent_preview", "boot", "locked"].includes(toggleState);
   return {
-    contentRows: state.contentRows ?? [],
+    markingRows: state.markingRows ?? [],
+    previewProjection: state.previewProjection ?? null,
     selectors: state.selectors ?? EMPTY_SELECTORS,
     enableToggleChecked: matrixForcesUnchecked ? false : state.enableToggleChecked ?? true,
     desktopPreviewChecked: state.desktopPreviewChecked ?? false,

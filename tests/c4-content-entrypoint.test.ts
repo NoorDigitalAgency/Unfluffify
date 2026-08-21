@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PreviewProjectionSchema, type PreviewProjection } from "../src/domain/schema/preview";
 import type { BusFrame } from "../src/messaging/contract";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
@@ -186,6 +187,21 @@ function commandFrame(name: string, payload: Record<string, unknown> = {}, tabId
   };
 }
 
+function typedCommandFrame(name: string, payload: unknown): BusFrame {
+  commandSeq += 1;
+  return {
+    kind: "uf-bus/1",
+    frameType: "request",
+    id: `test-${name}-${Math.random()}`,
+    seq: commandSeq,
+    name,
+    source: "popup",
+    sourceInstance: "popup:test",
+    target: "content",
+    payload,
+  };
+}
+
 function replyFrame(request: BusFrame, payload: unknown): BusFrame {
   return {
     kind: "uf-bus/1",
@@ -222,6 +238,27 @@ async function dispatchContentCommand(
   const reply = response.mock.calls.at(-1)?.[0] as BusFrame;
   expect(reply).toMatchObject({ frameType: "reply", ok: true });
   return reply.payload as { ok: boolean; data?: unknown; failure?: unknown };
+}
+
+async function dispatchTypedContentCommand(
+  listener: (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown,
+  name: string,
+  payload: unknown,
+): Promise<BusFrame> {
+  const request = typedCommandFrame(name, payload);
+  const response = vi.fn();
+  expect(listener(request, {}, response)).toBe(true);
+  for (let index = 0; index < 20 && response.mock.calls.length === 0; index += 1) {
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  const reply = response.mock.calls.at(-1)?.[0] as BusFrame;
+  expect(reply).toMatchObject({
+    frameType: "reply",
+    id: request.id,
+    name,
+  });
+  return reply;
 }
 
 async function applyLockState(
@@ -445,6 +482,399 @@ describe("C4 rewrite content entrypoints", () => {
     await applyLockState(listener);
     const response = await dispatchContentCommand(listener, "activateContentMain");
     expect(response).toEqual({ ok: true, data: { ok: true, initialized: true, tree: "rewrite" } });
+  });
+
+  it("registers typed preview rows and retires their hover and bridge across exit and A-to-B navigation", async () => {
+    const pageUrl = "https://example.com/page";
+    const nextPageUrl = "https://example.com/next";
+    const addListener = vi.fn();
+    const locationValue = installTestLocation(pageUrl);
+    const { windowListeners } = installMinimalContentDom();
+
+    const projection = {
+      projectionId: "projection-p17",
+      revision: 7,
+      pageUrl,
+      rows: [
+        {
+          id: "row-explicit",
+          classification: "explicit-included",
+          text: "Explicit",
+          xpath: "/html[1]/body[1]/x-force-open[1]",
+          selector: ".p17-explicit",
+          shadow: "force-open-closed",
+        },
+        {
+          id: "row-implicit",
+          classification: "implicit-included",
+          text: "Implicit",
+          xpath: "/html[1]/body[1]/x-force-open[1]/p[1]",
+          selector: ".p17-explicit",
+          shadow: "force-open-closed",
+        },
+        {
+          id: "row-excluded",
+          classification: "excluded",
+          text: "Excluded",
+          xpath: "/html[1]/body[1]/nav[1]",
+          selector: ".p17-excluded",
+          shadow: "light",
+        },
+        {
+          id: "row-undetected",
+          classification: "undetected",
+          text: "Undetected",
+          xpath: "/html[1]/body[1]/main[1]",
+          shadow: "light",
+        },
+        {
+          id: "row-immutable",
+          classification: "immutable",
+          text: "Immutable image",
+          xpath: "/html[1]/body[1]/img[1]",
+          shadow: "light",
+        },
+        {
+          id: "row-closed-shadow",
+          classification: "closed-shadow",
+          text: "Closed component",
+          xpath: "/html[1]/body[1]/x-closed[1]",
+          shadow: "inaccessible-closed",
+        },
+      ],
+    } as const satisfies PreviewProjection;
+    const reopenedProjection: PreviewProjection = {
+      ...projection,
+      projectionId: "projection-p17-cycle-2",
+      revision: 8,
+    };
+    const nextProjection: PreviewProjection = {
+      ...projection,
+      projectionId: "projection-p17-next",
+      revision: 1,
+      pageUrl: nextPageUrl,
+      rows: projection.rows.map((row) => ({ ...row, id: `next-${row.id}` })),
+    };
+    let activeProjection: PreviewProjection = projection;
+    const targetExists = (projectionId: string, rowId: string): boolean =>
+      projectionId === activeProjection.projectionId && activeProjection.rows.some((row) => row.id === rowId);
+    const clearHover = vi.fn();
+    const engine = {
+      projectPreview: vi.fn(() => activeProjection),
+      retirePreviewProjection: vi.fn(() => {
+        activeProjection = reopenedProjection;
+        clearHover();
+      }),
+      emphasizePreviewRow: vi.fn((projectionId: string, rowId: string) => targetExists(projectionId, rowId)),
+      activatePreviewRow: vi.fn((projectionId: string, rowId: string) => targetExists(projectionId, rowId)),
+      rows: vi.fn(() => []),
+      clearHover,
+      setSuspended: vi.fn(),
+      setInputTransparent: vi.fn(),
+      dispose: vi.fn(),
+    };
+    const nextEngine = {
+      projectPreview: vi.fn(() => nextProjection),
+      retirePreviewProjection: vi.fn(),
+      emphasizePreviewRow: vi.fn(() => false),
+      activatePreviewRow: vi.fn(() => false),
+      rows: vi.fn(() => []),
+      clearHover: vi.fn(),
+      setSuspended: vi.fn(),
+      setInputTransparent: vi.fn(),
+      dispose: vi.fn(),
+    };
+    const createMarkingEngine = vi.fn()
+      .mockReturnValueOnce(engine)
+      .mockReturnValueOnce(nextEngine);
+    let pendingSignals: Array<Record<string, unknown>> = [];
+    const previewSignals: Array<Record<string, unknown>> = [
+      {
+        kind: "uf-signal/1",
+        tabId: 77,
+        seq: 1,
+        name: "marking.disabled",
+        source: "brain",
+        cause: "test",
+        at: 1,
+        payload: {},
+      },
+      {
+        kind: "uf-signal/1",
+        tabId: 77,
+        seq: 2,
+        name: "preview.opened",
+        source: "brain",
+        cause: "test",
+        at: 2,
+        payload: { origin: "silent" },
+      },
+    ];
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "page.context") {
+        const requestedPageUrl = (message.payload as { pageUrl?: string }).pageUrl ?? pageUrl;
+        return managedPageContextReply(message, requestedPageUrl);
+      }
+      if (message.name === "signals.pull") {
+        const signals = pendingSignals;
+        pendingSignals = [];
+        return replyFrame(message, signals);
+      }
+      return undefined;
+    });
+    globalThis.chrome = {
+      runtime: {
+        onMessage: { addListener },
+        sendMessage,
+      },
+    } as unknown as typeof chrome;
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+    vi.doMock("../src/content/marking", () => ({ createMarkingEngine }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as { main: () => void }).main();
+    const listener = addListener.mock.calls[0]?.[0] as (
+      message: unknown,
+      sender: unknown,
+      sendResponse: (value: unknown) => void,
+    ) => unknown;
+
+    // First establish the document's managed property authority. Then publish
+    // the preview signals and use the ordinary lock-state edge to request the
+    // next signal batch, matching the production startup/reconciliation path.
+    await applyLockState(listener);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (sendMessage.mock.calls.some(([frame]) => (frame as BusFrame).name === "page.context")) {
+        break;
+      }
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    pendingSignals = previewSignals;
+    await applyLockState(listener);
+
+    let stateName = "";
+    for (let attempt = 0; attempt < 20 && stateName !== "silent_preview"; attempt += 1) {
+      const status = await dispatchContentCommand(listener, "getContentMainStatus");
+      stateName = (status.data as { sessionState?: { name?: string } })?.sessionState?.name ?? "";
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(stateName).toBe("silent_preview");
+
+    const selectors = {
+      inclusionSelectors: [".p17-explicit"],
+      exclusionSelectors: [".p17-excluded"],
+    };
+    const projected = await dispatchTypedContentCommand(listener, "preview.project", { pageUrl, selectors });
+    expect(projected.ok).toBe(true);
+    expect(PreviewProjectionSchema.parse(projected.payload)).toEqual(projection);
+    expect(projection.rows.map((row) => row.classification)).toEqual([
+      "explicit-included",
+      "implicit-included",
+      "excluded",
+      "undetected",
+      "immutable",
+      "closed-shadow",
+    ]);
+    expect(engine.projectPreview).toHaveBeenCalledWith(pageUrl, selectors);
+
+    const emphasis = await dispatchTypedContentCommand(listener, "preview.emphasize", {
+      pageUrl,
+      projectionId: projection.projectionId,
+      rowId: "row-implicit",
+      active: true,
+    });
+    expect(emphasis).toMatchObject({ ok: true, payload: { targeted: true } });
+    expect(engine.emphasizePreviewRow).toHaveBeenLastCalledWith(
+      projection.projectionId,
+      "row-implicit",
+      true,
+    );
+
+    const activation = await dispatchTypedContentCommand(listener, "preview.activate", {
+      pageUrl,
+      projectionId: projection.projectionId,
+      rowId: "row-immutable",
+    });
+    expect(activation).toMatchObject({ ok: true, payload: { targeted: true } });
+    expect(engine.activatePreviewRow).toHaveBeenLastCalledWith(
+      projection.projectionId,
+      "row-immutable",
+    );
+
+    const staleProjection = await dispatchTypedContentCommand(listener, "preview.emphasize", {
+      pageUrl,
+      projectionId: "projection-stale",
+      rowId: "row-implicit",
+      active: true,
+    });
+    expect(staleProjection).toMatchObject({ ok: true, payload: { targeted: false } });
+    expect(engine.emphasizePreviewRow).toHaveBeenLastCalledWith(
+      "projection-stale",
+      "row-implicit",
+      true,
+    );
+
+    const unknownRow = await dispatchTypedContentCommand(listener, "preview.activate", {
+      pageUrl,
+      projectionId: projection.projectionId,
+      rowId: "row-unknown",
+    });
+    expect(unknownRow).toMatchObject({ ok: true, payload: { targeted: false } });
+    expect(engine.activatePreviewRow).toHaveBeenLastCalledWith(
+      projection.projectionId,
+      "row-unknown",
+    );
+
+    const emphasisCallsBeforeWrongPage = engine.emphasizePreviewRow.mock.calls.length;
+    const wrongPageTarget = await dispatchTypedContentCommand(listener, "preview.emphasize", {
+      pageUrl: "https://example.com/stale",
+      projectionId: projection.projectionId,
+      rowId: "row-implicit",
+      active: true,
+    });
+    expect(wrongPageTarget).toMatchObject({ ok: true, payload: { targeted: false } });
+    expect(engine.emphasizePreviewRow).toHaveBeenCalledTimes(emphasisCallsBeforeWrongPage);
+
+    const projectCallsBeforeWrongPage = engine.projectPreview.mock.calls.length;
+    const wrongPageProjection = await dispatchTypedContentCommand(listener, "preview.project", {
+      pageUrl: "https://example.com/stale",
+      selectors,
+    });
+    expect(wrongPageProjection).toMatchObject({
+      ok: false,
+      failure: { code: "HANDLER_FAILED" },
+    });
+    expect(engine.projectPreview).toHaveBeenCalledTimes(projectCallsBeforeWrongPage);
+
+    pendingSignals = [{
+      kind: "uf-signal/1",
+      tabId: 77,
+      seq: 3,
+      name: "preview.exit.requested",
+      source: "brain",
+      cause: "test",
+      at: 3,
+      payload: { restore: true },
+    }];
+    await applyLockState(listener);
+    let exitState = "";
+    for (let attempt = 0; attempt < 20 && exitState !== "exit_restoring"; attempt += 1) {
+      const status = await dispatchContentCommand(listener, "getContentMainStatus");
+      expect(status.ok, JSON.stringify(status)).toBe(true);
+      exitState = (status.data as { sessionState?: { name?: string } })?.sessionState?.name ?? "";
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(exitState).toBe("exit_restoring");
+    expect(engine.retirePreviewProjection).toHaveBeenCalledTimes(1);
+    expect(engine.clearHover).toHaveBeenCalledTimes(1);
+    const hoverClearedAt = engine.clearHover.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER;
+
+    pendingSignals = [{
+      kind: "uf-signal/1",
+      tabId: 77,
+      seq: 4,
+      name: "preview.exited",
+      source: "brain",
+      cause: "test",
+      at: 4,
+      payload: { restored: true },
+    }];
+    await applyLockState(listener);
+    let restoredState = "";
+    for (let attempt = 0; attempt < 20 && restoredState !== "silent"; attempt += 1) {
+      const status = await dispatchContentCommand(listener, "getContentMainStatus");
+      restoredState = (status.data as { sessionState?: { name?: string } })?.sessionState?.name ?? "";
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(restoredState).toBe("silent");
+    const interactionsResumedAt = engine.setSuspended.mock.invocationCallOrder.find((order, index) =>
+      engine.setSuspended.mock.calls[index]?.[0] === false && order > hoverClearedAt
+    ) ?? 0;
+    expect(hoverClearedAt).toBeLessThan(interactionsResumedAt);
+
+    pendingSignals = [{
+      kind: "uf-signal/1",
+      tabId: 77,
+      seq: 5,
+      name: "preview.opened",
+      source: "brain",
+      cause: "test",
+      at: 5,
+      payload: { origin: "silent" },
+    }];
+    await applyLockState(listener);
+    let reopenedState = "";
+    for (let attempt = 0; attempt < 20 && reopenedState !== "silent_preview"; attempt += 1) {
+      const status = await dispatchContentCommand(listener, "getContentMainStatus");
+      reopenedState = (status.data as { sessionState?: { name?: string } })?.sessionState?.name ?? "";
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(reopenedState).toBe("silent_preview");
+
+    const cycleTwoProjected = await dispatchTypedContentCommand(listener, "preview.project", {
+      pageUrl,
+      selectors,
+    });
+    expect(cycleTwoProjected).toMatchObject({ ok: true, payload: reopenedProjection });
+    expect(reopenedProjection.projectionId).not.toBe(projection.projectionId);
+    expect(reopenedProjection.rows.map((row) => row.id)).toEqual(projection.rows.map((row) => row.id));
+    expect(createMarkingEngine).toHaveBeenCalledTimes(1);
+
+    const delayedCycleOneEmphasis = await dispatchTypedContentCommand(listener, "preview.emphasize", {
+      pageUrl,
+      projectionId: projection.projectionId,
+      rowId: "row-implicit",
+      active: true,
+    });
+    const delayedCycleOneActivation = await dispatchTypedContentCommand(listener, "preview.activate", {
+      pageUrl,
+      projectionId: projection.projectionId,
+      rowId: "row-implicit",
+    });
+    expect(delayedCycleOneEmphasis).toMatchObject({ ok: true, payload: { targeted: false } });
+    expect(delayedCycleOneActivation).toMatchObject({ ok: true, payload: { targeted: false } });
+
+    const cycleTwoEmphasis = await dispatchTypedContentCommand(listener, "preview.emphasize", {
+      pageUrl,
+      projectionId: reopenedProjection.projectionId,
+      rowId: "row-implicit",
+      active: true,
+    });
+    const cycleTwoActivation = await dispatchTypedContentCommand(listener, "preview.activate", {
+      pageUrl,
+      projectionId: reopenedProjection.projectionId,
+      rowId: "row-implicit",
+    });
+    expect(cycleTwoEmphasis).toMatchObject({ ok: true, payload: { targeted: true } });
+    expect(cycleTwoActivation).toMatchObject({ ok: true, payload: { targeted: true } });
+
+    // The URL watcher is synchronous: an immediate B projection must construct
+    // a new engine/bridge rather than retagging the projection from route A.
+    locationValue.href = nextPageUrl;
+    dispatchTestEvent(windowListeners, "message", {
+      source: window,
+      data: { kind: "uf-page-url-changed/1", toUrl: nextPageUrl },
+    } as unknown as MessageEvent);
+    expect(engine.clearHover).toHaveBeenCalledTimes(2);
+    expect(engine.dispose).toHaveBeenCalledTimes(1);
+
+    const nextProjected = await dispatchTypedContentCommand(listener, "preview.project", {
+      pageUrl: nextPageUrl,
+      selectors,
+    });
+    expect(nextProjected).toMatchObject({ ok: true, payload: nextProjection });
+    expect(createMarkingEngine).toHaveBeenCalledTimes(2);
+    expect(nextEngine.projectPreview).toHaveBeenCalledWith(nextPageUrl, selectors);
+    expect(engine.projectPreview).not.toHaveBeenCalledWith(nextPageUrl, expect.anything());
   });
 
   it("adopts durable inspection before page context and fences paint completion from generic and stale work", async () => {

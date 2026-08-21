@@ -162,6 +162,17 @@ function contentReplyFrame(frame: BusFrame, data: unknown): BusFrame {
   };
 }
 
+function directContentReplyFrame(frame: BusFrame, data: unknown): BusFrame {
+  return {
+    ...frame,
+    frameType: "reply",
+    source: "content",
+    target: frame.source,
+    ok: true,
+    payload: data,
+  };
+}
+
 function contentCommand(name: string, payload?: unknown) {
   return expect.objectContaining({
     kind: "uf-bus/1",
@@ -173,6 +184,16 @@ function contentCommand(name: string, payload?: unknown) {
       name,
       ...(payload === undefined ? {} : { payload }),
     }),
+  });
+}
+
+function previewCommand(name: "preview.project" | "preview.emphasize" | "preview.activate", payload: unknown) {
+  return expect.objectContaining({
+    kind: "uf-bus/1",
+    frameType: "request",
+    name,
+    target: "content",
+    payload,
   });
 }
 
@@ -224,6 +245,13 @@ function makeTabsSendMessage(
       const command = frame.payload as { name: string; payload?: Record<string, unknown> };
       const data = await handler(tabId, { type: command.name, ...(command.payload ?? {}) });
       return contentReplyFrame(frame, data);
+    }
+    if (frame?.kind === "uf-bus/1" && frame.frameType === "request" && frame.target === "content") {
+      const payload = frame.payload && typeof frame.payload === "object"
+        ? frame.payload as Record<string, unknown>
+        : {};
+      const data = await handler(tabId, { type: frame.name, ...payload });
+      return directContentReplyFrame(frame, data);
     }
     return await handler(tabId, message as { type?: string } & Record<string, unknown>);
   });
@@ -1657,6 +1685,24 @@ describe("rewrite popup entrypoint", () => {
       if (message.type === "captureSubmissionSnapshot") {
         return { ok: true, snapshot, rows: [{ xpath: "/html[1]/body[1]/main[1]", classification: "included" }] };
       }
+      if (message.type === "preview.project") {
+        return {
+          projectionId: "projection-1",
+          revision: 1,
+          pageUrl: "https://example.com/page",
+          rows: [{
+            id: "row-main",
+            classification: "explicit-included",
+            text: "Main article",
+            xpath: "/html[1]/body[1]/main[1]",
+            selector: "main",
+            shadow: "light",
+          }],
+        };
+      }
+      if (message.type === "preview.emphasize" || message.type === "preview.activate") {
+        return { targeted: true };
+      }
       return { ok: true, initialized: true, tree: "rewrite" };
     });
     let signalSeq = 0;
@@ -1786,19 +1832,35 @@ describe("rewrite popup entrypoint", () => {
     await flushEntrypointWork();
     expect(render.mock.calls.at(-1)?.[0].props.presentation.temporarilyDisabledOverlay).toBe(true);
 
-    render.mock.calls.at(-1)?.[0].props.onPreviewRowHover("/html[1]/body[1]/main[1]");
-    render.mock.calls.at(-1)?.[0].props.onPreviewRowActivate("/html[1]/body[1]/main[1]");
+    render.mock.calls.at(-1)?.[0].props.onPreviewRowHover("row-main", true);
+    render.mock.calls.at(-1)?.[0].props.onPreviewRowHover("row-main", false);
+    render.mock.calls.at(-1)?.[0].props.onPreviewRowActivate("row-main");
     await flushEntrypointWork();
-    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("emphasizePreviewRow", {
-      xpath: "/html[1]/body[1]/main[1]",
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, previewCommand("preview.project", {
+      pageUrl: "https://example.com/page",
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
     }));
-    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("activatePreviewRow", {
-      xpath: "/html[1]/body[1]/main[1]",
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, previewCommand("preview.emphasize", {
+      pageUrl: "https://example.com/page",
+      projectionId: "projection-1",
+      rowId: "row-main",
+      active: true,
+    }));
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, previewCommand("preview.emphasize", {
+      pageUrl: "https://example.com/page",
+      projectionId: "projection-1",
+      rowId: "row-main",
+      active: false,
+    }));
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, previewCommand("preview.activate", {
+      pageUrl: "https://example.com/page",
+      projectionId: "projection-1",
+      rowId: "row-main",
     }));
 
     const previewDraft = {
       selectors: render.mock.calls.at(-1)?.[0].props.presentation.selectors,
-      contentRows: render.mock.calls.at(-1)?.[0].props.presentation.contentRows,
+      markingRows: render.mock.calls.at(-1)?.[0].props.presentation.markingRows,
     };
     render.mock.calls.at(-1)?.[0].props.onExitPreview();
     await flushEntrypointWork();
@@ -2460,11 +2522,21 @@ describe("rewrite popup entrypoint", () => {
 
   it("opens silent preview with silent origin", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
+    let pollCurrentTab: (() => void) | null = null;
+    vi.mocked(window.setInterval).mockImplementation((handler) => {
+      if (typeof handler === "function") {
+        pollCurrentTab = () => { handler(); };
+      }
+      return 1;
+    });
     const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({
       createRoot: vi.fn(() => ({ render })),
     }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    let releasePreviewOpenedFact: (() => void) | null = null;
+    let holdPreviewOpenedFact = false;
+    let previewExitCount = 0;
     const runtime = makeRuntime(async (message) => {
       if (message.name === "page.context") {
         return replyFrame(message, {
@@ -2498,7 +2570,17 @@ describe("rewrite popup entrypoint", () => {
         message.name === "fact.reported" &&
         (message.payload as { sensation?: { reason?: string } }).sensation?.reason === "preview-exit-requested"
       ) {
-        await runtime.sendMessage(contentPreviewExitedFrame(false, "content-silent-preview-exited"));
+        previewExitCount += 1;
+        await runtime.sendMessage(contentPreviewExitedFrame(false, `content-silent-preview-exited-${previewExitCount}`));
+      }
+      if (
+        message.name === "fact.reported" &&
+        holdPreviewOpenedFact &&
+        (message.payload as { sensation?: { reason?: string } }).sensation?.reason === "preview-opened"
+      ) {
+        return await new Promise<BusFrame>((resolve) => {
+          releasePreviewOpenedFact = () => resolve(replyFrame(message, []));
+        });
       }
       if (message.name === "signals.emit") {
         const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
@@ -2515,13 +2597,78 @@ describe("rewrite popup entrypoint", () => {
       }
       return replyFrame(message, []);
     }, "rendered", { delegatePageContextToHandler: true });
+    const projection = (
+      revision: number,
+      text: string,
+      xpath: string,
+      projectionId = "silent-projection-a",
+    ) => ({
+      projectionId,
+      revision,
+      pageUrl: "https://example.com/page",
+      rows: [{
+        id: "silent-row",
+        classification: "implicit-included" as const,
+        text,
+        xpath,
+        selector: "main",
+        shadow: "light" as const,
+      }],
+    });
+    let previewProjectCount = 0;
+    let projectionOccurrenceId = "silent-projection-a";
+    let raceProjectionRequests = false;
+    let raceProjectionRequestCount = 0;
+    let resolveDelayedRevision: ((value: ReturnType<typeof projection>) => void) | null = null;
+    let delayProjectionUntilAfterExit = false;
+    let resolvePostExitProjection: ((value: ReturnType<typeof projection>) => void) | null = null;
+    let delayPreviewActivation = false;
+    let resolveDelayedActivation: ((value: { targeted: boolean }) => void) | null = null;
+    let delayPreviewEmphasis = false;
+    let resolveDelayedEmphasis: ((value: null) => void) | null = null;
+    const tabsSendMessage = makeTabsSendMessage((_tabId, message) => {
+      if (message.type === "preview.project") {
+        previewProjectCount += 1;
+        if (delayProjectionUntilAfterExit) {
+          return new Promise<ReturnType<typeof projection>>((resolve) => {
+            resolvePostExitProjection = resolve;
+          });
+        }
+        if (raceProjectionRequests) {
+          raceProjectionRequestCount += 1;
+          if (raceProjectionRequestCount === 1) {
+            return new Promise<ReturnType<typeof projection>>((resolve) => {
+              resolveDelayedRevision = resolve;
+            });
+          }
+          return projection(3, "Article after mutation", "/html[1]/body[1]/main[2]", projectionOccurrenceId);
+        }
+        return projection(
+          holdPreviewOpenedFact && previewProjectCount > 1 ? 1 : 0,
+          holdPreviewOpenedFact && previewProjectCount > 1 ? "Poll winner" : "Saved article",
+          "/html[1]/body[1]/main[1]",
+          projectionOccurrenceId,
+        );
+      }
+      if (message.type === "preview.activate" && delayPreviewActivation) {
+        return new Promise<{ targeted: boolean }>((resolve) => {
+          resolveDelayedActivation = resolve;
+        });
+      }
+      if (message.type === "preview.emphasize" && delayPreviewEmphasis) {
+        return new Promise<null>((resolve) => {
+          resolveDelayedEmphasis = resolve;
+        });
+      }
+      return { ok: true, active: false, pageUrl: "https://example.com/page" };
+    });
     globalThis.chrome = {
       runtime: {
         ...runtime,
       },
       tabs: {
         query,
-        sendMessage: makeTabsSendMessage(() => ({ ok: true, active: false, pageUrl: "https://example.com/page" })),
+        sendMessage: tabsSendMessage,
       },
     } as unknown as typeof chrome;
 
@@ -2549,9 +2696,32 @@ describe("rewrite popup entrypoint", () => {
         render.mock.calls.at(-1)?.[0].props.presentation.selectors.inclusionSelectors.length > 0,
       "selector-bearing silent state",
     );
+    holdPreviewOpenedFact = true;
     render.mock.calls.at(-1)?.[0].props.onPreview();
-    await flushEntrypointWork();
+    await waitFor(() => releasePreviewOpenedFact !== null, "the delayed preview-opened fact response");
 
+    // The opening request (E1) is waiting for its fact acknowledgement, while a
+    // poll consumes the queued Preview signal and adopts a newer projection E2.
+    // Completing E1 must not clear the E2 winner.
+    expect(pollCurrentTab).not.toBeNull();
+    pollCurrentTab?.();
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.presentation.previewProjection?.revision === 1,
+      "the fast polling projection during the delayed open fact",
+    );
+    holdPreviewOpenedFact = false;
+    releasePreviewOpenedFact?.();
+    await flushEntrypointWork();
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.previewProjection).toMatchObject({
+      projectionId: "silent-projection-a",
+      revision: 1,
+      rows: [{ text: "Poll winner" }],
+    });
+
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, previewCommand("preview.project", {
+      pageUrl: "https://example.com/page",
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+    }));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "fact.reported",
       payload: expect.objectContaining({
@@ -2563,10 +2733,79 @@ describe("rewrite popup entrypoint", () => {
     }));
     expect(render.mock.calls.at(-1)?.[0].props.presentation.enableToggleChecked).toBe(false);
 
+    // The open preview is re-projected on the normal popup poll. Let revision 2
+    // lag while revision 3 observes a DOM mutation: the later response wins, and
+    // the delayed older XPath must never replace it.
+    raceProjectionRequests = true;
+    pollCurrentTab?.();
+    await waitFor(() => resolveDelayedRevision !== null, "the delayed revision-one projection request");
+    pollCurrentTab?.();
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.presentation.previewProjection?.revision === 3,
+      "the mutation-driven revision-three projection",
+    );
+    resolveDelayedRevision?.(projection(2, "Stale article", "/html[1]/body[1]/main[1]", projectionOccurrenceId));
+    await flushEntrypointWork();
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.previewProjection).toMatchObject({
+      projectionId: "silent-projection-a",
+      revision: 3,
+      rows: [{
+        id: "silent-row",
+        text: "Article after mutation",
+        xpath: "/html[1]/body[1]/main[2]",
+      }],
+    });
+
+    // A delayed target response belongs to this exact Preview occurrence. Exit
+    // and reopen before it replies; cycle B must neither log cycle A's failure
+    // nor clear/reproject its new projection.
+    delayPreviewActivation = true;
+    delayPreviewEmphasis = true;
+    render.mock.calls.at(-1)?.[0].props.onPreviewRowActivate("silent-row");
+    render.mock.calls.at(-1)?.[0].props.onPreviewRowHover("silent-row", true);
+    await waitFor(() => resolveDelayedActivation !== null, "the delayed cycle-A activation response");
+    await waitFor(() => resolveDelayedEmphasis !== null, "the delayed cycle-A emphasis response");
+    render.mock.calls.at(-1)?.[0].props.onExitPreview();
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.diagnostics.stateName === "silent",
+      "cycle A preview exit",
+    );
+    projectionOccurrenceId = "silent-projection-b";
+    raceProjectionRequests = false;
+    delayPreviewActivation = false;
+    delayPreviewEmphasis = false;
+    render.mock.calls.at(-1)?.[0].props.onPreview();
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.presentation.previewProjection?.projectionId === "silent-projection-b",
+      "cycle B preview projection",
+    );
+    const projectCountBeforeStaleActivation = previewProjectCount;
+    resolveDelayedActivation?.({ targeted: false });
+    resolveDelayedEmphasis?.(null);
+    await flushEntrypointWork();
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.previewProjection).toMatchObject({
+      projectionId: "silent-projection-b",
+      revision: 0,
+    });
+    expect(previewProjectCount).toBe(projectCountBeforeStaleActivation);
+    const postReopenLogLabels = render.mock.calls.at(-1)?.[0].props.diagnostics.log
+      .map((entry: { label: string }) => entry.label);
+    expect(postReopenLogLabels).not.toContain("Preview row changed");
+    expect(postReopenLogLabels).not.toContain("Preview row unavailable");
+
+    delayProjectionUntilAfterExit = true;
+    pollCurrentTab?.();
+    await waitFor(() => resolvePostExitProjection !== null, "the projection request held across Preview exit");
     render.mock.calls.at(-1)?.[0].props.onExitPreview();
     await flushEntrypointWork();
     expect(render.mock.calls.at(-1)?.[0].props.diagnostics.stateName).toBe("silent");
     expect(render.mock.calls.at(-1)?.[0].props.presentation.enableToggleChecked).toBe(false);
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.previewProjection).toBeNull();
+
+    resolvePostExitProjection?.(projection(1, "Too late", "/html[1]/body[1]/main[3]", projectionOccurrenceId));
+    await flushEntrypointWork();
+    expect(render.mock.calls.at(-1)?.[0].props.diagnostics.stateName).toBe("silent");
+    expect(render.mock.calls.at(-1)?.[0].props.presentation.previewProjection).toBeNull();
   });
 
   it("drains pending dirty signals and aborts stale Preview", async () => {
@@ -3032,7 +3271,7 @@ describe("rewrite popup entrypoint", () => {
       .not.toContain("marking-toggle-observed");
     // The rows still show, because they are display data.
     const props = render.mock.calls.at(-1)?.[0].props;
-    expect(props.presentation.contentRows).toHaveLength(300);
+    expect(props.presentation.markingRows).toHaveLength(300);
     expect(props.presentation.discardDisabled).toBe(true);
   });
 

@@ -42,7 +42,7 @@ describe("rewrite popup FSM", () => {
   it("returns preview to its exact origin without dirtying or replacing the draft", () => {
     const draft = {
       selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
-      contentRows: [{ xpath: "/html[1]/body[1]/main[1]", classification: "included" as const }],
+      markingRows: [{ xpath: "/html[1]/body[1]/main[1]", classification: "included" as const }],
     };
     let marking = transitionPopupState(
       { name: "post_ai_clean", lastConsumedSeq: 1, reconciliationReason: "", ...draft },
@@ -167,7 +167,7 @@ describe("markings never outlive the marking session", () => {
     name,
     lastConsumedSeq: 1,
     reconciliationReason: "",
-    contentRows: [
+    markingRows: [
       { xpath: "/html[1]/body[1]/div[1]/nav[1]", classification: "excluded" },
       { xpath: "/html[1]/body[1]/div[1]/p[1]", classification: "included" },
     ],
@@ -177,7 +177,7 @@ describe("markings never outlive the marking session", () => {
     const state = transitionPopupState(withRows("pre_ai_dirty"), signal(2, "marking.disabled", {}));
 
     expect(state.name).toBe("silent");
-    expect(state.contentRows).toEqual([]);
+    expect(state.markingRows).toEqual([]);
   });
 
   it("drops the rows when the page navigates", () => {
@@ -185,28 +185,28 @@ describe("markings never outlive the marking session", () => {
     const state = transitionPopupState(withRows("pre_ai_dirty"), signal(2, "session.navigated", {}));
 
     expect(state.name).toBe("silent");
-    expect(state.contentRows).toEqual([]);
+    expect(state.markingRows).toEqual([]);
   });
 
   it("drops the rows once the session is saved to the backend", () => {
     const state = transitionPopupState(withRows("post_ai_clean"), signal(2, "session.saved", { pageUrl: "https://example.com" }));
 
     expect(state.name).toBe("silent");
-    expect(state.contentRows).toEqual([]);
+    expect(state.markingRows).toEqual([]);
   });
 
   it("drops the rows on discard, which resets the page to a clean session", () => {
     const state = transitionPopupState(withRows("pre_ai_dirty"), signal(2, "session.discarded", {}));
 
     expect(state.name).toBe("pre_ai_clean");
-    expect(state.contentRows).toEqual([]);
+    expect(state.markingRows).toEqual([]);
   });
 
   it("keeps the rows while the session is still live", () => {
     const state = transitionPopupState(withRows("pre_ai_dirty"), signal(2, "run.started", { sessionId: "run-1" }));
 
     expect(state.name).toBe("running");
-    expect(state.contentRows).toHaveLength(2);
+    expect(state.markingRows).toHaveLength(2);
   });
 });
 

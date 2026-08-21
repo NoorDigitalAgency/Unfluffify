@@ -45,6 +45,55 @@ describe("corrective messaging application contracts", () => {
     })).resolves.toEqual({ ok: true, data: { ok: true, data: { accepted: true } } });
   });
 
+  it("transports the canonical six-state preview corpus without binary collapse", () => {
+    const projection = {
+      projectionId: "preview-document-1",
+      revision: 3,
+      pageUrl: "https://example.com/page",
+      rows: [
+        { id: "row-1", xpath: "/html[1]/body[1]/section[1]", text: "Explicit", classification: "explicit-included", selector: ".keep", shadow: "light" },
+        { id: "row-2", xpath: "/html[1]/body[1]/section[1]/p[1]", text: "Implicit", classification: "implicit-included", selector: ".keep", shadow: "force-open-closed" },
+        { id: "row-3", xpath: "/html[1]/body[1]/nav[1]", text: "Navigation", classification: "excluded", selector: ".drop", shadow: "light" },
+        { id: "row-4", xpath: "/html[1]/body[1]/p[1]", text: "Missed", classification: "undetected", shadow: "open" },
+        { id: "row-5", xpath: "/html[1]/body[1]/img[1]", text: "Photo", classification: "immutable", shadow: "light" },
+        { id: "row-6", xpath: "/html[1]/body[1]/x-card[1]", text: "Private card", classification: "closed-shadow", shadow: "inaccessible-closed" },
+      ],
+    } as const;
+
+    expect(applicationContract.commands["preview.project"].response.parse(projection)).toEqual(projection);
+    expect(applicationContract.commands["preview.project"].response.safeParse({
+      ...projection,
+      rows: [{ ...projection.rows[0], classification: "included" }],
+    }).success).toBe(false);
+    expect(applicationContract.commands["preview.project"].response.safeParse({
+      ...projection,
+      rows: [{ ...projection.rows[0], text: `${"😀".repeat(77)}...` }],
+    }).success).toBe(true);
+    expect(applicationContract.commands["preview.project"].response.safeParse({
+      ...projection,
+      rows: [{ ...projection.rows[0], text: "😀".repeat(81) }],
+    }).success).toBe(false);
+    expect(applicationContract.commands["preview.project"].request.parse({
+      pageUrl: projection.pageUrl,
+      selectors: { inclusionSelectors: [".keep"], exclusionSelectors: [".drop"] },
+    })).toEqual({
+      pageUrl: projection.pageUrl,
+      selectors: { inclusionSelectors: [".keep"], exclusionSelectors: [".drop"] },
+    });
+    expect(applicationContract.commands["preview.project"].request.safeParse({ pageUrl: projection.pageUrl }).success)
+      .toBe(false);
+    expect(applicationContract.commands["preview.emphasize"].request.parse({
+      pageUrl: projection.pageUrl,
+      projectionId: projection.projectionId,
+      rowId: "row-1",
+      active: false,
+    })).toMatchObject({ rowId: "row-1", active: false });
+    expect(applicationContract.commands["preview.activate"].request.safeParse({
+      pageUrl: projection.pageUrl,
+      projectionId: projection.projectionId,
+    }).success).toBe(false);
+  });
+
   it("carries connection settings over the bus and rejects non-URL endpoints", () => {
     const save = applicationContract.commands["settings.save"];
 

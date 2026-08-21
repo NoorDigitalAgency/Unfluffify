@@ -26,6 +26,13 @@ import {
   SelectorSetSchema,
 } from "../storage/config";
 import { MarkRowSchema } from "../domain/schema/marking";
+import {
+  PreviewEmphasizeRequestSchema,
+  PreviewProjectRequestSchema,
+  PreviewProjectionSchema,
+  PreviewTargetRequestSchema,
+  PreviewTargetResponseSchema,
+} from "../domain/schema/preview";
 import { ConnectionSettingsSchema } from "../storage/settings";
 import { PageContextResolutionSchema } from "../domain/schema/context";
 import { TodoCoverageSchema } from "../domain/schema/todo";
@@ -177,6 +184,18 @@ export const applicationContract = defineContract({
     "command.dispatch": {
       request: CommandEnvelopeSchema,
       response: CommandReplySchema,
+    },
+    "preview.project": {
+      request: PreviewProjectRequestSchema,
+      response: PreviewProjectionSchema,
+    },
+    "preview.emphasize": {
+      request: PreviewEmphasizeRequestSchema,
+      response: PreviewTargetResponseSchema,
+    },
+    "preview.activate": {
+      request: PreviewTargetRequestSchema,
+      response: PreviewTargetResponseSchema,
     },
     "signals.pull": {
       request: SignalPullRequestSchema,

@@ -92,13 +92,49 @@ body.is-busy {
   flex: 0 0 auto;
 }
 
-.preview-sidebar__item--included .preview-sidebar__item-button {
+.preview-sidebar__item--included .preview-sidebar__item-button,
+.preview-sidebar__item--keep .preview-sidebar__item-button {
   border-color: color-mix(in srgb, var(--success) 34%, var(--line));
   background: color-mix(in srgb, var(--success) 10%, transparent);
 }
 
-.preview-sidebar__item--included .preview-sidebar__item-index {
+.preview-sidebar__item--included .preview-sidebar__item-index,
+.preview-sidebar__item--keep .preview-sidebar__item-index {
   color: color-mix(in srgb, var(--success) 78%, var(--muted) 22%);
+}
+
+.preview-sidebar__item-copy,
+.preview-sidebar__item-public-classification {
+  display: block;
+}
+
+.preview-sidebar__item-copy {
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.preview-sidebar__item-public-classification {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.preview-sidebar__item-debug {
+  display: grid;
+  gap: 2px;
+  margin-top: 6px;
+  padding-top: 5px;
+  border-top: 1px dashed color-mix(in srgb, var(--line) 72%, transparent);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.preview-sidebar__item-debug code {
+  color: inherit;
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
 }
 
 .preview-sidebar__item--immutable .preview-sidebar__item-button {
@@ -138,12 +174,14 @@ body.is-busy {
   min-width: 0;
 }
 
-.preview-sidebar__item--excluded .preview-sidebar__item-button {
+.preview-sidebar__item--excluded .preview-sidebar__item-button,
+.preview-sidebar__item--remove .preview-sidebar__item-button {
   border-color: color-mix(in srgb, var(--danger) 36%, var(--line));
   background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
-.preview-sidebar__item--excluded .preview-sidebar__item-index {
+.preview-sidebar__item--excluded .preview-sidebar__item-index,
+.preview-sidebar__item--remove .preview-sidebar__item-index {
   color: color-mix(in srgb, var(--danger) 78%, var(--muted) 22%);
 }
 

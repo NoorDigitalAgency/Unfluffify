@@ -16,6 +16,7 @@ import {
   isPaintReachable,
   MARKING_OVERLAY_STYLE_ID,
   markClosedShadowHost,
+  previewTextForElement,
 } from "../../../../src/content/marking";
 import { stripUncapturableHtml } from "../../../../src/content/marking/submit";
 
@@ -121,6 +122,9 @@ class FakeElement {
   }
 
   matches(selector: string): boolean {
+    if (selector.startsWith(".")) {
+      return this.className.split(/\s+/).includes(selector.slice(1));
+    }
     return selector.toLowerCase() === this.tagName.toLowerCase();
   }
 
@@ -188,6 +192,7 @@ function createRendererTestSeam() {
   const markingRender = vi.fn();
   const silentRender = vi.fn();
   const silentBranchRender = vi.fn();
+  const hoverRender = vi.fn();
   const createRenderer = vi.fn((options: Parameters<typeof createOverlayRenderer>[0]) => {
     const renderer = createOverlayRenderer(options);
     return {
@@ -204,9 +209,13 @@ function createRendererTestSeam() {
         silentBranchRender();
         renderer.renderSilentHighlightsBranch(...args);
       },
+      setHover(...args: Parameters<typeof renderer.setHover>): void {
+        hoverRender(...args);
+        renderer.setHover(...args);
+      },
     };
   });
-  return { createRenderer, markingRender, silentRender, silentBranchRender };
+  return { createRenderer, markingRender, silentRender, silentBranchRender, hoverRender };
 }
 
 describe("P6 DOM bridge", () => {
@@ -609,6 +618,272 @@ describe("P6 DOM bridge", () => {
     });
     expect(engine.emphasizeXpath("/main[1]/missing[1]")).toBe(false);
     expect(engine.scrollXpathIntoView("/main[1]/missing[1]")).toBe(false);
+  });
+
+  it("keeps preview row identity and exact targeting when a same-tag sibling shifts XPath", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const target = new FakeElement("P", rect(0, 20, 120, 20), "Original target");
+    const scrollIntoView = vi.fn();
+    Object.assign(target, { scrollIntoView });
+    root.ownerDocument = doc;
+    target.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(target);
+    const engine = createMarkingEngine(root as unknown as Element);
+    const selectors = { inclusionSelectors: ["p"], exclusionSelectors: [] };
+    const before = engine.projectPreview("https://example.com/page", selectors);
+    const original = before.rows.find((row) => row.text === "Original target");
+    expect(original).toMatchObject({ xpath: "/main[1]/p[1]", classification: "explicit-included" });
+
+    const decoy = new FakeElement("P", rect(0, 0, 120, 20), "Prepended decoy");
+    decoy.ownerDocument = doc;
+    decoy.parentElement = root;
+    root.children.unshift(decoy);
+    root.childNodes.unshift(decoy);
+    engine.refresh();
+
+    // The stored projection is rebased during refresh, so the old opaque target
+    // remains valid before the popup asks for the newer row snapshot.
+    expect(engine.emphasizePreviewRow(before.projectionId, original!.id, true)).toBe(true);
+    expect(engine.activatePreviewRow(before.projectionId, original!.id)).toBe(true);
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(engine.emphasizePreviewRow("stale-projection", original!.id, true)).toBe(false);
+    expect(engine.activatePreviewRow(before.projectionId, "missing-row")).toBe(false);
+
+    const after = engine.projectPreview("https://example.com/page", selectors);
+    const rebased = after.rows.find((row) => row.text === "Original target");
+    expect(after.revision).toBeGreaterThan(before.revision);
+    expect(rebased).toMatchObject({ id: original!.id, xpath: "/main[1]/p[2]" });
+  });
+
+  it("advances one projection revision when only the preview selector set changes", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const target = new FakeElement("P", rect(0, 20, 120, 20), "Selector target");
+    root.ownerDocument = doc;
+    target.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(target);
+    const engine = createMarkingEngine(root as unknown as Element);
+
+    const included = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: ["p"],
+      exclusionSelectors: [],
+    });
+    const excluded = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: [],
+      exclusionSelectors: ["p"],
+    });
+
+    expect(excluded.projectionId).toBe(included.projectionId);
+    expect(excluded.revision).toBe(included.revision + 1);
+    expect(included.rows).toEqual([
+      expect.objectContaining({
+        id: expect.any(String),
+        classification: "explicit-included",
+        selector: "p",
+      }),
+    ]);
+    expect(excluded.rows).toEqual([
+      expect.objectContaining({
+        id: included.rows[0]?.id,
+        classification: "excluded",
+        selector: "p",
+      }),
+    ]);
+  });
+
+  it("rotates projection authority between preview occurrences while preserving element row identity", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const target = new FakeElement("P", rect(0, 20, 120, 20), "Same element");
+    root.ownerDocument = doc;
+    target.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(target);
+    const engine = createMarkingEngine(root as unknown as Element);
+    const selectors = { inclusionSelectors: ["p"], exclusionSelectors: [] };
+
+    const cycleOne = engine.projectPreview("https://example.com/page", selectors);
+    const rowId = cycleOne.rows[0]!.id;
+    expect(engine.emphasizePreviewRow(cycleOne.projectionId, rowId, true)).toBe(true);
+
+    engine.retirePreviewProjection();
+    expect(engine.currentPreviewProjection()).toBeNull();
+
+    const cycleTwo = engine.projectPreview("https://example.com/page", selectors);
+    expect(cycleTwo.projectionId).not.toBe(cycleOne.projectionId);
+    expect(cycleTwo.rows[0]?.id).toBe(rowId);
+    expect(engine.emphasizePreviewRow(cycleOne.projectionId, rowId, true)).toBe(false);
+    expect(engine.activatePreviewRow(cycleOne.projectionId, rowId)).toBe(false);
+    expect(engine.emphasizePreviewRow(cycleTwo.projectionId, rowId, true)).toBe(true);
+    expect(engine.activatePreviewRow(cycleTwo.projectionId, rowId)).toBe(true);
+  });
+
+  it("rebinds active preview hover after XPath rebase and forgets it when the row disappears", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const target = new FakeElement("P", rect(0, 20, 120, 20), "Hovered target");
+    root.ownerDocument = doc;
+    target.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(target);
+    const renderer = createRendererTestSeam();
+    const engine = createMarkingEngine(root as unknown as Element, {
+      instrumentation: { createRenderer: renderer.createRenderer },
+    });
+    const projection = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: ["p"],
+      exclusionSelectors: [],
+    });
+    const rowId = projection.rows[0]!.id;
+    expect(engine.emphasizePreviewRow(projection.projectionId, rowId, true)).toBe(true);
+    renderer.hoverRender.mockClear();
+
+    const decoy = new FakeElement("P", rect(0, 0, 120, 20), "Prepended decoy");
+    decoy.ownerDocument = doc;
+    decoy.parentElement = root;
+    root.children.unshift(decoy);
+    root.childNodes.unshift(decoy);
+    engine.refresh();
+
+    expect(renderer.hoverRender).toHaveBeenLastCalledWith(
+      target as unknown as Element,
+      "/main[1]/p[2]",
+    );
+
+    renderer.hoverRender.mockClear();
+    target.remove();
+    engine.refresh();
+    expect(renderer.hoverRender).toHaveBeenLastCalledWith(null);
+    expect(engine.emphasizePreviewRow(projection.projectionId, rowId, true)).toBe(false);
+
+    // Reappearance alone must not resurrect an emphasis whose identity was
+    // cleared when the row disappeared.
+    renderer.hoverRender.mockClear();
+    root.appendChild(target);
+    engine.refresh();
+    expect(renderer.hoverRender).not.toHaveBeenCalled();
+  });
+
+  it("clears active preview hover when selector-only reprojection removes the row", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const target = new FakeElement("P", rect(0, 20, 120, 20), "Inherited target");
+    root.ownerDocument = doc;
+    target.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(target);
+    const renderer = createRendererTestSeam();
+    const engine = createMarkingEngine(root as unknown as Element, {
+      instrumentation: { createRenderer: renderer.createRenderer },
+    });
+    const included = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: ["main"],
+      exclusionSelectors: [],
+    });
+    const inherited = included.rows.find((row) => row.classification === "implicit-included")!;
+    expect(engine.emphasizePreviewRow(included.projectionId, inherited.id, true)).toBe(true);
+    renderer.hoverRender.mockClear();
+
+    const excluded = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: [],
+      exclusionSelectors: ["main"],
+    });
+    expect(excluded.projectionId).toBe(included.projectionId);
+    expect(excluded.rows.some((row) => row.id === inherited.id)).toBe(false);
+    expect(renderer.hoverRender).toHaveBeenLastCalledWith(null);
+
+    renderer.hoverRender.mockClear();
+    engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: ["main"],
+      exclusionSelectors: [],
+    });
+    expect(renderer.hoverRender).not.toHaveBeenCalled();
+  });
+
+  it("distinguishes force-open and inaccessible closed-shadow provenance without dropping light children", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const forceOpen = new FakeElement("X-CARD", rect(0, 0, 200, 80));
+    forceOpen.className = "force-open";
+    forceOpen.setAttribute("data-uf-closed-shadow-host", "true");
+    const shadowText = new FakeElement("P", rect(0, 0, 160, 20), "Shadow text");
+    shadowText.shadowHost = forceOpen;
+    forceOpen.shadowRoot = { children: [shadowText], childNodes: [shadowText], elementsFromPoint: () => [] };
+    const inaccessible = new FakeElement("X-PRIVATE", rect(0, 100, 200, 80));
+    inaccessible.setAttribute("data-uf-closed-shadow-host", "true");
+    const lightText = new FakeElement("P", rect(0, 100, 160, 20), "Accessible light text");
+    for (const element of [root, forceOpen, shadowText, inaccessible, lightText]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(forceOpen);
+    root.appendChild(inaccessible);
+    inaccessible.appendChild(lightText);
+
+    const engine = createMarkingEngine(root as unknown as Element);
+    const projection = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: [".force-open"],
+      exclusionSelectors: [],
+    });
+    const byText = new Map(projection.rows.map((row) => [row.text, row]));
+
+    expect(byText.get("Shadow text")).toMatchObject({
+      classification: "implicit-included",
+      selector: ".force-open",
+      shadow: "force-open-closed",
+    });
+    expect(projection.rows.find((row) => row.xpath === "/main[1]/x-card[1]")).toMatchObject({
+      classification: "explicit-included",
+      shadow: "force-open-closed",
+    });
+    expect(projection.rows.find((row) => row.xpath === "/main[1]/x-private[1]")).toMatchObject({
+      classification: "closed-shadow",
+      shadow: "inaccessible-closed",
+    });
+    expect(byText.get("Accessible light text")).toMatchObject({
+      classification: "undetected",
+      shadow: "light",
+    });
+  });
+
+  it("extracts bounded readable text while excluding hostile and extension-owned descendants", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("ARTICLE", rect(0, 0, 300, 300), " Safe\tcopy\u0000 ");
+    const script = new FakeElement("SCRIPT", rect(0, 0, 0, 0), "alert('hostile')");
+    const hidden = new FakeElement("SPAN", rect(0, 0, 10, 10), "Hidden copy");
+    hidden.setAttribute("hidden", "");
+    const ariaHidden = new FakeElement("SPAN", rect(0, 0, 10, 10), "ARIA hidden copy");
+    ariaHidden.setAttribute("aria-hidden", "true");
+    const extension = new FakeElement("ASIDE", rect(0, 0, 10, 10), "Extension diagnostic");
+    extension.setAttribute("data-uf-extension-ui", "true");
+    for (const element of [root, script, hidden, ariaHidden, extension]) {
+      element.ownerDocument = doc;
+    }
+    root.appendChild(script);
+    root.appendChild(hidden);
+    root.appendChild(ariaHidden);
+    root.appendChild(extension);
+
+    expect(previewTextForElement(root as unknown as Element)).toBe("Safe copy");
+
+    const image = new FakeElement("IMG", rect(0, 0, 10, 10));
+    image.setAttribute("aria-label", "Accessible image");
+    image.setAttribute("alt", "Fallback alt");
+    expect(previewTextForElement(image as unknown as Element)).toBe("Accessible image");
+
+    const unicode = new FakeElement("P", rect(0, 0, 10, 10), "😀".repeat(90));
+    const bounded = previewTextForElement(unicode as unknown as Element);
+    expect(Array.from(bounded)).toHaveLength(80);
+    expect(bounded).toBe(`${"😀".repeat(77)}...`);
   });
 
   it("keeps a collapsed wrapper XPath while drawing its visible descendant geometry", () => {

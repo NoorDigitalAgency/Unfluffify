@@ -1,21 +1,57 @@
-import type { PopupContentRow } from "./organ/machine";
+import type {
+  PreviewClassification,
+  PreviewRow,
+  PreviewShadowProvenance,
+} from "../domain/schema/preview";
 import { popupDebugBuildEnabled } from "./build-mode";
 
-export type PreviewDisplayClassification = PopupContentRow["classification"];
+export type PreviewDisplayClassification = "included" | "excluded";
+
+export type PreviewDebugDetail = Readonly<{
+  classification: PreviewClassification;
+  xpath: string;
+  selector?: string;
+  shadow: PreviewShadowProvenance;
+}>;
+
+/** The only row fields the production view is allowed to consume. Raw selector,
+ * XPath, evaluator classification and shadow provenance stay behind the literal
+ * debug build branch. */
+export type PreviewDisplayRow = Readonly<{
+  id: string;
+  text: string;
+  classification: PreviewDisplayClassification;
+  debugDetail: PreviewDebugDetail | null;
+}>;
 
 export function previewDebugDetailEnabled(): boolean {
   return popupDebugBuildEnabled();
 }
 
-/** The evaluator retains all classification detail. Production deliberately
- * presents only the operator-facing included/excluded distinction; debug builds
- * may expose immutable and closed-shadow provenance for diagnosis. */
 export function projectPreviewClassification(
-  classification: PopupContentRow["classification"],
-  debug = previewDebugDetailEnabled(),
+  classification: PreviewClassification,
 ): PreviewDisplayClassification {
-  if (debug || classification === "included" || classification === "excluded") {
-    return classification;
-  }
-  return "excluded";
+  return classification === "explicit-included" || classification === "implicit-included"
+    ? "included"
+    : "excluded";
+}
+
+/** Pure production/debug seam used by both rendering and parity tests. */
+export function projectPreviewRow(
+  row: PreviewRow,
+  debug = previewDebugDetailEnabled(),
+): PreviewDisplayRow {
+  return {
+    id: row.id,
+    text: row.text,
+    classification: projectPreviewClassification(row.classification),
+    debugDetail: debug
+      ? {
+        classification: row.classification,
+        xpath: row.xpath,
+        ...(row.selector === undefined ? {} : { selector: row.selector }),
+        shadow: row.shadow,
+      }
+      : null,
+  };
 }

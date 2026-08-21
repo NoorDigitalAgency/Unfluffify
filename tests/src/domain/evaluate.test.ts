@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { EvaluationNode } from "../../../src/domain/evaluate";
-import { evaluate, evaluateBranch } from "../../../src/domain/evaluate";
+import { evaluate, evaluateBranch, evaluatePreview } from "../../../src/domain/evaluate";
 
 const leaf = (key: string, xpath: string, overrides: Partial<EvaluationNode> = {}): EvaluationNode => ({
   key,
@@ -174,5 +174,75 @@ describe("P0 evaluate pass (INV-2.5..INV-2.10, INV-4.1..INV-4.4, INV-5.1..INV-5.
     );
     expect(result.overlay.get(closed.xpath)).toBe("closed-shadow");
     expect(result.rows).toEqual([]);
+  });
+
+  it("produces all six preview classifications without downstream reconstruction", () => {
+    const implicit = leaf("implicit", "/html[1]/body[1]/section[1]/p[1]");
+    const explicit = node("explicit", "/html[1]/body[1]/section[1]", [implicit], {
+      tagName: "SECTION",
+      ownsDirectText: false,
+      shadow: "force-open-closed",
+    });
+    const excluded = leaf("excluded", "/html[1]/body[1]/nav[1]", { tagName: "NAV" });
+    const undetected = leaf("undetected", "/html[1]/body[1]/p[1]");
+    const immutable = leaf("immutable", "/html[1]/body[1]/img[1]", {
+      tagName: "IMG",
+      ownsDirectText: false,
+      immutable: true,
+    });
+    const closed = leaf("closed", "/html[1]/body[1]/x-card[1]", {
+      tagName: "X-CARD",
+      ownsDirectText: false,
+      shadow: "inaccessible-closed",
+    });
+    const root = node("body", "/html[1]/body[1]", [explicit, excluded, undetected, immutable, closed], {
+      tagName: "BODY",
+    });
+
+    const rows = evaluatePreview(
+      {
+        rows: [
+          { xpath: explicit.xpath, excluded: false, explicit: true },
+          { xpath: excluded.xpath, excluded: true, explicit: true },
+        ],
+      },
+      { root },
+      {
+        inclusionSelectorByKey: new Map([[explicit.key, ".keep"]]),
+        exclusionSelectorByKey: new Map([[excluded.key, ".drop"]]),
+      },
+    );
+    const byId = new Map(rows.map((row) => [row.id, row]));
+
+    expect([...byId.values()].map((row) => row.classification).sort()).toEqual([
+      "closed-shadow",
+      "excluded",
+      "explicit-included",
+      "immutable",
+      "implicit-included",
+      "undetected",
+    ]);
+    expect(byId.get("explicit")).toMatchObject({ classification: "explicit-included", selector: ".keep" });
+    expect(byId.get("implicit")).toMatchObject({ classification: "implicit-included", selector: ".keep" });
+    expect(byId.get("excluded")).toMatchObject({ classification: "excluded", selector: ".drop" });
+    expect(byId.get("undetected")).not.toHaveProperty("selector");
+  });
+
+  it("keeps accessible light children below a known inaccessible shadow host", () => {
+    const light = leaf("light", "/html[1]/body[1]/x-card[1]/p[1]");
+    const closed = node("closed", "/html[1]/body[1]/x-card[1]", [light], {
+      tagName: "X-CARD",
+      shadow: "inaccessible-closed",
+    });
+    const rows = evaluatePreview(
+      { rows: [] },
+      { root: node("body", "/html[1]/body[1]", [closed], { tagName: "BODY" }) },
+      { inclusionSelectorByKey: new Map(), exclusionSelectorByKey: new Map() },
+    );
+
+    expect(rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "closed", classification: "closed-shadow" }),
+      expect.objectContaining({ id: "light", classification: "undetected" }),
+    ]));
   });
 });

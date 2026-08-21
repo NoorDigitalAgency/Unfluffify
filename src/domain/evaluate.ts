@@ -1,4 +1,8 @@
 import type { CanonicalMarkSet, Classification, MarkRow } from "./schema/marking";
+import type {
+  PreviewClassification,
+  PreviewShadowProvenance,
+} from "./schema/preview";
 import type { StructuralRole } from "./boundary";
 import { isImmutableTag } from "./taxonomy";
 import { isToggleableBoundary } from "./boundary";
@@ -18,6 +22,7 @@ export type EvaluationNode = Readonly<{
   chrome?: boolean;
   immutable?: boolean;
   closedShadow?: boolean;
+  shadow?: PreviewShadowProvenance;
   silentWhitespaceExclusion?: boolean;
 }>;
 
@@ -36,6 +41,18 @@ export type BranchEvaluationInput = Readonly<{
   inheritedAncestorMark?: MarkRow;
   inheritedSubmittedExcludedAncestor?: string;
   inheritedUncapturable?: boolean;
+}>;
+
+export type PreviewSelectorMatchContext = Readonly<{
+  inclusionSelectorByKey: ReadonlyMap<string, string>;
+  exclusionSelectorByKey: ReadonlyMap<string, string>;
+}>;
+
+export type PreviewEvaluationRow = Readonly<{
+  id: string;
+  classification: PreviewClassification;
+  xpath: string;
+  selector?: string;
 }>;
 
 function rowKey(row: MarkRow): string {
@@ -159,6 +176,85 @@ export function evaluate(canonicalMarks: CanonicalMarkSet, domView: DomView): Ev
     overlay,
     rows: [...rows].sort((left, right) => compareXpathsInDocumentOrder(left.xpath, right.xpath)),
   };
+}
+
+/**
+ * Produces the complete selector-preview classification in the canonical domain
+ * pass. Submission rows and overlay classes deliberately remain unchanged: they
+ * answer marking/capture questions, while these rows answer which selector rule
+ * detected a visible markable boundary.
+ */
+export function evaluatePreview(
+  canonicalMarks: CanonicalMarkSet,
+  domView: DomView,
+  matches: PreviewSelectorMatchContext,
+): readonly PreviewEvaluationRow[] {
+  const evaluation = evaluate(canonicalMarks, domView);
+  const submissionByXpath = new Map(evaluation.rows.map((row) => [row.xpath, row]));
+  const rows = new Map<string, PreviewEvaluationRow>();
+
+  type Coverage = Readonly<{ kind: "include" | "exclude"; selector: string }>;
+  const visit = (node: EvaluationNode, inheritedCoverage: Coverage | undefined): void => {
+    // Inclusion wins an exact selector conflict, matching applySelectorSeed.
+    const inclusionSelector = matches.inclusionSelectorByKey.get(node.key);
+    const exclusionSelector = matches.exclusionSelectorByKey.get(node.key);
+    const ownCoverage: Coverage | undefined = inclusionSelector
+      ? { kind: "include", selector: inclusionSelector }
+      : exclusionSelector
+        ? { kind: "exclude", selector: exclusionSelector }
+        : undefined;
+    const coverage = ownCoverage ?? inheritedCoverage;
+    const selector = inclusionSelector ?? exclusionSelector ?? coverage?.selector;
+
+    if (node.closedShadow || node.shadow === "inaccessible-closed") {
+      rows.set(node.key, {
+        id: node.key,
+        classification: "closed-shadow",
+        xpath: node.xpath,
+        ...(selector ? { selector } : {}),
+      });
+      // A synthetic `closedShadow` node represents a wholly uncapturable branch.
+      // A known inaccessible root can still have accessible light children, which
+      // remain part of the composed page and must continue through the preview.
+      if (node.closedShadow) {
+        return;
+      }
+    } else if (node.immutable || isImmutableTag(node.tagName)) {
+      rows.set(node.key, {
+        id: node.key,
+        classification: "immutable",
+        xpath: node.xpath,
+        ...(selector ? { selector } : {}),
+      });
+      return;
+    } else {
+      const submission = submissionByXpath.get(node.xpath);
+      if (submission) {
+        const classification: PreviewClassification = submission.excluded || coverage?.kind === "exclude"
+          ? "excluded"
+          : inclusionSelector
+            ? "explicit-included"
+            : coverage?.kind === "include"
+              ? "implicit-included"
+              : "undetected";
+        rows.set(node.key, {
+          id: node.key,
+          classification,
+          xpath: node.xpath,
+          ...(selector ? { selector } : {}),
+        });
+      }
+    }
+
+    for (const child of node.children ?? []) {
+      visit(child, coverage);
+    }
+  };
+
+  visit(domView.root, undefined);
+  return [...rows.values()].sort((left, right) =>
+    compareXpathsInDocumentOrder(left.xpath, right.xpath)
+  );
 }
 
 export function evaluateBranch(
