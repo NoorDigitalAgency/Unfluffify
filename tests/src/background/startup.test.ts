@@ -106,9 +106,10 @@ describe("rewrite background startup", () => {
           },
         },
       },
-    }, {}, () => undefined);
+    }, { tab: { id: 5 }, frameId: 0, documentId: "document-5" }, () => undefined);
     await Promise.resolve();
     await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     let response: unknown;
     const keepOpen = runtimeListener({
@@ -504,6 +505,7 @@ describe("rewrite background startup", () => {
         delete sessionValues[key];
       }),
     };
+    let currentDocumentId = "document-old";
     globalThis.chrome = {
       runtime: {
         sendMessage: vi.fn(),
@@ -515,6 +517,15 @@ describe("rewrite background startup", () => {
         onAlarm: { addListener: vi.fn() },
       },
       storage: { session: sessionStorage },
+      webNavigation: {
+        getFrame(
+          _details: { tabId: number; frameId: number },
+          callback: (details: { documentId?: string } | null) => void,
+        ) {
+          callback({ documentId: currentDocumentId });
+        },
+        onCommitted: { addListener: vi.fn() },
+      },
     } as unknown as typeof chrome;
 
     const { startRewriteBackground } = await import("../../../src/background/index");
@@ -528,6 +539,7 @@ describe("rewrite background startup", () => {
       id: string,
       seq: number,
       source: "popup" | "content" = "popup",
+      documentId = "document-current",
     ): Promise<unknown> => {
       let response: unknown;
       listener({
@@ -537,7 +549,9 @@ describe("rewrite background startup", () => {
         seq,
         name,
         source,
-        sourceInstance: source === "popup" ? "popup:test" : "tab:77:frame:0:content:test",
+        sourceInstance: source === "popup"
+          ? "popup:test"
+          : `tab:77:frame:0:document:${documentId}:content:test`,
         target: "background",
         payload,
       }, {}, (value: unknown) => {
@@ -572,6 +586,18 @@ describe("rewrite background startup", () => {
       ok: true,
       payload: { settings, hasToken: false },
     });
+    expect(await callWith(
+      runtimeListener,
+      "page.context",
+      { tabId: 77, pageUrl: "https://example.com/detail" },
+      "content-context-before-unregister",
+      1,
+      "content",
+      "document-old",
+    )).toMatchObject({
+      ok: true,
+      payload: { consentSuppressionAllowed: true },
+    });
     expect(await call("session.unregister", { tabId: 77 }, "unregister-1", 4)).toMatchObject({
       ok: true,
       payload: { status: "ok" },
@@ -587,12 +613,16 @@ describe("rewrite background startup", () => {
       payload: { consentSuppressionAllowed: false },
     });
     expect(sessionStorage.set).toHaveBeenCalledWith({
-      "uf:consent-suppression-disabled:77": true,
+      "uf:consent-suppression-disabled:77": {
+        disabled: true,
+        blockedDocumentKey: "document-old",
+      },
     });
 
     // MV3 may tear the worker down between Unregister and the reload's context
     // probe. A fresh module instance must still read the storage.session tombstone.
     vi.resetModules();
+    currentDocumentId = "document-new";
     const restarted = await import("../../../src/background/index");
     restarted.startRewriteBackground();
     const restartedListener = addMessageListener.mock.calls.at(-1)?.[0] as typeof runtimeListener;
@@ -603,6 +633,7 @@ describe("rewrite background startup", () => {
       "content-context-after-worker-restart",
       1,
       "content",
+      "document-new",
     )).toMatchObject({
       ok: true,
       payload: { consentSuppressionAllowed: false },
@@ -611,9 +642,22 @@ describe("rewrite background startup", () => {
       restartedListener,
       "consent.suppression.register",
       { tabId: 77 },
-      "explicit-consent-reregister",
+      "stale-consent-reregister",
       2,
       "content",
+      "document-old",
+    )).toMatchObject({
+      ok: true,
+      payload: { status: "stale" },
+    });
+    expect(await callWith(
+      restartedListener,
+      "consent.suppression.register",
+      { tabId: 77 },
+      "fresh-consent-reregister",
+      2,
+      "content",
+      "document-new",
     )).toMatchObject({
       ok: true,
       payload: { status: "ok" },
@@ -625,6 +669,7 @@ describe("rewrite background startup", () => {
       "content-context-after-explicit-register",
       3,
       "content",
+      "document-new",
     )).toMatchObject({
       ok: true,
       payload: { consentSuppressionAllowed: true },
@@ -898,7 +943,7 @@ describe("rewrite background startup", () => {
             },
           },
         },
-      }, {}, () => undefined);
+      }, { tab: { id: 5 }, frameId: 0, documentId: "document-5" }, () => undefined);
       for (let tick = 0; tick < 10 && !listeners.has("open"); tick += 1) {
         await new Promise((resolve) => setTimeout(resolve, 0));
       }

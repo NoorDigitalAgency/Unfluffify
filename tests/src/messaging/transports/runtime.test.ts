@@ -19,7 +19,7 @@ function frame(): BusFrame {
 
 function runtimeLike() {
   const listeners = new Set<
-    (message: unknown, sender: { tab?: { id?: number }; frameId?: number }) => unknown
+    (message: unknown, sender: { tab?: { id?: number }; frameId?: number; documentId?: string }) => unknown
   >();
   return {
     api: {
@@ -28,19 +28,23 @@ function runtimeLike() {
       },
       onMessage: {
         addListener(
-          listener: (message: unknown, sender: { tab?: { id?: number }; frameId?: number }) => unknown,
+          listener: (message: unknown, sender: { tab?: { id?: number }; frameId?: number; documentId?: string }) => unknown,
         ) {
           listeners.add(listener);
         },
         removeListener(
-          listener: (message: unknown, sender: { tab?: { id?: number }; frameId?: number }) => unknown,
+          listener: (message: unknown, sender: { tab?: { id?: number }; frameId?: number; documentId?: string }) => unknown,
         ) {
           listeners.delete(listener);
         },
       },
     },
-    dispatch(message: unknown, sendResponse?: (response: unknown) => void) {
-      return Array.from(listeners, (listener) => listener(message, { tab: { id: 0 }, frameId: 0 }, sendResponse))[0];
+    dispatch(
+      message: unknown,
+      sendResponse?: (response: unknown) => void,
+      sender: { tab?: { id?: number }; frameId?: number; documentId?: string } = { tab: { id: 0 }, frameId: 0 },
+    ) {
+      return Array.from(listeners, (listener) => listener(message, sender, sendResponse))[0];
     },
   };
 }
@@ -110,6 +114,23 @@ describe("P1 runtime transports", () => {
     fake.dispatch({ ...frame(), sourceInstance: "content:default", source: "content" });
 
     expect(seen).toEqual(["tab:0:frame:0:content:default"]);
+  });
+
+  it("stamps and escapes the Chrome document identity for durable document fences", () => {
+    const fake = runtimeLike();
+    const transport = createRuntimeTransport(fake.api);
+    const seen: string[] = [];
+    transport.onReceive((message) => {
+      seen.push(message.sourceInstance ?? "");
+    });
+
+    fake.dispatch(
+      { ...frame(), sourceInstance: "content:default", source: "content" },
+      undefined,
+      { tab: { id: 7 }, frameId: 0, documentId: "doc:reload/1" },
+    );
+
+    expect(seen).toEqual(["tab:7:frame:0:document:doc%3Areload%2F1:content:default"]);
   });
 
   it("delivers port messages to listeners and posts replies", async () => {

@@ -207,6 +207,9 @@ function makeTabsSendMessage(
 function makeRuntime(
   handler: (frame: BusFrame) => Promise<unknown> | unknown,
   renderMode: "rendered" | "static" = "rendered",
+  options: Readonly<{
+    configLoad?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
+  }> = {},
 ) {
   const factBrain = createRewriteBrain(77);
   const factSignals: Array<ReturnType<typeof factBrain.observe>[number]> = [];
@@ -321,6 +324,9 @@ function makeRuntime(
         return replyFrame(frame, { rows: Array.isArray(payload.rows) ? payload.rows : [] });
       }
       if (frame.name === "config.load") {
+        if (options.configLoad) {
+          return await options.configLoad(frame);
+        }
         return replyFrame(frame, {
           status: "ok",
           config: { ...backendConfig(), renderMode },
@@ -509,7 +515,9 @@ describe("rewrite popup entrypoint", () => {
     expect(emulationNames().length).toBeGreaterThan(0);
     expect(emulationNames()).not.toContain("cleared");
     expect(emulationNames().every((mode) => mode === "mobile")).toBe(true);
-    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("enterSilentContentMain", {}));
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("enterSilentContentMain", {
+      pageUrl: "https://example.com",
+    }));
   });
 
   it("does not adopt a render mode until the operator confirms it", async () => {
@@ -731,7 +739,9 @@ describe("rewrite popup entrypoint", () => {
     )).toHaveLength(1);
     expect(runtimeFrames.filter((frame) => frame.name === "signals.emit").map((frame) => frame.payload?.signal?.name))
       .not.toEqual(expect.arrayContaining(["marking.enabled", "marking.disabled"]));
-    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("resetContentMain", {}));
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("resetContentMain", {
+      pageUrl: "https://example.com",
+    }));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "fact.reported",
       payload: expect.objectContaining({
@@ -742,7 +752,9 @@ describe("rewrite popup entrypoint", () => {
       }),
       target: "background",
     }));
-    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("enterSilentContentMain", {}));
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("enterSilentContentMain", {
+      pageUrl: "https://example.com",
+    }));
     // Disabling comes last: the reset happens while marking is still armed.
     expect(sentCommandNames.lastIndexOf("resetContentMain"))
       .toBeLessThan(tabsSendMessage.mock.calls
@@ -946,8 +958,11 @@ describe("rewrite popup entrypoint", () => {
       .map(([frame]) => frame)
       .filter((frame) => frame.name === "lock.directive")
       .every((frame) => !("hasUnsavedChanges" in frame.payload))).toBe(true);
-    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("enterSilentContentMain", {}));
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("enterSilentContentMain", {
+      pageUrl: "https://example.com/page",
+    }));
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("applySilentSelectors", {
+      pageUrl: "https://example.com/page",
       selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
     }));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
@@ -1344,7 +1359,9 @@ describe("rewrite popup entrypoint", () => {
     await flushEntrypointWork();
 
     expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(false);
-    expect(tabsSendMessage).not.toHaveBeenCalledWith(77, contentCommand("enterSilentContentMain", {}));
+    expect(tabsSendMessage).not.toHaveBeenCalledWith(77, contentCommand("enterSilentContentMain", {
+      pageUrl: "https://example.com/page",
+    }));
   });
 
   it("does not enable Save when markings change during AI snapshot capture", async () => {
@@ -2344,6 +2361,81 @@ describe("rewrite popup entrypoint", () => {
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("terminateConsentSuppression", {}));
     expect(reload).toHaveBeenCalledTimes(2);
     expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("does not let a pre-unregister config poll command the replacement document", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const close = vi.fn();
+    Object.assign(globalThis.window, { close });
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const tab = { id: 77, url: "https://example.com/a" };
+    const query = vi.fn().mockResolvedValue([tab]);
+    const get = vi.fn().mockResolvedValue(tab);
+    let finishReload: (() => void) | null = null;
+    const reload = vi.fn((_tabId: number, _options: object, callback: () => void) => {
+      finishReload = callback;
+    });
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
+    let resolveConfig: ((frame: BusFrame) => void) | null = null;
+    const configResponse = new Promise<BusFrame>((resolve) => {
+      resolveConfig = resolve;
+    });
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "session.unregister") {
+        return replyFrame(message, { status: "ok" });
+      }
+      return replyFrame(message, []);
+    }, "rendered", {
+      configLoad: async () => await configResponse,
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, get, reload, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    await waitFor(() => props().diagnostics.settingsLoaded, "stored connection profile");
+
+    const poll = globalThis.window.setInterval.mock.calls[0]?.[0] as () => void;
+    poll();
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "config.load"),
+      "deferred config load",
+    );
+
+    props().onUnregisterTab();
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "session.unregister"),
+      "terminal unregister",
+    );
+    await waitFor(() => reload.mock.calls.length === 1, "replacement document reload");
+
+    resolveConfig?.(replyFrame(
+      runtime.sendMessage.mock.calls.find(([frame]) => frame.name === "config.load")?.[0] as BusFrame,
+      {
+        status: "ok",
+        config: backendConfig(),
+        renderMode: "rendered",
+        renderModeSource: "backend",
+      },
+    ));
+    await flushEntrypointWork();
+    poll();
+    await flushEntrypointWork();
+
+    const contentCommands = tabsSendMessage.mock.calls.map(([, message]) => {
+      const frame = message as BusFrame;
+      return (frame.payload as { name?: string } | undefined)?.name;
+    });
+    expect(contentCommands).toContain("deactivateContentMain");
+    expect(contentCommands).toContain("terminateConsentSuppression");
+    expect(contentCommands).not.toContain("applySilentSelectors");
+    expect(contentCommands).not.toContain("clearSilentSelectors");
+
+    finishReload?.();
+    await waitFor(() => close.mock.calls.length === 1, "unregister completion");
   });
 
   it("retries a publication-unknown outcome with the exact same fenced Hub operation", async () => {

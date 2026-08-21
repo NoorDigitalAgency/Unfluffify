@@ -94,6 +94,16 @@ const rootRecovery = createPopupRootRecovery({
 let popupFactSequence = 0;
 let boundTabId: number | null = null;
 let boundTabKey: string | null = null;
+/** Unregister/config removal is a terminal boundary for this popup realm. Any
+ *  async work that began before it must not send a fresh content command into a
+ *  replacement document and thereby re-register the tab. A newly opened popup
+ *  gets a fresh realm and may deliberately establish authority again. */
+let contentCommandTerminal = false;
+let contentCommandEpoch = 0;
+const TERMINAL_CONTENT_COMMANDS = new Set([
+  "deactivateContentMain",
+  "terminateConsentSuppression",
+]);
 let signalPollHandle: ReturnType<Window["setInterval"]> | null = null;
 /** Which decided signals have already been consumed, and the queue that keeps
  *  concurrent arrivals from consuming the same ones twice. */
@@ -1099,8 +1109,15 @@ async function refreshSilentSelectorPreview(context: TargetTabContext, requestKe
   }
   silentSelectorsAppliedKey = key;
   const applied = key
-    ? await sendContentMessage(context.tabId, { type: "applySilentSelectors", selectors })
-    : await sendContentMessage(context.tabId, { type: "clearSilentSelectors" });
+    ? await sendContentMessage(context.tabId, {
+      type: "applySilentSelectors",
+      pageUrl: context.url,
+      selectors,
+    })
+    : await sendContentMessage(context.tabId, {
+      type: "clearSilentSelectors",
+      pageUrl: context.url,
+    });
   if (boundTabKey !== requestKey) {
     return;
   }
@@ -1130,8 +1147,13 @@ async function sendContentMessage(tabId: number, message: Record<string, unknown
 }
 
 async function requestContentMessage(tabId: number, message: Record<string, unknown>): Promise<unknown> {
+  const commandName = typeof message.type === "string" ? message.type : "";
+  const terminalCommand = TERMINAL_CONTENT_COMMANDS.has(commandName);
+  const requestEpoch = contentCommandEpoch;
+  if (contentCommandTerminal && !terminalCommand) {
+    return null;
+  }
   try {
-    const commandName = typeof message.type === "string" ? message.type : "";
     const bus = createRealmBus({
       realm: "popup",
       transport: createTabTransport(getRuntimeBrowser().tabs, tabId),
@@ -1143,6 +1165,9 @@ async function requestContentMessage(tabId: number, message: Record<string, unkn
       payload: Object.fromEntries(Object.entries(message).filter(([key]) => key !== "type")),
     }, { target: "content" });
     bus.dispose();
+    if (!terminalCommand && (contentCommandTerminal || contentCommandEpoch !== requestEpoch)) {
+      return null;
+    }
     if (!response.ok) {
       // Nothing answered on the tab. The usual cause is that the page has not
       // been loaded since the extension was installed or reloaded, so the
@@ -1167,6 +1192,20 @@ async function requestContentMessage(tabId: number, message: Record<string, unkn
     console.error("[Unfluffify][rewrite] Unable to request content command", error);
     return null;
   }
+}
+
+function beginContentCommandTerminal(): number {
+  contentCommandEpoch += 1;
+  contentCommandTerminal = true;
+  return contentCommandEpoch;
+}
+
+function cancelContentCommandTerminal(epoch: number): void {
+  if (contentCommandEpoch !== epoch) {
+    return;
+  }
+  contentCommandEpoch += 1;
+  contentCommandTerminal = false;
 }
 
 function baseUrlFor(url: string): string {
@@ -1544,7 +1583,10 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     }, requestKey);
     await pullSignals(context.tabId, requestKey);
   } else {
-    const deactivated = await sendContentMessage(context.tabId, { type: "enterSilentContentMain" });
+    const deactivated = await sendContentMessage(context.tabId, {
+      type: "enterSilentContentMain",
+      pageUrl: context.url,
+    });
     if (!deactivated) {
       logEvent("Marking disable failed", "the content script did not confirm deactivation", "danger");
       render();
@@ -1998,11 +2040,15 @@ async function saveStoredSettings(): Promise<void> {
   const definitiveDeletion = Object.keys(payload).length === 0 &&
     storedSettingsForm !== null &&
     !settingsFormsMatch(storedSettingsForm, EMPTY_POPUP_SETTINGS_FORM);
+  const terminalEpoch = definitiveDeletion ? beginContentCommandTerminal() : null;
   settingsBusy = true;
   render();
   const response = await getPopupBus().request("settings.save", payload, { target: "background" });
   settingsBusy = false;
   if (!response.ok) {
+    if (terminalEpoch !== null) {
+      cancelContentCommandTerminal(terminalEpoch);
+    }
     logEvent("Connection save failed", response.failure.code, "danger");
     render();
     return;
@@ -2093,8 +2139,10 @@ async function clearCurrentDomainCache(): Promise<void> {
 }
 
 async function unregisterCurrentTab(): Promise<void> {
+  const terminalEpoch = beginContentCommandTerminal();
   const context = await resolveTargetTabContext();
   if (!context) {
+    cancelContentCommandTerminal(terminalEpoch);
     maintenanceMessage = "The tab is no longer available to unregister.";
     maintenanceTone = "danger";
     render();
@@ -2111,6 +2159,7 @@ async function unregisterCurrentTab(): Promise<void> {
     { target: "background" },
   );
   if (!response.ok) {
+    cancelContentCommandTerminal(terminalEpoch);
     maintenanceBusy = false;
     maintenanceMessage = "Unfluffify could not unregister this tab. It remains connected.";
     maintenanceTone = "danger";
@@ -2436,7 +2485,10 @@ async function saveSession(): Promise<void> {
   if (response.ok && response.data.status === "ok") {
     loadedConfig = response.data.config ?? loadedConfig;
     loadedSelectors = loadedConfig?.selectors ?? loadedSelectors;
-    await sendContentMessage(context.tabId, { type: "enterSilentContentMain" });
+    await sendContentMessage(context.tabId, {
+      type: "enterSilentContentMain",
+      pageUrl: context.url,
+    });
     lastSubmissionSnapshot = null;
     lastSubmissionKey = null;
     contentActive = false;
@@ -2568,7 +2620,10 @@ async function discardMarkings(): Promise<void> {
     return;
   }
   const requestKey = await handleBoundContext(context);
-  const reset = await sendContentMessage(context.tabId, { type: "resetContentMain" });
+  const reset = await sendContentMessage(context.tabId, {
+    type: "resetContentMain",
+    pageUrl: context.url,
+  });
   if (!reset) {
     logEvent("Discard failed", "content script refused the reset", "danger");
     render();

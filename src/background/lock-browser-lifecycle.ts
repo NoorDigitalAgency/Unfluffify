@@ -33,7 +33,11 @@ export type LockBrowserApi = Readonly<{
     onStateChanged?: BrowserEvent<(state: "active" | "idle" | "locked") => void>;
   }>;
   webNavigation?: Readonly<{
-    onCommitted?: BrowserEvent<(details: Readonly<{ tabId: number; frameId: number }>) => void>;
+    onCommitted?: BrowserEvent<(details: Readonly<{
+      tabId: number;
+      frameId: number;
+      documentId?: string;
+    }>) => void>;
   }>;
 }>;
 
@@ -58,6 +62,7 @@ function suspensionReason(presence: Omit<PropertyLockPresence, "suspensionReason
 export function createLockBrowserLifecycle(input: Readonly<{
   api: LockBrowserApi;
   onPresenceChanged(tabId: number, presence: PropertyLockPresence): void;
+  onMainDocumentCommitted?(tabId: number, documentId: string | null): void;
   onTabTerminated(tabId: number, reason: LockTabTerminationReason): Promise<void> | void;
 }>) {
   const tabWindowById = new Map<number, number>();
@@ -160,8 +165,16 @@ export function createLockBrowserLifecycle(input: Readonly<{
           publish(tabId);
         }
       });
-      webNavigation?.onCommitted?.addListener(({ tabId, frameId }) => {
+      webNavigation?.onCommitted?.addListener(({ tabId, frameId, documentId }) => {
         if (frameId === 0) {
+          // This event is Chrome's authoritative document boundary. Publish it
+          // synchronously before any asynchronous cleanup so an old content
+          // realm cannot present itself as the replacement document while the
+          // cleanup operation is queued.
+          input.onMainDocumentCommitted?.(
+            tabId,
+            typeof documentId === "string" && documentId ? documentId : null,
+          );
           terminate(tabId, "navigation");
         }
       });

@@ -601,8 +601,11 @@ export function createMarkingEngine(
       stabilizeGeometry("geometry");
     };
     const scheduleResizeRender = (): void => stabilizeGeometry("silent-geometry");
+    const visualViewport = view?.visualViewport;
     view?.addEventListener?.("scroll", scheduleGeometryRender, true);
     view?.addEventListener?.("resize", scheduleResizeRender);
+    visualViewport?.addEventListener?.("scroll", scheduleResizeRender);
+    visualViewport?.addEventListener?.("resize", scheduleResizeRender);
     cleanups.push(() => {
       if (structuralRefreshHandle !== null) {
         clearTimeout(structuralRefreshHandle);
@@ -615,6 +618,8 @@ export function createMarkingEngine(
       renderer.setScrolling(false);
       view?.removeEventListener?.("scroll", scheduleGeometryRender, true);
       view?.removeEventListener?.("resize", scheduleResizeRender);
+      visualViewport?.removeEventListener?.("scroll", scheduleResizeRender);
+      visualViewport?.removeEventListener?.("resize", scheduleResizeRender);
     });
     return () => cleanups.forEach((cleanup) => cleanup());
   };
@@ -737,6 +742,9 @@ export function createMarkingEngine(
       if (!active) {
         scheduleRender(silentHighlightsArmed ? "silent-geometry" : "geometry");
       }
+    },
+    setInputTransparent(active: boolean): void {
+      renderer.setInputTransparent(active);
     },
     setSuspended(active: boolean): void {
       renderer.setSuspended(active);

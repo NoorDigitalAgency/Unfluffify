@@ -14,6 +14,7 @@ import {
   createLocalPropertyRepo,
   createRunRecordRepo,
   createSettingsRepo,
+  createShieldPostureRepo,
   createTabStateRepo,
   type KeyValueStore,
 } from "../storage";
@@ -130,6 +131,7 @@ export function createRewriteBackgroundServices(input: Readonly<{
   const tabStateRepo = createTabStateRepo(store);
   const configRepo = createConfigRepo(store);
   const runRecordRepo = createRunRecordRepo(store);
+  const shieldPostureRepo = createShieldPostureRepo(store);
   const editorSessionRepo = createEditorSessionRepo(store);
   const localPropertyRepo = createLocalPropertyRepo(store);
   const settingsStore = createSettingsRepo(store);
@@ -259,6 +261,7 @@ export function createRewriteBackgroundServices(input: Readonly<{
       tabStateRepo,
       configRepo,
       runRecordRepo,
+      shieldPostureRepo,
       editorSessionRepo,
       localPropertyRepo,
       settingsStore,

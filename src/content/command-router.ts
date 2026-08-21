@@ -55,6 +55,10 @@ const DATA_AFFECTING_COMMANDS = new Set([
   "captureSubmissionSnapshot",
   "resetContentMain",
 ]);
+const PAGE_URL_FENCED_COMMANDS = new Set([
+  ...DATA_AFFECTING_COMMANDS,
+  "clearSilentSelectors",
+]);
 const LOCK_BLOCKED_COMMANDS = new Set([
   "activateContentMain",
   "captureSubmissionSnapshot",
@@ -90,11 +94,17 @@ function commandDataSucceeded(data: unknown): boolean {
 }
 
 function gateCommand(command: CommandEnvelope, context: ContentCommandContext): CommandReply | null {
-  if (!DATA_AFFECTING_COMMANDS.has(command.name)) {
+  if (!PAGE_URL_FENCED_COMMANDS.has(command.name)) {
     return null;
   }
   const payload = payloadObject(command.payload);
-  const commandPageUrl = typeof payload.pageUrl === "string" ? payload.pageUrl : context.pageUrl;
+  const commandPageUrl = typeof payload.pageUrl === "string" ? payload.pageUrl : "";
+  if (!commandPageUrl || commandPageUrl !== context.pageUrl) {
+    return failure("page-url-mismatch", "Content command pageUrl does not match the active document");
+  }
+  if (!DATA_AFFECTING_COMMANDS.has(command.name)) {
+    return null;
+  }
   const commandBaseUrl = typeof payload.baseUrl === "string" ? payload.baseUrl : baseUrlFor(commandPageUrl);
   if (context.authority.baseUrl && commandBaseUrl && context.authority.baseUrl !== commandBaseUrl) {
     return failure("base-url-mismatch", "Content command baseUrl does not match the active property lock");

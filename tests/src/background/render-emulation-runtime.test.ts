@@ -11,11 +11,38 @@ function fakeDebugger() {
   const sent: Array<{ method: string; params?: Record<string, unknown> }> = [];
   const attaches: number[] = [];
   let onDetach: ((source: { tabId?: number }, reason?: string) => void) | null = null;
+  let deferredCommand: Readonly<{
+    method: string;
+    started(): void;
+    setCallback(callback: ((result?: unknown) => void) | undefined): void;
+  }> | null = null;
   return {
     sent,
     attaches,
     detach(tabId: number, reason?: string) {
       onDetach?.({ tabId }, reason);
+    },
+    deferNextCommand(method: string) {
+      let markStarted: (() => void) | null = null;
+      let callback: ((result?: unknown) => void) | undefined;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      deferredCommand = {
+        method,
+        started() {
+          markStarted?.();
+        },
+        setCallback(next) {
+          callback = next;
+        },
+      };
+      return {
+        started,
+        release() {
+          callback?.(method === "Runtime.evaluate" ? { result: { value: REAL_UA } } : {});
+        },
+      };
     },
     api: {
       attach(target: { tabId?: number }, _version: string, callback?: () => void) {
@@ -27,6 +54,13 @@ function fakeDebugger() {
       },
       sendCommand(_target: { tabId?: number }, method: string, params?: Record<string, unknown>, callback?: (result?: unknown) => void) {
         sent.push({ method, params });
+        if (method === deferredCommand?.method) {
+          const deferred = deferredCommand;
+          deferredCommand = null;
+          deferred.setCallback(callback);
+          deferred.started();
+          return;
+        }
         callback?.(method === "Runtime.evaluate" ? { result: { value: REAL_UA } } : {});
       },
       onDetach: {
@@ -117,6 +151,34 @@ describe("render emulation runtime", () => {
     await flush();
 
     expect(debuggerApi.sent).toEqual([]);
+  });
+
+  it("serializes clear after an in-flight detach override so clear is the final writer", async () => {
+    const debuggerApi = fakeDebugger();
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+    });
+    await runtime.apply(7, "mobile", 1);
+
+    const deferred = debuggerApi.deferNextCommand("Emulation.setDeviceMetricsOverride");
+    debuggerApi.detach(7, "canceled_by_user");
+    await deferred.started;
+    const clearing = runtime.clear(7);
+    let clearSettled = false;
+    void clearing.finally(() => {
+      clearSettled = true;
+    });
+    await flush();
+    expect(clearSettled).toBe(false);
+
+    deferred.release();
+    await clearing;
+    expect(runtime.heldMode(7)).toBeNull();
+    const lastSet = debuggerApi.sent.findLastIndex((call) => call.method === "Emulation.setDeviceMetricsOverride");
+    const lastClear = debuggerApi.sent.findLastIndex((call) => call.method === "Emulation.clearDeviceMetricsOverride");
+    expect(lastSet).toBeGreaterThanOrEqual(0);
+    expect(lastClear).toBeGreaterThan(lastSet);
   });
 
   it("re-asserts the complete Googlebot posture when navigation begins", async () => {

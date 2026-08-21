@@ -188,7 +188,7 @@ export function createPropertyLockRuntime(input: Readonly<{
     canEdit: boolean;
     blockedReason: LockReason;
     lockBanner: LockBannerVocabulary;
-  }>) => Promise<void> | void;
+  }>) => Promise<boolean | void> | boolean | void;
   now?: () => number;
 }>) {
   const now = input.now ?? Date.now;
@@ -204,6 +204,7 @@ export function createPropertyLockRuntime(input: Readonly<{
   const activeKeyByTab = new Map<number, string>();
   const presenceByTab = new Map<number, PropertyLockPresence>();
   const generationByTab = new Map<number, number>();
+  const observationSequenceByTab = new Map<number, number>();
   const localWarningByTab = new Map<number, LocalLockWarning>();
   const suspendedContextByTab = new Map<number, SuspendedContext>();
   const contextRuntime = input.context ?? createPageContextRuntime({
@@ -233,21 +234,21 @@ export function createPropertyLockRuntime(input: Readonly<{
     return base;
   };
 
-  const observeLockState = (
+  const observeLockState = async (
     tabId: number,
     pageUrl: string,
     state: ReturnType<typeof lockStateFromState>,
-  ): Promise<void> | void => input.observeLockFacts?.({
-    tabId,
-    siteId: state.siteId,
-    baseUrl: state.baseUrl,
-    pageUrl,
-    lockRole: state.lockRole,
-    configPresent: state.configPresent,
-    canEdit: state.canEdit,
-    blockedReason: state.blockedReason,
-    lockBanner: state.lockBanner,
-  });
+  ): Promise<boolean> => (await input.observeLockFacts?.({
+      tabId,
+      siteId: state.siteId,
+      baseUrl: state.baseUrl,
+      pageUrl,
+      lockRole: state.lockRole,
+      configPresent: state.configPresent,
+      canEdit: state.canEdit,
+      blockedReason: state.blockedReason,
+      lockBanner: state.lockBanner,
+    })) !== false;
 
   const publishLockState = async (tabId: number, state: ReturnType<typeof lockStateFromState>): Promise<void> => {
     if (!input.tabs) {
@@ -311,20 +312,29 @@ export function createPropertyLockRuntime(input: Readonly<{
     if (activeKeyByTab.get(tabId) !== key) {
       return;
     }
+    const generation = generationByTab.get(tabId) ?? 0;
+    const observationSequence = (observationSequenceByTab.get(tabId) ?? 0) + 1;
+    observationSequenceByTab.set(tabId, observationSequence);
     const pageUrl = pageUrls.get(key) ?? "";
     const response = projectClientState(key, tabId, siteId, state);
-    const observation = observeLockState(tabId, pageUrl, response);
-    if (observation) {
-      void observation.then(
-        () => publishLockStateIfChanged(`tab:${tabId}`, tabId, response),
-        (error: unknown) => {
-          console.error("[Unfluffify][rewrite] Unable to observe property-lock facts", error);
+    const remainsCurrent = (): boolean =>
+      activeKeyByTab.get(tabId) === key &&
+      (generationByTab.get(tabId) ?? 0) === generation &&
+      observationSequenceByTab.get(tabId) === observationSequence &&
+      (pageUrls.get(key) ?? "") === pageUrl;
+    void observeLockState(tabId, pageUrl, response).then(
+      (accepted) => {
+        if (accepted && remainsCurrent()) {
           publishLockStateIfChanged(`tab:${tabId}`, tabId, response);
-        },
-      );
-    } else {
-      publishLockStateIfChanged(`tab:${tabId}`, tabId, response);
-    }
+        }
+      },
+      (error: unknown) => {
+        console.error("[Unfluffify][rewrite] Unable to observe property-lock facts", error);
+        if (remainsCurrent()) {
+          publishLockStateIfChanged(`tab:${tabId}`, tabId, response);
+        }
+      },
+    );
   };
 
   const releaseKey = async (key: string): Promise<void> => {
@@ -891,6 +901,7 @@ export function createPropertyLockRuntime(input: Readonly<{
       unsavedKnownTabs.delete(tabId);
       latestLockStates.delete(tabId);
       publishedLockStates.delete(`tab:${tabId}`);
+      observationSequenceByTab.delete(tabId);
       await input.services.repos.editorSessionRepo.clearForTab(tabId);
     },
     authorizeMutation<T extends PropertyMutationEnvelope>(request: T): MutationFenceAuthorization<T> {

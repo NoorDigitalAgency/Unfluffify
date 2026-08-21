@@ -561,6 +561,15 @@ describe("P6 DOM bridge", () => {
     expect(renderedOverlay?.className).toContain("uf-rect");
     expect(renderedOverlay?.className).toContain("uf-explicit-exclude");
     expect(engine.overlayRoot().style.pointerEvents).toBe("auto");
+    engine.setInputTransparent(true);
+    expect(engine.overlayRoot().style.pointerEvents).toBe("none");
+    expect(engine.overlayRoot().className).not.toContain("uf-marking-temporarily-disabled");
+    expect(renderedOverlay?.className).toContain("uf-explicit-exclude");
+    engine.setPassthrough(true);
+    engine.setInputTransparent(false);
+    expect(engine.overlayRoot().style.pointerEvents).toBe("none");
+    engine.setPassthrough(false);
+    expect(engine.overlayRoot().style.pointerEvents).toBe("auto");
     engine.setPassthrough(true);
     expect(engine.overlayRoot().style.pointerEvents).toBe("none");
     expect(engine.overlayRoot().className).toContain("uf-marking-temporarily-disabled");
@@ -1177,6 +1186,41 @@ describe("P6 DOM bridge", () => {
     expect(engine.rows()).not.toContainEqual({ xpath: "/main[1]/p[2]", excluded: false });
     engine.dispose();
     vi.useRealTimers();
+  });
+
+  it("tracks visual viewport scroll and resize until the engine is disposed", () => {
+    const doc = new FakeDocument();
+    const viewportListeners = new Map<string, EventListener>();
+    const visualViewport = {
+      addEventListener: vi.fn((type: string, listener: EventListener) => {
+        viewportListeners.set(type, listener);
+      }),
+      removeEventListener: vi.fn((type: string) => {
+        viewportListeners.delete(type);
+      }),
+    };
+    Object.assign(doc.defaultView, {
+      visualViewport,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    });
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const paragraph = new FakeElement("P", rect(0, 0, 120, 20), "First");
+    root.ownerDocument = doc;
+    paragraph.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(paragraph);
+    doc.hits = [paragraph, root];
+
+    const engine = createMarkingEngine(root as unknown as Element);
+
+    expect(viewportListeners.has("scroll")).toBe(true);
+    expect(viewportListeners.has("resize")).toBe(true);
+    engine.dispose();
+    expect(viewportListeners.size).toBe(0);
+    expect(visualViewport.removeEventListener).toHaveBeenCalledWith("scroll", expect.any(Function));
+    expect(visualViewport.removeEventListener).toHaveBeenCalledWith("resize", expect.any(Function));
   });
 
   it("keeps the 250 ms marking debounce when silent highlights are also armed", () => {
@@ -1928,6 +1972,29 @@ describe("P6 DOM bridge", () => {
     doc.hits = [outer];
 
     expect(getComposedHitElements(doc as unknown as Document, 10, 10).slice(0, 2)).toEqual([innerLeaf, innerHost]);
+  });
+
+  it("fences Chromium shadow hit stacks that repeat their hosts without losing nested order", () => {
+    const doc = new FakeDocument();
+    const outerHost = new FakeElement("X-OUTER", rect(0, 0, 300, 300));
+    const innerHost = new FakeElement("X-INNER", rect(0, 0, 200, 200), "Host");
+    const innerLeaf = new FakeElement("P", rect(10, 10, 100, 20), "Leaf");
+    for (const element of [outerHost, innerHost, innerLeaf]) {
+      element.ownerDocument = doc;
+    }
+    const innerHits = vi.fn(() => [innerLeaf, innerHost]);
+    const outerHits = vi.fn(() => [innerHost, outerHost]);
+    innerHost.shadowRoot = { children: [innerLeaf], elementsFromPoint: innerHits };
+    outerHost.shadowRoot = { children: [innerHost], elementsFromPoint: outerHits };
+    doc.hits = [outerHost];
+
+    expect(getComposedHitElements(doc as unknown as Document, 10, 10)).toEqual([
+      innerLeaf,
+      innerHost,
+      outerHost,
+    ]);
+    expect(outerHits).toHaveBeenCalledOnce();
+    expect(innerHits).toHaveBeenCalledOnce();
   });
 
   it("installs an attachShadow hook that marks closed hosts", () => {

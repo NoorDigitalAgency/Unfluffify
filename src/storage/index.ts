@@ -5,6 +5,7 @@ export * from "./repositories/key-value";
 export * from "./repositories/editor-session";
 export * from "./repositories/local-property";
 export * from "./repositories/run-records";
+export * from "./repositories/shield-posture";
 export * from "./repositories/tab-state";
 export * from "./session";
 export * from "./settings";

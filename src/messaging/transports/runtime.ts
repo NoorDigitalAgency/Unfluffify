@@ -4,6 +4,9 @@ import type { Transport, Unsubscribe } from "../bus";
 type RuntimeMessageSender = Readonly<{
   tab?: Readonly<{ id?: number }>;
   frameId?: number;
+  /** Chrome's stable identifier for one document lifetime. Unlike frameId it
+   * changes on reload/navigation and therefore fences delayed content calls. */
+  documentId?: string;
 }>;
 
 type RuntimeOnMessage = Readonly<{
@@ -47,7 +50,10 @@ function parseFrame(message: unknown): BusFrame | null {
 function withSenderInstance(frame: BusFrame, sender: RuntimeMessageSender): BusFrame {
   const tabId = sender.tab?.id;
   if (typeof tabId === "number") {
-    const routingInstance = `tab:${tabId}:frame:${sender.frameId ?? 0}`;
+    const documentPart = sender.documentId
+      ? `:document:${encodeURIComponent(sender.documentId)}`
+      : "";
+    const routingInstance = `tab:${tabId}:frame:${sender.frameId ?? 0}${documentPart}`;
     return {
       ...frame,
       sourceInstance: frame.sourceInstance

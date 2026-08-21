@@ -791,20 +791,15 @@ describe("rewrite background services", () => {
 
     sockets[0].emit("message", JSON.stringify({ type: "lock_state", state: "locked", isEditor: false, editorName: "Other" }));
     sockets[0].emit("message", JSON.stringify({ type: "lock_state", state: "locked", isEditor: true, editorName: "Me" }));
+    await Promise.resolve();
+    await Promise.resolve();
     expect(tabMessages).toEqual(expect.arrayContaining([
       expect.objectContaining({
         payload: expect.objectContaining({
           name: "lock.state.changed",
           payload: expect.objectContaining({
-            canEdit: false,
-          }),
-        }),
-      }),
-      expect.objectContaining({
-        payload: expect.objectContaining({
-          name: "lock.state.changed",
-          payload: expect.objectContaining({
             canEdit: true,
+            lockRole: "editor",
           }),
         }),
       }),
@@ -842,6 +837,194 @@ describe("rewrite background services", () => {
     expect(sockets[0].sent.map((frame) => JSON.parse(frame).type)).not.toContain("release_lock");
     await runtime.terminateTab(5);
     expect(sockets[0].sent.map((frame) => JSON.parse(frame).type)).toContain("release_lock");
+  });
+
+  it("does not publish a deferred lock observation after its tab is terminated", async () => {
+    const sockets: ReturnType<typeof fakeSocket>[] = [];
+    const tabMessages: unknown[] = [];
+    let releaseObservation: (() => void) | null = null;
+    let markObservationStarted: (() => void) | null = null;
+    const observationStarted = new Promise<void>((resolve) => {
+      markObservationStarted = resolve;
+    });
+    const observationRelease = new Promise<void>((resolve) => {
+      releaseObservation = resolve;
+    });
+    let deferObservation = false;
+    const services = createRewriteBackgroundServices({
+      transport: async (request) => hubContext(request),
+      socketFactory() {
+        const socket = fakeSocket();
+        sockets.push(socket);
+        return socket.socket;
+      },
+    });
+    await services.settings.update((current) => ({
+      ...current,
+      stageBase: "stage.example.com",
+      token: "live",
+    }));
+    const runtime = createPropertyLockRuntime({
+      services,
+      tabs: {
+        sendMessage(_tabId, message) {
+          tabMessages.push(message);
+          return undefined;
+        },
+      },
+      observeLockFacts() {
+        if (!deferObservation) {
+          return;
+        }
+        markObservationStarted?.();
+        return observationRelease;
+      },
+    });
+    runtime.presenceChanged(5, {
+      visible: true,
+      focusedWindow: true,
+      browserIdle: false,
+    });
+    await runtime.directive({
+      tabId: 5,
+      pageUrl: "https://example.com/page",
+      baseUrl: "https://example.com",
+      hasUnsavedChanges: false,
+    });
+    sockets[0].emit("open");
+    const sessionId = JSON.parse(sockets[0].sent[0] ?? "{}").editorSessionId;
+    sockets[0].emit("message", JSON.stringify({
+      type: "subscribed",
+      identity: "backend-1",
+      editorSessionId: sessionId,
+    }));
+    await Promise.resolve();
+    const before = tabMessages.length;
+
+    deferObservation = true;
+    sockets[0].emit("message", JSON.stringify({
+      type: "lock_state",
+      state: "locked",
+      isEditor: true,
+      editorSessionId: sessionId,
+      lockToken: "fence-current",
+      propertyRevision: 1,
+      feedRevision: 1,
+    }));
+    await observationStarted;
+    await runtime.terminateTab(5);
+    releaseObservation?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(tabMessages).toHaveLength(before);
+  });
+
+  it("suppresses an old observation and publishes the current warning after navigation", async () => {
+    const sockets: ReturnType<typeof fakeSocket>[] = [];
+    const tabMessages: unknown[] = [];
+    let releaseObservations: (() => void) | null = null;
+    let markOldObservationStarted: (() => void) | null = null;
+    const oldObservationStarted = new Promise<void>((resolve) => {
+      markOldObservationStarted = resolve;
+    });
+    const observationsRelease = new Promise<void>((resolve) => {
+      releaseObservations = resolve;
+    });
+    let deferObservation = false;
+    let deferredObservations = 0;
+    const services = createRewriteBackgroundServices({
+      transport: async (request) => hubContext(request),
+      socketFactory() {
+        const socket = fakeSocket();
+        sockets.push(socket);
+        return socket.socket;
+      },
+    });
+    await services.settings.update((current) => ({
+      ...current,
+      stageBase: "stage.example.com",
+      token: "live",
+    }));
+    const runtime = createPropertyLockRuntime({
+      services,
+      tabs: {
+        sendMessage(_tabId, message) {
+          tabMessages.push(message);
+          return undefined;
+        },
+      },
+      observeLockFacts() {
+        if (!deferObservation) {
+          return;
+        }
+        deferredObservations += 1;
+        if (deferredObservations === 1) {
+          markOldObservationStarted?.();
+        }
+        return observationsRelease;
+      },
+    });
+    runtime.presenceChanged(5, {
+      visible: true,
+      focusedWindow: true,
+      browserIdle: false,
+    });
+    await runtime.directive({
+      tabId: 5,
+      pageUrl: "https://example.com/page-a",
+      baseUrl: "https://example.com",
+      hasUnsavedChanges: false,
+    });
+    sockets[0].emit("open");
+    const sessionId = JSON.parse(sockets[0].sent[0] ?? "{}").editorSessionId;
+    sockets[0].emit("message", JSON.stringify({
+      type: "subscribed",
+      identity: "backend-1",
+      editorSessionId: sessionId,
+    }));
+    await Promise.resolve();
+    const before = tabMessages.length;
+
+    deferObservation = true;
+    sockets[0].emit("message", JSON.stringify({
+      type: "lock_state",
+      state: "locked",
+      isEditor: true,
+      editorSessionId: sessionId,
+      lockToken: "fence-old",
+      propertyRevision: 1,
+      feedRevision: 1,
+    }));
+    await oldObservationStarted;
+    runtime.navigationCommitted(5);
+    releaseObservations?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(deferredObservations).toBe(1);
+    expect(tabMessages).toHaveLength(before);
+
+    deferObservation = false;
+    await runtime.directive({
+      tabId: 5,
+      pageUrl: "https://example.com/page-b",
+      baseUrl: "https://example.com",
+      hasUnsavedChanges: false,
+    });
+    await Promise.resolve();
+
+    expect(tabMessages.slice(before)).toEqual([
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          name: "lock.state.changed",
+          payload: expect.objectContaining({
+            canEdit: true,
+            blockedReason: "editor",
+          }),
+        }),
+      }),
+    ]);
+    await runtime.terminateTab(5);
   });
 
   it("keeps the editor lease alive from background after the panel stops issuing directives", async () => {

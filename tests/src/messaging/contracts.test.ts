@@ -176,6 +176,7 @@ describe("corrective messaging application contracts", () => {
 
     expect(registration.request.parse({ tabId: 77 })).toEqual({ tabId: 77 });
     expect(registration.response.parse({ status: "ok" })).toEqual({ status: "ok" });
+    expect(registration.response.parse({ status: "stale" })).toEqual({ status: "stale" });
   });
 
   it("requires fenced Hub publication and an authoritative snapshot for definitive outcomes", () => {

@@ -10,7 +10,11 @@ import {
   type ContentAuthorityState,
 } from "../content/command-router";
 import { hideConsentOverlays, restoreConsentOverlays } from "../content/consent";
-import { filterContentInput, shouldBlockPageInput } from "../content/input-firewall";
+import { shouldBlockPageInput } from "../content/input-firewall";
+import {
+  createInteractionShield,
+  type InteractionShieldController,
+} from "../content/interaction-shield";
 import { createMarkingEngine } from "../content/marking";
 import { createPhysicalActionDeduper, openMarkingContextMenu } from "../content/marking/interaction";
 import {
@@ -24,9 +28,15 @@ import { createFreezeController, createRevealVisitController, createSpaGuard, ru
 import type { BrainSignal } from "../domain/schema/signals";
 import type { LockActionKind } from "../domain/schema/facts";
 import type { CommandEnvelope } from "../messaging/contracts";
+import type {
+  ShieldPostureClearReason,
+  ShieldPostureProjection,
+  ShieldPostureUpdate,
+} from "../messaging/shield-posture";
 import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
 import { pullRewriteSignals, type RewriteSignalBus } from "../messaging/rewrite-signals";
+import type { SelectorSet } from "../storage/config";
 
 const activation = createActivationGate();
 const freezeController = createFreezeController();
@@ -116,33 +126,31 @@ let pageInspectionActive = false;
 let silentInteractionShieldActive = false;
 let contentToastText = "";
 let contentToastClearHandle: ReturnType<typeof setTimeout> | null = null;
-let contentInputBlockedReason = "";
-let removeContentInputBlocker: (() => void) | null = null;
+let interactionShield: InteractionShieldController | null = null;
+// Fail closed until page.context establishes a managed property or re-adopts a
+// validated durable property lease. Popup commands are intent, not authority.
+let interactionShieldAuthorityActive = false;
+let durablePostureShieldActive = false;
+let currentShieldPosture: ShieldPostureProjection = { status: "inactive", revision: 0 };
+let durableSilentAdoptionGeneration = 0;
+let shieldPostureMutationGeneration = 0;
+let contentLifecycleGeneration = 0;
+let documentLifecycleGeneration = 0;
+let pendingNavigationBoundary: Readonly<{ pageUrl: string; afterSeq: number }> | null = null;
+let lastConsumedNavigation: Readonly<{
+  fromUrl: string;
+  toUrl: string;
+  seq: number;
+}> | null = null;
+let lastHandledNavigationSeq = 0;
+let shieldPostureQueue: Promise<unknown> = Promise.resolve();
+let pageContextBindQueue: Promise<unknown> = Promise.resolve();
+let shieldRootReadyListenerInstalled = false;
 const CONTENT_SURFACE_STYLE_ID = "unfluffify-content-surface-style";
-const CONTENT_INPUT_EVENTS = [
-  "click",
-  "auxclick",
-  "dblclick",
-  "contextmenu",
-  "mousedown",
-  "mouseup",
-  "pointerdown",
-  "pointerup",
-  "pointermove",
-  "keydown",
-  "keyup",
-  "keypress",
-  "beforeinput",
-  "input",
-  "wheel",
-  "touchstart",
-  "touchmove",
-  "touchend",
-  "dragstart",
-  "dragover",
-  "drop",
-  "submit",
-] as const;
+const SILENT_SHIELD_REASON = "silent-highlights";
+const PREVIEW_SHIELD_REASON = "preview";
+const BLOCKED_ORGAN_SHIELD_REASON = "blocked-organ";
+const DURABLE_POSTURE_SHIELD_REASON = "durable-posture";
 
 const CONTENT_LOCK_ACTION_LABEL: Readonly<Record<LockActionKind, string>> = {
   "continue-here": "Continue here",
@@ -174,7 +182,7 @@ function payloadObject(payload: unknown): Record<string, unknown> {
     : {};
 }
 
-function selectorSetFrom(payload: Record<string, unknown>): { inclusionSelectors: string[]; exclusionSelectors: string[] } | null {
+function selectorSetFrom(payload: Record<string, unknown>): SelectorSet | null {
   const raw = payload.selectors;
   if (!raw || typeof raw !== "object") {
     return null;
@@ -315,13 +323,33 @@ function getContentBus(): RewriteSignalBus {
 }
 
 function applyContentSignal(signal: BrainSignal): boolean {
+  if (!interactionShieldAuthorityActive) {
+    // Do not consume a signal while page ownership is unresolved or terminal.
+    // The signal log can replay it after a managed page.context re-establishes
+    // authority; consuming it here could recreate terminal UI/posture later.
+    return false;
+  }
   const nextState = transitionContentState(contentState, signal);
   if (nextState === contentState) {
     return false;
   }
+  const previousStateName = contentState.name;
   const completesPreviewExit = signal.name === "preview.exit.requested" && nextState.name === "exit_restoring";
   const previousPresentation = contentPresentation;
   contentState = nextState;
+  if (signal.name === "session.navigated") {
+    const toUrl = typeof signal.payload.pageUrl === "string"
+      ? signal.payload.pageUrl
+      : typeof signal.payload.toUrl === "string"
+        ? signal.payload.toUrl
+        : "";
+    const fromUrl = typeof signal.payload.fromUrl === "string"
+      ? signal.payload.fromUrl
+      : "";
+    if (toUrl) {
+      lastConsumedNavigation = { fromUrl, toUrl, seq: signal.seq };
+    }
+  }
   contentPresentation = memoryForContent(nextState);
   if (contentPresentation.markingEditsBlocked) {
     pauseMarkingInteractions();
@@ -329,6 +357,7 @@ function applyContentSignal(signal: BrainSignal): boolean {
     resumeMarkingInteractions();
   }
   renderContentSurface();
+  persistDocumentShieldPosture(signal, previousStateName);
   if (completesPreviewExit) {
     // This is the single completion point. The popup owns the request; content
     // owns the fact that its page posture has finished restoring. Reporting the
@@ -346,6 +375,8 @@ function applyContentSignal(signal: BrainSignal): boolean {
 
 async function pullContentSignals(): Promise<number> {
   const run = async (): Promise<number> => {
+    const routeGeneration = documentLifecycleGeneration;
+    const pageUrl = currentPageUrl();
     const response = await pullRewriteSignals(getContentBus(), {
       // Runtime transport supplies the real sender tab to the background. A
       // content script cannot discover its Chrome tab id itself.
@@ -355,8 +386,61 @@ async function pullContentSignals(): Promise<number> {
     if (!response.ok) {
       return 0;
     }
+    if (
+      routeGeneration !== documentLifecycleGeneration ||
+      pageUrl !== currentPageUrl() ||
+      !interactionShieldAuthorityActive
+    ) {
+      // This slice belongs to an older route. Leave the cursor untouched so a
+      // fresh pull can consume it together with the navigation boundary.
+      return 0;
+    }
+    // fact.reported is an event: a fresh pull can reach the background before
+    // that event has been folded into session.navigated. Until the matching
+    // current-route boundary appears, consume nothing from the prior document.
+    const pendingBoundary = pendingNavigationBoundary;
+    let requiredNavigationIndex = -1;
+    if (pendingBoundary && pendingBoundary.pageUrl === currentPageUrl()) {
+      for (let index = response.data.length - 1; index >= 0; index -= 1) {
+        const signal = response.data[index];
+        if (
+          signal?.name === "session.navigated" &&
+          signal.seq > pendingBoundary.afterSeq &&
+          (signal.payload.pageUrl === pendingBoundary.pageUrl || signal.payload.toUrl === pendingBoundary.pageUrl)
+        ) {
+          requiredNavigationIndex = index;
+          break;
+        }
+      }
+      if (requiredNavigationIndex < 0) {
+        return 0;
+      }
+      if (pendingNavigationBoundary === pendingBoundary) {
+        pendingNavigationBoundary = null;
+        lastHandledNavigationSeq = Math.max(
+          lastHandledNavigationSeq,
+          response.data[requiredNavigationIndex]?.seq ?? 0,
+        );
+      }
+    }
+    // A pull started on route A can be replayed after route B has emitted its
+    // navigation boundary. Applying the old prefix would briefly persist an A
+    // blocked/preview posture on B; a realm crash between that set and the
+    // following clear would make the stale posture durable. The last navigation
+    // signal subsumes every older document signal in the same batch.
+    let lastNavigationIndex = -1;
+    for (let index = response.data.length - 1; index >= 0; index -= 1) {
+      if (response.data[index]?.name === "session.navigated") {
+        lastNavigationIndex = index;
+        break;
+      }
+    }
+    const boundaryIndex = Math.max(lastNavigationIndex, requiredNavigationIndex);
+    const applicableSignals = boundaryIndex >= 0
+      ? response.data.slice(boundaryIndex)
+      : response.data;
     let applied = 0;
-    for (const signal of response.data) {
+    for (const signal of applicableSignals) {
       if (applyContentSignal(signal)) {
         applied += 1;
       }
@@ -527,18 +611,30 @@ function waitForWindowScrollEnd(targetY: number, isStale: () => boolean): Promis
 async function runActivationStabilization(pageUrl: string): Promise<{ skipped: boolean } | null> {
   try {
     return await revealController.runTask(async () => {
+      if (!interactionShieldAuthorityActive) {
+        return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
+      }
+      const lifecycleGeneration = contentLifecycleGeneration;
+      const routeGeneration = documentLifecycleGeneration;
       spaGuard.arm(pageUrl);
       destroyPageWorldSession();
       pageInspectionActive = true;
       lastContentSurfaceSignature = "";
       renderContentSurface();
       const initialScrollY = typeof window !== "undefined" ? window.scrollY : 0;
-      const isStale = (): boolean => pageUrl !== (typeof location !== "undefined" ? location.href : pageUrl);
+      const isStale = (): boolean => !interactionShieldAuthorityActive ||
+        lifecycleGeneration !== contentLifecycleGeneration ||
+        routeGeneration !== documentLifecycleGeneration ||
+        pageUrl !== (typeof location !== "undefined" ? location.href : pageUrl);
       const waitForSettle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 1_000));
       try {
         const armed = await requestStabilizationPageCommand("ARM", {});
+        if (isStale()) {
+          requestPageWorldSessionDestroy(armed.nonce);
+          return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
+        }
         pageWorldSessionNonce = armed.nonce;
-        return await runReveal({
+        const result = await runReveal({
           hasVerticalScrollRoom: typeof document !== "undefined" && typeof window !== "undefined"
             ? currentDocumentScrollHeight() > window.innerHeight + 2
             : false,
@@ -546,7 +642,7 @@ async function runActivationStabilization(pageUrl: string): Promise<{ skipped: b
           initialScrollHeight: currentDocumentScrollHeight(),
           measureExpandedScrollHeight: currentDocumentScrollHeight,
           async scrollTo(position, measuredScrollHeight) {
-            if (typeof window === "undefined") {
+            if (typeof window === "undefined" || isStale()) {
               return;
             }
             const bottomY = Math.max(0, measuredScrollHeight - window.innerHeight);
@@ -562,6 +658,9 @@ async function runActivationStabilization(pageUrl: string): Promise<{ skipped: b
           },
           waitForSettle,
           async suppressLazyLoading() {
+            if (isStale()) {
+              return;
+            }
             await requestStabilizationPageCommand(
               "SET_LAZY_LOADING_SUPPRESSED",
               { suppressed: true },
@@ -579,26 +678,51 @@ async function runActivationStabilization(pageUrl: string): Promise<{ skipped: b
             );
           },
           async freezeAtBottom() {
+            if (isStale()) {
+              return;
+            }
             await requestStabilizationPageCommand(
               "SET_MOTION_PAUSED",
               { paused: true },
               pageWorldSessionNonce,
             );
+            if (isStale()) {
+              return;
+            }
             freezeController.pause("page-visit");
             lastContentSurfaceSignature = "";
             renderContentSurface();
           },
         });
+        return isStale()
+          ? { skipped: true, lazyExpansions: 0, frozenAtBottom: false }
+          : result;
       } finally {
-        pageInspectionActive = false;
-        lastContentSurfaceSignature = "";
-        renderContentSurface();
+        if (lifecycleGeneration === contentLifecycleGeneration) {
+          pageInspectionActive = false;
+          lastContentSurfaceSignature = "";
+          renderContentSurface();
+        }
       }
     }, { scopeStrength: 1 });
   } catch (error) {
     console.error("[Unfluffify][rewrite] Page stabilization failed", error);
     return null;
   }
+}
+
+function requestPageWorldSessionDestroy(sessionNonce: string): void {
+  if (!sessionNonce || typeof window === "undefined") {
+    return;
+  }
+  window.postMessage?.({
+    kind: "uf-page-bus/1",
+    type: "request",
+    nonce: sessionNonce,
+    sessionNonce,
+    command: "DESTROY",
+    payload: {},
+  }, "*");
 }
 
 function destroyPageWorldSession(): void {
@@ -612,14 +736,7 @@ function destroyPageWorldSession(): void {
     }
     return;
   }
-  window.postMessage?.({
-    kind: "uf-page-bus/1",
-    type: "request",
-    nonce: pageWorldSessionNonce,
-    sessionNonce: pageWorldSessionNonce,
-    command: "DESTROY",
-    payload: {},
-  }, "*");
+  requestPageWorldSessionDestroy(pageWorldSessionNonce);
   freezeController.lift();
   pageWorldSessionNonce = "";
   if (wasPaused) {
@@ -874,12 +991,6 @@ function pausedNoticeCopy(reason: string): string {
   return "Marking temporarily paused";
 }
 
-function blockedToastCopy(reason: string): string {
-  return reason === "saving" || reason === "syncing" || reason === "sync_pending"
-    ? "Finish server sync before editing"
-    : "Marking temporarily paused";
-}
-
 function showContentToast(text: string): void {
   if (!text) {
     return;
@@ -898,37 +1009,432 @@ function showContentToast(text: string): void {
   }, 1800);
 }
 
-function setContentInputBlocked(blocked: boolean, reason: string): void {
-  contentInputBlockedReason = blocked ? reason : "";
-  if (!blocked) {
-    removeContentInputBlocker?.();
+function extensionSurfacesForShield(): HTMLElement[] {
+  const surfaces: HTMLElement[] = [];
+  const markingRoot = markingEngine?.overlayRoot?.();
+  if (markingRoot) {
+    surfaces.push(markingRoot);
+  }
+  if (contentSurfaceRoot) {
+    surfaces.push(contentSurfaceRoot);
+  }
+  return surfaces;
+}
+
+function ensureInteractionShield(): InteractionShieldController | null {
+  if (interactionShield || typeof document === "undefined" || typeof window === "undefined") {
+    return interactionShield;
+  }
+  if (!document.documentElement) {
+    if (!shieldRootReadyListenerInstalled) {
+      shieldRootReadyListenerInstalled = true;
+      document.addEventListener("DOMContentLoaded", () => {
+        shieldRootReadyListenerInstalled = false;
+        syncInteractionShield();
+      }, { once: true });
+    }
+    return null;
+  }
+  interactionShield = createInteractionShield({
+    document,
+    window,
+    extensionSurfaces: extensionSurfacesForShield,
+  });
+  return interactionShield;
+}
+
+/** Synchronizes independent shield leases without exposing the page between them.
+ * Acquire the replacement lease before releasing the old one; on the final release,
+ * restore marking input before removing the physical target beneath it. */
+function syncInteractionShield(): void {
+  const previewActive = previewInteractionActive();
+  const silentActive = silentInteractionShieldActive;
+  const blockedOrganActive = contentPresentation.pageInputBlocked && !previewActive;
+  const shouldBeActive = interactionShieldAuthorityActive && (
+    silentActive || previewActive || blockedOrganActive || durablePostureShieldActive
+  );
+  if (!shouldBeActive) {
+    markingEngine?.setInputTransparent?.(false);
+    interactionShield?.setActive(SILENT_SHIELD_REASON, false);
+    interactionShield?.setActive(PREVIEW_SHIELD_REASON, false);
+    interactionShield?.setActive(BLOCKED_ORGAN_SHIELD_REASON, false);
+    interactionShield?.setActive(DURABLE_POSTURE_SHIELD_REASON, false);
     return;
   }
-  if (removeContentInputBlocker || typeof window === "undefined") {
+  const controller = ensureInteractionShield();
+  if (!controller) {
     return;
   }
-  const blockInput = (event: Event): void => {
-    const target = event.target;
-    const targetNode = target && typeof (target as Node).nodeType === "number" ? target as Node : null;
-    const extensionOwnedTarget = Boolean(
-      targetNode &&
-      contentSurfaceRoot &&
-      (targetNode === contentSurfaceRoot || contentSurfaceRoot.contains(targetNode))
-    );
-    const disposition = filterContentInput(event, extensionOwnedTarget);
-    if (disposition === "blocked" && event.type === "click" && markingActive) {
-      showContentToast(blockedToastCopy(contentInputBlockedReason));
-    }
-  };
-  for (const type of CONTENT_INPUT_EVENTS) {
-    window.addEventListener(type, blockInput, { capture: true, passive: false });
+  if (silentActive) {
+    controller.setActive(SILENT_SHIELD_REASON, true);
   }
-  removeContentInputBlocker = () => {
-    for (const type of CONTENT_INPUT_EVENTS) {
-      window.removeEventListener(type, blockInput, true);
-    }
-    removeContentInputBlocker = null;
+  if (previewActive) {
+    controller.setActive(PREVIEW_SHIELD_REASON, true);
+  }
+  if (blockedOrganActive) {
+    controller.setActive(BLOCKED_ORGAN_SHIELD_REASON, true);
+  }
+  if (durablePostureShieldActive) {
+    controller.setActive(DURABLE_POSTURE_SHIELD_REASON, true);
+  }
+  markingEngine?.setInputTransparent?.(true);
+  controller.setActive(SILENT_SHIELD_REASON, silentActive);
+  controller.setActive(PREVIEW_SHIELD_REASON, previewActive);
+  controller.setActive(BLOCKED_ORGAN_SHIELD_REASON, blockedOrganActive);
+  controller.setActive(DURABLE_POSTURE_SHIELD_REASON, durablePostureShieldActive);
+  controller.refresh();
+}
+
+function disposeInteractionShield(): void {
+  markingEngine?.setInputTransparent?.(false);
+  interactionShield?.dispose();
+  interactionShield = null;
+}
+
+function disposeTerminalContentSurfaces(): void {
+  removeSilentDebugCopyListener?.();
+  removeMarkingListeners?.();
+  removeNavigationGate?.();
+  markingEngine?.dispose();
+  markingEngine = null;
+  markingActive = false;
+  userToggleCount = 0;
+  selectorsSeeded = false;
+  markingInteractionsPaused = false;
+  pageInspectionActive = false;
+  if (contentToastClearHandle !== null) {
+    clearTimeout(contentToastClearHandle);
+    contentToastClearHandle = null;
+  }
+  contentToastText = "";
+  spaGuard.disarm();
+  destroyPageWorldSession();
+  syncMarkingCursor();
+  contentSurfaceRoot?.remove();
+  contentSurfaceRoot = null;
+  if (typeof document !== "undefined") {
+    document.getElementById?.(MARKING_CURSOR_STYLE_ID)?.remove();
+    document.getElementById?.(CONTENT_SURFACE_STYLE_ID)?.remove();
+  }
+  lastContentSurfaceSignature = "";
+}
+
+function terminateInteractionShieldAuthority(): void {
+  contentLifecycleGeneration += 1;
+  shieldPostureMutationGeneration += 1;
+  interactionShieldAuthorityActive = false;
+  silentInteractionShieldActive = false;
+  durablePostureShieldActive = false;
+  durableSilentAdoptionGeneration += 1;
+  pendingNavigationBoundary = null;
+  currentShieldPosture = { status: "inactive", revision: 0 };
+  disposeTerminalContentSurfaces();
+  disposeInteractionShield();
+}
+
+function resumeInteractionShieldAuthority(): void {
+  interactionShieldAuthorityActive = true;
+}
+
+function releaseDurablePostureLocally(): void {
+  durablePostureShieldActive = false;
+  durableSilentAdoptionGeneration += 1;
+}
+
+function shieldMutationFence() {
+  if (!currentShieldPosture.scope) {
+    return null;
+  }
+  return {
+    ...currentShieldPosture.scope,
+    revision: currentShieldPosture.revision,
   };
+}
+
+function currentShieldPropertyKey(): string | null {
+  const scope = currentShieldPosture.scope;
+  return scope
+    ? `${scope.environmentKey}\u0000${scope.siteId}\u0000${scope.baseUrl}`
+    : null;
+}
+
+function setCurrentShieldPosture(posture: ShieldPostureProjection): void {
+  currentShieldPosture = posture;
+  durablePostureShieldActive = posture.status === "active";
+  syncInteractionShield();
+}
+
+function enqueueShieldPostureOperation(
+  operation: (stillCurrent: () => boolean) => Promise<void>,
+): void {
+  const generation = shieldPostureMutationGeneration;
+  const run = (): Promise<void> => operation(
+    () => generation === shieldPostureMutationGeneration,
+  );
+  const queued = shieldPostureQueue.then(run, run);
+  shieldPostureQueue = queued.catch(() => undefined);
+}
+
+async function refreshCurrentShieldPosture(
+  stillCurrent: () => boolean = () => true,
+): Promise<boolean> {
+  const pageUrl = currentPageUrl();
+  if (!pageUrl) {
+    return false;
+  }
+  const response = await getContentBus().request(
+    "shield.posture.current",
+    { pageUrl },
+    { target: "background" },
+  );
+  if (!response.ok || response.data.status === "unavailable" || !stillCurrent()) {
+    return false;
+  }
+  setCurrentShieldPosture(response.data);
+  return true;
+}
+
+function persistShieldPosture(posture: ShieldPostureUpdate): void {
+  const routeGeneration = documentLifecycleGeneration;
+  const pageUrl = currentPageUrl();
+  const documentScoped = posture.kind !== "silent-selectors";
+  let propertyKey = currentShieldPropertyKey();
+  enqueueShieldPostureOperation(async (queueStillCurrent) => {
+    const stillCurrent = (): boolean => {
+      if (!queueStillCurrent()) {
+        return false;
+      }
+      if (
+        (documentScoped || propertyKey === null) &&
+        (routeGeneration !== documentLifecycleGeneration || pageUrl !== currentPageUrl())
+      ) {
+        return false;
+      }
+      return propertyKey === null || currentShieldPropertyKey() === propertyKey;
+    };
+    const adoptRefreshedProperty = (): void => {
+      propertyKey ??= currentShieldPropertyKey();
+    };
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (!stillCurrent()) {
+        return;
+      }
+      const expected = shieldMutationFence();
+      if (!expected) {
+        if (attempt === 0 && await refreshCurrentShieldPosture(stillCurrent)) {
+          adoptRefreshedProperty();
+          continue;
+        }
+        return;
+      }
+      const response = await getContentBus().request(
+        "shield.posture.set",
+        { expected, posture },
+        { target: "background" },
+      );
+      if (!stillCurrent()) {
+        return;
+      }
+      if (response.ok && response.data.status === "ok") {
+        setCurrentShieldPosture(response.data.posture);
+        return;
+      }
+      if (
+        attempt === 0 &&
+        response.ok &&
+        (response.data.status === "stale" || response.data.status === "unbound") &&
+        await refreshCurrentShieldPosture(stillCurrent)
+      ) {
+        adoptRefreshedProperty();
+        continue;
+      }
+      return;
+    }
+  });
+}
+
+function clearPersistedShieldPosture(reason: ShieldPostureClearReason): void {
+  const routeGeneration = documentLifecycleGeneration;
+  const pageUrl = currentPageUrl();
+  const documentScoped = reason !== "silent-cleared";
+  let propertyKey = currentShieldPropertyKey();
+  enqueueShieldPostureOperation(async (queueStillCurrent) => {
+    const stillCurrent = (): boolean => {
+      if (!queueStillCurrent()) {
+        return false;
+      }
+      if (
+        (documentScoped || propertyKey === null) &&
+        (routeGeneration !== documentLifecycleGeneration || pageUrl !== currentPageUrl())
+      ) {
+        return false;
+      }
+      return propertyKey === null || currentShieldPropertyKey() === propertyKey;
+    };
+    const adoptRefreshedProperty = (): void => {
+      propertyKey ??= currentShieldPropertyKey();
+    };
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (!stillCurrent()) {
+        return;
+      }
+      const expected = shieldMutationFence();
+      if (!expected) {
+        if (attempt === 0 && await refreshCurrentShieldPosture(stillCurrent)) {
+          adoptRefreshedProperty();
+          continue;
+        }
+        return;
+      }
+      const response = await getContentBus().request(
+        "shield.posture.clear",
+        { expected, reason },
+        { target: "background" },
+      );
+      if (!stillCurrent()) {
+        return;
+      }
+      if (response.ok && response.data.status === "ok") {
+        setCurrentShieldPosture(response.data.posture);
+        return;
+      }
+      if (
+        attempt === 0 &&
+        response.ok &&
+        (response.data.status === "stale" || response.data.status === "unbound") &&
+        await refreshCurrentShieldPosture(stillCurrent)
+      ) {
+        adoptRefreshedProperty();
+        continue;
+      }
+      return;
+    }
+  });
+}
+
+function requestTerminalShieldClear(reason: ShieldPostureClearReason): void {
+  shieldPostureMutationGeneration += 1;
+  const pageUrl = currentPageUrl();
+  const run = async (): Promise<void> => {
+    if (!pageUrl) {
+      return;
+    }
+    // A document-start bind may still be advancing the durable revision while a
+    // terminal event fires. Let that bind settle, then re-read/retry so terminal
+    // cleanup cannot lose to a stale fence and leave a reload-adoptable posture.
+    await pageContextBindQueue.catch(() => undefined);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const current = await getContentBus().request(
+        "shield.posture.current",
+        { pageUrl },
+        { target: "background" },
+      );
+      if (!current.ok || current.data.status === "unavailable" || !current.data.scope) {
+        return;
+      }
+      const cleared = await getContentBus().request(
+        "shield.posture.clear",
+        {
+          expected: { ...current.data.scope, revision: current.data.revision },
+          reason,
+        },
+        { target: "background" },
+      );
+      if (!cleared.ok || cleared.data.status === "ok") {
+        return;
+      }
+      if (cleared.data.status !== "stale" && cleared.data.status !== "unbound") {
+        return;
+      }
+    }
+  };
+  const queued = shieldPostureQueue.then(run, run);
+  shieldPostureQueue = queued.catch(() => undefined);
+}
+
+function scheduleDurableSilentAdoption(selectors: SelectorSet): void {
+  durableSilentAdoptionGeneration += 1;
+  const generation = durableSilentAdoptionGeneration;
+  const adopt = (): void => {
+    if (
+      generation !== durableSilentAdoptionGeneration ||
+      currentShieldPosture.status !== "active" ||
+      markingActive
+    ) {
+      return;
+    }
+    applySilentSelectors({ selectors }, { persist: false });
+  };
+  if (typeof document === "undefined") {
+    return;
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", adopt, { once: true });
+    return;
+  }
+  queueMicrotask(adopt);
+}
+
+function adoptShieldPosture(posture: ShieldPostureProjection): void {
+  durableSilentAdoptionGeneration += 1;
+  setCurrentShieldPosture(posture);
+  if (posture.status !== "active") {
+    if (!markingActive && silentInteractionShieldActive) {
+      clearSilentSelectors({ persist: false });
+    }
+    return;
+  }
+  if (posture.directive.silentSelectors) {
+    scheduleDurableSilentAdoption(posture.directive.silentSelectors);
+  }
+}
+
+function documentShieldPostureForState(): ShieldPostureUpdate | null {
+  if (contentState.name === "silent_preview") {
+    return { kind: "preview", origin: "silent" };
+  }
+  if (contentState.name === "preview_open") {
+    return { kind: "preview", origin: "post_ai" };
+  }
+  if (
+    contentState.name === "running" ||
+    contentState.name === "exit_restoring" ||
+    contentState.name === "inspecting" ||
+    contentState.name === "reconciling"
+  ) {
+    return {
+      kind: "blocked-organ",
+      organState: contentState.name,
+      blockedReason: contentPresentation.blockedReason || contentState.reconciliationReason || contentState.name,
+    };
+  }
+  return null;
+}
+
+function stateHasDocumentShieldPosture(state: ContentState["name"]): boolean {
+  return state === "silent_preview" || state === "preview_open" || state === "running" ||
+    state === "exit_restoring" || state === "inspecting" || state === "reconciling";
+}
+
+function persistDocumentShieldPosture(signal: BrainSignal, previousState: ContentState["name"]): void {
+  const posture = documentShieldPostureForState();
+  if (posture) {
+    persistShieldPosture(posture);
+    return;
+  }
+  if (!stateHasDocumentShieldPosture(previousState)) {
+    return;
+  }
+  const reason: ShieldPostureClearReason = signal.name === "session.navigated"
+    ? "navigation"
+    : signal.name === "session.saved"
+      ? "save"
+      : signal.name === "session.discarded"
+        ? "discard"
+    : signal.name === "run.failed"
+      ? "failure"
+      : "cancel";
+  clearPersistedShieldPosture(reason);
 }
 
 function ensureContentSurfaceRoot(): HTMLElement | null {
@@ -952,10 +1458,17 @@ function ensureContentSurfaceRoot(): HTMLElement | null {
   contentSurfaceRoot.style.zIndex = "2147483646";
   document.documentElement.appendChild(contentSurfaceRoot);
   lastContentSurfaceSignature = "";
+  interactionShield?.refresh();
   return contentSurfaceRoot;
 }
 
 function renderContentSurface(): void {
+  if (!interactionShieldAuthorityActive) {
+    contentSurfaceRoot?.remove();
+    contentSurfaceRoot = null;
+    lastContentSurfaceSignature = "";
+    return;
+  }
   const blockedReason = contentPresentation.blockedReason;
   const dictatedCurtain = contentPresentation.curtain;
   const curtain = dictatedCurtain.visible
@@ -976,10 +1489,7 @@ function renderContentSurface(): void {
     return;
   }
   root.style.pointerEvents = curtain.visible ? "auto" : "none";
-  setContentInputBlocked(
-    pageInputBlocked,
-    effectiveBlockedReason || (silentInteractionShieldActive ? "silent-highlighting" : "preview"),
-  );
+  syncInteractionShield();
   if (signature === lastContentSurfaceSignature) {
     return;
   }
@@ -1134,12 +1644,10 @@ function observeLateConsentOverlays(): void {
   ) {
     return;
   }
-  // At document_start there may not be a documentElement yet. Document itself is
-  // a valid observation target and sees the root/head/body arrive.
-  const target = document.documentElement ?? document;
-  if (!target) {
-    return;
-  }
+  // Observe the Document, not the current documentElement: page code can replace
+  // <html> wholesale, and the property-wide consent guarantee must follow the
+  // replacement root as well as seeing root/head/body arrive at document_start.
+  const target = document;
   consentObserver = new MutationObserver(() => {
     if (consentPropertyAuthority && !consentSuppressionTerminated) {
       hideConsentOverlays(document);
@@ -1172,7 +1680,17 @@ function terminateConsentSuppression(options: Readonly<{ terminal?: boolean }> =
   return restored;
 }
 
-async function resumeConsentSuppression(tabId: number): Promise<boolean> {
+async function resumeConsentSuppression(
+  tabId: number,
+  expectedLifecycleGeneration: number,
+): Promise<boolean> {
+  // Command dispatch can race the document-start probe. Wait for that bind even
+  // when consent is already active; otherwise an older inactive context response
+  // can arrive after silent highlighting and erase its engine/posture.
+  await pageContextBindQueue;
+  if (expectedLifecycleGeneration !== contentLifecycleGeneration) {
+    return false;
+  }
   if (!consentSuppressionTerminated) {
     return true;
   }
@@ -1181,13 +1699,17 @@ async function resumeConsentSuppression(tabId: number): Promise<boolean> {
     { tabId },
     { target: "background" },
   );
-  if (!registered.ok) {
+  if (
+    !registered.ok ||
+    registered.data.status !== "ok" ||
+    expectedLifecycleGeneration !== contentLifecycleGeneration
+  ) {
     return false;
   }
   consentSuppressionTerminated = false;
   pageContextProbedUrl = "";
   await establishPageContext();
-  return true;
+  return expectedLifecycleGeneration === contentLifecycleGeneration;
 }
 
 function applyConsentPropertyAuthority(input: Readonly<{
@@ -1211,6 +1733,41 @@ function applyConsentPropertyAuthority(input: Readonly<{
   sweepConsentOverlays();
 }
 
+/** Re-adopts a persisted silent-page shield before the remote page-context/config
+ *  round trip. The background accepts this only for the same-origin retained
+ *  property with a local authoritative config and the exact replacement Chrome
+ *  document, so mounting here is fail-closed rather than trusting page state. */
+async function adoptRetainedShieldPosture(): Promise<void> {
+  const pageUrl = currentPageUrl();
+  if (!pageUrl) {
+    return;
+  }
+  const lifecycleGeneration = contentLifecycleGeneration;
+  const routeGeneration = documentLifecycleGeneration;
+  let response;
+  try {
+    response = await getContentBus().request(
+      "shield.posture.adoptRetained",
+      { pageUrl },
+      { target: "background" },
+    );
+  } catch {
+    return;
+  }
+  if (
+    !response.ok ||
+    response.data.status !== "active" ||
+    currentPageUrl() !== pageUrl ||
+    lifecycleGeneration !== contentLifecycleGeneration ||
+    routeGeneration !== documentLifecycleGeneration ||
+    consentSuppressionTerminated
+  ) {
+    return;
+  }
+  resumeInteractionShieldAuthority();
+  adoptShieldPosture(response.data);
+}
+
 /** Asks the background what this page is, and acts on the answer. Runs at document
  *  start and once per page URL — waiting for a popup to open would be too late for
  *  both behaviours it gates.
@@ -1226,13 +1783,15 @@ function applyConsentPropertyAuthority(input: Readonly<{
  *  at) and a page the crawler actually wants. For a property with no render mode
  *  yet, the popup asks for the ritual once the operator sets one and leaves the
  *  inspection — there is nothing useful to prepare before that. */
-async function establishPageContext(options: Readonly<{ ritualRequiresCandidate?: boolean }> = {}): Promise<void> {
+async function resolvePageContext(options: Readonly<{ ritualRequiresCandidate?: boolean }> = {}): Promise<void> {
   const requireCandidate = options.ritualRequiresCandidate !== false;
   const pageUrl = currentPageUrl();
   if (!pageUrl || pageContextProbedUrl === pageUrl) {
     return;
   }
   pageContextProbedUrl = pageUrl;
+  const lifecycleGeneration = contentLifecycleGeneration;
+  const routeGeneration = documentLifecycleGeneration;
   let response;
   try {
     response = await getContentBus().request("page.context", { pageUrl }, { target: "background" });
@@ -1249,8 +1808,18 @@ async function establishPageContext(options: Readonly<{ ritualRequiresCandidate?
     // Navigated while asking; the answer describes a page that is gone.
     return;
   }
+  if (
+    lifecycleGeneration !== contentLifecycleGeneration ||
+    routeGeneration !== documentLifecycleGeneration ||
+    consentSuppressionTerminated
+  ) {
+    // Unregister/config removal/invalidation won while the background request
+    // was in flight. A late managed answer must not revive DOM authority.
+    return;
+  }
   if (!response.data.consentSuppressionAllowed) {
     terminateConsentSuppression({ terminal: true });
+    terminateInteractionShieldAuthority();
     return;
   }
   // A transient answer may carry the last valid canonical context for this exact
@@ -1259,18 +1828,43 @@ async function establishPageContext(options: Readonly<{ ritualRequiresCandidate?
     const definitiveExit = response.data.status === "unmanaged" ||
       response.data.status === "environment_not_registered" ||
       response.data.draftDisposition === "terminate";
-    if (definitiveExit && consentPropertyAuthority) {
-      terminateConsentSuppression();
+    if (definitiveExit) {
+      if (consentPropertyAuthority) {
+        terminateConsentSuppression();
+      }
+      terminateInteractionShieldAuthority();
+    } else if (response.data.shieldPosture.status === "active") {
+      // A cold MV3 worker can recover a validated property-scoped silent lease
+      // even when the fresh Hub request is transient and therefore has no siteId.
+      resumeInteractionShieldAuthority();
+      adoptShieldPosture(response.data.shieldPosture);
+      renderContentSurface();
+    } else if (!consentPropertyAuthority && currentShieldPosture.status !== "active") {
+      // No resolved property fact exists in this content lifetime. Preserve an
+      // established local property on transient failures, but do not let a stale
+      // popup command invent authority for a cold, unbound document.
+      interactionShieldAuthorityActive = false;
     }
     // Authentication/access/unavailability are transient. If this document
     // already has property authority, its observer and hidden UI remain intact.
     return;
   }
+  const nextPropertyIdentity = consentIdentity(response.data.environmentKey, response.data.siteId);
+  if (
+    consentPropertyAuthority &&
+    nextPropertyIdentity &&
+    consentPropertyAuthority.identity !== nextPropertyIdentity
+  ) {
+    terminateInteractionShieldAuthority();
+  }
+  resumeInteractionShieldAuthority();
+  adoptShieldPosture(response.data.shieldPosture);
   applyConsentPropertyAuthority({
     environmentKey: response.data.environmentKey,
     siteId: response.data.siteId,
     baseUrl: response.data.baseUrl,
   });
+  renderContentSurface();
   // The ritual prepares pages the crawler wants, so a stored marking record is what
   // picks them out — but only where the property HAS records. One with none has no
   // way to say which pages matter, and requiring a record of it would mean such a
@@ -1292,6 +1886,15 @@ async function establishPageContext(options: Readonly<{ ritualRequiresCandidate?
   if (response.data.renderModeSet && wanted && !suspended) {
     runPageVisitRitual(pageUrl, requireCandidate ? "page-load" : "render-mode-established");
   }
+}
+
+function establishPageContext(
+  options: Readonly<{ ritualRequiresCandidate?: boolean }> = {},
+): Promise<void> {
+  const run = (): Promise<void> => resolvePageContext(options);
+  const queued = pageContextBindQueue.then(run, run);
+  pageContextBindQueue = queued.catch(() => undefined);
+  return queued;
 }
 
 /** THE REVEAL/FREEZE CONTRACT, ported from legacy (architect, 2026-07-03): one full
@@ -1387,8 +1990,14 @@ function applyContentLockState(payload: unknown): Record<string, unknown> {
   if (!parsed.success) {
     return { ok: false, reason: "invalid-lock-state", tree: "rewrite" };
   }
-  void establishPageContext();
+  if (consentSuppressionTerminated) {
+    return { ok: false, reason: "property-authority-unavailable", tree: "rewrite" };
+  }
   contentAuthority = authorityFromLockState(parsed.data);
+  void establishPageContext();
+  if (!interactionShieldAuthorityActive) {
+    return { ok: true, state: contentAuthority, tree: "rewrite" };
+  }
   if (contentAuthority.lockBlocked || contentPresentation.markingEditsBlocked) {
     pauseMarkingInteractions();
   } else if (markingInteractionsPaused) {
@@ -1676,13 +2285,16 @@ function deactivateMarking(mode: MarkingDeactivationMode = "terminal"): void {
     spaGuard.disarm();
     destroyPageWorldSession();
   } else {
-    // Silent highlighting is still an active Unfluffify posture. Keep the
-    // page-world freeze and lazy-loading suppression established for this visit,
-    // while replacing marking input with the read-only interaction shield.
+    // Freeze before disposing the interactive engine. The selector-application
+    // command arrives separately, so retaining this lease is what prevents a
+    // visible click/hover gap between those two commands. Explicit clear,
+    // reactivation, or terminal teardown owns its release.
     silentInteractionShieldActive = true;
+    syncInteractionShield();
   }
   removeSilentDebugCopyListener?.();
   removeMarkingListeners?.();
+  markingEngine?.setInputTransparent?.(false);
   markingEngine?.dispose();
   markingEngine = null;
   if (contentToastClearHandle !== null) {
@@ -1733,7 +2345,26 @@ function handleUrlChanged(nextUrl?: string): void {
     return;
   }
   const previousUrl = lastKnownPageUrl;
+  const shouldReportNavigation = markingActive ||
+    interactionShieldAuthorityActive ||
+    stateHasDocumentShieldPosture(contentState.name) ||
+    durablePostureShieldActive ||
+    silentInteractionShieldActive;
   lastKnownPageUrl = currentUrl;
+  documentLifecycleGeneration += 1;
+  const matchingNavigationAlreadyConsumed = lastConsumedNavigation !== null &&
+    lastConsumedNavigation.fromUrl === previousUrl &&
+    lastConsumedNavigation.toUrl === currentUrl &&
+    lastConsumedNavigation.seq > lastHandledNavigationSeq;
+  if (matchingNavigationAlreadyConsumed && lastConsumedNavigation) {
+    // A navigation signal can beat the page-world URL watcher. Consume that
+    // exact occurrence once; an identical B -> A edge later needs its own newer
+    // boundary rather than reusing this historical transition.
+    lastHandledNavigationSeq = lastConsumedNavigation.seq;
+  }
+  pendingNavigationBoundary = shouldReportNavigation && !matchingNavigationAlreadyConsumed
+    ? { pageUrl: currentUrl, afterSeq: contentState.lastConsumedSeq }
+    : null;
   spaGuard.onUrlChange(currentUrl);
   // Keep the current property observer alive while the new URL is being resolved.
   // This closes the gap in which a same-property SPA could mount clickable consent
@@ -1743,10 +2374,12 @@ function handleUrlChanged(nextUrl?: string): void {
   ritualPendingForUrl = "";
   revealController.resetForNavigation();
   void establishPageContext();
-  if (!markingActive) {
+  if (markingActive) {
+    deactivateMarking();
+  }
+  if (!shouldReportNavigation) {
     return;
   }
-  deactivateMarking();
   void reportContentFact("content-url-change", {
     fromUrl: previousUrl,
     toUrl: currentUrl,
@@ -1781,6 +2414,7 @@ function resetMarking(): boolean {
   if (typeof document === "undefined" || !document.documentElement) {
     return false;
   }
+  markingEngine?.setInputTransparent?.(false);
   markingEngine?.dispose();
   removeSilentDebugCopyListener?.();
   destroyPageWorldSession();
@@ -1791,10 +2425,13 @@ function resetMarking(): boolean {
   if (activation.state().silentHighlightArmed) {
     markingEngine.renderSilentHighlights?.();
   }
+  silentInteractionShieldActive = false;
+  releaseDurablePostureLocally();
   markingActive = true;
   ensureMarkingListeners();
   lastContentSurfaceSignature = "";
   renderContentSurface();
+  clearPersistedShieldPosture("silent-cleared");
   return true;
 }
 
@@ -1847,10 +2484,12 @@ function activateContentMain(payload: unknown): Record<string, unknown> {
       markingEngine.renderSilentHighlights?.();
     }
     silentInteractionShieldActive = false;
+    releaseDurablePostureLocally();
     markingActive = true;
     ensureMarkingListeners();
     lastContentSurfaceSignature = "";
     renderContentSurface();
+    clearPersistedShieldPosture("silent-cleared");
     armNavigationGate();
   }
   return { ok: true, initialized: true, tree: "rewrite" };
@@ -1871,11 +2510,15 @@ function installSilentDebugCopy(): void {
     }
     event.preventDefault();
     event.stopPropagation();
-    const inspected = markingEngine.inspectAtPoint(event.clientX, event.clientY);
-    if (!inspected) {
+    // The transparent shield intentionally becomes the first physical page hit.
+    // The clicked debug overlay already carries the renderer's canonical XPath,
+    // so re-hit-testing through the shield would hide the bridge target and make
+    // this extension-owned interaction a no-op.
+    const xpath = copyTarget.getAttribute("data-uf-silent-highlight");
+    if (!xpath) {
       return;
     }
-    void navigator.clipboard.writeText(inspected.annotation).then(() => {
+    void navigator.clipboard.writeText(`XPath: ${xpath}`).then(() => {
       showContentToast("Highlight details copied.");
     }).catch(() => {
       showContentToast("Unable to copy highlight details.");
@@ -1891,7 +2534,10 @@ function installSilentDebugCopy(): void {
 /** Silent mode: show what the stored selectors keep, without arming marking.
  *  Read-only by construction — no listeners, no dirty flag, no navigation gate —
  *  so nothing here is a user marking. */
-function applySilentSelectors(payload: unknown): Record<string, unknown> {
+function applySilentSelectors(
+  payload: unknown,
+  options: Readonly<{ persist?: boolean }> = {},
+): Record<string, unknown> {
   if (typeof document === "undefined" || !document.documentElement) {
     return { ok: false, reason: "no-document", tree: "rewrite" };
   }
@@ -1900,6 +2546,7 @@ function applySilentSelectors(payload: unknown): Record<string, unknown> {
     return { ok: false, reason: "marking-active", tree: "rewrite" };
   }
   const selectors = selectorSetFrom(payloadObject(payload));
+  markingEngine?.setInputTransparent?.(false);
   markingEngine?.dispose();
   markingEngine = createMarkingEngine(document.documentElement, { selectors });
   const seeded = markingEngine.lastInitializationSeededSelectors();
@@ -1908,20 +2555,35 @@ function applySilentSelectors(payload: unknown): Record<string, unknown> {
   lastContentSurfaceSignature = "";
   renderContentSurface();
   installSilentDebugCopy();
+  if (options.persist !== false) {
+    persistShieldPosture({
+      kind: "silent-selectors",
+      selectors: selectors ?? { inclusionSelectors: [], exclusionSelectors: [] },
+    });
+  }
   return { ok: true, seeded, highlighted: highlighted.length, tree: "rewrite" };
 }
 
-function clearSilentSelectors(): Record<string, unknown> {
+function clearSilentSelectors(
+  options: Readonly<{ persist?: boolean }> = {},
+): Record<string, unknown> {
   if (markingActive) {
     return { ok: false, reason: "marking-active", tree: "rewrite" };
   }
   markingEngine?.clearOverlays();
   removeSilentDebugCopyListener?.();
+  markingEngine?.setInputTransparent?.(false);
   markingEngine?.dispose();
   markingEngine = null;
   silentInteractionShieldActive = false;
+  if (currentShieldPosture.status === "active" && currentShieldPosture.directive.organ.state === "silent") {
+    releaseDurablePostureLocally();
+  }
   lastContentSurfaceSignature = "";
   renderContentSurface();
+  if (options.persist !== false) {
+    clearPersistedShieldPosture("silent-cleared");
+  }
   return { ok: true, tree: "rewrite" };
 }
 
@@ -2006,8 +2668,12 @@ function createContentRouter() {
     handlers: {
       "lock.state.changed": (payload) => applyContentLockState(payload),
       activateContentMain: async (payload, command) => {
-        if (!await resumeConsentSuppression(command.tabId)) {
+        const lifecycleGeneration = contentLifecycleGeneration;
+        if (!await resumeConsentSuppression(command.tabId, lifecycleGeneration)) {
           return { ok: false, initialized: false, tree: "rewrite", reason: "consent-registration-failed" };
+        }
+        if (!interactionShieldAuthorityActive) {
+          return { ok: false, initialized: false, tree: "rewrite", reason: "property-authority-unavailable" };
         }
         return activateContentMain(payload);
       },
@@ -2022,22 +2688,67 @@ function createContentRouter() {
         deactivateMarking();
         return { ok: true, initialized: false, tree: "rewrite" };
       },
-      terminateConsentSuppression: () => ({
-        ok: true,
-        restored: terminateConsentSuppression({ terminal: true }),
-        tree: "rewrite",
-      }),
-      enterSilentContentMain: async (_payload, command) => {
-        if (!await resumeConsentSuppression(command.tabId)) {
+      terminateConsentSuppression: () => {
+        const restored = terminateConsentSuppression({ terminal: true });
+        terminateInteractionShieldAuthority();
+        return { ok: true, restored, tree: "rewrite" };
+      },
+      enterSilentContentMain: async (payload, command) => {
+        const lifecycleGeneration = contentLifecycleGeneration;
+        const requestPageUrl = payloadObject(payload).pageUrl;
+        if (
+          typeof requestPageUrl !== "string" ||
+          !currentPageUrl() ||
+          requestPageUrl !== currentPageUrl()
+        ) {
+          return { ok: false, initialized: false, tree: "rewrite", reason: "page-url-mismatch" };
+        }
+        if (!await resumeConsentSuppression(command.tabId, lifecycleGeneration)) {
           return { ok: false, initialized: false, tree: "rewrite", reason: "consent-registration-failed" };
+        }
+        if (
+          typeof requestPageUrl !== "string" ||
+          !currentPageUrl() ||
+          requestPageUrl !== currentPageUrl()
+        ) {
+          return { ok: false, initialized: false, tree: "rewrite", reason: "page-url-mismatch" };
+        }
+        if (!interactionShieldAuthorityActive) {
+          return { ok: false, initialized: false, tree: "rewrite", reason: "property-authority-unavailable" };
         }
         deactivateMarking("silent");
         return { ok: true, initialized: false, tree: "rewrite" };
       },
-      resetContentMain: () => ({ ok: resetMarking(), initialized: true, tree: "rewrite" }),
+      resetContentMain: () => interactionShieldAuthorityActive
+        ? { ok: resetMarking(), initialized: true, tree: "rewrite" }
+        : {
+          ok: false,
+          initialized: false,
+          tree: "rewrite",
+          reason: "property-authority-unavailable",
+        },
       applySilentSelectors: async (payload, command) => {
-        if (!await resumeConsentSuppression(command.tabId)) {
+        const lifecycleGeneration = contentLifecycleGeneration;
+        const requestPageUrl = payloadObject(payload).pageUrl;
+        if (
+          typeof requestPageUrl !== "string" ||
+          !currentPageUrl() ||
+          requestPageUrl !== currentPageUrl()
+        ) {
+          return { ok: false, applied: false, tree: "rewrite", reason: "page-url-mismatch" };
+        }
+        if (!await resumeConsentSuppression(command.tabId, lifecycleGeneration)) {
           return { ok: false, applied: false, tree: "rewrite", reason: "consent-registration-failed" };
+        }
+        if (
+          typeof requestPageUrl !== "string" ||
+          !currentPageUrl() ||
+          requestPageUrl !== currentPageUrl()
+        ) {
+          return { ok: false, applied: false, tree: "rewrite", reason: "page-url-mismatch" };
+        }
+        if (!interactionShieldAuthorityActive) {
+          return { ok: false, applied: false, tree: "rewrite", reason: "property-authority-unavailable" };
         }
         return applySilentSelectors(payload);
       },
@@ -2050,11 +2761,15 @@ function createContentRouter() {
        *  ritual this visit gets. Re-probes first, because setting the mode is
        *  exactly what changes the answer the page-load probe got. */
       preparePageVisit: async (_payload, command) => {
-        if (!await resumeConsentSuppression(command.tabId)) {
+        const lifecycleGeneration = contentLifecycleGeneration;
+        if (!await resumeConsentSuppression(command.tabId, lifecycleGeneration)) {
           return { ok: false, prepared: false, reason: "consent-registration-failed" };
         }
         pageContextProbedUrl = "";
         await establishPageContext({ ritualRequiresCandidate: false });
+        if (!interactionShieldAuthorityActive) {
+          return { ok: false, prepared: false, reason: "property-authority-unavailable" };
+        }
         return { ok: true, prepared: ritualRanForUrl === currentPageUrl() };
       },
     },
@@ -2067,18 +2782,39 @@ export default defineContentScript({
   runAt: "document_start",
   main(ctx) {
     installNavigationWatcher();
+    const disposeLocalShield = (): void => disposeInteractionShield();
+    if (typeof window !== "undefined") {
+      // BFCache can hide/show the same document more than once. Keep this
+      // listener for the lifetime of the content realm so every pagehide drops
+      // the local physical node; pageshow re-adopts from the retained reasons.
+      window.addEventListener("pagehide", disposeLocalShield);
+      window.addEventListener("unload", disposeLocalShield, { once: true });
+      window.addEventListener("pageshow", () => syncInteractionShield());
+    }
     ctx?.onInvalidated?.(() => {
+      requestTerminalShieldClear("extension-invalidation");
       terminateConsentSuppression({ terminal: true });
+      terminateInteractionShieldAuthority();
+      if (contentSignalPollHandle !== null && typeof window !== "undefined") {
+        window.clearInterval(contentSignalPollHandle);
+        contentSignalPollHandle = null;
+      }
     });
     getContentBus().onCommand("command.dispatch", (command) => createContentRouter().dispatch(command));
-    ensureContentSignalPolling();
+    // First mount any locally validated retained silent posture. This closes the
+    // replacement-document interaction gap while the ordinary page-context call
+    // performs remote classification/config validation. The latter remains the
+    // final authority and can retain or tear this provisional adoption down.
+    const retainedAdoption = adoptRetainedShieldPosture();
+    pageContextBindQueue = retainedAdoption.catch(() => undefined);
+    // Bind and adopt the authoritative current posture before consuming signals.
+    // A rehydrated worker can have a signal head without replayable history.
+    void establishPageContext().finally(() => ensureContentSignalPolling());
     // A content script can be reinjected while the tab's lock state is unchanged.
     // Announce the new consumer so background can replay its current authority
     // once, without restoring the popup's old 500ms presentation push.
     void reportContentFact("content-started", {}).catch((error: unknown) => {
       console.error("[Unfluffify][rewrite] Unable to announce content consumer", error);
     });
-    // Page-load behaviours, asked for at page load rather than when a popup opens.
-    void establishPageContext();
   },
 });

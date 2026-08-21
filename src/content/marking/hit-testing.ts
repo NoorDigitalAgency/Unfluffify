@@ -34,12 +34,40 @@ function collectPointerSuppressedDescendants(element: Element, x: number, y: num
   return matches;
 }
 
-function pierceOpenShadow(element: Element, x: number, y: number): Element[] {
+type ShadowHitTraversal = Readonly<{
+  elements: Set<Element>;
+  roots: Set<ShadowRoot>;
+}>;
+
+function pierceOpenShadow(
+  element: Element,
+  x: number,
+  y: number,
+  traversal: ShadowHitTraversal = {
+    elements: new Set([element]),
+    roots: new Set(),
+  },
+): Element[] {
   const root = (element as ElementLike).shadowRoot;
-  if (!root || typeof root.elementsFromPoint !== "function") {
+  if (
+    !root ||
+    typeof root.elementsFromPoint !== "function" ||
+    traversal.roots.has(root)
+  ) {
     return [];
   }
-  return root.elementsFromPoint(x, y).flatMap((hit) => [...pierceOpenShadow(hit, x, y), hit]);
+  traversal.roots.add(root);
+  const expanded: Element[] = [];
+  for (const hit of root.elementsFromPoint(x, y)) {
+    // Chromium can include this ShadowRoot's own host. Identity fencing also
+    // protects malformed/cyclic composed stacks without losing later siblings.
+    if (traversal.elements.has(hit)) {
+      continue;
+    }
+    traversal.elements.add(hit);
+    expanded.push(...pierceOpenShadow(hit, x, y, traversal), hit);
+  }
+  return expanded;
 }
 
 export function getComposedHitElements(document: Document, x: number, y: number): Element[] {

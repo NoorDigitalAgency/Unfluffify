@@ -5,6 +5,7 @@ import { managedEmulationDecision } from "./emulation-policy";
 import { createRewriteBackgroundServices } from "./services";
 import { createAuthTokenMonitor } from "./auth-token-monitor";
 import { createPageContextRuntime } from "./page-context-runtime";
+import { createShieldPostureRuntime } from "./shield-posture-runtime";
 import {
   createLockBrowserLifecycle,
   type LockBrowserApi,
@@ -13,7 +14,11 @@ import { connectionSettingsOf, replaceConnectionProfile } from "../storage/setti
 import { getInstalledBrowserApi } from "../common/browser";
 import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
-import { parseSenderTabId } from "../messaging/rewrite-signals";
+import {
+  parseSenderDocumentId,
+  parseSenderFrameId,
+  parseSenderTabId,
+} from "../messaging/rewrite-signals";
 import { canonicalPageKey, PropertySnapshotIntegrityError } from "../storage/property-snapshot-authority";
 import { projectTodoCoverage } from "../domain/todo";
 import type { ConfigSnapshot } from "../storage/config";
@@ -22,6 +27,7 @@ import { createTransferPayloadStore } from "./transfer-payload-store";
 import { actionIconStateForContext, createActionIconController } from "./action-icon";
 import { clearDomainCache } from "../storage/domain-cache";
 import { createInitialTabFacts } from "./brain/fold";
+import type { ShieldPostureProjection } from "../messaging/shield-posture";
 
 export { createRewriteBrain } from "./rewrite-brain";
 
@@ -85,30 +91,217 @@ export function startRewriteBackground(): void {
   /** An explicit Unregister must survive the reload it initiates. Content cannot
    *  own that fact because its realm is replaced by the reload. storage.session
    *  survives MV3 worker suspension/restart while remaining tab-session scoped. */
-  const consentSuppressionFallback = new Set<number>();
+  type ConsentSuppressionTombstone = Readonly<{
+    disabled: true;
+    blockedDocumentKey: string | null;
+  }>;
+  /** Written only by webNavigation.onCommitted. Content messages may be the
+   * first event observed by a freshly-created worker, but they never get to
+   * replace an identity Chrome has already committed for this tab. A null
+   * value means a navigation boundary was observed without a usable document
+   * id, so content remains fenced until an authoritative id is available. */
+  const mainDocumentByTab = new Map<number, string | null>();
+  const mainDocumentWrites = new Map<number, Promise<void>>();
+  const mainDocumentKey = (tabId: number): string => `uf:main-document:${tabId}`;
+  const persistMainDocument = (tabId: number, documentId: string | null): void => {
+    const previous = mainDocumentWrites.get(tabId) ?? Promise.resolve();
+    const write = previous.then(async () => {
+      await Promise.resolve(api.storage?.session?.set({
+        [mainDocumentKey(tabId)]: { documentId },
+      }));
+    }).catch(() => undefined);
+    mainDocumentWrites.set(tabId, write);
+    void write.finally(() => {
+      if (mainDocumentWrites.get(tabId) === write) {
+        mainDocumentWrites.delete(tabId);
+      }
+    });
+  };
+  const observeMainDocument = (tabId: number, documentId: string | null): void => {
+    mainDocumentByTab.set(tabId, documentId);
+    // Navigation events are synchronous, while storage.session is not. Keep
+    // writes ordered so a rapid C -> D commit cannot leave C as the cold-worker
+    // fallback merely because its first write completed last.
+    persistMainDocument(tabId, documentId);
+  };
+  const queryMainDocument = async (tabId: number): Promise<string | null | undefined> => {
+    type FrameDetails = Readonly<{ documentId?: string }> | null;
+    type GetFrame = (
+      details: Readonly<{ tabId: number; frameId: number }>,
+      callback?: (details: FrameDetails) => void,
+    ) => Promise<FrameDetails> | void;
+    const navigation = api.webNavigation as unknown as { getFrame?: GetFrame } | undefined;
+    const getFrame = navigation?.getFrame;
+    if (!getFrame) {
+      return undefined;
+    }
+    try {
+      const frame = await new Promise<FrameDetails>((resolve, reject) => {
+        let settled = false;
+        const finish = (operation: () => void): void => {
+          if (settled) return;
+          settled = true;
+          operation();
+        };
+        const maybePromise = getFrame.call(
+          navigation,
+          { tabId, frameId: 0 },
+          (details) => finish(() => resolve(details)),
+        );
+        if (maybePromise && typeof maybePromise.then === "function") {
+          void maybePromise.then(
+            (details) => finish(() => resolve(details)),
+            (error) => finish(() => reject(error)),
+          );
+        }
+      });
+      return typeof frame?.documentId === "string" && frame.documentId
+        ? frame.documentId
+        : null;
+    } catch {
+      return undefined;
+    }
+  };
+  const loadMainDocument = async (
+    tabId: number,
+  ): Promise<Readonly<{ known: boolean; documentId: string | null }>> => {
+    if (mainDocumentByTab.has(tabId)) {
+      return { known: true, documentId: mainDocumentByTab.get(tabId) ?? null };
+    }
+    const queriedDocument = await queryMainDocument(tabId);
+    if (mainDocumentByTab.has(tabId)) {
+      return { known: true, documentId: mainDocumentByTab.get(tabId) ?? null };
+    }
+    if (queriedDocument !== undefined) {
+      observeMainDocument(tabId, queriedDocument);
+      return { known: true, documentId: queriedDocument };
+    }
+    const key = mainDocumentKey(tabId);
+    try {
+      const stored = await api.storage?.session?.get(key);
+      // A navigation may have committed while the session read was pending.
+      // Its synchronous in-memory observation always wins over older storage.
+      if (mainDocumentByTab.has(tabId)) {
+        return { known: true, documentId: mainDocumentByTab.get(tabId) ?? null };
+      }
+      const value = stored?.[key];
+      if (value && typeof value === "object" && "documentId" in value) {
+        const documentId = (value as { documentId?: unknown }).documentId;
+        if (documentId === null || (typeof documentId === "string" && documentId)) {
+          mainDocumentByTab.set(tabId, documentId);
+          return { known: true, documentId };
+        }
+      }
+    } catch {
+      // An unavailable session store leaves the document unknown. That is safe
+      // for a normal first load; terminal tombstones separately require known
+      // navigation authority before they can be released.
+    }
+    return { known: false, documentId: null };
+  };
+  const isCurrentMainDocument = async (tabId: number, documentId: string): Promise<boolean> => {
+    const current = await loadMainDocument(tabId);
+    return !current.known || current.documentId === documentId;
+  };
+  const clearMainDocument = async (tabId: number): Promise<void> => {
+    mainDocumentByTab.delete(tabId);
+    await mainDocumentWrites.get(tabId);
+    await Promise.resolve(api.storage?.session?.remove(mainDocumentKey(tabId)))
+      .catch(() => undefined);
+  };
+  const stalePageContextResponse = (pageUrl: string) => ({
+    status: "stale" as const,
+    generation: 1,
+    observedUrl: pageUrl,
+    draftDisposition: "preserve" as const,
+    environmentKey: null,
+    siteId: null,
+    baseUrl: null,
+    pageKey: null,
+    pageTypes: [],
+    membershipFingerprint: null,
+    assignmentFingerprint: null,
+    conflicts: [],
+    upstreamCode: null,
+    consentSuppressionAllowed: false,
+    renderModeSet: false,
+    todo: projectTodoCoverage([], null, new Set()),
+    shieldPosture: { status: "inactive" as const, revision: 0 },
+  });
+  const consentSuppressionFallback = new Map<number, ConsentSuppressionTombstone>();
   const consentSuppressionKey = (tabId: number): string => `uf:consent-suppression-disabled:${tabId}`;
-  const consentSuppressionDisabled = async (tabId: number): Promise<boolean> => {
+  const consentSuppressionTombstone = async (tabId: number): Promise<ConsentSuppressionTombstone | null> => {
     const key = consentSuppressionKey(tabId);
     try {
       const stored = await api.storage?.session?.get(key);
       if (stored) {
-        return stored[key] === true;
+        const value = stored[key];
+        if (value === true) {
+          return { disabled: true, blockedDocumentKey: null };
+        }
+        if (
+          value &&
+          typeof value === "object" &&
+          (value as { disabled?: unknown }).disabled === true
+        ) {
+          const documentKey = (value as { blockedDocumentKey?: unknown }).blockedDocumentKey;
+          return {
+            disabled: true,
+            blockedDocumentKey: typeof documentKey === "string" && documentKey ? documentKey : null,
+          };
+        }
       }
     } catch {
       // Tests and older hosts can lack storage.session; retain safe process-local
       // behaviour rather than turning a storage failure into re-authorization.
     }
-    return consentSuppressionFallback.has(tabId);
+    return consentSuppressionFallback.get(tabId) ?? null;
   };
-  const disableConsentSuppression = async (tabId: number): Promise<void> => {
-    consentSuppressionFallback.add(tabId);
-    await Promise.resolve(api.storage?.session?.set({ [consentSuppressionKey(tabId)]: true }))
+  const consentSuppressionDisabled = async (tabId: number): Promise<boolean> =>
+    (await consentSuppressionTombstone(tabId)) !== null;
+  const disableConsentSuppression = async (
+    tabId: number,
+    blockedDocumentKey: string | null,
+  ): Promise<void> => {
+    const tombstone: ConsentSuppressionTombstone = { disabled: true, blockedDocumentKey };
+    consentSuppressionFallback.set(tabId, tombstone);
+    await Promise.resolve(api.storage?.session?.set({ [consentSuppressionKey(tabId)]: tombstone }))
       .catch(() => undefined);
   };
-  const registerConsentSuppression = async (tabId: number): Promise<void> => {
+  const clearConsentSuppression = async (tabId: number): Promise<void> => {
     consentSuppressionFallback.delete(tabId);
     await Promise.resolve(api.storage?.session?.remove(consentSuppressionKey(tabId)))
       .catch(() => undefined);
+  };
+  const registerConsentSuppression = async (
+    tabId: number,
+    documentKey: string,
+  ): Promise<"ok" | "stale"> => {
+    const tombstone = await consentSuppressionTombstone(tabId);
+    const current = await loadMainDocument(tabId);
+    // A durable terminal veto can only be released by a document Chrome has
+    // authoritatively committed after it. On worker recreation, an unknown
+    // document therefore cannot use a different token to clear the tombstone.
+    if (
+      (current.known && current.documentId !== documentKey) ||
+      (tombstone !== null && !current.known) ||
+      tombstone?.blockedDocumentKey === documentKey
+    ) {
+      return "stale";
+    }
+    await clearConsentSuppression(tabId);
+    const afterClear = await loadMainDocument(tabId);
+    if (afterClear.known && afterClear.documentId !== documentKey) {
+      // webNavigation is intentionally not queued behind message work. If a
+      // replacement commits while session storage is removing the veto, put
+      // the exact terminal tombstone back before reporting the old register as
+      // stale.
+      if (tombstone) {
+        await disableConsentSuppression(tabId, tombstone.blockedDocumentKey);
+      }
+      return "stale";
+    }
+    return "ok";
   };
   const runtime = createRewriteBrainRuntime({
     addMessageListener() {},
@@ -153,6 +346,22 @@ export function startRewriteBackground(): void {
     hasToken: services.accounts.hasToken,
     resolve: services.lynx.resolvePropertyContext,
   });
+  const shieldPosture = createShieldPostureRuntime({
+    repo: services.repos.shieldPostureRepo,
+  });
+  const tabLifecycleOperations = new Map<number, Promise<void>>();
+  const withTabLifecycleOperation = <T>(tabId: number, operation: () => Promise<T>): Promise<T> => {
+    const previous = tabLifecycleOperations.get(tabId) ?? Promise.resolve();
+    const queued = previous.then(operation, operation);
+    const tail = queued.then(() => undefined, () => undefined);
+    tabLifecycleOperations.set(tabId, tail);
+    void tail.finally(() => {
+      if (tabLifecycleOperations.get(tabId) === tail) {
+        tabLifecycleOperations.delete(tabId);
+      }
+    });
+    return queued;
+  };
   const tabTerminations = new Map<number, Promise<void>>();
   const awaitTabTermination = async (tabId: number): Promise<void> => {
     while (tabTerminations.has(tabId)) {
@@ -179,17 +388,8 @@ export function startRewriteBackground(): void {
   const beginTabCleanup = (
     tabId: number,
     cleanup: () => Promise<void>,
-    preserveSignalHead = true,
   ): Promise<void> => {
-    const forgettingBrain = runtime.forgetBrain(tabId, { preserveSignalHead });
-    const previous = tabTerminations.get(tabId);
-    const termination = (async () => {
-      if (previous) {
-        await previous;
-      }
-      await forgettingBrain;
-      await cleanup();
-    })();
+    const termination = withTabLifecycleOperation(tabId, cleanup);
     tabTerminations.set(tabId, termination);
     const clearTermination = () => {
       if (tabTerminations.get(tabId) === termination) {
@@ -199,6 +399,30 @@ export function startRewriteBackground(): void {
     void termination.then(clearTermination, clearTermination);
     return termination;
   };
+  const lockFactOperationTails = new Map<number, Promise<void>>();
+  const enqueueLockFactOperation = <T>(
+    tabId: number,
+    operation: () => Promise<T>,
+  ): Promise<T> => {
+    // Queue thunks, rather than promises which have already started. Besides
+    // making the durable writer deterministic for same-property A -> B facts,
+    // this lets cleanup drain the one admitted tail before terminal clear.
+    const previous = lockFactOperationTails.get(tabId) ?? Promise.resolve();
+    const queued = previous.then(operation, operation);
+    const tail = queued.then(() => undefined, () => undefined);
+    lockFactOperationTails.set(tabId, tail);
+    void tail.finally(() => {
+      if (lockFactOperationTails.get(tabId) === tail) {
+        lockFactOperationTails.delete(tabId);
+      }
+    });
+    return queued;
+  };
+  const drainLockFactOperations = async (tabId: number): Promise<void> => {
+    while (lockFactOperationTails.has(tabId)) {
+      await lockFactOperationTails.get(tabId);
+    }
+  };
   const lockRuntime = createPropertyLockRuntime({
     services,
     context: pageContextRuntime,
@@ -206,36 +430,68 @@ export function startRewriteBackground(): void {
     onAuthoritativeTransfer({ tabId }) {
       // A foreign/rotated fence is the ownership boundary. Clear only the old
       // continuation; the passive client remains connected for future handoff.
-      return beginTabCleanup(tabId, () => clearTabContinuation(tabId));
+      return beginTabCleanup(tabId, async () => {
+        await drainLockFactOperations(tabId);
+        await runtime.forgetBrain(tabId);
+        await shieldPosture.clearDocumentPosture(tabId);
+        await clearTabContinuation(tabId);
+      });
     },
     async observeLockFacts(facts) {
-      void actionIcons.apply(facts.tabId, facts.canEdit ? "active" : "locked").catch(() => undefined);
-      await awaitTabTermination(facts.tabId);
-      const brain = await runtime.getBrain(facts.tabId);
-      brain.observe({
-        tabId: facts.tabId,
-        source: "background",
-        reason: "property-lock",
-        facts: {
-          tabId: facts.tabId,
-          siteId: facts.siteId,
-          baseUrl: facts.baseUrl,
-          pageUrl: facts.pageUrl,
-          lockRole: facts.lockRole,
-          lockCanEdit: facts.canEdit,
-          lockBlockedReason: facts.blockedReason,
-          lockBanner: facts.lockBanner,
-          configPresent: facts.configPresent,
-        },
-      });
-      const snapshot = brain.snapshot();
-      if (snapshot) {
-        await services.persistence.persistDurableFacts(snapshot);
+      // Terminal cleanup owns the boundary. A callback born after that boundary
+      // is stale and must not wait through it and recreate facts in the next
+      // document/session.
+      if (tabTerminations.has(facts.tabId)) {
+        return false;
       }
+      // Admission is synchronous after the termination check. Cleanup cannot
+      // pass an empty drain while this operation is awaiting the tombstone read.
+      await enqueueLockFactOperation(facts.tabId, async () => {
+        if (
+          tabTerminations.has(facts.tabId) ||
+          await consentSuppressionDisabled(facts.tabId) ||
+          tabTerminations.has(facts.tabId)
+        ) {
+          return false;
+        }
+        await actionIcons.apply(facts.tabId, facts.canEdit ? "active" : "locked")
+          .catch(() => undefined);
+        if (tabTerminations.has(facts.tabId)) {
+          return false;
+        }
+        const brain = await runtime.getBrain(facts.tabId);
+        if (tabTerminations.has(facts.tabId)) {
+          return false;
+        }
+        brain.observe({
+          tabId: facts.tabId,
+          source: "background",
+          reason: "property-lock",
+          facts: {
+            tabId: facts.tabId,
+            siteId: facts.siteId,
+            baseUrl: facts.baseUrl,
+            pageUrl: facts.pageUrl,
+            lockRole: facts.lockRole,
+            lockCanEdit: facts.canEdit,
+            lockBlockedReason: facts.blockedReason,
+            lockBanner: facts.lockBanner,
+            configPresent: facts.configPresent,
+          },
+        });
+        const snapshot = brain.snapshot();
+        if (snapshot && !tabTerminations.has(facts.tabId)) {
+          await services.persistence.persistDurableFacts(snapshot);
+        }
+        return !tabTerminations.has(facts.tabId);
+      });
     },
   });
   const lockBrowserLifecycle = createLockBrowserLifecycle({
     api: api as unknown as LockBrowserApi,
+    onMainDocumentCommitted(tabId, documentId) {
+      observeMainDocument(tabId, documentId);
+    },
     onPresenceChanged(tabId, presence) {
       lockRuntime.presenceChanged(tabId, presence);
     },
@@ -246,13 +502,20 @@ export function startRewriteBackground(): void {
       const preserveSignalHead = reason !== "tab-closed";
       return beginTabCleanup(tabId, async () => {
         if (reason === "tab-closed") {
-          await registerConsentSuppression(tabId);
+          await clearConsentSuppression(tabId);
           await lockRuntime.terminateTab(tabId);
+          await drainLockFactOperations(tabId);
+          await runtime.forgetBrain(tabId, { preserveSignalHead: false });
+          await shieldPosture.clearTab(tabId);
+          await clearMainDocument(tabId);
         } else {
           lockRuntime.navigationCommitted(tabId);
+          await shieldPosture.navigationCommitted(tabId);
+          await drainLockFactOperations(tabId);
+          await runtime.forgetBrain(tabId);
         }
         await clearTabContinuation(tabId, preserveSignalHead);
-      }, preserveSignalHead);
+      });
     },
   });
   void lockBrowserLifecycle.start().catch((error) => {
@@ -287,48 +550,137 @@ export function startRewriteBackground(): void {
     const tabId = envelope.sensation.tabId === 0
       ? parseSenderTabId(meta.sourceInstance) ?? 0
       : envelope.sensation.tabId;
-    await awaitTabTermination(tabId);
-    const brain = await runtime.getBrain(tabId);
-    brain.observe({
-      ...envelope.sensation,
-      tabId,
-      facts: {
-        ...envelope.sensation.facts,
+    const report = async (): Promise<void> => {
+      const brain = await runtime.getBrain(tabId);
+      brain.observe({
+        ...envelope.sensation,
         tabId,
-      },
-    });
-    const snapshot = brain.snapshot();
-    if (snapshot) {
-      await services.persistence.persistDurableFacts(snapshot);
-      // This fact belongs to the tab, not the popup. Publishing it here keeps
-      // heartbeats accurate while every UI surface is closed.
-      lockRuntime.unsavedChanged(tabId, snapshot.hasUnsavedWork);
-    }
-    const siteId = typeof envelope.sensation.facts.siteId === "number" ? envelope.sensation.facts.siteId : snapshot?.siteId ?? null;
-    if (envelope.sensation.reason === "activity-ping" && siteId !== null) {
-      lockRuntime.activity(tabId, siteId);
-    }
-    if (envelope.sensation.reason === "content-started") {
-      const baseUrl = typeof envelope.sensation.facts.baseUrl === "string" ? envelope.sensation.facts.baseUrl : "";
-      const pageUrl = typeof envelope.sensation.facts.pageUrl === "string" ? envelope.sensation.facts.pageUrl : "";
-      if (pageUrl) {
-        await lockRuntime.directive({ tabId, pageUrl, baseUrl, hasUnsavedChanges: false });
-      } else {
-        lockRuntime.republish(tabId, baseUrl);
+        facts: {
+          ...envelope.sensation.facts,
+          tabId,
+        },
+      });
+      const snapshot = brain.snapshot();
+      if (snapshot) {
+        await services.persistence.persistDurableFacts(snapshot);
+        // This fact belongs to the tab, not the popup. Publishing it here keeps
+        // heartbeats accurate while every UI surface is closed.
+        lockRuntime.unsavedChanged(tabId, snapshot.hasUnsavedWork);
       }
+      const siteId = typeof envelope.sensation.facts.siteId === "number" ? envelope.sensation.facts.siteId : snapshot?.siteId ?? null;
+      if (envelope.sensation.reason === "activity-ping" && siteId !== null) {
+        lockRuntime.activity(tabId, siteId);
+      }
+      if (envelope.sensation.reason === "content-started") {
+        const baseUrl = typeof envelope.sensation.facts.baseUrl === "string" ? envelope.sensation.facts.baseUrl : "";
+        const pageUrl = typeof envelope.sensation.facts.pageUrl === "string" ? envelope.sensation.facts.pageUrl : "";
+        if (pageUrl) {
+          await lockRuntime.directive({ tabId, pageUrl, baseUrl, hasUnsavedChanges: false });
+        } else {
+          lockRuntime.republish(tabId, baseUrl);
+        }
+      }
+    };
+    if (meta.source === "content") {
+      const documentId = parseSenderDocumentId(meta.sourceInstance);
+      const authorizedSender = tabId > 0 &&
+        parseSenderTabId(meta.sourceInstance) === tabId &&
+        parseSenderFrameId(meta.sourceInstance) === 0 &&
+        documentId !== null;
+      if (!authorizedSender) {
+        return;
+      }
+      await withTabLifecycleOperation(tabId, async () => {
+        if (
+          !await isCurrentMainDocument(tabId, documentId) ||
+          await consentSuppressionDisabled(tabId) ||
+          !await isCurrentMainDocument(tabId, documentId)
+        ) {
+          return;
+        }
+        await report();
+      });
+      return;
     }
+    await withTabLifecycleOperation(tabId, async () => {
+      if (await consentSuppressionDisabled(tabId)) {
+        return;
+      }
+      await report();
+    });
   });
-  bus.onCommand("lock.directive", async (request) => {
-    await awaitTabTermination(request.tabId);
-    return await lockRuntime.directive(request);
-  });
-  bus.onCommand("lock.action", async (request, meta) => {
+  const unavailableLockDirective = (request: Readonly<{
+    pageUrl: string;
+    baseUrl?: string;
+  }>) => {
+    let baseUrl = request.baseUrl ?? request.pageUrl;
+    try {
+      baseUrl = new URL(baseUrl).origin;
+    } catch {
+      baseUrl = "https://invalid.invalid";
+    }
+    return {
+      status: "unavailable" as const,
+      baseUrl,
+      siteId: null,
+      lockRole: "unknown" as const,
+      configPresent: false,
+      canEdit: false,
+      blockedReason: "unavailable" as const,
+      lockBanner: { visible: true, reason: "unavailable" as const },
+    };
+  };
+  bus.onCommand("lock.directive", (request) =>
+    withTabLifecycleOperation(request.tabId, async () => {
+      if (await consentSuppressionDisabled(request.tabId)) {
+        return unavailableLockDirective(request);
+      }
+      return lockRuntime.directive(request);
+    }));
+  bus.onCommand("lock.action", (request, meta) => {
     const tabId = request.tabId ?? parseSenderTabId(meta.sourceInstance) ?? 0;
-    await awaitTabTermination(tabId);
-    return lockRuntime.action({ ...request, tabId });
+    const contentDocumentId = meta.source === "content"
+      ? parseSenderDocumentId(meta.sourceInstance)
+      : null;
+    const authorizedContent = meta.source !== "content" || (
+      parseSenderTabId(meta.sourceInstance) === tabId &&
+      parseSenderFrameId(meta.sourceInstance) === 0 &&
+      contentDocumentId !== null
+    );
+    if (!authorizedContent) {
+      return Promise.resolve({ status: "unavailable" as const });
+    }
+    return withTabLifecycleOperation(tabId, async () => {
+      if (
+        (contentDocumentId !== null && !await isCurrentMainDocument(tabId, contentDocumentId)) ||
+        await consentSuppressionDisabled(tabId) ||
+        (contentDocumentId !== null && !await isCurrentMainDocument(tabId, contentDocumentId))
+      ) {
+        return { status: "unavailable" as const };
+      }
+      return lockRuntime.action({ ...request, tabId });
+    });
   });
   bus.onCommand("staticHtml.fetch", (request) => fetchStaticPageHtml(request.url));
-  bus.onCommand("emulation.apply", (request) => renderEmulation.apply(request.tabId, request.mode, request.scale, request.allowReload === true));
+  bus.onCommand("emulation.apply", (request) =>
+    withTabLifecycleOperation(request.tabId, async () => {
+      if (await consentSuppressionDisabled(request.tabId)) {
+        return {
+          mode: request.mode,
+          width: request.mode === "mobile" ? 412 : 1280,
+          height: request.mode === "mobile" ? 960 : 900,
+          scale: request.scale,
+          active: false,
+          identityStale: false,
+        };
+      }
+      return renderEmulation.apply(
+        request.tabId,
+        request.mode,
+        request.scale,
+        request.allowReload === true,
+      );
+    }));
   bus.onCommand("emulation.clear", async (request) => {
     await renderEmulation.clear(request.tabId);
     return { status: "ok" as const };
@@ -337,22 +689,63 @@ export function startRewriteBackground(): void {
    * Keep its last settled value by authoritative identity so a transient context
    * retry does not make a configured property appear unconfigured. */
   const renderModeByProperty = new Map<string, boolean>();
-  bus.onCommand("page.context", async (request, meta) => {
+  bus.onCommand("page.context", (request, meta) => {
     const tabId = request.tabId ?? parseSenderTabId(meta.sourceInstance) ?? 0;
-    void actionIcons.apply(tabId, "connecting").catch(() => undefined);
+    const incomingDocumentId = parseSenderDocumentId(meta.sourceInstance);
+    const senderTabId = parseSenderTabId(meta.sourceInstance);
+    const frameId = parseSenderFrameId(meta.sourceInstance);
+    const mainContentSender = meta.source === "content" &&
+      tabId > 0 &&
+      senderTabId === tabId &&
+      Boolean(incomingDocumentId) &&
+      frameId === 0;
+    if (meta.source === "content" && !mainContentSender) {
+      return Promise.resolve(stalePageContextResponse(request.pageUrl));
+    }
+    return withTabLifecycleOperation(tabId, async () => {
+    const currentContentDocument = async (): Promise<boolean> =>
+      meta.source !== "content" || (
+        incomingDocumentId !== null &&
+        await isCurrentMainDocument(tabId, incomingDocumentId)
+      );
+    if (!await currentContentDocument()) {
+      return stalePageContextResponse(request.pageUrl);
+    }
+    if (!await consentSuppressionDisabled(tabId)) {
+      void actionIcons.apply(tabId, "connecting").catch(() => undefined);
+    }
     const context = await pageContextRuntime.resolve({
       tabId,
       pageUrl: request.pageUrl,
       refresh: request.refresh,
     });
-    void actionIcons.apply(tabId, actionIconStateForContext(context.status)).catch(() => undefined);
+    if (!await currentContentDocument()) {
+      return stalePageContextResponse(request.pageUrl);
+    }
+    const consentSuppressionAllowed = !await consentSuppressionDisabled(tabId);
+    void actionIcons.apply(
+      tabId,
+      consentSuppressionAllowed ? actionIconStateForContext(context.status) : "unregistered",
+    ).catch(() => undefined);
+    if (!consentSuppressionAllowed) {
+      return {
+        ...context,
+        consentSuppressionAllowed: false,
+        renderModeSet: false,
+        todo: projectTodoCoverage(context.pageTypes, context.pageKey, new Set()),
+        shieldPosture: { status: "inactive" as const, revision: 0 },
+      };
+    }
     // Content asks for page context at load time, before a popup necessarily
     // exists. That is the earliest authoritative point at which the background
     // knows this is a managed property tab, so establish the standing mobile
     // posture here. An explicit desktop preview is a held override and remains
     // untouched until the popup turns it off or marking begins.
     const emulationDecision = managedEmulationDecision({
-      recognized: tabId > 0 && Boolean(context.environmentKey) && context.siteId !== null,
+      recognized: consentSuppressionAllowed &&
+        tabId > 0 &&
+        Boolean(context.environmentKey) &&
+        context.siteId !== null,
       heldMode: renderEmulation.heldMode(tabId),
     });
     if (emulationDecision) {
@@ -373,6 +766,7 @@ export function startRewriteBackground(): void {
       authoritativeConfig = stored.ok && stored.value ? stored.value : null;
     }
     if (
+      consentSuppressionAllowed &&
       propertyKey &&
       context.environmentKey &&
       context.siteId !== null &&
@@ -389,6 +783,9 @@ export function startRewriteBackground(): void {
           ? { status: loaded.status, config: loaded.data }
           : { status: loaded.status },
       );
+      if (loaded.status === "not_found") {
+        await shieldPosture.removeProperty(context.environmentKey, context.siteId);
+      }
       renderModeSet = authority.renderMode !== undefined;
       if (loaded.status === "ok" || loaded.status === "not_found") {
         renderModeByProperty.set(propertyKey, renderModeSet);
@@ -401,16 +798,258 @@ export function startRewriteBackground(): void {
       context.pageKey,
       new Set(Object.keys(authoritativeConfig?.pages ?? {})),
     );
+    const documentId = incomingDocumentId;
+    let currentShieldPosture: ShieldPostureProjection = {
+      status: "inactive" as const,
+      revision: 0,
+    };
+    const managedContext = context.status === "managed_candidate" ||
+      context.status === "managed_non_candidate" ||
+      context.status === "suspended_candidate_removed" ||
+      context.status === "suspended_candidate_feed_conflict";
+    const transientContext = (
+      context.status === "authentication_required" ||
+      context.status === "access_denied" ||
+      context.status === "unavailable"
+    );
+    const preservedTransientContext = transientContext &&
+      context.draftDisposition === "preserve" &&
+      Boolean(context.environmentKey) &&
+      context.siteId !== null &&
+      Boolean(context.baseUrl) &&
+      authoritativeConfig !== null;
+    const mainContentDocument = meta.source === "content" &&
+      senderTabId === tabId &&
+      documentId &&
+      frameId === 0 &&
+      await currentContentDocument();
+    if (
+      mainContentDocument &&
+      (managedContext || preservedTransientContext) &&
+      context.environmentKey &&
+      context.siteId !== null &&
+      context.baseUrl &&
+      authoritativeConfig !== null
+    ) {
+      if (!await consentSuppressionDisabled(tabId)) {
+        currentShieldPosture = await shieldPosture.bindDocument({
+        tabId,
+        documentId,
+        contextGeneration: context.generation,
+        environmentKey: context.environmentKey,
+        siteId: context.siteId,
+        baseUrl: context.baseUrl,
+        pageUrl: context.observedUrl,
+        configPresent: true,
+        });
+      }
+    } else if (
+      mainContentDocument &&
+      transientContext &&
+      context.draftDisposition === "preserve"
+    ) {
+      // A recreated MV3 worker has no in-memory PageContextRuntime history. The
+      // durable property lease plus its validated property config is sufficient
+      // to re-adopt a replacement document even after navigation deliberately
+      // released the old document fence. A transient backend answer never gets
+      // to invent identity: environment, page origin, and stored config must all
+      // agree with the retained property scope.
+      const retained = await shieldPosture.retainedSilentProperty({
+        tabId,
+        pageUrl: context.observedUrl,
+      });
+      if (
+        retained &&
+        context.environmentKey === retained.environmentKey
+      ) {
+        const stored = await services.repos.configRepo.load(
+          retained.environmentKey,
+          retained.siteId,
+        );
+        if (
+          stored.ok &&
+          stored.value &&
+          new URL(stored.value.baseUrl).origin === new URL(retained.baseUrl).origin
+        ) {
+          if (!await consentSuppressionDisabled(tabId)) {
+            currentShieldPosture = await shieldPosture.bindDocument({
+            tabId,
+            documentId,
+            contextGeneration: context.generation,
+            environmentKey: retained.environmentKey,
+            siteId: retained.siteId,
+            baseUrl: retained.baseUrl,
+            pageUrl: context.observedUrl,
+            configPresent: true,
+            });
+          }
+        }
+      }
+    } else if (mainContentDocument && (
+      context.status === "unmanaged" ||
+      context.status === "environment_not_registered" ||
+      context.draftDisposition === "terminate"
+    )) {
+      // Only a definitive property boundary may erase retained authority. A
+      // same-page auth/access/network failure preserves the last validated
+      // property and its durable config without pretending to revalidate it.
+      await shieldPosture.clearTab(tabId);
+    }
     return {
       ...context,
       consentSuppressionAllowed: !await consentSuppressionDisabled(tabId),
       renderModeSet,
       todo,
+      shieldPosture: currentShieldPosture,
     };
+    });
   });
-  bus.onCommand("consent.suppression.register", async ({ tabId }) => {
-    await registerConsentSuppression(tabId);
-    return { status: "ok" as const };
+  bus.onCommand("shield.posture.current", async (request, meta) => {
+    const senderTabId = parseSenderTabId(meta.sourceInstance);
+    const tabId = senderTabId ?? 0;
+    const documentId = parseSenderDocumentId(meta.sourceInstance);
+    if (
+      meta.source !== "content" ||
+      tabId <= 0 ||
+      (request.tabId !== undefined && request.tabId !== tabId) ||
+      !documentId ||
+      parseSenderFrameId(meta.sourceInstance) !== 0
+    ) {
+      return { status: "unavailable" as const, reason: "main-content-document-required" };
+    }
+    await awaitTabTermination(tabId);
+    return shieldPosture.current({ tabId, documentId, pageUrl: request.pageUrl });
+  });
+  bus.onCommand("shield.posture.adoptRetained", (request, meta) => {
+    const senderTabId = parseSenderTabId(meta.sourceInstance);
+    const tabId = senderTabId ?? 0;
+    const documentId = parseSenderDocumentId(meta.sourceInstance);
+    if (
+      meta.source !== "content" ||
+      tabId <= 0 ||
+      (request.tabId !== undefined && request.tabId !== tabId) ||
+      !documentId ||
+      parseSenderFrameId(meta.sourceInstance) !== 0
+    ) {
+      return Promise.resolve({
+        status: "unavailable" as const,
+        reason: "main-content-document-required",
+      });
+    }
+    return withTabLifecycleOperation(tabId, async () => {
+      const staleDocument = async (): Promise<boolean> =>
+        !await isCurrentMainDocument(tabId, documentId);
+      if (await staleDocument()) {
+        return { status: "unavailable" as const, reason: "stale-main-document" };
+      }
+      if (await consentSuppressionDisabled(tabId)) {
+        return { status: "unavailable" as const, reason: "suppression-disabled" };
+      }
+      if (await staleDocument()) {
+        return { status: "unavailable" as const, reason: "stale-main-document" };
+      }
+      const property = await shieldPosture.retainedSilentProperty({
+        tabId,
+        pageUrl: request.pageUrl,
+      });
+      if (await staleDocument()) {
+        return { status: "unavailable" as const, reason: "stale-main-document" };
+      }
+      if (!property) {
+        return { status: "unavailable" as const, reason: "no-retained-silent-posture" };
+      }
+      const stored = await services.repos.configRepo.load(property.environmentKey, property.siteId);
+      if (await staleDocument()) {
+        return { status: "unavailable" as const, reason: "stale-main-document" };
+      }
+      if (
+        !stored.ok ||
+        !stored.value ||
+        new URL(stored.value.baseUrl).origin !== new URL(property.baseUrl).origin
+      ) {
+        await shieldPosture.removeProperty(property.environmentKey, property.siteId);
+        return { status: "unavailable" as const, reason: "local-config-unavailable" };
+      }
+      if (await consentSuppressionDisabled(tabId)) {
+        return { status: "unavailable" as const, reason: "suppression-disabled" };
+      }
+      if (await staleDocument()) {
+        return { status: "unavailable" as const, reason: "stale-main-document" };
+      }
+      return shieldPosture.adoptRetainedDocument({
+        tabId,
+        documentId,
+        pageUrl: request.pageUrl,
+        property,
+      });
+    });
+  });
+  bus.onCommand("shield.posture.set", async (request, meta) => {
+    const fromContent = meta.source === "content";
+    const senderTabId = parseSenderTabId(meta.sourceInstance);
+    const senderDocumentId = parseSenderDocumentId(meta.sourceInstance);
+    const tabId = fromContent ? senderTabId ?? 0 : request.tabId ?? 0;
+    const documentId = fromContent ? senderDocumentId : null;
+    if (
+      tabId <= 0 ||
+      (meta.source !== "content" && meta.source !== "popup") ||
+      (fromContent && (
+        (request.tabId !== undefined && request.tabId !== senderTabId) ||
+        !documentId ||
+        parseSenderFrameId(meta.sourceInstance) !== 0
+      )) ||
+      (!fromContent && senderDocumentId !== null)
+    ) {
+      return { status: "unavailable" as const, reason: "authorized-shield-caller-required" };
+    }
+    await awaitTabTermination(tabId);
+    return shieldPosture.set({
+      tabId,
+      documentId,
+      expected: request.expected,
+      posture: request.posture,
+    });
+  });
+  bus.onCommand("shield.posture.clear", async (request, meta) => {
+    const fromContent = meta.source === "content";
+    const senderTabId = parseSenderTabId(meta.sourceInstance);
+    const senderDocumentId = parseSenderDocumentId(meta.sourceInstance);
+    const tabId = fromContent ? senderTabId ?? 0 : request.tabId ?? 0;
+    const documentId = fromContent ? senderDocumentId : null;
+    if (
+      tabId <= 0 ||
+      (meta.source !== "content" && meta.source !== "popup") ||
+      (fromContent && (
+        (request.tabId !== undefined && request.tabId !== senderTabId) ||
+        !documentId ||
+        parseSenderFrameId(meta.sourceInstance) !== 0
+      )) ||
+      (!fromContent && senderDocumentId !== null)
+    ) {
+      return { status: "unavailable" as const, reason: "authorized-shield-caller-required" };
+    }
+    await awaitTabTermination(tabId);
+    return shieldPosture.clear({
+      tabId,
+      documentId,
+      expected: request.expected,
+      reason: request.reason,
+    });
+  });
+  bus.onCommand("consent.suppression.register", (request, meta) => {
+    const senderTabId = parseSenderTabId(meta.sourceInstance);
+    const documentId = parseSenderDocumentId(meta.sourceInstance);
+    if (
+      meta.source !== "content" ||
+      senderTabId !== request.tabId ||
+      !documentId ||
+      parseSenderFrameId(meta.sourceInstance) !== 0
+    ) {
+      return Promise.resolve({ status: "stale" as const });
+    }
+    return withTabLifecycleOperation(request.tabId, async () => ({
+      status: await registerConsentSuppression(request.tabId, documentId),
+    }));
   });
   bus.onCommand("renderMode.inspect", (request) => renderEmulation.inspect(request));
   bus.onCommand("transferPayload.put", async (request) => ({
@@ -496,6 +1135,7 @@ export function startRewriteBackground(): void {
         if (!snapshot) {
           throw new PropertySnapshotIntegrityError("Validated backend load did not produce a snapshot.");
         }
+        await shieldPosture.authorizeProperty(environmentKey, request.siteId);
         if (applied.integrityWarning) {
           return {
             status: "integrity_shrink" as const,
@@ -517,6 +1157,9 @@ export function startRewriteBackground(): void {
         request.siteId,
         { status: result.status },
       );
+      if (result.status === "not_found") {
+        await shieldPosture.removeProperty(environmentKey, request.siteId);
+      }
       return {
         status: result.status,
         httpStatus: result.httpStatus,
@@ -555,6 +1198,10 @@ export function startRewriteBackground(): void {
     }
     const result = await services.lynx.saveConfigSnapshot(authorization.request);
     if (result.status === "ok") {
+      // The backend acknowledgement is the durable Save boundary. The caller
+      // will establish the replacement silent-selector posture after adopting
+      // the returned authoritative selectors.
+      await shieldPosture.clearProperty(request.environmentKey, request.siteId);
       try {
         const adoption = await services.property.applyBackendSave(
           request.environmentKey,
@@ -654,9 +1301,16 @@ export function startRewriteBackground(): void {
   });
   bus.onCommand("cache.clearDomain", ({ origin }) => clearDomainCache(api.browsingData, origin));
   bus.onCommand("session.unregister", async ({ tabId }) => {
-    await disableConsentSuppression(tabId);
     await beginTabCleanup(tabId, async () => {
+      const currentDocument = await loadMainDocument(tabId);
+      const blockedDocumentKey = currentDocument.known
+        ? currentDocument.documentId
+        : await shieldPosture.adoptedDocumentKey(tabId);
+      await disableConsentSuppression(tabId, blockedDocumentKey);
       await lockRuntime.terminateTab(tabId);
+      await drainLockFactOperations(tabId);
+      await runtime.forgetBrain(tabId);
+      await shieldPosture.clearTab(tabId);
       await clearTabContinuation(tabId);
       // Session authority is terminal even when Chrome cannot detach the CDP
       // posture (for example a tab that vanished between confirmation and this

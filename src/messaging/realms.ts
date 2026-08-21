@@ -30,6 +30,15 @@ import { ConnectionSettingsSchema } from "../storage/settings";
 import { PageContextResolutionSchema } from "../domain/schema/context";
 import { TodoCoverageSchema } from "../domain/schema/todo";
 import { PublicationCommandStatusSchema, PublicationSnapshotStatusSchema } from "../domain/schema/publication";
+import {
+  ShieldPostureAdoptRetainedRequestSchema,
+  ShieldPostureClearRequestSchema,
+  ShieldPostureCurrentRequestSchema,
+  ShieldPostureMutationResponseSchema,
+  ShieldPostureProjectionSchema,
+  ShieldPostureReadResponseSchema,
+  ShieldPostureSetRequestSchema,
+} from "./shield-posture";
 
 const LockDirectiveRequestSchema = z.object({
   tabId: z.number().int().nonnegative(),
@@ -126,6 +135,13 @@ const PageContextResponseSchema = PageContextResolutionSchema.extend({
    *  of preparing the page to be marked. */
   renderModeSet: z.boolean(),
   todo: TodoCoverageSchema,
+  /** Atomically rebound background authority for this exact content document.
+   * Silent selectors can survive a same-property reload; preview/busy posture
+   * cannot. The content realm may adopt this before any popup exists. */
+  shieldPosture: ShieldPostureProjectionSchema.default({
+    status: "inactive",
+    revision: 0,
+  }),
 });
 
 const StaticHtmlFetchResponseSchema = z.discriminatedUnion("ok", [
@@ -380,9 +396,25 @@ export const applicationContract = defineContract({
       request: PageContextRequestSchema,
       response: PageContextResponseSchema,
     },
+    "shield.posture.current": {
+      request: ShieldPostureCurrentRequestSchema,
+      response: ShieldPostureReadResponseSchema,
+    },
+    "shield.posture.adoptRetained": {
+      request: ShieldPostureAdoptRetainedRequestSchema,
+      response: ShieldPostureReadResponseSchema,
+    },
+    "shield.posture.set": {
+      request: ShieldPostureSetRequestSchema,
+      response: ShieldPostureMutationResponseSchema,
+    },
+    "shield.posture.clear": {
+      request: ShieldPostureClearRequestSchema,
+      response: ShieldPostureMutationResponseSchema,
+    },
     "consent.suppression.register": {
       request: z.object({ tabId: z.number().int().positive() }),
-      response: z.object({ status: z.literal("ok") }),
+      response: z.object({ status: z.enum(["ok", "stale"]) }),
     },
     "staticHtml.fetch": {
       request: z.object({ url: z.string() }),

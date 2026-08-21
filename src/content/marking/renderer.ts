@@ -223,6 +223,8 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   let hoverXpath = "";
   let acknowledgementClearHandle: ReturnType<typeof setTimeout> | null = null;
   let silentDebugAnnotations = false;
+  let passthroughActive = false;
+  let inputTransparent = false;
   // Marking and silent layers are rendered synchronously from the same DOM
   // generation. Retain paint-reachable rects only until the next microtask so
   // that the immediately following silent pass can reuse the expensive native
@@ -285,6 +287,9 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   root.style.inset = "0";
   root.style.pointerEvents = "auto";
   root.style.zIndex = "2147483647";
+  const syncRootPointerEvents = (): void => {
+    root.style.pointerEvents = passthroughActive || inputTransparent ? "none" : "auto";
+  };
   updateClientArea();
   if (!root.parentElement) {
     options.document.documentElement.appendChild(root);
@@ -684,13 +689,22 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       acknowledgementClearHandle = setTimeout(clearAcknowledgement, 240);
     },
     setPassthrough(active: boolean): void {
-      root.style.pointerEvents = active ? "none" : "auto";
+      passthroughActive = active;
+      syncRootPointerEvents();
       setRootState("uf-marking-temporarily-disabled", active);
       if (active) {
         hoverElement = null;
         hoverXpath = "";
         drawHover();
       }
+    },
+    setInputTransparent(active: boolean): void {
+      // Silent and preview modes use the independent interaction shield as the
+      // physical hit target. Keep the marking presentation unchanged while
+      // allowing explicitly interactive extension children (debug builds) to
+      // opt back in with their own pointer-events declaration.
+      inputTransparent = active;
+      syncRootPointerEvents();
     },
     setSuspended(active: boolean): void {
       setRootState("uf-marking-temporarily-disabled", active);

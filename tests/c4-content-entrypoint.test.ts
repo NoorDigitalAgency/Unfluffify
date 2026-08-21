@@ -7,6 +7,46 @@ import type { BusFrame } from "../src/messaging/contract";
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 let commandSeq = 0;
 
+const shieldHarness = vi.hoisted(() => ({
+  instances: [] as Array<{
+    setActive: ReturnType<typeof vi.fn>;
+    refresh: ReturnType<typeof vi.fn>;
+    dispose: ReturnType<typeof vi.fn>;
+  }>,
+  create: vi.fn(),
+}));
+
+vi.mock("../src/content/interaction-shield", () => {
+  shieldHarness.create.mockImplementation(() => {
+    const reasons = new Set<string>();
+    const instance = {
+      activate: vi.fn((reason: string) => {
+        const added = !reasons.has(reason);
+        reasons.add(reason);
+        return added;
+      }),
+      deactivate: vi.fn((reason: string) => reasons.delete(reason)),
+      setActive: vi.fn((reason: string, active: boolean) => {
+        if (active) {
+          const added = !reasons.has(reason);
+          reasons.add(reason);
+          return added;
+        }
+        return reasons.delete(reason);
+      }),
+      isActive: vi.fn(() => reasons.size > 0),
+      reasons: vi.fn(() => [...reasons]),
+      element: vi.fn(() => null),
+      registerExtensionSurface: vi.fn(() => vi.fn()),
+      refresh: vi.fn(),
+      dispose: vi.fn(() => reasons.clear()),
+    };
+    shieldHarness.instances.push(instance);
+    return instance;
+  });
+  return { createInteractionShield: shieldHarness.create };
+});
+
 type TestListenerRegistry = Map<string, Set<EventListener>>;
 
 function addTestListener(registry: TestListenerRegistry, type: string, listener: EventListener): void {
@@ -99,8 +139,16 @@ async function dispatchContentCommand(
   name: string,
   payload: Record<string, unknown> = {},
 ) {
+  const pageBound = name === "activateContentMain" ||
+    name === "captureSubmissionSnapshot" ||
+    name === "resetContentMain" ||
+    name === "enterSilentContentMain" ||
+    name === "applySilentSelectors";
+  const routedPayload = pageBound && typeof payload.pageUrl !== "string"
+    ? { ...payload, pageUrl: location.href }
+    : payload;
   const response = vi.fn();
-  expect(listener(commandFrame(name, payload), {}, response)).toBe(true);
+  expect(listener(commandFrame(name, routedPayload), {}, response)).toBe(true);
   for (let index = 0; index < 20 && response.mock.calls.length === 0; index += 1) {
     await Promise.resolve();
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -126,11 +174,58 @@ async function applyLockState(
   });
 }
 
+function installTestLocation(pageUrl = "https://example.com/page"): { href: string } {
+  const locationValue = { href: pageUrl };
+  Object.defineProperty(globalThis, "location", {
+    configurable: true,
+    value: locationValue,
+  });
+  return locationValue;
+}
+
+function managedPageContextReply(request: BusFrame, pageUrl: string): BusFrame {
+  const url = new URL(pageUrl);
+  const baseUrl = url.origin;
+  const environmentKey = url.hostname;
+  return replyFrame(request, {
+    status: "managed_non_candidate",
+    generation: 1,
+    observedUrl: pageUrl,
+    draftDisposition: "preserve",
+    environmentKey,
+    siteId: 1,
+    baseUrl,
+    pageKey: url.pathname,
+    pageTypes: [],
+    membershipFingerprint: "membership",
+    assignmentFingerprint: "assignment",
+    conflicts: [],
+    upstreamCode: null,
+    consentSuppressionAllowed: true,
+    renderModeSet: false,
+    todo: { covered: 0, actionable: 0, pageTypes: [] },
+    shieldPosture: {
+      status: "inactive",
+      revision: 1,
+      scope: {
+        environmentKey,
+        siteId: 1,
+        baseUrl,
+        contextGeneration: 1,
+        pageUrl,
+        documentKey: `test-document:${pageUrl}`,
+      },
+    },
+  });
+}
+
 describe("C4 rewrite content entrypoints", () => {
   afterEach(() => {
     vi.doUnmock("../src/content/stabilization");
     vi.resetModules();
     vi.clearAllMocks();
+    vi.unstubAllGlobals();
+    shieldHarness.instances.splice(0);
     delete globalThis.chrome;
     Reflect.deleteProperty(globalThis, "document");
     Reflect.deleteProperty(globalThis, "location");
@@ -140,10 +235,13 @@ describe("C4 rewrite content entrypoints", () => {
 
   it("registers the rewrite activation bridge without loading legacy content-main", async () => {
     const addListener = vi.fn();
+    const pageUrl = installTestLocation();
     globalThis.chrome = {
       runtime: {
         onMessage: { addListener },
-        sendMessage: vi.fn().mockResolvedValue(undefined),
+        sendMessage: vi.fn(async (message: BusFrame) => message.name === "page.context"
+          ? managedPageContextReply(message, pageUrl.href)
+          : undefined),
       },
     } as unknown as typeof chrome;
     vi.doMock("wxt/utils/define-content-script", () => ({
@@ -170,6 +268,586 @@ describe("C4 rewrite content entrypoints", () => {
     await applyLockState(listener);
     const response = await dispatchContentCommand(listener, "activateContentMain");
     expect(response).toEqual({ ok: true, data: { ok: true, initialized: true, tree: "rewrite" } });
+  });
+
+  it("mounts a retained silent shield before the remote page context settles", async () => {
+    const addListener = vi.fn();
+    const pageUrl = installTestLocation("https://example.com/reloaded");
+    let releaseContext: (() => void) | undefined;
+    const contextGate = new Promise<void>((resolve) => { releaseContext = resolve; });
+    let contextStarted = false;
+    const scope = {
+      environmentKey: "example.com",
+      siteId: 1,
+      baseUrl: "https://example.com",
+      contextGeneration: 1,
+      pageUrl: pageUrl.href,
+      documentKey: "document-reloaded",
+    };
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "shield.posture.adoptRetained") {
+        return replyFrame(message, {
+          status: "active",
+          revision: 2,
+          scope,
+          directive: {
+            silentSelectors: { inclusionSelectors: ["main"], exclusionSelectors: [] },
+            organ: { state: "silent" },
+          },
+        });
+      }
+      if (message.name === "page.context") {
+        contextStarted = true;
+        await contextGate;
+        return managedPageContextReply(message, pageUrl.href);
+      }
+      if (message.name === "signals.pull") {
+        return replyFrame(message, []);
+      }
+      return undefined;
+    });
+    globalThis.chrome = {
+      runtime: {
+        onMessage: { addListener },
+        sendMessage,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+      },
+    } as unknown as typeof chrome;
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        readyState: "loading",
+        documentElement: {},
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as { main: () => void }).main();
+    for (let attempt = 0; attempt < 20 && !contextStarted; attempt += 1) {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(contextStarted).toBe(true);
+    expect(shieldHarness.create).toHaveBeenCalledOnce();
+    expect(shieldHarness.instances.at(-1)?.setActive)
+      .toHaveBeenCalledWith("durable-posture", true);
+    expect(sendMessage.mock.calls.map(([frame]) => (frame as BusFrame).name)).toEqual(
+      expect.arrayContaining(["shield.posture.adoptRetained", "page.context"]),
+    );
+    const adoptionIndex = sendMessage.mock.calls.findIndex(
+      ([frame]) => (frame as BusFrame).name === "shield.posture.adoptRetained",
+    );
+    const contextIndex = sendMessage.mock.calls.findIndex(
+      ([frame]) => (frame as BusFrame).name === "page.context",
+    );
+    expect(adoptionIndex).toBeGreaterThanOrEqual(0);
+    expect(contextIndex).toBeGreaterThan(adoptionIndex);
+
+    releaseContext?.();
+    await Promise.resolve();
+  });
+
+  it("serializes silent application behind the initial document-context bind", async () => {
+    const addListener = vi.fn();
+    const pageUrl = "https://example.com/jobs/1";
+    let resolveInitialContext: (() => void) | undefined;
+    const initialContextGate = new Promise<void>((resolve) => {
+      resolveInitialContext = resolve;
+    });
+    let contextRequests = 0;
+    let postureSetRequests = 0;
+    let postureClearRequests = 0;
+    let durableRevision = 1;
+    let durableSelectors = { inclusionSelectors: [] as string[], exclusionSelectors: [] as string[] };
+    let delayedSetGate: Promise<void> | null = null;
+    const scope = {
+      environmentKey: "stage.example.com",
+      siteId: 42,
+      baseUrl: "https://example.com",
+      contextGeneration: 1,
+      pageUrl,
+      documentKey: "document-a",
+    };
+    const pageContextPayload = (revision: number) => ({
+      status: "managed_non_candidate",
+      generation: 1,
+      observedUrl: pageUrl,
+      draftDisposition: "preserve",
+      environmentKey: "stage.example.com",
+      siteId: 42,
+      baseUrl: "https://example.com",
+      pageKey: "/jobs/1",
+      pageTypes: [],
+      membershipFingerprint: "membership",
+      assignmentFingerprint: "assignment",
+      conflicts: [],
+      upstreamCode: null,
+      consentSuppressionAllowed: true,
+      renderModeSet: false,
+      todo: { covered: 0, actionable: 0, pageTypes: [] },
+      shieldPosture: { status: "inactive", revision, scope },
+    });
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "page.context") {
+        contextRequests += 1;
+        if (contextRequests === 1) {
+          await initialContextGate;
+        }
+        return replyFrame(message, pageContextPayload(contextRequests));
+      }
+      if (message.name === "consent.suppression.register") {
+        return replyFrame(message, { status: "ok" });
+      }
+      if (message.name === "shield.posture.set") {
+        postureSetRequests += 1;
+        const request = message.payload as {
+          expected: typeof scope & { revision: number };
+          posture: { kind: "silent-selectors"; selectors: Record<string, string[]> };
+        };
+        if (delayedSetGate) {
+          await delayedSetGate;
+        }
+        durableRevision = request.expected.revision + 1;
+        durableSelectors = {
+          inclusionSelectors: [...request.posture.selectors.inclusionSelectors ?? []],
+          exclusionSelectors: [...request.posture.selectors.exclusionSelectors ?? []],
+        };
+        return replyFrame(message, {
+          status: "ok",
+          posture: {
+            status: "active",
+            revision: durableRevision,
+            scope,
+            directive: {
+              silentSelectors: request.posture.selectors,
+              organ: { state: "silent" },
+            },
+          },
+        });
+      }
+      if (message.name === "shield.posture.current") {
+        return replyFrame(message, {
+          status: "active",
+          revision: durableRevision,
+          scope,
+          directive: {
+            silentSelectors: durableSelectors,
+            organ: { state: "silent" },
+          },
+        });
+      }
+      if (message.name === "shield.posture.clear") {
+        postureClearRequests += 1;
+        durableRevision += 1;
+        return replyFrame(message, {
+          status: "ok",
+          posture: { status: "inactive", revision: durableRevision, scope },
+        });
+      }
+      if (message.name === "signals.pull") {
+        return replyFrame(message, []);
+      }
+      return undefined;
+    });
+    globalThis.chrome = {
+      runtime: {
+        onMessage: { addListener },
+        sendMessage,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+      },
+    } as unknown as typeof chrome;
+    Object.defineProperty(globalThis, "location", {
+      configurable: true,
+      value: { href: pageUrl },
+    });
+    type ElementLike = {
+      id: string;
+      isConnected: boolean;
+      style: Record<string, string>;
+      children: ElementLike[];
+      className?: string;
+      scrollHeight?: number;
+      nodeType?: number;
+      tagName?: string;
+      setAttribute: (name: string, value: string) => void;
+      appendChild: (child: ElementLike) => ElementLike;
+      replaceChildren: (...children: ElementLike[]) => void;
+      remove: () => void;
+    };
+    const elements: ElementLike[] = [];
+    const createElement = (): ElementLike => {
+      const element: ElementLike = {
+        id: "",
+        isConnected: true,
+        style: {},
+        children: [],
+        setAttribute: vi.fn(),
+        appendChild(child) {
+          this.children.push(child);
+          return child;
+        },
+        replaceChildren(...children) {
+          this.children = children;
+        },
+        remove() {
+          this.isConnected = false;
+        },
+      };
+      elements.push(element);
+      return element;
+    };
+    const documentElement = createElement();
+    Object.assign(documentElement, {
+      nodeType: 1,
+      tagName: "HTML",
+      className: "",
+      scrollHeight: 500,
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        readyState: "complete",
+        body: { nodeType: 1 },
+        documentElement,
+        createElement,
+        getElementById: (id: string) => elements.find((element) => element.id === id) ?? null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        innerHeight: 800,
+        scrollY: 0,
+        scrollTo: vi.fn(),
+        postMessage: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+    const engine = {
+      dispose: vi.fn(),
+      overlayRoot: vi.fn(() => null),
+      rows: vi.fn(() => []),
+      lastInitializationSeededSelectors: vi.fn(() => true),
+      renderSilentHighlights: vi.fn(() => ["/html[1]/body[1]/main[1]"]),
+      setInputTransparent: vi.fn(),
+      setSilentDebugAnnotations: vi.fn(),
+    };
+    const createMarkingEngine = vi.fn(() => engine);
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+    vi.doMock("../src/content/marking", () => ({
+      createMarkingEngine,
+      installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()),
+    }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    let invalidate: (() => void) | undefined;
+    (entrypoint.default as {
+      main: (ctx: { onInvalidated(callback: () => void): void }) => void;
+    }).main({ onInvalidated: (callback) => { invalidate = callback; } });
+    for (let attempt = 0; attempt < 20 && contextRequests === 0; attempt += 1) {
+      await Promise.resolve();
+    }
+    expect(contextRequests).toBe(1);
+    const listener = addListener.mock.calls[0]?.[0] as (
+      message: unknown,
+      sender: unknown,
+      sendResponse: (value: unknown) => void,
+    ) => unknown;
+    const selectors = { inclusionSelectors: ["main"], exclusionSelectors: ["nav"] };
+    const applying = dispatchContentCommand(listener, "applySilentSelectors", { selectors });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(createMarkingEngine).not.toHaveBeenCalled();
+
+    resolveInitialContext?.();
+    const result = await applying;
+    expect(result).toMatchObject({ ok: true, data: { ok: true, highlighted: 1 } });
+    for (let attempt = 0; attempt < 20 && postureSetRequests < 1; attempt += 1) {
+      await Promise.resolve();
+    }
+    expect(postureSetRequests).toBe(1);
+    expect(contextRequests).toBe(1);
+    expect(createMarkingEngine).toHaveBeenCalledTimes(1);
+    expect(engine.dispose).not.toHaveBeenCalled();
+    expect(shieldHarness.instances.at(-1)?.setActive)
+      .toHaveBeenCalledWith("silent-highlights", true);
+    const postureNames = sendMessage.mock.calls
+      .map(([frame]) => (frame as BusFrame).name)
+      .filter((name) => name === "page.context" || name === "shield.posture.set");
+    expect(postureNames).toEqual(["page.context", "shield.posture.set"]);
+
+    let releaseDelayedSet: (() => void) | undefined;
+    delayedSetGate = new Promise<void>((resolve) => { releaseDelayedSet = resolve; });
+    await dispatchContentCommand(listener, "applySilentSelectors", { selectors });
+    for (let attempt = 0; attempt < 20 && postureSetRequests < 2; attempt += 1) {
+      await Promise.resolve();
+    }
+    expect(postureSetRequests).toBe(2);
+    invalidate?.();
+    expect(engine.dispose).toHaveBeenCalledTimes(2);
+    expect(shieldHarness.instances.at(-1)?.dispose).toHaveBeenCalledOnce();
+    releaseDelayedSet?.();
+    for (let attempt = 0; attempt < 20 && postureClearRequests < 1; attempt += 1) {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(postureClearRequests).toBe(1);
+    expect(sendMessage.mock.calls.map(([frame]) => (frame as BusFrame).name).slice(-2)).toEqual([
+      "shield.posture.current",
+      "shield.posture.clear",
+    ]);
+  });
+
+  it("does not revive terminal page authority from an older page-context reply", async () => {
+    const addListener = vi.fn();
+    const pageUrl = installTestLocation();
+    let releaseContext: (() => void) | undefined;
+    const contextGate = new Promise<void>((resolve) => { releaseContext = resolve; });
+    let contextStarted = false;
+    let terminalClearRequests = 0;
+    let consentRegisterRequests = 0;
+    const terminalScope = {
+      environmentKey: "example.com",
+      siteId: 1,
+      baseUrl: "https://example.com",
+      contextGeneration: 1,
+      pageUrl: pageUrl.href,
+      documentKey: `test-document:${pageUrl.href}`,
+    };
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "page.context") {
+        contextStarted = true;
+        await contextGate;
+        return managedPageContextReply(message, pageUrl.href);
+      }
+      if (message.name === "signals.pull") {
+        return replyFrame(message, []);
+      }
+      if (message.name === "consent.suppression.register") {
+        consentRegisterRequests += 1;
+        return replyFrame(message, { status: "ok" });
+      }
+      if (message.name === "shield.posture.current") {
+        return replyFrame(message, {
+          status: "active",
+          revision: 2,
+          scope: terminalScope,
+          directive: {
+            silentSelectors: { inclusionSelectors: ["main"], exclusionSelectors: [] },
+            organ: { state: "silent" },
+          },
+        });
+      }
+      if (message.name === "shield.posture.clear") {
+        terminalClearRequests += 1;
+        return replyFrame(message, {
+          status: "ok",
+          posture: { status: "inactive", revision: 3, scope: terminalScope },
+        });
+      }
+      return undefined;
+    });
+    globalThis.chrome = {
+      runtime: {
+        onMessage: { addListener },
+        sendMessage,
+      },
+    } as unknown as typeof chrome;
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        documentElement: { nodeType: 1, tagName: "HTML", scrollHeight: 0 },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        getElementById: vi.fn(() => null),
+      },
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        setInterval: vi.fn(() => 1),
+        clearInterval: vi.fn(),
+      },
+    });
+    const createMarkingEngine = vi.fn();
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+    vi.doMock("../src/content/marking", () => ({
+      createMarkingEngine,
+      installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()),
+    }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    let invalidate: (() => void) | undefined;
+    (entrypoint.default as {
+      main: (ctx: { onInvalidated(callback: () => void): void }) => void;
+    }).main({ onInvalidated: (callback) => { invalidate = callback; } });
+    for (let attempt = 0; attempt < 20 && !contextStarted; attempt += 1) {
+      await Promise.resolve();
+    }
+    const listener = addListener.mock.calls[0]?.[0] as (
+      message: unknown,
+      sender: unknown,
+      sendResponse: (value: unknown) => void,
+    ) => unknown;
+    await applyLockState(listener);
+    const staleApply = dispatchContentCommand(listener, "applySilentSelectors", {
+      pageUrl: pageUrl.href,
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [] },
+    });
+    invalidate?.();
+    releaseContext?.();
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      await Promise.resolve();
+    }
+
+    const reset = await dispatchContentCommand(listener, "resetContentMain");
+    expect(reset).toEqual({
+      ok: true,
+      data: {
+        ok: false,
+        initialized: false,
+        tree: "rewrite",
+        reason: "property-authority-unavailable",
+      },
+    });
+    expect(createMarkingEngine).not.toHaveBeenCalled();
+    expect(shieldHarness.create).not.toHaveBeenCalled();
+    expect(terminalClearRequests).toBe(1);
+    await expect(staleApply).resolves.toMatchObject({
+      ok: true,
+      data: { ok: false, reason: "consent-registration-failed" },
+    });
+    expect(consentRegisterRequests).toBe(0);
+  });
+
+  it("rechecks silent command URLs after terminal registration and context rebinding", async () => {
+    const addListener = vi.fn();
+    const locationValue = installTestLocation("https://example.com/a");
+    let registerGate: Promise<void> | null = null;
+    let releaseRegister: (() => void) | undefined;
+    let registerRequests = 0;
+    let contextRequests = 0;
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "page.context") {
+        contextRequests += 1;
+        return managedPageContextReply(message, locationValue.href);
+      }
+      if (message.name === "consent.suppression.register") {
+        registerRequests += 1;
+        await registerGate;
+        return replyFrame(message, { status: "ok" });
+      }
+      if (message.name === "signals.pull") {
+        return replyFrame(message, []);
+      }
+      if (message.name === "shield.posture.current") {
+        return replyFrame(message, { status: "unavailable", reason: "document-unbound" });
+      }
+      return replyFrame(message, { status: "ok" });
+    });
+    globalThis.chrome = {
+      runtime: {
+        onMessage: { addListener },
+        sendMessage,
+      },
+    } as unknown as typeof chrome;
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        readyState: "complete",
+        documentElement: { nodeType: 1, tagName: "HTML", scrollHeight: 500 },
+        body: { nodeType: 1 },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        innerHeight: 800,
+        scrollY: 0,
+        scrollTo: vi.fn(),
+        postMessage: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+    const createMarkingEngine = vi.fn();
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+    vi.doMock("../src/content/marking", () => ({
+      createMarkingEngine,
+      installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()),
+    }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as { main: () => void }).main();
+    const listener = addListener.mock.calls[0]?.[0] as (
+      message: unknown,
+      sender: unknown,
+      sendResponse: (value: unknown) => void,
+    ) => unknown;
+    for (let attempt = 0; attempt < 20 && contextRequests < 1; attempt += 1) {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(contextRequests).toBe(1);
+
+    await dispatchContentCommand(listener, "terminateConsentSuppression");
+    registerGate = new Promise<void>((resolve) => { releaseRegister = resolve; });
+    const entering = dispatchContentCommand(listener, "enterSilentContentMain", {
+      pageUrl: "https://example.com/a",
+    });
+    for (let attempt = 0; attempt < 20 && registerRequests < 1; attempt += 1) {
+      await Promise.resolve();
+    }
+    locationValue.href = "https://example.com/b";
+    releaseRegister?.();
+    await expect(entering).resolves.toEqual({
+      ok: true,
+      data: { ok: false, initialized: false, tree: "rewrite", reason: "page-url-mismatch" },
+    });
+
+    await dispatchContentCommand(listener, "terminateConsentSuppression");
+    registerGate = new Promise<void>((resolve) => { releaseRegister = resolve; });
+    const applying = dispatchContentCommand(listener, "applySilentSelectors", {
+      pageUrl: "https://example.com/b",
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [] },
+    });
+    for (let attempt = 0; attempt < 20 && registerRequests < 2; attempt += 1) {
+      await Promise.resolve();
+    }
+    locationValue.href = "https://example.com/c";
+    releaseRegister?.();
+    await expect(applying).resolves.toEqual({
+      ok: true,
+      data: { ok: false, applied: false, tree: "rewrite", reason: "page-url-mismatch" },
+    });
+    expect(contextRequests).toBe(3);
+    expect(createMarkingEngine).not.toHaveBeenCalled();
   });
 
   it("keeps the MAIN-world page-world entrypoint bound to the new program", () => {
@@ -305,7 +983,7 @@ describe("C4 rewrite content entrypoints", () => {
     }
 
     expect(hideConsentOverlays).toHaveBeenCalledTimes(1);
-    expect(observe).toHaveBeenCalledWith(document.documentElement, {
+    expect(observe).toHaveBeenCalledWith(document, {
       childList: true,
       subtree: true,
       attributes: true,
@@ -360,6 +1038,7 @@ describe("C4 rewrite content entrypoints", () => {
 
   it("uses one transaction for marking and silent-selector entrypoints and disposes overlays", async () => {
     const addListener = vi.fn();
+    const pageUrl = installTestLocation();
     const documentListeners = new Map<string, EventListener>();
     const windowListeners: TestListenerRegistry = new Map();
     const engine = {
@@ -369,6 +1048,7 @@ describe("C4 rewrite content entrypoints", () => {
       resolveAtPoint: vi.fn(() => ({ xpath: "/html[1]/body[1]/p[1]" })),
       toggle: vi.fn(),
       setPassthrough: vi.fn(),
+      setInputTransparent: vi.fn(),
       setSuspended: vi.fn(),
       rejectAtPoint: vi.fn(),
       rows: vi.fn(() => [{ xpath: "/html[1]/body[1]/p[1]", excluded: true }]),
@@ -377,7 +1057,9 @@ describe("C4 rewrite content entrypoints", () => {
       setSilentDebugAnnotations: vi.fn(),
     };
     const createMarkingEngine = vi.fn(() => engine);
-    const sendMessage = vi.fn().mockResolvedValue({ ok: true });
+    const sendMessage = vi.fn(async (message: BusFrame) => message.name === "page.context"
+      ? managedPageContextReply(message, pageUrl.href)
+      : { ok: true });
     type SurfaceElement = {
       id: string;
       attributes: Record<string, string>;
@@ -497,9 +1179,10 @@ describe("C4 rewrite content entrypoints", () => {
 
     const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
     const contentScript = entrypoint.default as {
-      main: () => void;
+      main: (ctx?: { onInvalidated(callback: () => void): void }) => void;
     };
-    contentScript.main();
+    let invalidate: (() => void) | undefined;
+    contentScript.main({ onInvalidated: (callback) => { invalidate = callback; } });
     const listener = addListener.mock.calls[0]?.[0] as (
       message: unknown,
       sender: unknown,
@@ -538,7 +1221,7 @@ describe("C4 rewrite content entrypoints", () => {
       ok: true,
       active: true,
       dirty: false,
-      pageUrl: "",
+      pageUrl: pageUrl.href,
       markedCount: 0,
       contentRows: [{ xpath: "/html[1]/body[1]/p[1]", classification: "excluded" }],
       tree: "rewrite",
@@ -686,12 +1369,16 @@ describe("C4 rewrite content entrypoints", () => {
     expect(windowListeners.has("blur")).toBe(false);
     expect((document.documentElement as HTMLElement).className).toBe("page-shell");
     expect(enterSilent).toEqual({ ok: true, data: { ok: true, initialized: false, tree: "rewrite" } });
+    const handoffShield = shieldHarness.instances.at(-1);
+    expect(handoffShield).toBeDefined();
+    expect(handoffShield?.setActive).toHaveBeenCalledWith("silent-highlights", true);
 
     const silentSelectors = {
       inclusionSelectors: ["article"],
       exclusionSelectors: ["nav"],
     };
     engine.renderSilentHighlights.mockClear();
+    engine.setInputTransparent.mockClear();
     const applySilent = await dispatchContentCommand(listener, "applySilentSelectors", { selectors: silentSelectors });
     expect(createMarkingEngine).toHaveBeenCalledTimes(2);
     expect(createMarkingEngine).toHaveBeenNthCalledWith(2, document.documentElement, {
@@ -705,17 +1392,304 @@ describe("C4 rewrite content entrypoints", () => {
       ok: true,
       data: { ok: true, seeded: true, highlighted: 1, tree: "rewrite" },
     });
+    const shield = shieldHarness.instances.at(-1);
+    expect(shield).toBeDefined();
+    expect(shield?.setActive).toHaveBeenCalledWith("silent-highlights", true);
+    expect(engine.setInputTransparent).toHaveBeenCalledWith(true);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const debugCopyEvent = {
+      target: {
+        closest: vi.fn(() => ({
+          getAttribute: (name: string) => name === "data-uf-silent-highlight"
+            ? "/html[1]/body[1]/p[1]"
+            : null,
+        })),
+      },
+      clientX: 10,
+      clientY: 20,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    };
+    documentListeners.get("click")?.(debugCopyEvent as unknown as Event);
+    await Promise.resolve();
+    expect(writeText).toHaveBeenCalledWith("XPath: /html[1]/body[1]/p[1]");
+    expect(debugCopyEvent.preventDefault).toHaveBeenCalledOnce();
+    expect(debugCopyEvent.stopPropagation).toHaveBeenCalledOnce();
 
     const deactivate = await dispatchContentCommand(listener, "deactivateContentMain");
+    expect(shield?.setActive).toHaveBeenCalledWith("silent-highlights", false);
+    expect(engine.setInputTransparent).toHaveBeenCalledWith(false);
     expect(window.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       command: "DESTROY",
       sessionNonce: expect.stringMatching(/^rewrite-stabilization-/),
     }), "*");
     expect(deactivate).toEqual({ ok: true, data: { ok: true, initialized: false, tree: "rewrite" } });
+
+    await dispatchContentCommand(listener, "applySilentSelectors", { selectors: silentSelectors });
+    expect(contentRoot?.isConnected).toBe(true);
+    invalidate?.();
+    expect(engine.dispose).toHaveBeenCalledTimes(3);
+    expect(contentRoot?.isConnected).toBe(false);
+    expect(shield?.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("fences delayed stabilization and signal work after terminal invalidation", async () => {
+    type RevealInput = Readonly<{
+      suppressLazyLoading: () => Promise<void>;
+      freezeAtBottom: () => Promise<void>;
+      scrollTo: (position: "top" | "lazy-threshold" | "bottom" | "restore", height: number) => Promise<void>;
+    }>;
+    vi.doMock("../src/content/stabilization", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../src/content/stabilization")>();
+      return {
+        ...actual,
+        async runReveal(input: RevealInput) {
+          await input.suppressLazyLoading();
+          await input.freezeAtBottom();
+          // Exercise the library's post-freeze restore even after terminal state
+          // wins while SET_MOTION_PAUSED is in flight.
+          await input.scrollTo("restore", 1_000);
+          return { skipped: false, lazyExpansions: 0, frozenAtBottom: true };
+        },
+      };
+    });
+    const addListener = vi.fn();
+    const pageUrl = installTestLocation();
+    const documentListeners = new Map<string, EventListener>();
+    const windowListeners: TestListenerRegistry = new Map();
+    type SurfaceElement = {
+      id: string;
+      attributes: Record<string, string>;
+      style: Record<string, string>;
+      children: SurfaceElement[];
+      textContent: string;
+      isConnected: boolean;
+      title: string;
+      setAttribute: (name: string, value: string) => void;
+      addEventListener: (name: string, listener: EventListener) => void;
+      appendChild: (child: SurfaceElement) => SurfaceElement;
+      replaceChildren: (...children: SurfaceElement[]) => void;
+      remove: () => void;
+    };
+    const elements: SurfaceElement[] = [];
+    const createElement = vi.fn(() => {
+      const element: SurfaceElement = {
+        id: "",
+        attributes: {},
+        style: {},
+        children: [],
+        textContent: "",
+        isConnected: true,
+        title: "",
+        setAttribute(name, value) {
+          this.attributes[name] = value;
+        },
+        addEventListener: vi.fn(),
+        appendChild(child) {
+          child.isConnected = true;
+          this.children.push(child);
+          return child;
+        },
+        replaceChildren(...children) {
+          this.children = children;
+        },
+        remove() {
+          this.isConnected = false;
+        },
+      };
+      elements.push(element);
+      return element;
+    });
+    const documentElement = createElement();
+    Object.assign(documentElement, {
+      nodeType: 1,
+      tagName: "HTML",
+      scrollHeight: 1_000,
+      offsetHeight: 1_000,
+      className: "",
+    });
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        readyState: "complete",
+        body: { nodeType: 1, scrollHeight: 1_000, offsetHeight: 1_000 },
+        documentElement,
+        createElement,
+        getElementById: (id: string) => elements.find((element) => element.id === id && element.isConnected) ?? null,
+        addEventListener: vi.fn((type: string, listener: EventListener) => {
+          documentListeners.set(type, listener);
+        }),
+        removeEventListener: vi.fn((type: string) => {
+          documentListeners.delete(type);
+        }),
+      },
+    });
+    let pendingMotion: { nonce: string; command: string } | null = null;
+    const posted: Array<Record<string, unknown>> = [];
+    const scrollTo = vi.fn();
+    const windowObject = {
+      innerHeight: 500,
+      scrollY: 0,
+      scrollTo,
+      postMessage: vi.fn((message: Record<string, unknown>) => {
+        posted.push(message);
+        if (message.type !== "request" || typeof message.nonce !== "string") {
+          return;
+        }
+        if (message.command === "SET_MOTION_PAUSED") {
+          pendingMotion = { nonce: message.nonce, command: message.command };
+          return;
+        }
+        if (message.command === "ARM" || message.command === "SET_LAZY_LOADING_SUPPRESSED") {
+          queueMicrotask(() => dispatchTestEvent(windowListeners, "message", {
+            source: windowObject,
+            data: {
+              kind: "uf-page-bus/1",
+              type: "response",
+              nonce: message.nonce,
+              command: message.command,
+              ok: true,
+              payload: {},
+            },
+          } as unknown as Event));
+        }
+      }),
+      addEventListener: vi.fn((type: string, listener: EventListener) => {
+        addTestListener(windowListeners, type, listener);
+      }),
+      removeEventListener: vi.fn((type: string, listener: EventListener) => {
+        removeTestListener(windowListeners, type, listener);
+      }),
+      setInterval: vi.fn(() => 1),
+      clearInterval: vi.fn(),
+    };
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: windowObject,
+    });
+    let releaseSignals: (() => void) | undefined;
+    let delaySignals = false;
+    const signalGate = new Promise<void>((resolve) => { releaseSignals = resolve; });
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "page.context") {
+        return managedPageContextReply(message, pageUrl.href);
+      }
+      if (message.name === "signals.pull") {
+        if (delaySignals) {
+          await signalGate;
+          return replyFrame(message, [{
+            kind: "uf-signal/1",
+            tabId: 77,
+            seq: 1,
+            name: "run.started",
+            source: "brain",
+            cause: "late-terminal-test",
+            at: 1,
+            payload: { sessionId: "late-run" },
+          }]);
+        }
+        return replyFrame(message, []);
+      }
+      if (message.name === "shield.posture.current") {
+        return replyFrame(message, { status: "unavailable", reason: "document-unbound" });
+      }
+      return undefined;
+    });
+    globalThis.chrome = {
+      runtime: {
+        onMessage: { addListener },
+        sendMessage,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+      },
+    } as unknown as typeof chrome;
+    const engine = {
+      refresh: vi.fn(),
+      renderReadOnly: vi.fn(),
+      dispose: vi.fn(),
+      rows: vi.fn(() => []),
+      renderSilentHighlights: vi.fn(() => []),
+      setInputTransparent: vi.fn(),
+      setSilentDebugAnnotations: vi.fn(),
+    };
+    const createMarkingEngine = vi.fn(() => engine);
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+    vi.doMock("../src/content/marking", () => ({
+      createMarkingEngine,
+      installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()),
+    }));
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    let invalidate: (() => void) | undefined;
+    (entrypoint.default as {
+      main: (ctx: { onInvalidated(callback: () => void): void }) => void;
+    }).main({ onInvalidated: (callback) => { invalidate = callback; } });
+    for (let attempt = 0; attempt < 20 && !elements.some((element) =>
+      element.attributes["data-uf-content-surface-root"] === "true"
+    ); attempt += 1) {
+      await Promise.resolve();
+    }
+    const listener = addListener.mock.calls[0]?.[0] as (
+      message: unknown,
+      sender: unknown,
+      sendResponse: (value: unknown) => void,
+    ) => unknown;
+    delaySignals = true;
+    await applyLockState(listener);
+    await dispatchContentCommand(listener, "activateContentMain", { pageUrl: pageUrl.href });
+    for (let attempt = 0; attempt < 20 && pendingMotion === null; attempt += 1) {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(pendingMotion).not.toBeNull();
+    const contentRoot = elements.find((element) =>
+      element.attributes["data-uf-content-surface-root"] === "true"
+    );
+    expect(contentRoot?.isConnected).toBe(true);
+
+    invalidate?.();
+    expect(engine.dispose).toHaveBeenCalledOnce();
+    releaseSignals?.();
+    const motion = pendingMotion as { nonce: string; command: string } | null;
+    expect(motion).not.toBeNull();
+    dispatchTestEvent(windowListeners, "message", {
+      source: windowObject,
+      data: {
+        kind: "uf-page-bus/1",
+        type: "response",
+        nonce: motion!.nonce,
+        command: motion!.command,
+        ok: true,
+        payload: {},
+      },
+    } as unknown as Event);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(posted).toContainEqual(expect.objectContaining({
+      command: "DESTROY",
+      sessionNonce: expect.any(String),
+    }));
+    expect(contentRoot?.isConnected).toBe(false);
+    expect(elements.filter((element) =>
+      element.isConnected && element.attributes["data-uf-content-surface-root"] === "true"
+    )).toEqual([]);
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining("reveal/freeze skipped"));
+    await expect(applyLockState(listener)).resolves.toMatchObject({
+      ok: true,
+      data: { ok: false, reason: "property-authority-unavailable" },
+    });
   });
 
   it("pauses and resumes marking interactions without clearing dirty state", async () => {
     const addListener = vi.fn();
+    const pageUrl = installTestLocation();
     const documentListeners = new Map<string, EventListener>();
     const engine = {
       refresh: vi.fn(),
@@ -728,7 +1702,9 @@ describe("C4 rewrite content entrypoints", () => {
     globalThis.chrome = {
       runtime: {
         onMessage: { addListener },
-        sendMessage: vi.fn().mockResolvedValue({ ok: true }),
+        sendMessage: vi.fn(async (message: BusFrame) => message.name === "page.context"
+          ? managedPageContextReply(message, pageUrl.href)
+          : { ok: true }),
       },
     } as unknown as typeof chrome;
     Object.defineProperty(globalThis, "document", {
@@ -777,10 +1753,13 @@ describe("C4 rewrite content entrypoints", () => {
   it("rejects stale activation requests whose pageUrl no longer matches the page", async () => {
     const addListener = vi.fn();
     const createMarkingEngine = vi.fn();
+    const pageUrl = installTestLocation("https://example.com/current");
     globalThis.chrome = {
       runtime: {
         onMessage: { addListener },
-        sendMessage: vi.fn().mockResolvedValue(undefined),
+        sendMessage: vi.fn(async (message: BusFrame) => message.name === "page.context"
+          ? managedPageContextReply(message, pageUrl.href)
+          : undefined),
       },
     } as unknown as typeof chrome;
     Object.defineProperty(globalThis, "document", {
@@ -790,10 +1769,6 @@ describe("C4 rewrite content entrypoints", () => {
         addEventListener: vi.fn(),
         removeEventListener: vi.fn(),
       },
-    });
-    Object.defineProperty(globalThis, "location", {
-      configurable: true,
-      value: { href: "https://example.com/current" },
     });
     vi.doMock("wxt/utils/define-content-script", () => ({
       defineContentScript: (config: unknown) => config,
@@ -815,7 +1790,35 @@ describe("C4 rewrite content entrypoints", () => {
     await applyLockState(listener);
     const response = await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/old" });
     expect(createMarkingEngine).not.toHaveBeenCalled();
-    expect(response).toEqual({ ok: true, data: { ok: false, initialized: false, tree: "rewrite", reason: "page-url-mismatch" } });
+    expect(response).toMatchObject({ ok: false, failure: { code: "page-url-mismatch" } });
+    await expect(dispatchContentCommand(listener, "enterSilentContentMain", {
+      pageUrl: "https://example.com/old",
+    })).resolves.toEqual({
+      ok: true,
+      data: { ok: false, initialized: false, tree: "rewrite", reason: "page-url-mismatch" },
+    });
+    await expect(dispatchContentCommand(listener, "applySilentSelectors", {
+      pageUrl: "https://example.com/old",
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [] },
+    })).resolves.toEqual({
+      ok: true,
+      data: { ok: false, applied: false, tree: "rewrite", reason: "page-url-mismatch" },
+    });
+    await expect(dispatchContentCommand(listener, "captureSubmissionSnapshot", {
+      pageUrl: "https://example.com/old",
+      baseUrl: "https://example.com",
+      renderMode: "rendered",
+    })).resolves.toMatchObject({
+      ok: false,
+      failure: { code: "page-url-mismatch" },
+    });
+    await expect(dispatchContentCommand(listener, "resetContentMain", {
+      pageUrl: "https://example.com/old",
+    })).resolves.toMatchObject({
+      ok: false,
+      failure: { code: "page-url-mismatch" },
+    });
+    expect(createMarkingEngine).not.toHaveBeenCalled();
   });
 
   it("deactivates active marking on same-document URL changes without popup polling", async () => {
@@ -828,18 +1831,48 @@ describe("C4 rewrite content entrypoints", () => {
       rows: vi.fn(() => []),
     };
     const createMarkingEngine = vi.fn(() => engine);
-    const sendMessage = vi.fn().mockResolvedValue({ ok: true });
-    const locationValue = { href: "https://example.com/a" };
+    const locationValue = installTestLocation("https://example.com/a");
+    let deferSignalPull = false;
+    let signalPullStarted = false;
+    let releaseSignalPull: (() => void) | undefined;
+    const signalPullGate = new Promise<void>((resolve) => { releaseSignalPull = resolve; });
+    let postureSetRequests = 0;
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "page.context") {
+        return managedPageContextReply(
+          message,
+          (message.payload as { pageUrl?: string }).pageUrl ?? locationValue.href,
+        );
+      }
+      if (message.name === "signals.pull") {
+        if (deferSignalPull) {
+          signalPullStarted = true;
+          await signalPullGate;
+          return replyFrame(message, [{
+            kind: "uf-signal/1",
+            tabId: 77,
+            seq: 1,
+            name: "run.started",
+            source: "brain",
+            cause: "old-route-pull",
+            at: 1,
+            payload: { sessionId: "old-route-run" },
+          }]);
+        }
+        return replyFrame(message, []);
+      }
+      if (message.name === "shield.posture.set") {
+        postureSetRequests += 1;
+        return replyFrame(message, { status: "unavailable", reason: "unexpected-old-route-posture" });
+      }
+      return { ok: true };
+    });
     globalThis.chrome = {
       runtime: {
         onMessage: { addListener },
         sendMessage,
       },
     } as unknown as typeof chrome;
-    Object.defineProperty(globalThis, "location", {
-      configurable: true,
-      value: locationValue,
-    });
     Object.defineProperty(globalThis, "document", {
       configurable: true,
       value: {
@@ -886,11 +1919,18 @@ describe("C4 rewrite content entrypoints", () => {
     } as unknown as Event);
     await applyLockState(listener);
     await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/a" });
+    deferSignalPull = true;
+    await applyLockState(listener);
+    for (let attempt = 0; attempt < 20 && !signalPullStarted; attempt += 1) {
+      await Promise.resolve();
+    }
+    expect(signalPullStarted).toBe(true);
     locationValue.href = "https://example.com/b";
     dispatchTestEvent(windowListeners, "message", {
       source: windowObject,
       data: { kind: "uf-page-url-changed/1", toUrl: "https://example.com/b" },
     } as unknown as Event);
+    releaseSignalPull?.();
     await Promise.resolve();
     await Promise.resolve();
 
@@ -914,6 +1954,279 @@ describe("C4 rewrite content entrypoints", () => {
     }));
     expect(windowListeners.has("popstate")).toBe(true);
     expect(windowListeners.has("hashchange")).toBe(true);
+    expect(postureSetRequests).toBe(0);
+    expect((await dispatchContentCommand(listener, "getContentMainStatus")).data).toMatchObject({
+      sessionState: { name: "boot", lastConsumedSeq: 0 },
+    });
+  });
+
+  it("drops old idle-route signals before applying the navigation boundary", async () => {
+    const addListener = vi.fn();
+    const windowListeners: TestListenerRegistry = new Map();
+    const locationValue = installTestLocation("https://example.com/a");
+    let deferNextPull = false;
+    let deferredPullStarted = false;
+    let releaseDeferredPull: (() => void) | undefined;
+    const deferredPullGate = new Promise<void>((resolve) => { releaseDeferredPull = resolve; });
+    let navigationReported = false;
+    let navigationFolded = false;
+    let signalPullRequests = 0;
+    let overrideSignals: Array<Record<string, unknown>> | null = null;
+    let postureSetRequests = 0;
+    const runStarted = {
+      kind: "uf-signal/1",
+      tabId: 77,
+      seq: 1,
+      name: "run.started",
+      source: "brain",
+      cause: "old-route-run",
+      at: 1,
+      payload: { sessionId: "old-route-run" },
+    };
+    const navigated = {
+      kind: "uf-signal/1",
+      tabId: 77,
+      seq: 2,
+      name: "session.navigated",
+      source: "brain",
+      cause: "route-boundary",
+      at: 2,
+      payload: { pageUrl: "https://example.com/b" },
+    };
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "page.context") {
+        return managedPageContextReply(
+          message,
+          (message.payload as { pageUrl?: string }).pageUrl ?? locationValue.href,
+        );
+      }
+      if (message.name === "fact.reported") {
+        const reason = (message.payload as { sensation?: { reason?: string } }).sensation?.reason;
+        if (reason === "content-url-change") {
+          navigationReported = true;
+        }
+        return replyFrame(message, { status: "ok" });
+      }
+      if (message.name === "signals.pull") {
+        signalPullRequests += 1;
+        if (deferNextPull) {
+          deferNextPull = false;
+          deferredPullStarted = true;
+          await deferredPullGate;
+          return replyFrame(message, [runStarted]);
+        }
+        return replyFrame(
+          message,
+          overrideSignals ?? (navigationReported
+            ? navigationFolded ? [runStarted, navigated] : [runStarted]
+            : []),
+        );
+      }
+      if (message.name === "shield.posture.set") {
+        postureSetRequests += 1;
+        return replyFrame(message, { status: "unavailable", reason: "unexpected-old-route-posture" });
+      }
+      return replyFrame(message, { status: "unavailable", reason: "not-needed" });
+    });
+    globalThis.chrome = {
+      runtime: {
+        onMessage: { addListener },
+        sendMessage,
+      },
+    } as unknown as typeof chrome;
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        documentElement: { nodeType: 1 },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+    const windowObject = {
+      history: { pushState: vi.fn(), replaceState: vi.fn() },
+      addEventListener: vi.fn((type: string, listener: EventListener) => {
+        addTestListener(windowListeners, type, listener);
+      }),
+      removeEventListener: vi.fn((type: string, listener: EventListener) => {
+        removeTestListener(windowListeners, type, listener);
+      }),
+    };
+    Object.defineProperty(globalThis, "window", { configurable: true, value: windowObject });
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+    vi.doMock("../src/content/marking", () => ({
+      createMarkingEngine: vi.fn(),
+      installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()),
+    }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as { main: () => void }).main();
+    const listener = addListener.mock.calls[0]?.[0] as (
+      message: unknown,
+      sender: unknown,
+      sendResponse: (value: unknown) => void,
+    ) => unknown;
+    for (let attempt = 0; attempt < 20 && !sendMessage.mock.calls.some(
+      ([frame]) => (frame as BusFrame).name === "page.context"
+    ); attempt += 1) {
+      await Promise.resolve();
+    }
+    deferNextPull = true;
+    await applyLockState(listener);
+    for (let attempt = 0; attempt < 20 && !deferredPullStarted; attempt += 1) {
+      await Promise.resolve();
+    }
+    expect(deferredPullStarted).toBe(true);
+
+    locationValue.href = "https://example.com/b";
+    dispatchTestEvent(windowListeners, "message", {
+      source: windowObject,
+      data: { kind: "uf-page-url-changed/1", toUrl: locationValue.href },
+    } as unknown as Event);
+    for (let attempt = 0; attempt < 20 && !navigationReported; attempt += 1) {
+      await Promise.resolve();
+    }
+    expect(navigationReported).toBe(true);
+    releaseDeferredPull?.();
+    for (let attempt = 0; attempt < 40 && signalPullRequests < 3; attempt += 1) {
+      await Promise.resolve();
+    }
+    expect(signalPullRequests).toBeGreaterThanOrEqual(3);
+    expect(postureSetRequests).toBe(0);
+    expect((await dispatchContentCommand(listener, "getContentMainStatus")).data).toMatchObject({
+      sessionState: { name: "boot", lastConsumedSeq: 0 },
+    });
+
+    navigationFolded = true;
+    await applyLockState(listener);
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await Promise.resolve();
+      const status = await dispatchContentCommand(listener, "getContentMainStatus");
+      if ((status.data as { sessionState?: { lastConsumedSeq?: number } }).sessionState?.lastConsumedSeq === 2) {
+        break;
+      }
+    }
+
+    expect(postureSetRequests).toBe(0);
+    expect((await dispatchContentCommand(listener, "getContentMainStatus")).data).toMatchObject({
+      sessionState: { name: "silent", lastConsumedSeq: 2 },
+    });
+
+    // A brain boundary can arrive before the page-world URL watcher. When the
+    // late watcher observes the same URL, it must not wait for a duplicate
+    // session.navigated that the brain correctly will not emit.
+    locationValue.href = "https://example.com/c";
+    overrideSignals = [{
+      ...navigated,
+      seq: 3,
+      at: 3,
+      payload: {
+        fromUrl: "https://example.com/b",
+        pageUrl: locationValue.href,
+        toUrl: locationValue.href,
+      },
+    }];
+    await applyLockState(listener);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await Promise.resolve();
+      const status = await dispatchContentCommand(listener, "getContentMainStatus");
+      if ((status.data as { sessionState?: { lastConsumedSeq?: number } }).sessionState?.lastConsumedSeq === 3) {
+        break;
+      }
+    }
+    dispatchTestEvent(windowListeners, "message", {
+      source: windowObject,
+      data: { kind: "uf-page-url-changed/1", toUrl: locationValue.href },
+    } as unknown as Event);
+    overrideSignals = [{
+      kind: "uf-signal/1",
+      tabId: 77,
+      seq: 4,
+      name: "lock.acquired",
+      source: "brain",
+      cause: "current-route-lock",
+      at: 4,
+      payload: { pageUrl: locationValue.href },
+    }];
+    await applyLockState(listener);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await Promise.resolve();
+      const status = await dispatchContentCommand(listener, "getContentMainStatus");
+      if ((status.data as { sessionState?: { lastConsumedSeq?: number } }).sessionState?.lastConsumedSeq === 4) {
+        break;
+      }
+    }
+    expect((await dispatchContentCommand(listener, "getContentMainStatus")).data).toMatchObject({
+      sessionState: { name: "silent", lastConsumedSeq: 4 },
+    });
+
+    // Even the same from/to pair is occurrence-sensitive. B -> C was consumed
+    // above before its watcher. Repeat C -> B -> C, hold both new URL-change
+    // facts, then expose only the intermediate C -> B boundary/run. The current
+    // C route must not reuse the historical B -> C signal; it waits for seq 7.
+    overrideSignals = [];
+    locationValue.href = "https://example.com/b";
+    dispatchTestEvent(windowListeners, "message", {
+      source: windowObject,
+      data: { kind: "uf-page-url-changed/1", toUrl: locationValue.href },
+    } as unknown as Event);
+    locationValue.href = "https://example.com/c";
+    dispatchTestEvent(windowListeners, "message", {
+      source: windowObject,
+      data: { kind: "uf-page-url-changed/1", toUrl: locationValue.href },
+    } as unknown as Event);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await Promise.resolve();
+    }
+    const bBoundary = {
+      ...navigated,
+      seq: 5,
+      at: 5,
+      payload: {
+        fromUrl: "https://example.com/c",
+        pageUrl: "https://example.com/b",
+        toUrl: "https://example.com/b",
+      },
+    };
+    const bRunStarted = {
+      ...runStarted,
+      seq: 6,
+      at: 6,
+      payload: { pageUrl: "https://example.com/b", sessionId: "route-b-run" },
+    };
+    overrideSignals = [bBoundary, bRunStarted];
+    await applyLockState(listener);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await Promise.resolve();
+    }
+    expect(postureSetRequests).toBe(0);
+    expect((await dispatchContentCommand(listener, "getContentMainStatus")).data).toMatchObject({
+      sessionState: { name: "silent", lastConsumedSeq: 4 },
+    });
+
+    overrideSignals = [bBoundary, bRunStarted, {
+      ...navigated,
+      seq: 7,
+      at: 7,
+      payload: {
+        fromUrl: "https://example.com/b",
+        pageUrl: "https://example.com/c",
+        toUrl: "https://example.com/c",
+      },
+    }];
+    await applyLockState(listener);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await Promise.resolve();
+      const status = await dispatchContentCommand(listener, "getContentMainStatus");
+      if ((status.data as { sessionState?: { lastConsumedSeq?: number } }).sessionState?.lastConsumedSeq === 7) {
+        break;
+      }
+    }
+    expect(postureSetRequests).toBe(0);
+    expect((await dispatchContentCommand(listener, "getContentMainStatus")).data).toMatchObject({
+      sessionState: { name: "silent", lastConsumedSeq: 7 },
+    });
   });
 
   it("consumes brain signals into local surface memory and gates commands with lock authority", async () => {
@@ -965,6 +2278,16 @@ describe("C4 rewrite content entrypoints", () => {
     const createMarkingEngine = vi.fn();
     let signalSeq = 0;
     let pendingSignals: Array<Record<string, unknown>> = [];
+    let deferDocumentPostureSet = false;
+    let deferredDocumentPostureStarted = false;
+    let releaseDocumentPostureSet: (() => void) | undefined;
+    const documentPostureGate = new Promise<void>((resolve) => {
+      releaseDocumentPostureSet = resolve;
+    });
+    const postureSetRequests: Array<{
+      expected: { pageUrl: string };
+      posture: { kind: string };
+    }> = [];
     const queueSignal = (name: string, payload: Record<string, unknown> = {}): void => {
       signalSeq += 1;
       pendingSignals.push({
@@ -979,6 +2302,36 @@ describe("C4 rewrite content entrypoints", () => {
       });
     };
     const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "page.context") {
+        const pageUrl = (message.payload as { pageUrl?: string }).pageUrl ?? "https://example.com/page";
+        return managedPageContextReply(message, pageUrl);
+      }
+      if (message.name === "shield.posture.set") {
+        const request = message.payload as typeof postureSetRequests[number];
+        postureSetRequests.push(request);
+        if (
+          deferDocumentPostureSet &&
+          request.posture.kind !== "silent-selectors" &&
+          !deferredDocumentPostureStarted
+        ) {
+          deferredDocumentPostureStarted = true;
+          await documentPostureGate;
+          return replyFrame(message, {
+            status: "stale",
+            reason: "route-generation-advanced",
+          });
+        }
+        return replyFrame(message, {
+          status: "unavailable",
+          reason: "test-does-not-persist-unrelated-posture",
+        });
+      }
+      if (message.name === "shield.posture.clear") {
+        return replyFrame(message, {
+          status: "unavailable",
+          reason: "test-does-not-persist-unrelated-posture",
+        });
+      }
       if (message.name !== "signals.pull") {
         return undefined;
       }
@@ -1000,9 +2353,10 @@ describe("C4 rewrite content entrypoints", () => {
         sendMessage,
       },
     } as unknown as typeof chrome;
+    const locationValue = { href: "https://example.com/page" };
     Object.defineProperty(globalThis, "location", {
       configurable: true,
-      value: { href: "https://example.com/page" },
+      value: locationValue,
     });
     Object.defineProperty(globalThis, "document", {
       configurable: true,
@@ -1182,6 +2536,7 @@ describe("C4 rewrite content entrypoints", () => {
     queueSignal("reconciliation.ended", { reason: "saved" });
     queueSignal("marking.enabled");
     queueSignal("run.started", { sessionId: "run-1" });
+    deferDocumentPostureSet = true;
     await applyLockState(listener);
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/page" })).toMatchObject({
@@ -1192,17 +2547,8 @@ describe("C4 rewrite content entrypoints", () => {
       element.attributes["data-uf-content-curtain-copy"] === "true"
       && element.textContent === "Computing selectors"
     )).toBe(true);
-    const blockedInput = {
-      type: "keydown",
-      cancelable: true,
-      preventDefault: vi.fn(),
-      stopPropagation: vi.fn(),
-      stopImmediatePropagation: vi.fn(),
-    };
-    windowListeners.get("keydown")?.(blockedInput as unknown as Event);
-    expect(blockedInput.preventDefault).toHaveBeenCalledTimes(1);
-    expect(blockedInput.stopPropagation).toHaveBeenCalledTimes(1);
-    expect(blockedInput.stopImmediatePropagation).toHaveBeenCalledTimes(1);
+    expect(shieldHarness.instances.at(-1)?.setActive)
+      .toHaveBeenCalledWith("blocked-organ", true);
 
     await applyLockState(listener, {
       baseUrl: "https://other.example",
@@ -1262,6 +2608,8 @@ describe("C4 rewrite content entrypoints", () => {
       sessionState: { name: "exit_restoring" },
       presentation: { markingEditsBlocked: true, blockedReason: "post_ai" },
     });
+    expect(shieldHarness.instances.at(-1)?.setActive)
+      .toHaveBeenCalledWith("preview", true);
 
     queueSignal("preview.exited", { restored: true });
     await applyLockState(listener);
@@ -1270,5 +2618,33 @@ describe("C4 rewrite content entrypoints", () => {
       sessionState: { name: "post_ai_clean" },
       presentation: { markingEditsBlocked: false, blockedReason: "" },
     });
+    expect(shieldHarness.instances.at(-1)?.setActive)
+      .toHaveBeenCalledWith("preview", false);
+    expect(shieldHarness.instances.at(-1)?.setActive)
+      .toHaveBeenCalledWith("blocked-organ", false);
+
+    for (let attempt = 0; attempt < 20 && !deferredDocumentPostureStarted; attempt += 1) {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(deferredDocumentPostureStarted).toBe(true);
+    const setCountBeforeNavigation = postureSetRequests.length;
+    locationValue.href = "https://example.com/next";
+    windowListeners.get("message")?.({
+      source: window,
+      data: { kind: "uf-page-url-changed/1", toUrl: locationValue.href },
+    } as unknown as Event);
+    queueSignal("session.navigated", { pageUrl: locationValue.href });
+    await applyLockState(listener);
+    releaseDocumentPostureSet?.();
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(postureSetRequests).toHaveLength(setCountBeforeNavigation);
+    expect(postureSetRequests.some((request) =>
+      request.expected.pageUrl === "https://example.com/next"
+    )).toBe(false);
   });
 });

@@ -28,10 +28,11 @@ describe("background property-lock browser lifecycle", () => {
     const removed = event<(tabId: number) => void>();
     const focusChanged = event<(windowId: number) => void>();
     const idleChanged = event<(state: "active" | "idle" | "locked") => void>();
-    const committed = event<(details: { tabId: number; frameId: number }) => void>();
+    const committed = event<(details: { tabId: number; frameId: number; documentId?: string }) => void>();
     const presences = new Map<number, PropertyLockPresence>();
     const presenceHistory: Array<{ tabId: number; presence: PropertyLockPresence }> = [];
     const terminations: Array<{ tabId: number; reason: LockTabTerminationReason }> = [];
+    const committedDocuments: Array<{ tabId: number; documentId: string | null }> = [];
     const setDetectionInterval = vi.fn();
     const api: LockBrowserApi = {
       tabs: {
@@ -59,6 +60,9 @@ describe("background property-lock browser lifecycle", () => {
       onPresenceChanged(tabId, presence) {
         presences.set(tabId, presence);
         presenceHistory.push({ tabId, presence });
+      },
+      onMainDocumentCommitted(tabId, documentId) {
+        committedDocuments.push({ tabId, documentId });
       },
       onTabTerminated(tabId, reason) {
         terminations.push({ tabId, reason });
@@ -102,8 +106,9 @@ describe("background property-lock browser lifecycle", () => {
 
     updated.emit(22, { status: "loading" }, { id: 22, windowId: 2, active: true });
     committed.emit({ tabId: 22, frameId: 1 });
-    committed.emit({ tabId: 22, frameId: 0 });
+    committed.emit({ tabId: 22, frameId: 0, documentId: "document-b" });
     removed.emit(12);
+    expect(committedDocuments).toEqual([{ tabId: 22, documentId: "document-b" }]);
     expect(terminations).toEqual([
       { tabId: 22, reason: "navigation" },
       { tabId: 12, reason: "tab-closed" },
