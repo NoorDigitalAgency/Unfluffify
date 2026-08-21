@@ -1784,12 +1784,10 @@ function resetMarking(): boolean {
   markingEngine?.dispose();
   removeSilentDebugCopyListener?.();
   destroyPageWorldSession();
-  markingEngine = createMarkingEngine(document.documentElement);
+  markingEngine = createMarkingEngine(document.documentElement, { render: true });
   userToggleCount = 0;
   selectorsSeeded = false;
   lastKnownPageUrl = typeof location !== "undefined" ? location.href : lastKnownPageUrl;
-  markingEngine.refresh();
-  markingEngine.renderReadOnly();
   if (activation.state().silentHighlightArmed) {
     markingEngine.renderSilentHighlights?.();
   }
@@ -1821,16 +1819,30 @@ function activateContentMain(payload: unknown): Record<string, unknown> {
     if (!markingActive) {
       userToggleCount = 0;
     }
-    markingEngine ??= createMarkingEngine(document.documentElement);
-    markingEngine.refresh();
     // A clean session starts from the defaults with the AI selectors laid over
     // them. Only once, and only while the operator has not marked anything: after
     // this the selectors play no further part.
     const selectors = selectorSetFrom(request);
-    if (selectors && !selectorsSeeded && !isUserMarkingDirty()) {
-      selectorsSeeded = markingEngine.seedFromSelectors(selectors);
+    const selectorsForInitialization = selectors && !selectorsSeeded && !isUserMarkingDirty()
+      ? selectors
+      : undefined;
+    if (!markingEngine) {
+      markingEngine = createMarkingEngine(document.documentElement, {
+        render: true,
+        selectors: selectorsForInitialization,
+      });
+      if (selectorsForInitialization) {
+        selectorsSeeded = markingEngine.lastInitializationSeededSelectors();
+      }
+    } else {
+      const seeded = markingEngine.refresh({
+        render: true,
+        selectors: selectorsForInitialization,
+      });
+      if (selectorsForInitialization) {
+        selectorsSeeded = seeded;
+      }
     }
-    markingEngine.renderReadOnly();
     if (activation.state().silentHighlightArmed) {
       markingEngine.renderSilentHighlights?.();
     }
@@ -1889,9 +1901,8 @@ function applySilentSelectors(payload: unknown): Record<string, unknown> {
   }
   const selectors = selectorSetFrom(payloadObject(payload));
   markingEngine?.dispose();
-  markingEngine = createMarkingEngine(document.documentElement);
-  markingEngine.refresh();
-  const seeded = selectors ? markingEngine.seedFromSelectors(selectors) : false;
+  markingEngine = createMarkingEngine(document.documentElement, { selectors });
+  const seeded = markingEngine.lastInitializationSeededSelectors();
   const highlighted = markingEngine.renderSilentHighlights();
   silentInteractionShieldActive = true;
   lastContentSurfaceSignature = "";

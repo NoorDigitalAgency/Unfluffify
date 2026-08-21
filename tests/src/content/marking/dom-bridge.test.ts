@@ -182,6 +182,26 @@ function rect(left: number, top: number, width: number, height: number): Rect {
   return { left, top, width, height, right: left + width, bottom: top + height };
 }
 
+function createRendererTestSeam() {
+  const markingRender = vi.fn();
+  const silentRender = vi.fn();
+  const createRenderer = vi.fn((options: Parameters<typeof createOverlayRenderer>[0]) => {
+    const renderer = createOverlayRenderer(options);
+    return {
+      ...renderer,
+      render(...args: Parameters<typeof renderer.render>): void {
+        markingRender();
+        renderer.render(...args);
+      },
+      renderSilentHighlights(...args: Parameters<typeof renderer.renderSilentHighlights>): void {
+        silentRender();
+        renderer.renderSilentHighlights(...args);
+      },
+    };
+  });
+  return { createRenderer, markingRender, silentRender };
+}
+
 describe("P6 DOM bridge", () => {
   it("pierces pointer-events-suppressed descendants and accepts ancestor transparency as reachable", () => {
     const doc = new FakeDocument();
@@ -632,7 +652,46 @@ describe("P6 DOM bridge", () => {
     renderer.dispose();
   });
 
-  it("forgets selector provenance after applying selectors as ordinary user marks", () => {
+  it("initializes and refreshes defaults in one bridge, evaluation, candidate-index, and render transaction", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 200));
+    const paragraph = new FakeElement("P", rect(10, 10, 120, 20), "Default content");
+    root.ownerDocument = doc;
+    paragraph.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(paragraph);
+    const stages: string[] = [];
+    const createBridge = vi.fn((element: Element) => createDomBridgeView(element));
+    const renderer = createRendererTestSeam();
+
+    const engine = createMarkingEngine(root as unknown as Element, {
+      render: true,
+      instrumentation: {
+        createBridge,
+        createRenderer: renderer.createRenderer,
+        onWorkStage: (stage) => stages.push(stage),
+      },
+    });
+
+    expect(createBridge).toHaveBeenCalledTimes(1);
+    expect(renderer.createRenderer).toHaveBeenCalledTimes(1);
+    expect(renderer.markingRender).toHaveBeenCalledTimes(1);
+    expect(renderer.silentRender).not.toHaveBeenCalled();
+    expect(stages).toEqual(["bridge", "store-evaluate", "candidate-index", "marking-render"]);
+    expect(engine.lastInitializationSeededSelectors()).toBe(false);
+
+    stages.length = 0;
+    expect(engine.refresh({ render: true })).toBe(false);
+    expect(createBridge).toHaveBeenCalledTimes(2);
+    expect(renderer.createRenderer).toHaveBeenCalledTimes(1);
+    expect(renderer.markingRender).toHaveBeenCalledTimes(2);
+    expect(renderer.silentRender).not.toHaveBeenCalled();
+    expect(stages).toEqual(["bridge", "store-evaluate", "candidate-index", "marking-render"]);
+    engine.dispose();
+  });
+
+  it("initializes selector marks in the same single transaction with inclusion winning", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 200));
     const paragraph = new FakeElement("P", rect(10, 10, 120, 20), "Selected content");
@@ -642,14 +701,28 @@ describe("P6 DOM bridge", () => {
     doc.documentElement.appendChild(root);
     root.appendChild(paragraph);
     doc.hits = [paragraph, root];
-    Object.assign(doc, {
-      querySelectorAll(selector: string) {
-        return selector === "p" ? [paragraph] : [];
+    const stages: string[] = [];
+    const createBridge = vi.fn((element: Element) => createDomBridgeView(element));
+    const renderer = createRendererTestSeam();
+    const engine = createMarkingEngine(root as unknown as Element, {
+      render: true,
+      selectors: {
+        inclusionSelectors: ["p"],
+        exclusionSelectors: ["p"],
+      },
+      instrumentation: {
+        createBridge,
+        createRenderer: renderer.createRenderer,
+        onWorkStage: (stage) => stages.push(stage),
       },
     });
-    const engine = createMarkingEngine(root as unknown as Element);
 
-    expect(engine.seedFromSelectors({ inclusionSelectors: ["p"], exclusionSelectors: [] })).toBe(true);
+    expect(createBridge).toHaveBeenCalledTimes(1);
+    expect(renderer.createRenderer).toHaveBeenCalledTimes(1);
+    expect(renderer.markingRender).toHaveBeenCalledTimes(1);
+    expect(renderer.silentRender).not.toHaveBeenCalled();
+    expect(stages).toEqual(["bridge", "store-evaluate", "candidate-index", "marking-render"]);
+    expect(engine.lastInitializationSeededSelectors()).toBe(true);
 
     const selectorBox = engine.overlayRoot().children
       .flatMap((layer) => layer.children)
@@ -660,6 +733,83 @@ describe("P6 DOM bridge", () => {
       excluded: false,
       explicit: true,
     });
+    engine.dispose();
+  });
+
+  it("preserves document-scoped selector semantics without adding an initialization pass", () => {
+    const doc = new FakeDocument();
+    const body = new FakeElement("BODY", rect(0, 0, 300, 200));
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 200), "Scoped content");
+    body.ownerDocument = doc;
+    root.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(body);
+    body.appendChild(root);
+    const querySelectorAll = vi.fn((selector: string) =>
+      selector === ":scope > body > main" ? [root] : []
+    );
+    Object.assign(doc, { querySelectorAll });
+    const stages: string[] = [];
+    const createBridge = vi.fn((element: Element) => createDomBridgeView(element));
+    const renderer = createRendererTestSeam();
+
+    const engine = createMarkingEngine(root as unknown as Element, {
+      render: true,
+      selectors: {
+        // The ordinary non-match also proves that only `:scope` selectors use
+        // the owner-document compatibility query.
+        inclusionSelectors: [":scope > body > main", "aside"],
+        exclusionSelectors: [],
+      },
+      instrumentation: {
+        createBridge,
+        createRenderer: renderer.createRenderer,
+        onWorkStage: (stage) => stages.push(stage),
+      },
+    });
+
+    expect(querySelectorAll).toHaveBeenCalledTimes(1);
+    expect(querySelectorAll).toHaveBeenCalledWith(":scope > body > main");
+    expect(createBridge).toHaveBeenCalledTimes(1);
+    expect(renderer.markingRender).toHaveBeenCalledTimes(1);
+    expect(stages).toEqual(["bridge", "store-evaluate", "candidate-index", "marking-render"]);
+    expect(engine.rows()).toContainEqual({
+      xpath: "/main[1]",
+      excluded: false,
+      explicit: true,
+    });
+    engine.dispose();
+  });
+
+  it("initializes silent selector highlighting with one bridge, evaluation, index, and silent render", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 200));
+    const paragraph = new FakeElement("P", rect(10, 10, 120, 20), "Silent content");
+    root.ownerDocument = doc;
+    paragraph.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(paragraph);
+    const stages: string[] = [];
+    const createBridge = vi.fn((element: Element) => createDomBridgeView(element));
+    const renderer = createRendererTestSeam();
+
+    const engine = createMarkingEngine(root as unknown as Element, {
+      selectors: { inclusionSelectors: ["p"], exclusionSelectors: [] },
+      instrumentation: {
+        createBridge,
+        createRenderer: renderer.createRenderer,
+        onWorkStage: (stage) => stages.push(stage),
+      },
+    });
+    engine.renderSilentHighlights();
+
+    expect(createBridge).toHaveBeenCalledTimes(1);
+    expect(renderer.createRenderer).toHaveBeenCalledTimes(1);
+    expect(renderer.markingRender).not.toHaveBeenCalled();
+    expect(renderer.silentRender).toHaveBeenCalledTimes(1);
+    expect(stages).toEqual(["bridge", "store-evaluate", "candidate-index", "silent-render"]);
+    expect(engine.lastInitializationSeededSelectors()).toBe(true);
     engine.dispose();
   });
 
@@ -1199,8 +1349,10 @@ describe("P6 DOM bridge", () => {
     );
     doc.documentElement.ownerDocument = doc;
     doc.documentElement.appendChild(host);
-    const engine = createMarkingEngine(host as unknown as Element);
-    expect(engine.seedFromSelectors({ inclusionSelectors: ["p"], exclusionSelectors: [] })).toBe(true);
+    const engine = createMarkingEngine(host as unknown as Element, {
+      selectors: { inclusionSelectors: ["p"], exclusionSelectors: [] },
+    });
+    expect(engine.lastInitializationSeededSelectors()).toBe(true);
     expect(engine.rows()).toContainEqual({
       xpath: "/x-closed[1]/p[1]",
       excluded: false,

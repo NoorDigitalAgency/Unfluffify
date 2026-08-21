@@ -157,10 +157,142 @@ function mergeDefaultExclusions(root: EvaluationNode, markSet: CanonicalMarkSet 
   return { rows };
 }
 
-export function createMarkingEngine(rootElement: Element) {
-  let bridge: DomBridgeView = createDomBridgeView(rootElement);
-  let store = createMarkingStore({ root: bridge.root }, mergeDefaultExclusions(bridge.root));
-  const renderer = createOverlayRenderer({ document: rootElement.ownerDocument });
+export type MarkingEngineWorkStage =
+  | "bridge"
+  | "store-evaluate"
+  | "candidate-index"
+  | "marking-render"
+  | "silent-render";
+
+export type MarkingEngineInstrumentation = Readonly<{
+  /** Test seam: the returned bridge is the bridge the engine actually uses. */
+  createBridge?: (rootElement: Element) => DomBridgeView;
+  /** Test seam: the returned renderer receives every engine render operation. */
+  createRenderer?: typeof createOverlayRenderer;
+  onWorkStage?: (stage: MarkingEngineWorkStage) => void;
+}>;
+
+export type MarkingEngineInitializationOptions = Readonly<{
+  selectors?: SelectorSet | null;
+  render?: boolean;
+  instrumentation?: MarkingEngineInstrumentation;
+}>;
+
+export type MarkingEngineRefreshOptions = Readonly<{
+  selectors?: SelectorSet | null;
+  render?: boolean;
+}>;
+
+/**
+ * Resolve both selector groups against the already captured composed DOM. This is
+ * deliberately bridge-first: document.querySelectorAll cannot enter shadow roots,
+ * while an Element can answer whether it matches regardless of how it was reached.
+ */
+function selectorSeedForBridge(
+  bridge: DomBridgeView,
+  selectors: SelectorSet | null | undefined,
+): Readonly<{ excludeXpaths: readonly string[]; includeXpaths: readonly string[]; seeded: boolean }> {
+  if (!selectors) {
+    return { excludeXpaths: [], includeXpaths: [], seeded: false };
+  }
+  const excludeXpaths: string[] = [];
+  const includeXpaths: string[] = [];
+  const documentMatches = (candidates: readonly string[]): Set<Element> => {
+    const matches = new Set<Element>();
+    const ownerDocument = bridge.byXpath.values().next().value?.element.ownerDocument;
+    if (!ownerDocument?.querySelectorAll) {
+      return matches;
+    }
+    for (const selector of candidates) {
+      // `:scope` is relative to the query receiver. The former implementation
+      // queried the owner document before checking each bridge element, so a
+      // document-scoped selector such as `:scope > body > main` cannot be
+      // represented by Element.matches alone (where every element is its own
+      // scope). Retain that narrow compatibility path without restoring a
+      // whole-document query for ordinary selectors.
+      if (!/:scope\b/i.test(selector)) {
+        continue;
+      }
+      try {
+        for (const element of ownerDocument.querySelectorAll(selector)) {
+          matches.add(element);
+        }
+      } catch {
+        // Invalid selectors remain isolated from the rest of the seed set.
+      }
+    }
+    return matches;
+  };
+  const documentExcludeMatches = documentMatches(selectors.exclusionSelectors);
+  const documentIncludeMatches = documentMatches(selectors.inclusionSelectors);
+  const matchesAny = (
+    element: Element,
+    candidates: readonly string[],
+    scopedDocumentMatches: ReadonlySet<Element>,
+  ): boolean => {
+    if (scopedDocumentMatches.has(element)) {
+      return true;
+    }
+    for (const selector of candidates) {
+      try {
+        if (element.matches?.(selector)) {
+          return true;
+        }
+      } catch {
+        // One invalid or realm-specific selector must not block the remaining
+        // selector set or the initialization transaction.
+      }
+    }
+    return false;
+  };
+  for (const [xpath, entry] of bridge.byXpath) {
+    if (matchesAny(entry.element, selectors.exclusionSelectors, documentExcludeMatches)) {
+      excludeXpaths.push(xpath);
+    }
+    if (matchesAny(entry.element, selectors.inclusionSelectors, documentIncludeMatches)) {
+      includeXpaths.push(xpath);
+    }
+  }
+  return {
+    excludeXpaths,
+    includeXpaths,
+    seeded: excludeXpaths.length > 0 || includeXpaths.length > 0,
+  };
+}
+
+function initialMarksForBridge(
+  bridge: DomBridgeView,
+  previousMarks: CanonicalMarkSet,
+  selectors: SelectorSet | null | undefined,
+): Readonly<{ marks: CanonicalMarkSet; selectorsSeeded: boolean }> {
+  const defaults = mergeDefaultExclusions(bridge.root, previousMarks);
+  const seed = selectorSeedForBridge(bridge, selectors);
+  return {
+    // applySelectorSeed applies exclusions first and inclusions second, preserving
+    // the established include-wins rule when both groups match one element.
+    marks: seed.seeded ? applySelectorSeed(defaults, seed) : defaults,
+    selectorsSeeded: seed.seeded,
+  };
+}
+
+export function createMarkingEngine(
+  rootElement: Element,
+  options: MarkingEngineInitializationOptions = {},
+) {
+  const instrumentation = options.instrumentation;
+  const buildBridge = (): DomBridgeView => {
+    const nextBridge = (instrumentation?.createBridge ?? createDomBridgeView)(rootElement);
+    instrumentation?.onWorkStage?.("bridge");
+    return nextBridge;
+  };
+  let bridge: DomBridgeView = buildBridge();
+  const initial = initialMarksForBridge(bridge, { rows: [] }, options.selectors);
+  let lastInitializationSeededSelectors = initial.selectorsSeeded;
+  let store = createMarkingStore({ root: bridge.root }, initial.marks);
+  instrumentation?.onWorkStage?.("store-evaluate");
+  const renderer = (instrumentation?.createRenderer ?? createOverlayRenderer)({
+    document: rootElement.ownerDocument,
+  });
   let observerCleanup: (() => void) | null = null;
   let renderScheduled = false;
   type RenderWork = "geometry" | "silent-geometry" | "structural";
@@ -183,7 +315,6 @@ export function createMarkingEngine(rootElement: Element) {
 
   const rebuildBridgeIndexes = (): void => {
     bridgeGeneration += 1;
-    candidateByXpath = null;
     overlayTargets = new Map([...bridge.byXpath].map(([xpath, value]) => [xpath, {
       element: value.element,
       visible: value.evaluationNode.visible,
@@ -194,8 +325,10 @@ export function createMarkingEngine(rootElement: Element) {
       generationByNode.set(evaluationNode, bridgeGeneration);
       fingerprintByNode.set(evaluationNode, evaluationNodeFingerprint(evaluationNode));
     }
+    const evaluation = store.currentEvaluation();
+    candidateByXpath = buildCandidateIndex(bridge.root, evaluation.overlay, store.canonicalSet().rows);
+    instrumentation?.onWorkStage?.("candidate-index");
   };
-  rebuildBridgeIndexes();
 
   const currentCandidateIndex = (): Map<string, MarkingCandidate> => {
     if (!candidateByXpath) {
@@ -205,11 +338,19 @@ export function createMarkingEngine(rootElement: Element) {
     return candidateByXpath;
   };
 
-  const refreshBridge = (): void => {
+  const refreshBridge = (refreshOptions: MarkingEngineRefreshOptions = {}): boolean => {
     hoverResolution = null;
-    bridge = createDomBridgeView(rootElement);
-    store = createMarkingStore({ root: bridge.root }, mergeDefaultExclusions(bridge.root, store.canonicalSet()));
+    const previousMarks = store.canonicalSet();
+    bridge = buildBridge();
+    const next = initialMarksForBridge(bridge, previousMarks, refreshOptions.selectors);
+    lastInitializationSeededSelectors = next.selectorsSeeded;
+    store = createMarkingStore({ root: bridge.root }, next.marks);
+    instrumentation?.onWorkStage?.("store-evaluate");
     rebuildBridgeIndexes();
+    if (refreshOptions.render) {
+      renderCurrent();
+    }
+    return next.selectorsSeeded;
   };
   const byXpathElements = (): ReadonlyMap<string, OverlayRenderTarget> => overlayTargets;
   const byXpathElementsForBranch = (branchRoot: EvaluationNode): Map<string, OverlayRenderTarget> => {
@@ -250,10 +391,12 @@ export function createMarkingEngine(rootElement: Element) {
       }
     }
     renderer.renderSilentHighlights(xpaths, byXpath, { immutableXpaths, excludedXpaths });
+    instrumentation?.onWorkStage?.("silent-render");
     return xpaths;
   };
   const renderCurrent = (): void => {
     renderer.render(store.currentEvaluation(), byXpathElements());
+    instrumentation?.onWorkStage?.("marking-render");
     if (silentHighlightsArmed) {
       renderSilent();
     }
@@ -278,8 +421,7 @@ export function createMarkingEngine(rootElement: Element) {
       const nextWork = scheduledWork;
       scheduledWork = null;
       if (nextWork === "structural") {
-        refreshBridge();
-        renderCurrent();
+        refreshBridge({ render: true });
         return;
       }
       const byXpath = byXpathElements();
@@ -432,65 +574,18 @@ export function createMarkingEngine(rootElement: Element) {
     });
     return () => cleanups.forEach((cleanup) => cleanup());
   };
+  rebuildBridgeIndexes();
+  if (options.render) {
+    renderCurrent();
+  }
   observerCleanup = installObservers();
 
-  /** Resolves a CSS selector to the xpaths the evaluation actually knows about.
-   *  Matches outside the evaluated tree (invisible, chrome, closed shadow) have
-   *  no row to seed and are skipped. */
-  const xpathsMatching = (selectors: readonly string[]): string[] => {
-    const found = new Set<string>();
-    for (const selector of selectors) {
-      let matches: ArrayLike<Element>;
-      try {
-        matches = rootElement.ownerDocument.querySelectorAll(selector);
-      } catch {
-        // A minimal/non-document realm may lack querySelectorAll; captured
-        // shadow elements are still matched individually below.
-        matches = [];
-      }
-      for (const element of Array.from(matches)) {
-        const xpath = bridge.byElement.get(element)?.evaluationNode.xpath;
-        if (xpath) {
-          found.add(xpath);
-        }
-      }
-      // querySelectorAll does not enter shadow roots. Captured closed roots are
-      // intentionally exposed and flattened, so match every canonical bridge
-      // element during this one-time simulated-user phase as well.
-      for (const [xpath, entry] of bridge.byXpath) {
-        try {
-          if (entry.element.matches?.(selector)) {
-            found.add(xpath);
-          }
-        } catch {
-          // The document query above already validated most selectors; a
-          // realm-specific/custom-element matcher may still reject one.
-        }
-      }
-    }
-    return [...found];
-  };
-
   return {
-    refresh(): void {
-      refreshBridge();
+    refresh(refreshOptions: MarkingEngineRefreshOptions = {}): boolean {
+      return refreshBridge(refreshOptions);
     },
-    /** One-time: seeds a clean session from the defaults plus the AI selectors.
-     *  Returns false when there is nothing to seed from. */
-    seedFromSelectors(selectors: SelectorSet): boolean {
-      refreshBridge();
-      const excludeXpaths = xpathsMatching(selectors.exclusionSelectors);
-      const includeXpaths = xpathsMatching(selectors.inclusionSelectors);
-      if (excludeXpaths.length === 0 && includeXpaths.length === 0) {
-        return false;
-      }
-      store = createMarkingStore(
-        { root: bridge.root },
-        applySelectorSeed(store.canonicalSet(), { excludeXpaths, includeXpaths }),
-      );
-      candidateByXpath = null;
-      renderCurrent();
-      return true;
+    lastInitializationSeededSelectors(): boolean {
+      return lastInitializationSeededSelectors;
     },
     resolveAtPoint(x: number, y: number, mode: MarkMode, shiftActive = false): EvaluationNode | null {
       const hits = getComposedHitElements(rootElement.ownerDocument, x, y)

@@ -358,7 +358,7 @@ describe("C4 rewrite content entrypoints", () => {
     expect(restoreConsentOverlays).toHaveBeenCalledWith(document);
   });
 
-  it("reuses one marking engine while enabled and disposes overlays on deactivate", async () => {
+  it("uses one transaction for marking and silent-selector entrypoints and disposes overlays", async () => {
     const addListener = vi.fn();
     const documentListeners = new Map<string, EventListener>();
     const windowListeners: TestListenerRegistry = new Map();
@@ -372,6 +372,9 @@ describe("C4 rewrite content entrypoints", () => {
       setSuspended: vi.fn(),
       rejectAtPoint: vi.fn(),
       rows: vi.fn(() => [{ xpath: "/html[1]/body[1]/p[1]", excluded: true }]),
+      lastInitializationSeededSelectors: vi.fn(() => true),
+      renderSilentHighlights: vi.fn(() => ["/html[1]/body[1]/p[1]"]),
+      setSilentDebugAnnotations: vi.fn(),
     };
     const createMarkingEngine = vi.fn(() => engine);
     const sendMessage = vi.fn().mockResolvedValue({ ok: true });
@@ -504,7 +507,11 @@ describe("C4 rewrite content entrypoints", () => {
     ) => unknown;
 
     await applyLockState(listener);
-    await dispatchContentCommand(listener, "activateContentMain");
+    const initialSelectors = {
+      inclusionSelectors: ["main p"],
+      exclusionSelectors: ["header"],
+    };
+    await dispatchContentCommand(listener, "activateContentMain", { selectors: initialSelectors });
     for (let index = 0; index < 20 && !windowObject.postMessage.mock.calls.some(
       ([message]) => message.command === "SET_MOTION_PAUSED"
     ); index += 1) {
@@ -537,9 +544,14 @@ describe("C4 rewrite content entrypoints", () => {
       tree: "rewrite",
     });
     expect(createMarkingEngine).toHaveBeenCalledTimes(1);
-    expect(createMarkingEngine).toHaveBeenCalledWith(document.documentElement);
-    expect(engine.refresh).toHaveBeenCalledTimes(2);
-    expect(engine.renderReadOnly).toHaveBeenCalledTimes(2);
+    expect(createMarkingEngine).toHaveBeenCalledWith(document.documentElement, {
+      render: true,
+      selectors: initialSelectors,
+    });
+    expect(engine.lastInitializationSeededSelectors).toHaveBeenCalledTimes(1);
+    expect(engine.refresh).toHaveBeenCalledTimes(1);
+    expect(engine.refresh).toHaveBeenCalledWith({ render: true, selectors: undefined });
+    expect(engine.renderReadOnly).not.toHaveBeenCalled();
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
     expect(getURL).toHaveBeenCalledWith("cursors/exclude.svg");
     expect(getURL).toHaveBeenCalledWith("cursors/include.svg");
@@ -581,8 +593,8 @@ describe("C4 rewrite content entrypoints", () => {
     documentListeners.get("keydown")?.({ code: "Space" } as unknown as Event);
     dispatchTestEvent(windowListeners, "blur", {} as Event);
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
-    expect(engine.refresh).toHaveBeenCalledTimes(2);
-    expect(engine.renderReadOnly).toHaveBeenCalledTimes(2);
+    expect(engine.refresh).toHaveBeenCalledTimes(1);
+    expect(engine.renderReadOnly).not.toHaveBeenCalled();
     expect(engine.setPassthrough).toHaveBeenNthCalledWith(1, true);
     expect(engine.setPassthrough).toHaveBeenNthCalledWith(2, false);
     expect(engine.setPassthrough).toHaveBeenNthCalledWith(3, true);
@@ -674,6 +686,25 @@ describe("C4 rewrite content entrypoints", () => {
     expect(windowListeners.has("blur")).toBe(false);
     expect((document.documentElement as HTMLElement).className).toBe("page-shell");
     expect(enterSilent).toEqual({ ok: true, data: { ok: true, initialized: false, tree: "rewrite" } });
+
+    const silentSelectors = {
+      inclusionSelectors: ["article"],
+      exclusionSelectors: ["nav"],
+    };
+    engine.renderSilentHighlights.mockClear();
+    const applySilent = await dispatchContentCommand(listener, "applySilentSelectors", { selectors: silentSelectors });
+    expect(createMarkingEngine).toHaveBeenCalledTimes(2);
+    expect(createMarkingEngine).toHaveBeenNthCalledWith(2, document.documentElement, {
+      selectors: silentSelectors,
+    });
+    expect(engine.lastInitializationSeededSelectors).toHaveBeenCalledTimes(2);
+    expect(engine.renderSilentHighlights).toHaveBeenCalledTimes(1);
+    expect(engine.refresh).toHaveBeenCalledTimes(1);
+    expect(engine.renderReadOnly).not.toHaveBeenCalled();
+    expect(applySilent).toEqual({
+      ok: true,
+      data: { ok: true, seeded: true, highlighted: 1, tree: "rewrite" },
+    });
 
     const deactivate = await dispatchContentCommand(listener, "deactivateContentMain");
     expect(window.postMessage).toHaveBeenCalledWith(expect.objectContaining({

@@ -70,8 +70,8 @@ function p95(samples: readonly number[]): number {
   return ordered[Math.ceil(ordered.length * 0.95) - 1]!;
 }
 
-describe("large-DOM marking performance and output equivalence", () => {
-  it("keeps branch toggle-to-paint output exact and p95 within the legacy full-tree budget", () => {
+describe("large-tree evaluator splice performance and output equivalence", () => {
+  it("keeps pure branch evaluation exact and p95 within the pure full-tree evaluation budget", () => {
     const fixture = standardLargeDomFixture();
     const emptyMarks: CanonicalMarkSet = { rows: [] };
     const marked: CanonicalMarkSet = {
@@ -82,8 +82,9 @@ describe("large-DOM marking performance and output equivalence", () => {
       root: fixture.target,
       canonicalMarks: marked,
     });
-    // Legacy repainted from a full document evaluation. Retain that exact work
-    // profile as both the semantic oracle and the comparative time budget.
+    // This is intentionally a Node-only evaluator comparison. It measures no DOM
+    // bridge, hit testing, event dispatch, layout, overlay construction, or paint;
+    // the full-tree evaluator is only the semantic oracle and comparative budget.
     const runLegacyFullTree = (): EvaluationResult => evaluate(marked, { root: fixture.root });
 
     for (let warmup = 0; warmup < 3; warmup += 1) {
