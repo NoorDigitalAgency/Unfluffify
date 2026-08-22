@@ -81,6 +81,8 @@ test("generated extension manifest and resources resolve", async () => {
     "data-debug-tool",
     "data-event-log",
     "data-row-internal-classification",
+    "data-preview-row-debug",
+    "data-preview-row-debug-detail",
     "[Unfluffify][popup-trace]",
     "Debug direct mode enabled",
   ]) {

@@ -40,8 +40,11 @@ export function PreviewRowList({
   return (
     <ul className="preview-sidebar__list">
       {projection.rows.map((row, index) => {
-        const display = projectPreviewRow(row, debug);
-        const detail = display.debugDetail;
+        // The pure component keeps a debug argument for characterization, but
+        // a production bundle must not retain the technical renderer at all.
+        const debugEnabled = __UF_DEBUG_BUILD__ && debug;
+        const display = projectPreviewRow(row, debugEnabled);
+        const detail = debugEnabled ? display.debugDetail : undefined;
         const debugTitle = detail
           ? [
               `Classification: ${detail.classification}`,
@@ -56,7 +59,7 @@ export function PreviewRowList({
             key={display.id}
             className={`preview-sidebar__item preview-sidebar__item--${tone} ${hoveredRowId === display.id ? "preview-sidebar__item--active" : ""}`}
             title={debugTitle}
-            {...(debug ? {
+            {...(debugEnabled ? {
               "data-preview-row-debug": "true",
               "data-preview-row-id": display.id,
             } : {})}
