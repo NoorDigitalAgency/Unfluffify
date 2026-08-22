@@ -9,21 +9,15 @@ import React from "react";
 import {
   App,
   EMPTY_LYNX_CHECKLIST_STATE,
-  EMPTY_POPUP_CREDENTIALS_FORM,
-  EMPTY_POPUP_SETTINGS_FORM,
   resolvePopupActionButtons,
-  type PopupAuthState,
-  type PopupCredentialsField,
-  type PopupCredentialsForm,
   type PopupDiagnostics,
   type PopupLogEntry,
-  type PopupSettingsField,
-  type PopupSettingsForm,
   type RenderModeView,
   type LynxChecklistState,
 } from "../../popup/App";
 import { createPopupStore } from "../../popup/store";
 import { createMaintenanceController } from "../../popup/maintenance-controller";
+import { createConfigurationController } from "../../popup/configuration-controller";
 import type { PopupState } from "../../popup/organ/machine";
 import { createPopupRootRecovery } from "../../popup/root-recovery";
 import type { BrainSignal } from "../../domain/schema/signals";
@@ -40,7 +34,6 @@ import { createRuntimeTransport } from "../../messaging/transports/runtime";
 import { pullRewriteSignals, type RewriteSignalBus } from "../../messaging/rewrite-signals";
 import type { ConfigSnapshot, PropertyPublishRequest, PropertySaveRequest, SelectorSet } from "../../storage/config";
 import { canonicalPageKey } from "../../storage/property-snapshot-authority";
-import type { ConnectionSettings } from "../../storage/settings";
 import type { RenderMode } from "../../domain/schema/property";
 import type {
   PreviewEmphasizeRequest,
@@ -154,20 +147,6 @@ let lastSubmissionKey: string | null = null;
 let activeRunSessionId: string | null = null;
 let aiResumeRequestKey: string | null = null;
 let activeSiteId: number | null = null;
-let settingsForm: PopupSettingsForm = EMPTY_POPUP_SETTINGS_FORM;
-/** Null until a load succeeds. The form stays read-only that whole time so a
- *  failed read can never be mistaken for "nothing stored" and saved over. */
-let storedSettingsForm: PopupSettingsForm | null = null;
-let settingsBusy = false;
-let settingsLoadReported = false;
-let settingsFormDirty = false;
-/** Login inputs live only here. The password is never persisted, never sent to
- *  the brain, and is dropped as soon as a token comes back. */
-let credentialsForm: PopupCredentialsForm = EMPTY_POPUP_CREDENTIALS_FORM;
-let hasStoredToken = false;
-let authState: PopupAuthState = "unknown";
-let authBusy = false;
-let authMessage = "";
 let appearance: PopupAppearance = DEFAULT_POPUP_APPEARANCE;
 /** Kept outside the store so the preference survives a tab rebind. */
 let desktopPreviewEnabled = false;
@@ -347,57 +326,59 @@ function replacePopupStore(): void {
   unsubscribeStore = store.subscribe(render);
 }
 
-const SETTINGS_FORM_FIELDS = ["configEndpoint", "aiEndpoint", "stageBase"] as const;
-
-function settingsFormFrom(settings: ConnectionSettings): PopupSettingsForm {
-  return {
-    configEndpoint: settings.configEndpoint ?? "",
-    aiEndpoint: settings.aiEndpoint ?? "",
-    stageBase: settings.stageBase ?? "",
-  };
-}
-
-/** Zod rejects "" for the URL fields, so blank inputs must drop out entirely. */
-function settingsFromForm(form: PopupSettingsForm): ConnectionSettings {
-  return Object.fromEntries(
-    SETTINGS_FORM_FIELDS
-      .map((field) => [field, form[field].trim()] as const)
-      .filter(([, value]) => value !== ""),
-  ) as ConnectionSettings;
-}
-
-function settingsFormsMatch(left: PopupSettingsForm, right: PopupSettingsForm): boolean {
-  return SETTINGS_FORM_FIELDS.every((field) => left[field].trim() === right[field].trim());
-}
-
-function resolveAuthState(): PopupAuthState {
-  if (authBusy) {
-    return "checking";
-  }
-  if (authState === "invalid") {
-    return "invalid";
-  }
-  return hasStoredToken ? "signed_in" : storedSettingsForm === null ? "unknown" : "signed_out";
-}
+const configurationController = createConfigurationController({
+  async loadSettings() {
+    const response = await getPopupBus().request("settings.load", {}, { target: "background" });
+    return response.ok
+      ? { ok: true, data: response.data }
+      : { ok: false, code: response.failure.code };
+  },
+  async saveSettings(settings) {
+    const response = await getPopupBus().request("settings.save", settings, { target: "background" });
+    return response.ok
+      ? { ok: true, data: response.data }
+      : { ok: false, code: response.failure.code };
+  },
+  async accountStatus() {
+    const response = await getPopupBus().request("accounts.status", {}, { target: "background" });
+    return response.ok
+      ? { ok: true, data: response.data }
+      : { ok: false, code: response.failure.code };
+  },
+  async login(input) {
+    const response = await getPopupBus().request("accounts.login", input, { target: "background" });
+    return response.ok
+      ? { ok: true, data: response.data }
+      : { ok: false, code: response.failure.code };
+  },
+  async logout() {
+    const response = await getPopupBus().request("accounts.logout", {}, { target: "background" });
+    return response.ok
+      ? { ok: true, data: response.data }
+      : { ok: false, code: response.failure.code };
+  },
+  async validateToken() {
+    const response = await getPopupBus().request("accounts.validate", {}, { target: "background" });
+    return response.ok
+      ? { ok: true, data: response.data }
+      : { ok: false, code: response.failure.code };
+  },
+  refreshPopup,
+  recordActivity: logEvent,
+  onChange: render,
+});
 
 /** Legacy's configurationComplete: all three endpoints stored and a token held.
  *  A rejected token counts as absent — it cannot authorise anything. */
 function isConfigurationComplete(): boolean {
-  if (directModeActive) {
-    return true;
-  }
-  const stored = storedSettingsForm;
-  if (stored === null) {
-    return false;
-  }
-  const endpointsSet = SETTINGS_FORM_FIELDS.every((field) => stored[field].trim() !== "");
-  return endpointsSet && hasStoredToken && authState !== "invalid";
+  return directModeActive || configurationController.snapshot().configurationComplete;
 }
 
 function currentView(): PopupView {
+  const configuration = configurationController.snapshot();
   const resolution = resolvePopupView({
     requested: requestedView,
-    settingsLoaded: storedSettingsForm !== null || directModeActive,
+    settingsLoaded: configuration.settingsLoaded || directModeActive,
     configurationComplete: isConfigurationComplete(),
     configViewLocked,
     renderModeSet: renderModeSet(),
@@ -410,6 +391,7 @@ function currentView(): PopupView {
 function buildDiagnostics(): PopupDiagnostics {
   const state = store.getState();
   const maintenance = maintenanceController.snapshot();
+  const configuration = configurationController.snapshot();
   return {
     stateName: state.name,
     pageUrl: boundTabUrl,
@@ -425,14 +407,14 @@ function buildDiagnostics(): PopupDiagnostics {
     contentDirty,
     contentReachable,
     runSessionId: activeRunSessionId ?? state.runSessionId ?? "",
-    settingsLoaded: storedSettingsForm !== null,
-    settingsSaved: storedSettingsForm !== null && !settingsFormsMatch(storedSettingsForm, EMPTY_POPUP_SETTINGS_FORM),
-    settingsDirty: storedSettingsForm !== null && !settingsFormsMatch(storedSettingsForm, settingsForm),
-    settingsBusy,
-    stageBaseSet: (storedSettingsForm?.stageBase ?? "").trim() !== "",
-    authState: resolveAuthState(),
-    authBusy,
-    authMessage,
+    settingsLoaded: configuration.settingsLoaded,
+    settingsSaved: configuration.settingsSaved,
+    settingsDirty: configuration.settingsDirty,
+    settingsBusy: configuration.settingsBusy,
+    stageBaseSet: configuration.stageBaseSet,
+    authState: configuration.authState,
+    authBusy: configuration.authBusy,
+    authMessage: configuration.authMessage,
     renderMode: confirmedRenderMode,
     renderModePending: pendingRenderMode,
     renderModeView: renderInspectionController.snapshot().view as RenderModeView,
@@ -1169,14 +1151,15 @@ async function pollCurrentTabSignals(): Promise<void> {
   if (context === null) {
     return;
   }
-  if (storedSettingsForm === null) {
-    await loadStoredSettings();
+  const configuration = configurationController.snapshot();
+  if (!configuration.settingsLoaded) {
+    await configurationController.loadSettings();
   }
   // A cached in-memory read, so polling it costs nothing next to the lock
   // directive already going out on this tick — and it means a token that dies
   // while the popup sits open is named as rejected rather than just unreachable.
-  if (hasStoredToken) {
-    await adoptAuthStatus();
+  if (configurationController.snapshot().hasStoredToken) {
+    await configurationController.adoptAuthStatus();
   }
   const requestKey = await handleBoundContext(context);
   await refreshTodoContext(context, requestKey);
@@ -2168,7 +2151,7 @@ async function refreshPopup(): Promise<void> {
     managedRenderInspectionPropertyFor(context, requestKey),
   );
   await reconcileContentStatus(context, requestKey);
-  await adoptAuthStatus();
+  await configurationController.adoptAuthStatus();
   // An explicit refresh is the retry for a config read that failed.
   configLoadAttemptedSiteId = null;
   await maybeLoadPropertyConfig();
@@ -2181,21 +2164,6 @@ async function refreshPopup(): Promise<void> {
  *  read can lose the race. The poll loop retries until one lands. */
 /** Adopts the background monitor's verdict so a popup opening after a periodic
  *  check already knows the token is dead, without re-validating. */
-async function adoptAuthStatus(): Promise<void> {
-  const response = await getPopupBus().request("accounts.status", {}, { target: "background" });
-  if (!response.ok) {
-    return;
-  }
-  if (response.data.state === "invalid") {
-    if (authState !== "invalid") {
-      logEvent("Token rejected", "reported by the background check", "danger");
-    }
-    authState = "invalid";
-  } else if (response.data.state === "valid" && authState === "invalid") {
-    authState = "signed_in";
-  }
-}
-
 /** Reads the property's stored config so a render mode decided in an earlier
  *  session is not re-asked. Only a confirmed mode is adopted — an unset one is
  *  just the schema default, and treating it as a decision is the very thing the
@@ -2356,60 +2324,25 @@ async function loadRenderModeView(javascriptEnabled: boolean): Promise<void> {
   );
 }
 
-async function loadStoredSettings(): Promise<void> {
-  if (settingsBusy) {
-    return;
-  }
-  const response = await getPopupBus().request("settings.load", {}, { target: "background" });
-  if (!response.ok) {
-    if (!settingsLoadReported) {
-      settingsLoadReported = true;
-      logEvent("Settings unavailable", `${response.failure.code} · retrying`, "warn");
-    }
-    render();
-    return;
-  }
-  if (settingsLoadReported) {
-    logEvent("Settings loaded", "retry succeeded", "success");
-    settingsLoadReported = false;
-  }
-  hasStoredToken = response.data.hasToken;
-  if (!hasStoredToken && authState === "signed_in") {
-    authState = "signed_out";
-  }
-  storedSettingsForm = settingsFormFrom(response.data.settings);
-  // Never clobber what the operator has already typed while a retry was pending.
-  if (!settingsFormDirty) {
-    settingsForm = storedSettingsForm;
-  }
-  if (hasStoredToken) {
-    await adoptAuthStatus();
-  }
-  render();
-}
-
 async function saveStoredSettings(): Promise<void> {
-  const payload = settingsFromForm(settingsForm);
-  const definitiveDeletion = Object.keys(payload).length === 0 &&
-    storedSettingsForm !== null &&
-    !settingsFormsMatch(storedSettingsForm, EMPTY_POPUP_SETTINGS_FORM);
+  const preparation = configurationController.prepareSettingsSave();
+  const { payload, definitiveDeletion } = preparation;
   const terminalEpoch = definitiveDeletion ? beginContentCommandTerminal() : null;
-  settingsBusy = true;
-  render();
-  const response = await getPopupBus().request("settings.save", payload, { target: "background" });
-  settingsBusy = false;
-  if (!response.ok) {
+  const outcome = await configurationController.saveSettings(preparation);
+  if (outcome.status === "busy") {
     if (terminalEpoch !== null) {
       cancelContentCommandTerminal(terminalEpoch);
     }
-    logEvent("Connection save failed", response.failure.code, "danger");
+    return;
+  }
+  if (outcome.status === "failed") {
+    if (terminalEpoch !== null) {
+      cancelContentCommandTerminal(terminalEpoch);
+    }
+    logEvent("Connection save failed", outcome.code, "danger");
     render();
     return;
   }
-  storedSettingsForm = settingsFormFrom(response.data.settings);
-  settingsForm = storedSettingsForm;
-  settingsFormDirty = false;
-  hasStoredToken = response.data.hasToken;
   if (definitiveDeletion) {
     const context = await resolveTargetTabContext();
     if (context) {
@@ -2430,9 +2363,10 @@ async function saveStoredSettings(): Promise<void> {
     pendingRenderMode = null;
     requestedView = "configuration";
     configViewLocked = true;
-    authState = "signed_out";
+    configurationController.completeDefinitiveDeletion();
     maintenanceController.bindingChanged();
   }
+  configurationController.finishSettingsSave();
   logEvent("Connection saved", Object.keys(payload).join(", ") || "cleared", "success");
   render();
   if (definitiveDeletion) {
@@ -2510,109 +2444,6 @@ const maintenanceController = createMaintenanceController({
   recordActivity: logEvent,
   onChange: render,
 });
-
-function updateSettingsField(field: PopupSettingsField, value: string): void {
-  settingsForm = { ...settingsForm, [field]: value };
-  settingsFormDirty = true;
-  render();
-}
-
-function updateCredentialsField(field: PopupCredentialsField, value: string): void {
-  credentialsForm = { ...credentialsForm, [field]: value };
-  authMessage = "";
-  render();
-}
-
-const LOGIN_FAILURE_TEXT: Readonly<Record<string, string>> = {
-  skipped: "Enter an email and password.",
-  missing_token: "The accounts backend accepted the sign-in but returned no token.",
-};
-
-async function login(): Promise<void> {
-  const email = credentialsForm.email.trim();
-  if (!email || !credentialsForm.password) {
-    authMessage = LOGIN_FAILURE_TEXT.skipped;
-    render();
-    return;
-  }
-  authBusy = true;
-  authMessage = "";
-  render();
-  const response = await getPopupBus().request("accounts.login", {
-    email,
-    password: credentialsForm.password,
-  }, { target: "background" });
-  authBusy = false;
-  if (!response.ok) {
-    authMessage = `Sign-in could not be sent (${response.failure.code}).`;
-    logEvent("Sign-in failed", response.failure.code, "danger");
-    render();
-    return;
-  }
-  if (response.data.status !== "ok") {
-    authMessage = response.data.message
-      || LOGIN_FAILURE_TEXT[response.data.status]
-      || `Sign-in failed (${response.data.status}).`;
-    logEvent("Sign-in failed", authMessage, "danger");
-    render();
-    return;
-  }
-  // Drop the password the moment it is no longer needed.
-  credentialsForm = EMPTY_POPUP_CREDENTIALS_FORM;
-  hasStoredToken = true;
-  authState = "signed_in";
-  authMessage = `Signed in as ${email}.`;
-  logEvent("Signed in", email, "success");
-  render();
-  await refreshPopup();
-}
-
-async function logout(): Promise<void> {
-  authBusy = true;
-  render();
-  const response = await getPopupBus().request("accounts.logout", {}, { target: "background" });
-  authBusy = false;
-  if (!response.ok) {
-    authMessage = `Sign-out failed (${response.failure.code}).`;
-    render();
-    return;
-  }
-  hasStoredToken = false;
-  authState = "signed_out";
-  authMessage = "";
-  credentialsForm = EMPTY_POPUP_CREDENTIALS_FORM;
-  logEvent("Signed out", "token discarded");
-  render();
-  await refreshPopup();
-}
-
-async function validateToken(): Promise<void> {
-  authBusy = true;
-  authMessage = "";
-  render();
-  const response = await getPopupBus().request("accounts.validate", {}, { target: "background" });
-  authBusy = false;
-  if (!response.ok) {
-    authMessage = `Token check could not be sent (${response.failure.code}).`;
-    render();
-    return;
-  }
-  if (response.data.status === "valid") {
-    authState = "signed_in";
-    authMessage = "Token is valid.";
-    logEvent("Token valid", "", "success");
-  } else if (response.data.status === "invalid") {
-    authState = "invalid";
-    authMessage = "The stored token was rejected. Sign in again.";
-    logEvent("Token rejected", `HTTP ${response.data.httpStatus ?? 0}`, "danger");
-  } else if (response.data.status === "skipped") {
-    authMessage = "Nothing to check — set a stage base host and sign in first.";
-  } else {
-    authMessage = `Token check failed (HTTP ${response.data.httpStatus ?? 0}).`;
-    logEvent("Token check failed", `HTTP ${response.data.httpStatus ?? 0}`, "warn");
-  }
-  render();
-}
 
 async function runAi(): Promise<void> {
   const context = await resolveTargetTabContext();
@@ -3069,13 +2900,14 @@ function activateDirectMode(): void {
 }
 
 function render(): void {
+  const configuration = configurationController.snapshot();
   rootRecovery.render(
     <App
       presentation={store.getPresentation()}
       view={currentView()}
       diagnostics={buildDiagnostics()}
-      settings={settingsForm}
-      credentials={credentialsForm}
+      settings={configuration.settings}
+      credentials={configuration.credentials}
       lynxChecklist={lynxChecklist}
       appearance={appearance}
       toast={toastController.current()}
@@ -3091,12 +2923,12 @@ function render(): void {
       onPreviewRowActivate={(rowId) => { void activatePreviewRow(rowId); }}
       onRefresh={() => { void refreshPopup(); }}
       onLockAction={(action) => { void dispatchLockAction(action); }}
-      onSettingsChange={updateSettingsField}
+      onSettingsChange={(field, value) => { configurationController.updateSettings(field, value); }}
       onSettingsSave={() => { void saveStoredSettings(); }}
-      onCredentialsChange={updateCredentialsField}
-      onLogin={() => { void login(); }}
-      onLogout={() => { void logout(); }}
-      onValidateToken={() => { void validateToken(); }}
+      onCredentialsChange={(field, value) => { configurationController.updateCredentials(field, value); }}
+      onLogin={() => { void configurationController.login(); }}
+      onLogout={() => { void configurationController.logout(); }}
+      onValidateToken={() => { void configurationController.validateToken(); }}
       onInspectRenderMode={(javascriptEnabled) => { void loadRenderModeView(javascriptEnabled); }}
       onOpenConfiguration={openConfiguration}
       onConfigurationContinue={continueFromConfiguration}
@@ -3147,7 +2979,7 @@ installAppearanceStorageListener();
 void loadAppearance().catch((error: unknown) => {
   console.error("[Unfluffify][rewrite] Unable to load appearance", error);
 });
-void loadStoredSettings().catch((error: unknown) => {
+void configurationController.loadSettings().catch((error: unknown) => {
   console.error("[Unfluffify][rewrite] Unable to load stored settings", error);
 });
 void initializePopupSignals().catch((error: unknown) => {
