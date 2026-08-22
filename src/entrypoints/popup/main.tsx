@@ -58,6 +58,10 @@ import type { LockAction, LockBannerVocabulary, LockReason } from "../../domain/
 import { resolvePopupLockCopy } from "../../popup/copy";
 import { pageTypeForCandidate } from "../../domain/todo";
 import { createTodoController } from "../../popup/todo-controller";
+import {
+  createPopupPreviewController,
+  type PopupPreviewOwner,
+} from "../../popup/preview-controller";
 import { executeConfirmedCandidateNavigation } from "../../popup/candidate-navigation";
 import {
   createPopupRenderInspectionController,
@@ -118,9 +122,24 @@ type PopupBindingOccurrence = Readonly<{
  *  gets a fresh realm and may deliberately establish authority again. */
 let contentCommandTerminal = false;
 let contentCommandEpoch = 0;
-/** Only the newest projection request for the current binding may adopt. The
- * content engine also supplies a per-projection revision for monotonic refresh. */
-let previewProjectionRequestEpoch = 0;
+const previewController = createPopupPreviewController({
+  selectors: () => store.getPresentation().selectors,
+  currentProjection: () => store.getState().previewProjection ?? null,
+  setProjection: (projection) => { store.setPreviewProjection(projection); },
+  requestProjection: ({ tabId, pageUrl, selectors }) => requestPreviewProjection(tabId, {
+    pageUrl,
+    selectors: {
+      inclusionSelectors: [...selectors.inclusionSelectors],
+      exclusionSelectors: [...selectors.exclusionSelectors],
+    },
+  }),
+  emphasize: ({ tabId, ...request }) => requestPreviewEmphasis(tabId, request),
+  activate: ({ tabId, ...request }) => requestPreviewActivation(tabId, request),
+  isOpen: previewStateIsOpen,
+  isCurrent: (owner) => boundTabId === owner.tabId && boundTabKey === owner.requestKey,
+  notify: (label, detail) => { notifyEvent(label, detail, "warn"); },
+  onChange: render,
+});
 const TERMINAL_CONTENT_COMMANDS = new Set([
   "deactivateContentMain",
   "terminateConsentSuppression",
@@ -317,7 +336,7 @@ function safeOrigin(url: string): string {
 /** A tab binding owns one popup organ instance. Rebinding creates a fresh organ;
  *  state changes within that binding still happen only through decided signals. */
 function replacePopupStore(): void {
-  previewProjectionRequestEpoch += 1;
+  previewController.bindingChanged();
   unsubscribeStore?.();
   store = createPopupStore({
     name: "silent",
@@ -593,7 +612,7 @@ function dispatchSignal(signal: BrainSignal): void {
     // Leaving Preview retires every request that was authorized by that preview
     // occurrence. A delayed content reply must not repopulate the projection the
     // preview.exited transition just cleared.
-    previewProjectionRequestEpoch += 1;
+    previewController.previewClosed();
   }
   logEvent(
     signal.name,
@@ -2845,103 +2864,21 @@ async function saveSession(): Promise<void> {
   render();
 }
 
-function currentPreviewProjection(): PreviewProjection | null {
-  return store.getState().previewProjection ?? null;
-}
-
-type PreviewProjectionCandidate = Readonly<{
-  operationEpoch: number;
-  projection: PreviewProjection;
-}>;
-
-async function requestPreviewProjectionForContext(
+function previewOwner(
   context: TargetTabContext,
-  requestKey = boundTabKey,
-): Promise<PreviewProjectionCandidate | null> {
-  const operationEpoch = ++previewProjectionRequestEpoch;
-  const selectors = store.getPresentation().selectors;
-  const projection = await requestPreviewProjection(context.tabId, {
-    pageUrl: context.url,
-    selectors: {
-      inclusionSelectors: [...selectors.inclusionSelectors],
-      exclusionSelectors: [...selectors.exclusionSelectors],
-    },
-  });
-  if (
-    !projection ||
-    projection.pageUrl !== context.url ||
-    boundTabId !== context.tabId ||
-    boundTabKey !== requestKey ||
-    operationEpoch !== previewProjectionRequestEpoch
-  ) {
-    return null;
-  }
-  return { operationEpoch, projection };
-}
-
-function adoptPreviewProjectionForContext(
-  candidate: PreviewProjectionCandidate,
-  context: TargetTabContext,
-  requestKey = boundTabKey,
-): PreviewProjection | null {
-  const { operationEpoch, projection } = candidate;
-  if (
-    !previewStateIsOpen() ||
-    projection.pageUrl !== context.url ||
-    boundTabId !== context.tabId ||
-    boundTabKey !== requestKey ||
-    operationEpoch !== previewProjectionRequestEpoch
-  ) {
-    return null;
-  }
-  const current = currentPreviewProjection();
-  if (
-    current?.pageUrl === projection.pageUrl &&
-    current.projectionId === projection.projectionId
-  ) {
-    if (projection.revision <= current.revision) {
-      return current;
-    }
-  }
-  store.setPreviewProjection(projection);
-  return projection;
-}
-
-async function projectPreviewForContext(
-  context: TargetTabContext,
-  requestKey = boundTabKey,
-): Promise<PreviewProjection | null> {
-  const candidate = await requestPreviewProjectionForContext(context, requestKey);
-  return candidate
-    ? adoptPreviewProjectionForContext(candidate, context, requestKey)
-    : null;
+  requestKey: string,
+): PopupPreviewOwner {
+  return { tabId: context.tabId, requestKey, pageUrl: context.url };
 }
 
 async function ensurePreviewProjection(
   context: TargetTabContext,
-  requestKey = boundTabKey,
-): Promise<PreviewProjection | null> {
-  return await projectPreviewForContext(context, requestKey);
-}
-
-async function recoverStalePreviewProjection(
-  context: TargetTabContext,
   requestKey: string | null,
-  staleProjectionId: string,
-): Promise<void> {
-  if (
-    !previewStateIsOpen() ||
-    boundTabId !== context.tabId ||
-    boundTabKey !== requestKey ||
-    currentPreviewProjection()?.projectionId !== staleProjectionId
-  ) {
-    return;
+) {
+  if (requestKey === null) {
+    return null;
   }
-  // Fail closed: remove stale controls before asking content for the exact current
-  // projection. A failed recovery therefore cannot keep targeting old elements.
-  store.setPreviewProjection(null);
-  await projectPreviewForContext(context, requestKey);
-  render();
+  return await previewController.project(previewOwner(context, requestKey));
 }
 
 async function showPreview(): Promise<void> {
@@ -2974,7 +2911,8 @@ async function showPreview(): Promise<void> {
     render();
     return;
   }
-  const candidate = await requestPreviewProjectionForContext(context, requestKey);
+  const owner = previewOwner(context, requestKey);
+  const candidate = await previewController.requestCandidate(owner);
   if (!candidate) {
     notifyBoundEvent(binding, "Preview unavailable", "detected content could not be read", "warn");
     render();
@@ -2987,20 +2925,7 @@ async function showPreview(): Promise<void> {
     // prior cycle here makes a second open/exit pair observable to the brain.
     previewExitRequested: false,
   }, requestKey);
-  const projection = adoptPreviewProjectionForContext(candidate, context, requestKey);
-  const current = currentPreviewProjection();
-  const candidateIsStillDisplayed = current?.pageUrl === candidate.projection.pageUrl &&
-    current.projectionId === candidate.projection.projectionId &&
-    current.revision === candidate.projection.revision;
-  const contextIsInvalid = !previewStateIsOpen() ||
-    boundTabId !== context.tabId ||
-    boundTabKey !== requestKey;
-  if (!projection && candidateIsStillDisplayed && contextIsInvalid) {
-    // A newer poll may have superseded the opening request while the Preview
-    // fact was in flight. Never erase that winner just because this older
-    // candidate can no longer adopt.
-    store.setPreviewProjection(null);
-  }
+  previewController.adoptOpeningCandidate(candidate, owner);
   render();
 }
 
@@ -3030,79 +2955,25 @@ async function exitPreview(): Promise<void> {
   render();
 }
 
+function currentPreviewOwner(): PopupPreviewOwner | null {
+  const projection = store.getState().previewProjection;
+  return boundTabId !== null && boundTabKey !== null && projection
+    ? { tabId: boundTabId, requestKey: boundTabKey, pageUrl: projection.pageUrl }
+    : null;
+}
+
 async function hoverPreviewRow(rowId: string, active: boolean): Promise<void> {
-  const projection = currentPreviewProjection();
-  if (
-    !previewStateIsOpen() ||
-    boundTabId === null ||
-    boundTabKey === null ||
-    !projection ||
-    !projection.rows.some((row) => row.id === rowId)
-  ) {
-    return;
-  }
-  const context = { tabId: boundTabId, url: projection.pageUrl };
-  const requestKey = boundTabKey;
-  const result = await requestPreviewEmphasis(boundTabId, {
-    pageUrl: projection.pageUrl,
-    projectionId: projection.projectionId,
-    rowId,
-    active,
-  });
-  if (!previewTargetOccurrenceIsCurrent(context, requestKey, projection.projectionId)) {
-    return;
-  }
-  if (
-    result?.targeted === false &&
-    currentPreviewProjection()?.projectionId === projection.projectionId
-  ) {
-    await recoverStalePreviewProjection(context, requestKey, projection.projectionId);
+  const owner = currentPreviewOwner();
+  if (owner) {
+    await previewController.hover(owner, rowId, active);
   }
 }
 
 async function activatePreviewRow(rowId: string): Promise<void> {
-  const projection = currentPreviewProjection();
-  if (
-    !previewStateIsOpen() ||
-    boundTabId === null ||
-    boundTabKey === null ||
-    !projection ||
-    !projection.rows.some((row) => row.id === rowId)
-  ) {
-    return;
+  const owner = currentPreviewOwner();
+  if (owner) {
+    await previewController.activate(owner, rowId);
   }
-  const context = { tabId: boundTabId, url: projection.pageUrl };
-  const requestKey = boundTabKey;
-  const result = await requestPreviewActivation(boundTabId, {
-    pageUrl: projection.pageUrl,
-    projectionId: projection.projectionId,
-    rowId,
-  });
-  if (!previewTargetOccurrenceIsCurrent(context, requestKey, projection.projectionId)) {
-    return;
-  }
-  if (!result) {
-    notifyEvent("Preview row unavailable", "the page did not answer", "warn");
-    render();
-    return;
-  }
-  if (result.targeted === false) {
-    notifyEvent("Preview row changed", "refreshing detected content", "warn");
-    await recoverStalePreviewProjection(context, requestKey, projection.projectionId);
-  }
-}
-
-function previewTargetOccurrenceIsCurrent(
-  context: TargetTabContext,
-  requestKey: string,
-  projectionId: string,
-): boolean {
-  const current = currentPreviewProjection();
-  return previewStateIsOpen() &&
-    boundTabId === context.tabId &&
-    boundTabKey === requestKey &&
-    current?.pageUrl === context.url &&
-    current.projectionId === projectionId;
 }
 
 async function discardMarkings(): Promise<void> {
