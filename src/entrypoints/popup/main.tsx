@@ -56,10 +56,8 @@ import { createEventLog } from "../../popup/event-log";
 import { createToastController, type ToastTone } from "../../ui/toast-controller";
 import type { LockAction, LockBannerVocabulary, LockReason } from "../../domain/schema/facts";
 import { resolvePopupLockCopy } from "../../popup/copy";
-import type { TodoCoverage } from "../../domain/schema/todo";
 import { pageTypeForCandidate } from "../../domain/todo";
-import type { PageContextResolution } from "../../domain/schema/context";
-import { todoRefreshDue } from "../../popup/todo-recovery";
+import { createTodoController } from "../../popup/todo-controller";
 import { executeConfirmedCandidateNavigation } from "../../popup/candidate-navigation";
 import {
   EMPTY_RENDER_INSPECTION_PROJECTION,
@@ -225,10 +223,11 @@ let directModeActive = DEBUG_BUILD && new URLSearchParams(location.search).get("
 if (directModeActive && confirmedRenderMode === null) {
   confirmedRenderMode = "rendered";
 }
-const EMPTY_TODO_COVERAGE: TodoCoverage = { covered: 0, actionable: 0, pageTypes: [] };
-let todoStatus: PageContextResolution["status"] | "unresolved" = "unresolved";
-let todoCoverage: TodoCoverage = EMPTY_TODO_COVERAGE;
-let todoRefreshedAt = 0;
+const todoController = createTodoController({
+  loadContext(input) {
+    return getPopupBus().request("page.context", input, { target: "background" });
+  },
+});
 type ManagedRenderInspectionContext = Readonly<{
   tabId: number;
   requestKey: string;
@@ -405,8 +404,8 @@ function buildDiagnostics(): PopupDiagnostics {
     renderModeView: renderInspectionProjection.view as RenderModeView,
     renderModeDetail: renderInspectionProjection.detail,
     renderModeBusy: renderInspectionProjection.busy,
-    todoStatus,
-    todo: todoCoverage,
+    todoStatus: todoController.snapshot().status,
+    todo: todoController.snapshot().coverage,
     log: eventLog.entries(),
     maintenanceBusy: maintenance.busy,
     maintenanceMessage: maintenance.message,
@@ -657,9 +656,7 @@ function resetBoundSessionState(): void {
   contentDirty = false;
   contentReachable = true;
   contentUnreachableReported = false;
-  todoStatus = "unresolved";
-  todoCoverage = EMPTY_TODO_COVERAGE;
-  todoRefreshedAt = 0;
+  todoController.reset();
   managedRenderInspectionContext = null;
   lynxChecklist = EMPTY_LYNX_CHECKLIST_STATE;
   pendingPublicationRequest = null;
@@ -749,32 +746,25 @@ async function refreshTodoContext(
   requestKey = boundTabKey,
   options: Readonly<{ force?: boolean }> = {},
 ): Promise<void> {
-  const now = Date.now();
-  const due = todoRefreshDue(todoStatus, todoRefreshedAt, now);
-  if (todoStatus !== "unresolved" && !options.force && !due) {
-    return;
-  }
-  const response = await getPopupBus().request("page.context", {
+  const refresh = await todoController.requestRefresh({
     tabId: context.tabId,
     pageUrl: context.url,
-    // The background lock runtime owns suspended recovery cadence so it can
-    // continue with the panel closed and stop after the grace window. During a
-    // suspension the popup only samples that generation-safe cached result.
-    refresh: options.force === true || (due &&
-      todoStatus !== "suspended_candidate_removed" &&
-      todoStatus !== "suspended_candidate_feed_conflict"),
-  }, { target: "background" });
+    force: options.force,
+  });
+  if (refresh.status === "skipped") {
+    return;
+  }
   if (boundTabId !== context.tabId || boundTabKey !== requestKey) {
     return;
   }
-  todoRefreshedAt = Date.now();
+  if (!todoController.adopt(refresh.candidate)) {
+    return;
+  }
+  const response = refresh.candidate.response;
   if (!response.ok) {
-    todoStatus = "unavailable";
     managedRenderInspectionContext = null;
     return;
   }
-  todoStatus = response.data.status;
-  todoCoverage = response.data.todo;
   const managedProperty = response.data.status === "managed_candidate" ||
     response.data.status === "managed_non_candidate" ||
     response.data.status === "suspended_candidate_removed" ||
@@ -873,8 +863,8 @@ async function openLynxChecklist(): Promise<void> {
     return;
   }
   const gate = evaluatePublicationChecklist({
-    contextStatus: todoStatus,
-    todo: todoCoverage,
+    contextStatus: todoController.snapshot().status,
+    todo: todoController.snapshot().coverage,
     config: loadedConfig,
     authority: publicationAuthorityOf(inputs.lock),
   });
@@ -1027,8 +1017,8 @@ async function sendToLynx(): Promise<void> {
     requestKey = inputs.requestKey;
     const authority = publicationAuthorityOf(inputs.lock);
     const gate = evaluatePublicationChecklist({
-      contextStatus: todoStatus,
-      todo: todoCoverage,
+      contextStatus: todoController.snapshot().status,
+      todo: todoController.snapshot().coverage,
       config: loadedConfig,
       authority,
     });
@@ -1127,8 +1117,8 @@ async function sendToLynx(): Promise<void> {
     await refreshTodoContext(context, boundTabKey, { force: true });
   }
   const gate = evaluatePublicationChecklist({
-    contextStatus: todoStatus,
-    todo: todoCoverage,
+    contextStatus: todoController.snapshot().status,
+    todo: todoController.snapshot().coverage,
     config: loadedConfig,
     authority: null,
   });
@@ -1660,7 +1650,10 @@ function configFromSubmission(
     ? snapshot.pages.find((candidate) => canonicalPageKey(candidate.url) === pageKey)
     : undefined;
   const pageType = pageKey
-    ? loadedConfig?.pages[pageKey]?.pageType ?? pageTypeForCandidate(todoCoverage, pageKey)
+    ? loadedConfig?.pages[pageKey]?.pageType ?? pageTypeForCandidate(
+        todoController.snapshot().coverage,
+        pageKey,
+      )
     : undefined;
   if (!page || !pageKey || !pageType || !lock.authority || activeSiteId === null) {
     return null;
