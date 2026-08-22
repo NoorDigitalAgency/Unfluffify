@@ -945,7 +945,27 @@ in the owning phase and rerun its focused gate plus P9–P11.
     clean-worktree, exact catalog, production/debug bundle manifests,
     page/console/fatal-error absence, and process/build cleanup assertions all
     passed.
-- [ ] P19 — Targeted post-correction decomposition
+- [x] P19 — Targeted post-correction decomposition
+  - Commits: `94836745` (`Move fact sensation schemas to domain`), `852ef00e`
+    (`Extract popup presentation contract`), `e01bdedb` (`Add P19 architecture
+    boundary gates`), `961f67e4` (`Extract content toast lifecycle`),
+    `f0023a13`/`e129027f` (`Extract popup maintenance controller` and its
+    reentrancy lint fix), `f18de228` (`Extract content consent lifecycle`),
+    `567cf2f1` (`Extract popup Todo controller`), `6b62d1ce` (`Extract content
+    transient surface adapter`), `ac4155cc` (`Extract popup render inspection
+    controller`), `28f0534e` (`Extract popup preview controller`), `8cd95178`
+    (`Extract preview row React section`), `09e9ed9c` (`Extract popup toast React
+    section`), and `cf98c9d9`/`3a5d11a7` (`Extract popup configuration
+    controller` and fence property adoption).
+  - `tests/p19-import-boundary.test.ts` and
+    `tests/p19-bundle-reachability.test.ts` passed all 11 architecture checks.
+    Characterization remained green for every extracted controller and section;
+    the final configuration gate passed 69 focused controller, real-entrypoint,
+    import-boundary, and bundle-reachability tests, including delayed
+    A→B→A property-load rejection and same-site retry supersession.
+  - `pnpm verify` passed on clean commit `3a5d11a7831b`: lint, generated
+    page-world parity, all TypeScript projects, 122 files / 1,093 tests, the
+    production build, and all 7 generated-manifest assertions.
 - [ ] P20 — Integrated release gates and witnessed live acceptance
 
 For each completed item, append the commit SHA(s), exact test command, result,
