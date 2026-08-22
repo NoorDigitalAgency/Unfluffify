@@ -445,7 +445,6 @@ describe("popup maintenance controller", () => {
   });
 
   it("keeps single-flight closed while a completed result publication re-enters", async () => {
-    let controller: ReturnType<typeof createMaintenanceController>;
     let reentrant: Promise<unknown> | null = null;
     const unregisterSession = vi.fn(async () => ({ ok: true as const, data: { status: "ok" as const } }));
     const harness = createHarness({
@@ -456,7 +455,7 @@ describe("popup maintenance controller", () => {
         }
       }),
     });
-    controller = createMaintenanceController(harness.ports);
+    const controller = createMaintenanceController(harness.ports);
 
     await expect(controller.unregisterCurrentTab()).resolves.toBe("completed");
     await expect(reentrant).resolves.toBe("busy");
