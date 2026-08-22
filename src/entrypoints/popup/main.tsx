@@ -60,20 +60,11 @@ import { pageTypeForCandidate } from "../../domain/todo";
 import { createTodoController } from "../../popup/todo-controller";
 import { executeConfirmedCandidateNavigation } from "../../popup/candidate-navigation";
 import {
-  EMPTY_RENDER_INSPECTION_PROJECTION,
-  RENDER_MODE_INSPECTION_POLL_MS,
-  projectInactiveRenderInspection,
-  renderInspectionMatchesBinding,
-  projectRenderInspectionSession,
-  projectRenderInspectionStarting,
-  projectRenderInspectionWatchdog,
-  watchRenderModeInspection,
-  type RenderInspectionProjection,
-} from "../../popup/render-mode-inspection";
-import type {
-  RenderInspectionPropertyScope,
-  RenderInspectionSession,
-} from "../../messaging/render-inspection";
+  createPopupRenderInspectionController,
+  type PopupRenderInspectionOwner,
+  type RenderInspectionObservation,
+} from "../../popup/render-inspection-controller";
+import type { RenderInspectionPropertyScope } from "../../messaging/render-inspection";
 import { AI_RUN_TIMEOUT_MS } from "../../lynx/ai";
 import {
   evaluatePublicationChecklist,
@@ -177,16 +168,40 @@ let confirmedRenderMode: RenderMode | null = null;
  *  the control edits a pending value and `Set` commits it, so a stray click
  *  cannot relabel every later capture. Cleared on commit, cancel and rebind. */
 let pendingRenderMode: RenderMode | null = null;
-let renderInspectionProjection: RenderInspectionProjection = EMPTY_RENDER_INSPECTION_PROJECTION;
-/** A new start/cancel/binding invalidates every older async inspection owner. */
-let renderInspectionOperationEpoch = 0;
-/** Current reads are observational, but only their newest completion may apply an
- *  `inactive` response because that response carries no generation of its own. */
-let renderInspectionCurrentEpoch = 0;
-/** `inactive` has no generation, so current reads are admitted FIFO. Without
- *  this, a faster later inactive reply could erase an earlier active snapshot. */
-let renderInspectionCurrentTail: Promise<void> = Promise.resolve();
-let renderInspectionStartPending = false;
+const renderInspectionController = createPopupRenderInspectionController({
+  current(tabId) {
+    return getPopupBus().request(
+      "renderInspection.current",
+      { tabId },
+      { target: "background" },
+    );
+  },
+  start(request) {
+    return getPopupBus().request("renderInspection.start", request, { target: "background" });
+  },
+  cancel(request) {
+    return getPopupBus().request("renderInspection.cancel", request, { target: "background" });
+  },
+  isCurrent(owner) {
+    return boundTabId === owner.tabId && boundTabKey === owner.requestKey;
+  },
+  async refreshAfterPaint(owner) {
+    const context = { tabId: owner.tabId, url: owner.pageUrl };
+    await refreshLockDirective(context, owner.requestKey);
+    if (boundTabId !== owner.tabId || boundTabKey !== owner.requestKey) {
+      return;
+    }
+    await reconcileContentStatus(context, owner.requestKey);
+    if (boundTabId === owner.tabId && boundTabKey === owner.requestKey) {
+      render();
+    }
+  },
+  recordActivity: logEvent,
+  onChange: render,
+  onError(error) {
+    console.error("[Unfluffify][rewrite] Unable to refresh after render inspection", error);
+  },
+});
 /** Attempted, not loaded: a failed read must not re-request on every 500ms
  *  poll. The Refresh button clears this to retry deliberately. */
 let configLoadAttemptedSiteId: number | null = null;
@@ -401,9 +416,9 @@ function buildDiagnostics(): PopupDiagnostics {
     authMessage,
     renderMode: confirmedRenderMode,
     renderModePending: pendingRenderMode,
-    renderModeView: renderInspectionProjection.view as RenderModeView,
-    renderModeDetail: renderInspectionProjection.detail,
-    renderModeBusy: renderInspectionProjection.busy,
+    renderModeView: renderInspectionController.snapshot().view as RenderModeView,
+    renderModeDetail: renderInspectionController.snapshot().detail,
+    renderModeBusy: renderInspectionController.snapshot().busy,
     todoStatus: todoController.snapshot().status,
     todo: todoController.snapshot().coverage,
     log: eventLog.entries(),
@@ -631,11 +646,7 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
 }
 
 function resetBoundSessionState(): void {
-  renderInspectionOperationEpoch += 1;
-  renderInspectionCurrentEpoch += 1;
-  renderInspectionCurrentTail = Promise.resolve();
-  renderInspectionStartPending = false;
-  renderInspectionProjection = EMPTY_RENDER_INSPECTION_PROJECTION;
+  renderInspectionController.bindingChanged();
   brainSignals.reset();
   appliedEmulationMode = null;
   pendingRenderMode = null;
@@ -2013,13 +2024,13 @@ async function restoreJavascriptView(): Promise<boolean> {
   if (observed === "unavailable" || observed === "stale") {
     return false;
   }
-  const current = renderInspectionProjection.session;
+  const current = renderInspectionController.snapshot().session;
   const javascriptPaintAlreadyConfirmed =
     observed === "terminal" &&
     current?.phase === "terminal" &&
     current.terminalReason === "paint-acknowledged" &&
     current.javascriptEnabled &&
-    renderInspectionProjection.view === "with_javascript";
+    renderInspectionController.snapshot().view === "with_javascript";
   if (javascriptPaintAlreadyConfirmed) {
     return true;
   }
@@ -2035,12 +2046,12 @@ async function restoreJavascriptView(): Promise<boolean> {
   if (!bindingOccurrenceIsCurrent(binding)) {
     return false;
   }
-  const restored = renderInspectionProjection.session;
+  const restored = renderInspectionController.snapshot().session;
   const javascriptPaintConfirmed =
     restored?.phase === "terminal" &&
     restored.terminalReason === "paint-acknowledged" &&
     restored.javascriptEnabled &&
-    renderInspectionProjection.view === "with_javascript";
+    renderInspectionController.snapshot().view === "with_javascript";
   if (!javascriptPaintConfirmed) {
     notifyBoundEvent(binding, "JavaScript view not confirmed", "stay here and retry before leaving", "warn");
     render();
@@ -2274,239 +2285,36 @@ function setRenderMode(mode: RenderMode): void {
     });
 }
 
-function renderInspectionStillOwns(
+function renderInspectionOwner(
   context: TargetTabContext,
   requestKey: string,
-  operationEpoch: number,
-): boolean {
-  return boundTabId === context.tabId &&
-    boundTabKey === requestKey &&
-    renderInspectionOperationEpoch === operationEpoch;
+): PopupRenderInspectionOwner {
+  return { tabId: context.tabId, requestKey, pageUrl: context.url };
 }
 
-async function adoptRenderInspectionSession(
-  context: TargetTabContext,
-  requestKey: string,
-  session: RenderInspectionSession,
-  property: RenderInspectionPropertyScope | null = null,
-  authoritativeCurrent = false,
-): Promise<"active" | "terminal" | "ignored"> {
-  if (boundTabId !== context.tabId || boundTabKey !== requestKey) {
-    return "ignored";
-  }
-  const binding = { pageUrl: context.url, property };
-  if (!renderInspectionMatchesBinding(session, binding)) {
-    if (authoritativeCurrent) {
-      renderInspectionProjection = projectInactiveRenderInspection();
-      render();
-    }
-    return "ignored";
-  }
-
-  const previous = renderInspectionProjection;
-  const result = projectRenderInspectionSession(previous, session, binding);
-  if (result.status === "ignored") {
-    return "ignored";
-  }
-  renderInspectionProjection = result.projection;
-  if (
-    session.phase !== "terminal" &&
-    session.deadlineAt <= Date.now()
-  ) {
-    // The durable runtime remains authoritative and may still publish a terminal
-    // result. This only prevents a reopened popup from staying permanently busy
-    // while the worker is recovering.
-    renderInspectionProjection = projectRenderInspectionWatchdog(renderInspectionProjection);
-  }
-  render();
-
-  if (result.status === "updated" && session.phase === "terminal") {
-    if (session.terminalReason === "paint-acknowledged") {
-      logEvent(
-        "Render-mode view loaded",
-        session.javascriptEnabled ? "with JavaScript" : "without JavaScript",
-        "success",
-      );
-    } else {
-      logEvent(
-        "Render-mode view incomplete",
-        session.terminalReason ?? "unknown terminal reason",
-        "warn",
-      );
-    }
-  }
-
-  if (result.refreshLock && boundTabId === context.tabId && boundTabKey === requestKey) {
-    // Paint acknowledgement is the terminal inspection result. Publish it to
-    // the caller immediately; lock/content reconciliation is follow-up work and
-    // must not keep the popup-local watchdog alive long enough to overwrite an
-    // already-confirmed view with retry feedback.
-    void (async () => {
-      await refreshLockDirective(context, requestKey);
-      if (boundTabId !== context.tabId || boundTabKey !== requestKey) {
-        return;
-      }
-      await reconcileContentStatus(context, requestKey);
-      if (boundTabId === context.tabId && boundTabKey === requestKey) {
-        render();
-      }
-    })().catch((error: unknown) => {
-      console.error("[Unfluffify][rewrite] Unable to refresh after render inspection", error);
-    });
-  }
-  return session.phase === "terminal" ? "terminal" : "active";
-}
-
-type RenderInspectionObservation =
-  | "active"
-  | "terminal"
-  | "inactive"
-  | "unavailable"
-  | "stale";
-
-type RenderInspectionStartObservation = RenderInspectionObservation | "conflict";
-
-async function observeCurrentRenderInspection(
+function observeCurrentRenderInspection(
   context: TargetTabContext,
   requestKey: string,
   property: RenderInspectionPropertyScope | null = null,
-  operationEpoch = renderInspectionOperationEpoch,
 ): Promise<RenderInspectionObservation> {
-  const previous = renderInspectionCurrentTail;
-  let release!: () => void;
-  renderInspectionCurrentTail = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  await previous.catch(() => undefined);
-  try {
-    if (
-      renderInspectionStartPending ||
-      !renderInspectionStillOwns(context, requestKey, operationEpoch)
-    ) {
-      return "stale";
-    }
-    const currentEpoch = ++renderInspectionCurrentEpoch;
-    const watched = await watchRenderModeInspection(() => getPopupBus().request(
-      "renderInspection.current",
-      { tabId: context.tabId },
-      { target: "background" },
-    ));
-    if (
-      !renderInspectionStillOwns(context, requestKey, operationEpoch) ||
-      currentEpoch !== renderInspectionCurrentEpoch
-    ) {
-      return "stale";
-    }
-    if (watched.status === "timeout") {
-      if (renderInspectionProjection.busy) {
-        renderInspectionProjection = projectRenderInspectionWatchdog(renderInspectionProjection);
-        render();
-      }
-      return "unavailable";
-    }
-    const response = watched.value;
-    if (!response.ok) {
-      return "unavailable";
-    }
-    if (response.data.status === "inactive") {
-      renderInspectionProjection = projectInactiveRenderInspection();
-      render();
-      return "inactive";
-    }
-    const adopted = await adoptRenderInspectionSession(
-      context,
-      requestKey,
-      response.data.session,
-      property,
-      true,
-    );
-    return adopted === "ignored" ? "stale" : adopted;
-  } finally {
-    release();
-  }
+  return renderInspectionController.observe(
+    renderInspectionOwner(context, requestKey),
+    property,
+  );
 }
 
 /** Explicitly leaving the render-mode view may cancel its active generation.
- *  Popup disposal and rebinding never call this path. */
-async function cancelActiveRenderInspection(
+ * Popup disposal and rebinding only retire the local controller occurrence. */
+function cancelActiveRenderInspection(
   context: TargetTabContext,
   requestKey: string,
 ): Promise<void> {
-  const session = renderInspectionProjection.session;
-  if (!session || session.phase === "terminal") {
-    return;
-  }
-  const operationEpoch = ++renderInspectionOperationEpoch;
-  renderInspectionCurrentEpoch += 1;
-  renderInspectionCurrentTail = Promise.resolve();
-  renderInspectionStartPending = false;
-  renderInspectionProjection = projectRenderInspectionStarting(renderInspectionProjection);
-  render();
-
-  const watched = await watchRenderModeInspection(() => getPopupBus().request(
-    "renderInspection.cancel",
-    {
-      tabId: context.tabId,
-      token: session.token,
-      generation: session.generation,
-    },
-    { target: "background" },
-  ));
-  if (!renderInspectionStillOwns(context, requestKey, operationEpoch)) {
-    return;
-  }
-  if (watched.status === "timeout") {
-    renderInspectionOperationEpoch += 1;
-    renderInspectionCurrentEpoch += 1;
-    renderInspectionCurrentTail = Promise.resolve();
-    renderInspectionProjection = projectRenderInspectionWatchdog(
-      renderInspectionProjection,
-      "The page view cancellation is still running in the background.",
-    );
-    render();
-    return;
-  }
-  const response = watched.value;
-  if (!response.ok) {
-    renderInspectionProjection = projectRenderInspectionWatchdog(
-      renderInspectionProjection,
-      "The page view cancellation could not be observed. Retry when the tab is ready.",
-    );
-    render();
-    return;
-  }
-  if (response.data.status === "inactive") {
-    renderInspectionProjection = projectInactiveRenderInspection();
-    render();
-    return;
-  }
-  if (response.data.session) {
-    await adoptRenderInspectionSession(
-      context,
-      requestKey,
-      response.data.session,
-      session.property,
-    );
-    return;
-  }
-  renderInspectionProjection = projectRenderInspectionWatchdog(
-    renderInspectionProjection,
-    "A newer page view replaced this cancellation. Retry if the page is not ready.",
-  );
-  render();
-}
-
-async function waitForRenderInspectionPoll(): Promise<void> {
-  await new Promise<void>((resolve) => {
-    setTimeout(resolve, RENDER_MODE_INSPECTION_POLL_MS);
-  });
+  return renderInspectionController.cancel(renderInspectionOwner(context, requestKey));
 }
 
 /**
- * Starts a durable background inspection, then observes that generation until
- * its terminal snapshot arrives. Closing the popup simply destroys this local
- * observer; the background session keeps running and is reconstructed by
- * `current` when a popup opens again.
+ * Resolves current managed-property authority in main, then delegates the
+ * durable start/poll occurrence to the popup-local controller.
  */
 async function loadRenderModeView(javascriptEnabled: boolean): Promise<void> {
   const context = await resolveTargetTabContext();
@@ -2515,119 +2323,18 @@ async function loadRenderModeView(javascriptEnabled: boolean): Promise<void> {
   }
   const requestKey = await handleBoundContext(context);
   await refreshTodoContext(context, requestKey, { force: true });
-  const managed = managedRenderInspectionContext;
-  const property =
-    managed?.tabId === context.tabId &&
-    managed.requestKey === requestKey &&
-    managed.pageUrl === context.url
-      ? managed.property
-      : null;
+  const property = managedRenderInspectionPropertyFor(context, requestKey);
   if (property === null) {
-    renderInspectionProjection = projectRenderInspectionWatchdog(
-      renderInspectionProjection,
+    renderInspectionController.markUnavailable(
       "The managed property context is unavailable, so this page view cannot be reloaded.",
     );
-    render();
     return;
   }
-
-  const operationEpoch = ++renderInspectionOperationEpoch;
-  renderInspectionCurrentEpoch += 1;
-  renderInspectionCurrentTail = Promise.resolve();
-  renderInspectionStartPending = true;
-  renderInspectionProjection = projectRenderInspectionStarting(renderInspectionProjection);
-  render();
-
-  const watched = await watchRenderModeInspection(async (): Promise<RenderInspectionStartObservation> => {
-    const response = await getPopupBus().request(
-      "renderInspection.start",
-      {
-        tabId: context.tabId,
-        property,
-        pageUrl: context.url,
-        javascriptEnabled,
-      },
-      { target: "background" },
-    );
-    if (!renderInspectionStillOwns(context, requestKey, operationEpoch)) {
-      return "stale";
-    }
-    renderInspectionStartPending = false;
-    if (!response.ok) {
-      return "unavailable";
-    }
-    const first = await adoptRenderInspectionSession(
-      context,
-      requestKey,
-      response.data.session,
-      property,
-    );
-    if (
-      response.data.status === "error" &&
-      response.data.reason === "inspection-already-active"
-    ) {
-      if (first === "ignored") {
-        return "stale";
-      }
-      renderInspectionProjection = projectRenderInspectionWatchdog(
-        renderInspectionProjection,
-        `Another page view is already loading ${response.data.session.javascriptEnabled
-          ? "with JavaScript"
-          : "without JavaScript"}. Wait for it to finish, then retry this view.`,
-      );
-      logEvent("Render-mode view not started", "another inspection is already active", "warn");
-      render();
-      return "conflict";
-    }
-    if (first !== "active") {
-      return first === "ignored" ? "stale" : first;
-    }
-
-    while (renderInspectionStillOwns(context, requestKey, operationEpoch)) {
-      await waitForRenderInspectionPoll();
-      const observed = await observeCurrentRenderInspection(
-        context,
-        requestKey,
-        property,
-        operationEpoch,
-      );
-      if (observed === "stale") {
-        continue;
-      }
-      if (observed !== "active") {
-        return observed;
-      }
-    }
-    return "stale";
-  });
-
-  if (!renderInspectionStillOwns(context, requestKey, operationEpoch)) {
-    return;
-  }
-  renderInspectionStartPending = false;
-  if (watched.status === "timeout") {
-    // Invalidate the still-running observer before changing local presentation.
-    // No cancel or restoration is sent: the background remains the sole owner.
-    renderInspectionOperationEpoch += 1;
-    renderInspectionCurrentEpoch += 1;
-    renderInspectionCurrentTail = Promise.resolve();
-    renderInspectionProjection = projectRenderInspectionWatchdog(renderInspectionProjection);
-    logEvent(
-      "Render-mode view still loading",
-      javascriptEnabled ? "with JavaScript" : "without JavaScript",
-      "warn",
-    );
-    render();
-    return;
-  }
-  if (watched.value === "unavailable") {
-    renderInspectionProjection = projectRenderInspectionWatchdog(
-      renderInspectionProjection,
-      "The page reload could not be observed. It may still be running; retry this view.",
-    );
-    logEvent("Render-mode view unavailable", "background did not answer", "warn");
-    render();
-  }
+  await renderInspectionController.start(
+    renderInspectionOwner(context, requestKey),
+    property,
+    javascriptEnabled,
+  );
 }
 
 async function loadStoredSettings(): Promise<void> {
