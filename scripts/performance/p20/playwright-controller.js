@@ -229,10 +229,15 @@ async (page) => {
     await Promise.allSettled([contentPage?.close(), productionPage?.close(), debugPage?.close()]);
   }
 
-  const browserEnvironment = await page.evaluate(() => ({
+  const browser = page.context().browser();
+  const browserEnvironment = {
+    browserType: browser?.browserType().name() ?? null,
+    browserVersion: browser?.version() ?? null,
+    ...await page.evaluate(() => ({
     userAgent: navigator.userAgent,
     viewport: { width: innerWidth, height: innerHeight, devicePixelRatio },
-  }));
+    })),
+  };
   const payload = { checks, pageErrors, consoleErrors, evidence, browserEnvironment, fatalError };
   const response = await page.evaluate(async ({ endpoint, body }) => {
     const result = await fetch(endpoint, {
