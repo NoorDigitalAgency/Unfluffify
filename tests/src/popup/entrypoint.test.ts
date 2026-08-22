@@ -151,6 +151,18 @@ function replyFrame(frame: BusFrame, payload: unknown): BusFrame {
   };
 }
 
+function failedReplyFrame(frame: BusFrame, code: string): BusFrame {
+  return {
+    ...frame,
+    frameType: "reply",
+    source: "background",
+    target: frame.source,
+    ok: false,
+    payload: null,
+    failure: { code, message: code },
+  };
+}
+
 function contentReplyFrame(frame: BusFrame, data: unknown): BusFrame {
   return {
     ...frame,
@@ -3563,6 +3575,211 @@ describe("rewrite popup entrypoint", () => {
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("terminateConsentSuppression", {}));
     expect(reload).toHaveBeenCalledTimes(2);
     expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("drops a delayed cache result when the live tab navigates before polling observes it", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    let tabUrl = "https://a.example/page";
+    const query = vi.fn(async () => [{ id: 77, url: tabUrl }]);
+    const get = vi.fn(async () => ({ id: 77, url: tabUrl }));
+    const reload = vi.fn((_tabId: number, _options: object, callback: () => void) => callback());
+    let resolveClear!: (value: { status: "ok"; origin: string }) => void;
+    const clearResult = new Promise<{ status: "ok"; origin: string }>((resolve) => {
+      resolveClear = resolve;
+    });
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "cache.clearDomain") {
+        return replyFrame(message, await clearResult);
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: {
+        query,
+        get,
+        reload,
+        sendMessage: makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" })),
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    await waitFor(() => props().diagnostics.settingsLoaded, "stored connection profile");
+
+    props().onEmptyDomainCache();
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "cache.clearDomain"),
+      "delayed cache command",
+    );
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "cache.clearDomain",
+      payload: { origin: "https://a.example" },
+    }));
+
+    // No popup poll has run. The controller must consult the authoritative live
+    // tab again instead of letting the still-cached A binding authorize B.
+    tabUrl = "https://b.example/replacement";
+    resolveClear({ status: "ok", origin: "https://a.example" });
+    await waitFor(() => props().diagnostics.maintenanceBusy === false, "stale cache retirement");
+
+    expect(reload).not.toHaveBeenCalled();
+    expect(props().diagnostics).toMatchObject({
+      pageUrl: "https://a.example/page",
+      maintenanceMessage: "",
+      maintenanceTone: "info",
+    });
+    expect(props().diagnostics.log).not.toContainEqual(expect.objectContaining({
+      label: "Domain cache cleared",
+    }));
+  });
+
+  it("orders explicit unregister termination before background cleanup, reload, and close", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const order: string[] = [];
+    const close = vi.fn(() => { order.push("close"); });
+    Object.assign(globalThis.window, { close });
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const tab = { id: 77, url: "https://example.com/a" };
+    const tabsSendMessage = makeTabsSendMessage((_tabId, message) => {
+      if (message.type === "deactivateContentMain") {
+        order.push("deactivate");
+      } else if (message.type === "terminateConsentSuppression") {
+        order.push("suppress");
+      }
+      return { ok: true, initialized: true, tree: "rewrite" };
+    });
+    const reload = vi.fn((_tabId: number, _options: object, callback: () => void) => {
+      order.push("reload");
+      callback();
+    });
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "session.unregister") {
+        order.push("unregister");
+        return replyFrame(message, { status: "ok" });
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: {
+        query: vi.fn().mockResolvedValue([tab]),
+        get: vi.fn().mockResolvedValue(tab),
+        reload,
+        sendMessage: tabsSendMessage,
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    await waitFor(() => props().diagnostics.settingsLoaded, "stored connection profile");
+    order.length = 0;
+
+    props().onUnregisterTab();
+    await waitFor(() => close.mock.calls.length === 1, "ordered unregister completion");
+
+    expect(order).toEqual(["deactivate", "suppress", "unregister", "reload", "close"]);
+  });
+
+  it("keeps a failed unregister connected and does not reload or close", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const close = vi.fn();
+    Object.assign(globalThis.window, { close });
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const tab = { id: 77, url: "https://example.com/a" };
+    const reload = vi.fn();
+    const runtime = makeRuntime(async (message) => message.name === "session.unregister"
+      ? failedReplyFrame(message, "HANDLER_FAILED")
+      : replyFrame(message, []));
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: {
+        query: vi.fn().mockResolvedValue([tab]),
+        get: vi.fn().mockResolvedValue(tab),
+        reload,
+        sendMessage: tabsSendMessage,
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    await waitFor(() => props().diagnostics.settingsLoaded, "stored connection profile");
+    props().onUnregisterTab();
+    await waitFor(
+      () => props().diagnostics.maintenanceMessage.includes("remains connected"),
+      "failed unregister result",
+    );
+
+    expect(reload).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
+    expect(props().diagnostics).toMatchObject({ maintenanceBusy: false, maintenanceTone: "danger" });
+    expect(props().diagnostics.log[0]).toMatchObject({
+      label: "Tab unregister failed",
+      detail: "HANDLER_FAILED",
+      tone: "danger",
+    });
+  });
+
+  it("does not suppress consent or unregister after rebinding during content deactivation", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const close = vi.fn();
+    Object.assign(globalThis.window, { close });
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    let tabUrl = "https://example.com/a";
+    const query = vi.fn(async () => [{ id: 77, url: tabUrl }]);
+    const get = vi.fn(async () => ({ id: 77, url: tabUrl }));
+    let releaseFirstDeactivate!: (value: unknown) => void;
+    const firstDeactivate = new Promise<unknown>((resolve) => {
+      releaseFirstDeactivate = resolve;
+    });
+    let deferDeactivate = true;
+    const tabsSendMessage = makeTabsSendMessage(async (_tabId, message) => {
+      if (message.type === "deactivateContentMain" && deferDeactivate) {
+        deferDeactivate = false;
+        return await firstDeactivate;
+      }
+      return { ok: true, initialized: true, tree: "rewrite" };
+    });
+    const runtime = makeRuntime(async (message) => replyFrame(message, []));
+    const reload = vi.fn();
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, get, reload, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    await waitFor(() => props().diagnostics.settingsLoaded, "stored connection profile");
+    props().onUnregisterTab();
+    await waitFor(
+      () => tabsSendMessage.mock.calls.some(([, frame]) =>
+        (frame as BusFrame).name === "command.dispatch" &&
+        ((frame as BusFrame).payload as { name?: string }).name === "deactivateContentMain"),
+      "pending content deactivation",
+    );
+
+    tabUrl = "https://example.com/b";
+    const poll = globalThis.window.setInterval.mock.calls[0]?.[0] as () => void;
+    poll();
+    await waitFor(() => props().diagnostics.pageUrl === tabUrl, "replacement binding");
+    releaseFirstDeactivate({ ok: true, initialized: true, tree: "rewrite" });
+    await flushEntrypointWork();
+
+    const terminalCommands = tabsSendMessage.mock.calls.map(([, frame]) =>
+      ((frame as BusFrame).payload as { name?: string } | undefined)?.name);
+    expect(terminalCommands).toContain("deactivateContentMain");
+    expect(terminalCommands).not.toContain("terminateConsentSuppression");
+    expect(runtime.sendMessage.mock.calls).not.toContainEqual([
+      expect.objectContaining({ name: "session.unregister" }),
+    ]);
+    expect(reload).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
   });
 
   it("does not let a pre-unregister config poll command the replacement document", async () => {

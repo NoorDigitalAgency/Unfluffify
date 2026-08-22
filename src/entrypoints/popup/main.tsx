@@ -23,6 +23,7 @@ import {
   type LynxChecklistState,
 } from "../../popup/App";
 import { createPopupStore } from "../../popup/store";
+import { createMaintenanceController } from "../../popup/maintenance-controller";
 import type { PopupState } from "../../popup/organ/machine";
 import { createPopupRootRecovery } from "../../popup/root-recovery";
 import type { BrainSignal } from "../../domain/schema/signals";
@@ -218,9 +219,6 @@ let contentDirty = false;
 let contentReachable = true;
 let contentUnreachableReported = false;
 let candidateNavigationBusy = false;
-let maintenanceBusy = false;
-let maintenanceMessage = "";
-let maintenanceTone: PopupLogEntry["tone"] = "info";
 const DEBUG_BUILD = __UF_DEBUG_BUILD__;
 let debugTraceEnabled = false;
 let directModeActive = DEBUG_BUILD && new URLSearchParams(location.search).get("directMode") === "1";
@@ -378,6 +376,7 @@ function currentView(): PopupView {
 
 function buildDiagnostics(): PopupDiagnostics {
   const state = store.getState();
+  const maintenance = maintenanceController.snapshot();
   return {
     stateName: state.name,
     pageUrl: boundTabUrl,
@@ -409,9 +408,9 @@ function buildDiagnostics(): PopupDiagnostics {
     todoStatus,
     todo: todoCoverage,
     log: eventLog.entries(),
-    maintenanceBusy,
-    maintenanceMessage,
-    maintenanceTone,
+    maintenanceBusy: maintenance.busy,
+    maintenanceMessage: maintenance.message,
+    maintenanceTone: maintenance.tone,
   };
 }
 
@@ -628,6 +627,7 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   resetBoundSessionState();
   logEvent(sameTabNavigation ? "Page navigated" : "Tab bound", context.url);
   replacePopupStore();
+  maintenanceController.bindingChanged();
   return { changed: true, sameTabNavigation, key: nextKey };
 }
 
@@ -2712,6 +2712,7 @@ async function saveStoredSettings(): Promise<void> {
     requestedView = "configuration";
     configViewLocked = true;
     authState = "signed_out";
+    maintenanceController.bindingChanged();
   }
   logEvent("Connection saved", Object.keys(payload).join(", ") || "cleared", "success");
   render();
@@ -2728,97 +2729,68 @@ async function reloadTargetTab(tabId: number): Promise<void> {
   );
 }
 
-async function clearCurrentDomainCache(): Promise<void> {
-  const context = await resolveTargetTabContext();
-  const origin = context ? safeOrigin(context.url) : "";
-  if (!context || !origin) {
-    maintenanceMessage = "This tab does not have a website domain whose cache can be cleared.";
-    maintenanceTone = "danger";
-    render();
-    return;
-  }
-  maintenanceBusy = true;
-  maintenanceMessage = "";
-  render();
-  const response = await getPopupBus().request("cache.clearDomain", { origin }, { target: "background" });
-  if (!response.ok) {
-    maintenanceBusy = false;
-    maintenanceMessage = "Chrome could not clear this domain's cache.";
-    maintenanceTone = "danger";
-    logEvent("Domain cache clear failed", response.failure.code, "danger");
-    render();
-    return;
-  }
-  if (response.data.status === "error") {
-    maintenanceBusy = false;
-    maintenanceMessage = response.data.message;
-    maintenanceTone = "danger";
-    logEvent("Domain cache clear failed", response.data.message, "danger");
-    render();
-    return;
-  }
-  try {
-    await reloadTargetTab(context.tabId);
-    maintenanceMessage = `Cache emptied for ${response.data.origin}. The tab is reloading.`;
-    maintenanceTone = "success";
-    logEvent("Domain cache cleared", response.data.origin, "success");
-  } catch (error) {
-    maintenanceMessage = "The cache was emptied, but Chrome could not reload the tab.";
-    maintenanceTone = "warn";
-    logEvent("Domain cache reload failed", error instanceof Error ? error.message : String(error), "warn");
-  } finally {
-    maintenanceBusy = false;
-    render();
-  }
-}
-
-async function unregisterCurrentTab(): Promise<void> {
-  const terminalEpoch = beginContentCommandTerminal();
-  const context = await resolveTargetTabContext();
-  if (!context) {
-    cancelContentCommandTerminal(terminalEpoch);
-    maintenanceMessage = "The tab is no longer available to unregister.";
-    maintenanceTone = "danger";
-    render();
-    return;
-  }
-  maintenanceBusy = true;
-  maintenanceMessage = "";
-  render();
-  await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
-  await sendContentMessage(context.tabId, { type: "terminateConsentSuppression" });
-  const response = await getPopupBus().request(
-    "session.unregister",
-    { tabId: context.tabId },
-    { target: "background" },
-  );
-  if (!response.ok) {
-    cancelContentCommandTerminal(terminalEpoch);
-    maintenanceBusy = false;
-    maintenanceMessage = "Unfluffify could not unregister this tab. It remains connected.";
-    maintenanceTone = "danger";
-    logEvent("Tab unregister failed", response.failure.code, "danger");
-    render();
-    return;
-  }
-  resetBoundSessionState();
-  contentActive = false;
-  contentDirty = false;
-  try {
-    await reloadTargetTab(context.tabId);
-    maintenanceMessage = "Unfluffify was closed on this tab. The page is reloading normally.";
-    maintenanceTone = "success";
-    logEvent("Tab unregistered", context.url, "success");
-    window.close?.();
-  } catch (error) {
-    maintenanceMessage = "The tab was unregistered, but Chrome could not reload it.";
-    maintenanceTone = "warn";
-    logEvent("Tab unregister reload failed", error instanceof Error ? error.message : String(error), "warn");
-  } finally {
-    maintenanceBusy = false;
-    render();
-  }
-}
+const maintenanceController = createMaintenanceController({
+  captureBinding: () => ({
+    tabId: boundTabId,
+    key: boundTabKey,
+    url: boundTabUrl,
+    occurrence: boundTabOccurrence,
+  }),
+  async resolveTarget() {
+    const context = await resolveTargetTabContext();
+    return context
+      ? { ...context, origin: safeOrigin(context.url) }
+      : null;
+  },
+  isCurrentOccurrence: (binding) =>
+    binding.tabId !== null &&
+    binding.tabId === boundTabId &&
+    binding.key !== null &&
+    binding.key === boundTabKey &&
+    binding.occurrence === boundTabOccurrence,
+  isCurrentTab: (tabId) => boundTabId === tabId,
+  beginTerminal: beginContentCommandTerminal,
+  cancelTerminal: cancelContentCommandTerminal,
+  async deactivateContent(tabId) {
+    await sendContentMessage(tabId, { type: "deactivateContentMain" });
+  },
+  async terminateConsentSuppression(tabId) {
+    await sendContentMessage(tabId, { type: "terminateConsentSuppression" });
+  },
+  async clearDomain(origin) {
+    const response = await getPopupBus().request(
+      "cache.clearDomain",
+      { origin },
+      { target: "background" },
+    );
+    return response.ok
+      ? { ok: true, data: response.data }
+      : { ok: false, code: response.failure.code };
+  },
+  async unregisterSession(tabId) {
+    const response = await getPopupBus().request(
+      "session.unregister",
+      { tabId },
+      { target: "background" },
+    );
+    return response.ok
+      ? { ok: true, data: response.data }
+      : { ok: false, code: response.failure.code };
+  },
+  commitUnregistered(tabId) {
+    if (boundTabId !== tabId) {
+      return false;
+    }
+    resetBoundSessionState();
+    contentActive = false;
+    contentDirty = false;
+    return true;
+  },
+  reloadTab: reloadTargetTab,
+  closePopup: () => { window.close?.(); },
+  recordActivity: logEvent,
+  onChange: render,
+});
 
 function updateSettingsField(field: PopupSettingsField, value: string): void {
   settingsForm = { ...settingsForm, [field]: value };
@@ -3509,7 +3481,7 @@ function getDebugSpinnerState(): Record<string, unknown> {
     title: presentation.curtainText,
     blockedReason: presentation.blockedReason,
     countdownText: presentation.countdownText,
-    maintenanceBusy,
+    maintenanceBusy: maintenanceController.snapshot().busy,
   };
 }
 
@@ -3567,8 +3539,8 @@ function render(): void {
       onCandidateNavigate={(pageKey) => { void navigateToCandidate(pageKey); }}
       onThemeChange={updateTheme}
       onThemeModeChange={updateThemeMode}
-      onEmptyDomainCache={() => { void clearCurrentDomainCache(); }}
-      onUnregisterTab={() => { void unregisterCurrentTab(); }}
+      onEmptyDomainCache={() => { void maintenanceController.clearCurrentDomainCache(); }}
+      onUnregisterTab={() => { void maintenanceController.unregisterCurrentTab(); }}
     />,
   );
 }
@@ -3593,6 +3565,7 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
   const disposeTransientNotifications = (): void => {
     unsubscribeToast();
     toastController.dispose();
+    maintenanceController.dispose();
   };
   window.addEventListener("pagehide", disposeTransientNotifications, { once: true });
   window.addEventListener("unload", disposeTransientNotifications, { once: true });
