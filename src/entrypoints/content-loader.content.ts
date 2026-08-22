@@ -9,7 +9,7 @@ import {
   createDefaultContentAuthority,
   type ContentAuthorityState,
 } from "../content/command-router";
-import { hideConsentOverlays, restoreConsentOverlays } from "../content/consent";
+import { createConsentLifecycle } from "../content/consent-lifecycle";
 import { createContentToastLifecycle } from "../content/toast-lifecycle";
 import { shouldBlockPageInput } from "../content/input-firewall";
 import {
@@ -111,22 +111,31 @@ type MarkingCursorMode = "exclude" | "include" | "passthrough" | "disabled";
  *  "once" across re-activations of the same session. */
 let selectorsSeeded = false;
 let removeNavigationGate: (() => void) | null = null;
-/** Watches for consent chrome injected after the first sweep, which is the norm:
- *  most frameworks mount their dialog once their own script has loaded. */
-let consentObserver: MutationObserver | null = null;
-type ConsentPropertyAuthority = Readonly<{
-  identity: string;
-  baseUrl: string | null;
-}>;
-/** Suppression authority belongs to a property, not to marking or popup state. */
-let consentPropertyAuthority: ConsentPropertyAuthority | null = null;
-/** Explicit Unregister/config removal ends the guarantee for this document. A
- *  later background probe must not silently re-arm it before the terminal flow
- *  reloads or otherwise establishes a new content-script lifetime. */
-let consentSuppressionTerminated = false;
+const consentLifecycle = createConsentLifecycle({
+  async registerSuppression(tabId) {
+    let response;
+    try {
+      response = await getContentBus().request(
+        "consent.suppression.register",
+        { tabId },
+        { target: "background" },
+      );
+    } catch {
+      return "error";
+    }
+    return response.ok ? response.data.status : "error";
+  },
+  onHidden(count) {
+    console.debug(`[Unfluffify][rewrite] Hid ${count} consent element(s)`);
+  },
+});
 /** The page URL the background has already been asked about, so one page load costs
  *  one question. Cleared on navigation, and on a failed ask so it can be retried. */
 let pageContextProbedUrl = "";
+/** Registration and the exact page-context reprobe form one restoration
+ * boundary. Serializing the whole bridge prevents a second command from seeing
+ * consent resumed before property/shield authority has been re-established. */
+let consentResumeQueue: Promise<unknown> = Promise.resolve();
 /** The page URL the reveal/freeze ritual has RUN for. One visit, one ritual — and
  *  set only once it actually ran, never when it skipped. */
 let ritualRanForUrl = "";
@@ -2011,103 +2020,40 @@ function renderContentSurface(): void {
   }
 }
 
-/** Legacy's durable contract: consent hiding runs on every property page,
- *  decoupled from candidacy, marking mode, stored selectors and the reveal/freeze
- *  directives — and it runs BEFORE any of them can bail out. A directive arriving
- *  is what says this tab is in scope; nothing about its contents gates this.
- *
- *  A consent dialog covers the content being marked, ruins a render-mode
- *  comparison, and can be dismissed by a stray click — which records a consent
- *  decision that changes what every later load looks like. */
-function sweepConsentOverlays(): void {
-  if (typeof document === "undefined" || !consentPropertyAuthority || consentSuppressionTerminated) {
-    return;
-  }
-  const result = hideConsentOverlays(document);
-  if (result.hidden > 0) {
-    console.debug(`[Unfluffify][rewrite] Hid ${result.hidden} consent element(s)`);
-  }
-  observeLateConsentOverlays();
-}
-
-/** Re-sweeps on DOM growth and on the attributes which can turn an existing node
- *  into consent chrome (including reopening a native dialog). */
-function observeLateConsentOverlays(): void {
-  if (
-    consentObserver !== null ||
-    !consentPropertyAuthority ||
-    consentSuppressionTerminated ||
-    typeof document === "undefined" ||
-    typeof MutationObserver === "undefined"
-  ) {
-    return;
-  }
-  // Observe the Document, not the current documentElement: page code can replace
-  // <html> wholesale, and the property-wide consent guarantee must follow the
-  // replacement root as well as seeing root/head/body arrive at document_start.
-  const target = document;
-  consentObserver = new MutationObserver(() => {
-    if (consentPropertyAuthority && !consentSuppressionTerminated) {
-      hideConsentOverlays(document);
-    }
-  });
-  consentObserver.observe(target, {
-    childList: true,
-    subtree: true,
-    attributes: true,
-    attributeFilter: ["open", "class", "id", "role", "aria-modal", "aria-label"],
-  });
-}
-
-function stopConsentObserver(): void {
-  consentObserver?.disconnect();
-  consentObserver = null;
-}
-
-function consentIdentity(environmentKey: string | null, siteId: number | null): string | null {
-  return environmentKey && siteId !== null ? `${environmentKey}\u0000${siteId}` : null;
-}
-
 function terminateConsentSuppression(options: Readonly<{ terminal?: boolean }> = {}): number {
-  stopConsentObserver();
-  const restored = typeof document === "undefined" ? 0 : restoreConsentOverlays(document);
-  consentPropertyAuthority = null;
-  if (options.terminal === true) {
-    consentSuppressionTerminated = true;
-  }
-  return restored;
+  return options.terminal === true
+    ? consentLifecycle.terminate()
+    : consentLifecycle.releaseProperty();
 }
 
-async function resumeConsentSuppression(
+function resumeConsentSuppression(
   tabId: number,
   expectedLifecycleGeneration: number,
 ): Promise<boolean> {
-  // Command dispatch can race the document-start probe. Wait for that bind even
-  // when consent is already active; otherwise an older inactive context response
-  // can arrive after silent highlighting and erase its engine/posture.
-  await pageContextBindQueue;
-  if (expectedLifecycleGeneration !== contentLifecycleGeneration) {
-    return false;
-  }
-  if (!consentSuppressionTerminated) {
-    return true;
-  }
-  const registered = await getContentBus().request(
-    "consent.suppression.register",
-    { tabId },
-    { target: "background" },
-  );
-  if (
-    !registered.ok ||
-    registered.data.status !== "ok" ||
-    expectedLifecycleGeneration !== contentLifecycleGeneration
-  ) {
-    return false;
-  }
-  consentSuppressionTerminated = false;
-  pageContextProbedUrl = "";
-  await establishPageContext();
-  return expectedLifecycleGeneration === contentLifecycleGeneration;
+  const run = async (): Promise<boolean> => {
+    // Command dispatch can race the document-start probe. Wait for that bind even
+    // when consent is already active; otherwise an older inactive context response
+    // can arrive after silent highlighting and erase its engine/posture.
+    await pageContextBindQueue;
+    if (expectedLifecycleGeneration !== contentLifecycleGeneration) {
+      return false;
+    }
+    const resumed = await consentLifecycle.resume(
+      tabId,
+      () => expectedLifecycleGeneration === contentLifecycleGeneration,
+    );
+    if (resumed.status === "rejected") {
+      return false;
+    }
+    if (resumed.reprobe) {
+      pageContextProbedUrl = "";
+      await establishPageContext();
+    }
+    return expectedLifecycleGeneration === contentLifecycleGeneration;
+  };
+  const queued = consentResumeQueue.then(run, run);
+  consentResumeQueue = queued.catch(() => undefined);
+  return queued;
 }
 
 function applyConsentPropertyAuthority(input: Readonly<{
@@ -2115,20 +2061,7 @@ function applyConsentPropertyAuthority(input: Readonly<{
   siteId: number;
   baseUrl: string | null;
 }>): void {
-  if (consentSuppressionTerminated) {
-    return;
-  }
-  const identity = consentIdentity(input.environmentKey, input.siteId);
-  if (!identity) {
-    return;
-  }
-  if (consentPropertyAuthority && consentPropertyAuthority.identity !== identity) {
-    // Same-document routing can cross property mappings. End the old guarantee
-    // before establishing the new one so no old helper provenance survives.
-    terminateConsentSuppression();
-  }
-  consentPropertyAuthority = { identity, baseUrl: input.baseUrl };
-  sweepConsentOverlays();
+  consentLifecycle.adoptProperty(input);
 }
 
 /** Re-adopts a persisted silent-page shield before the remote page-context/config
@@ -2158,7 +2091,7 @@ async function adoptRetainedShieldPosture(): Promise<void> {
     currentPageUrl() !== pageUrl ||
     lifecycleGeneration !== contentLifecycleGeneration ||
     routeGeneration !== documentLifecycleGeneration ||
-    consentSuppressionTerminated
+    consentLifecycle.isTerminal()
   ) {
     return;
   }
@@ -2209,7 +2142,7 @@ async function resolvePageContext(options: Readonly<{ ritualRequiresCandidate?: 
   if (
     lifecycleGeneration !== contentLifecycleGeneration ||
     routeGeneration !== documentLifecycleGeneration ||
-    consentSuppressionTerminated
+    consentLifecycle.isTerminal()
   ) {
     // Unregister/config removal/invalidation won while the background request
     // was in flight. A late managed answer must not revive DOM authority.
@@ -2227,7 +2160,7 @@ async function resolvePageContext(options: Readonly<{ ritualRequiresCandidate?: 
       response.data.status === "environment_not_registered" ||
       response.data.draftDisposition === "terminate";
     if (definitiveExit) {
-      if (consentPropertyAuthority) {
+      if (consentLifecycle.hasAuthority()) {
         terminateConsentSuppression();
       }
       terminateInteractionShieldAuthority();
@@ -2237,7 +2170,7 @@ async function resolvePageContext(options: Readonly<{ ritualRequiresCandidate?: 
       resumeInteractionShieldAuthority();
       adoptShieldPosture(response.data.shieldPosture);
       renderContentSurface();
-    } else if (!consentPropertyAuthority && currentShieldPosture.status !== "active") {
+    } else if (!consentLifecycle.hasAuthority() && currentShieldPosture.status !== "active") {
       // No resolved property fact exists in this content lifetime. Preserve an
       // established local property on transient failures, but do not let a stale
       // popup command invent authority for a cold, unbound document.
@@ -2247,21 +2180,17 @@ async function resolvePageContext(options: Readonly<{ ritualRequiresCandidate?: 
     // already has property authority, its observer and hidden UI remain intact.
     return;
   }
-  const nextPropertyIdentity = consentIdentity(response.data.environmentKey, response.data.siteId);
-  if (
-    consentPropertyAuthority &&
-    nextPropertyIdentity &&
-    consentPropertyAuthority.identity !== nextPropertyIdentity
-  ) {
+  const nextConsentProperty = {
+    environmentKey: response.data.environmentKey,
+    siteId: response.data.siteId,
+    baseUrl: response.data.baseUrl,
+  };
+  if (consentLifecycle.propertyRelation(nextConsentProperty) === "different") {
     terminateInteractionShieldAuthority();
   }
   resumeInteractionShieldAuthority();
   adoptShieldPosture(response.data.shieldPosture);
-  applyConsentPropertyAuthority({
-    environmentKey: response.data.environmentKey,
-    siteId: response.data.siteId,
-    baseUrl: response.data.baseUrl,
-  });
+  applyConsentPropertyAuthority(nextConsentProperty);
   renderContentSurface();
   // The ritual prepares pages the crawler wants, so a stored marking record is what
   // picks them out — but only where the property HAS records. One with none has no
@@ -2388,7 +2317,7 @@ function applyContentLockState(payload: unknown): Record<string, unknown> {
   if (!parsed.success) {
     return { ok: false, reason: "invalid-lock-state", tree: "rewrite" };
   }
-  if (consentSuppressionTerminated) {
+  if (consentLifecycle.isTerminal()) {
     return { ok: false, reason: "property-authority-unavailable", tree: "rewrite" };
   }
   contentAuthority = authorityFromLockState(parsed.data);
