@@ -10,6 +10,10 @@ import {
   type ContentAuthorityState,
 } from "../content/command-router";
 import { createConsentLifecycle } from "../content/consent-lifecycle";
+import {
+  createContentTransientSurfaces,
+  type ContentTransientSurfaces,
+} from "../content/transient-surfaces";
 import { createContentToastLifecycle } from "../content/toast-lifecycle";
 import { shouldBlockPageInput } from "../content/input-firewall";
 import {
@@ -47,11 +51,7 @@ import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
 import { pullRewriteSignals, type RewriteSignalBus } from "../messaging/rewrite-signals";
 import type { SelectorSet } from "../storage/config";
-import {
-  createTransientSurfaceManager,
-  type TransientSurfaceHandle,
-  type TransientSurfaceManager,
-} from "../ui/transient-surface-manager";
+import type { TransientSurfaceHandle } from "../ui/transient-surface-manager";
 
 const activation = createActivationGate();
 const freezeController = createFreezeController();
@@ -146,10 +146,8 @@ let ritualPendingForUrl = "";
 const RITUAL_READY_TIMEOUT_MS = 8000;
 let contentSurfaceRoot: HTMLElement | null = null;
 let lastContentSurfaceSignature = "";
-let contentTransientSurfaces: TransientSurfaceManager | null = null;
+let contentTransientSurfaces: ContentTransientSurfaces | null = null;
 let contentLockConfirmation: TransientSurfaceHandle | null = null;
-let previewEscapeRequested = false;
-let dismissedOutsidePointer: Readonly<{ x: number; y: number; at: number }> | null = null;
 let pageInspectionActive = false;
 let silentInteractionShieldActive = false;
 const contentToasts = createContentToastLifecycle();
@@ -1105,48 +1103,35 @@ function contentPreviewContext(): Readonly<{ active: boolean; restoring: boolean
     contentState.name === "exit_restoring";
   return {
     active,
-    restoring: contentState.name === "exit_restoring" || previewEscapeRequested,
+    restoring: contentState.name === "exit_restoring",
   };
 }
 
-function requestPreviewExitFromPage(): void {
-  const context = contentPreviewContext();
-  if (!context.active || context.restoring || !interactionShieldAuthorityActive) {
-    return;
-  }
-  // Raise the local guard before the fact crosses the worker boundary. Repeated
-  // Escape cannot birth competing restoration requests while the brain decides
-  // the one authoritative preview.exit.requested edge.
-  previewEscapeRequested = true;
-  contentTransientSurfaces?.setPreviewContext({ active: true, restoring: true });
-  void reportContentFact("preview-escape-requested", {
-    previewExitRequested: true,
-  }).catch((error: unknown) => {
-    previewEscapeRequested = false;
-    // Reset the manager's one-shot latch only after a failed report, so a later
-    // Escape can retry rather than leaving the page trapped in Preview.
-    contentTransientSurfaces?.setPreviewContext({ active: false, restoring: false });
-    contentTransientSurfaces?.setPreviewContext(contentPreviewContext());
-    console.error("[Unfluffify][rewrite] Unable to request preview restoration", error);
-  });
-}
-
-function ensureContentTransientSurfaces(): TransientSurfaceManager {
+function ensureContentTransientSurfaces(): ContentTransientSurfaces {
   if (contentTransientSurfaces) {
     return contentTransientSurfaces;
   }
-  contentTransientSurfaces = createTransientSurfaceManager({
-    onPreviewExit: requestPreviewExitFromPage,
+  contentTransientSurfaces = createContentTransientSurfaces({
+    async requestPreviewExit() {
+      const context = contentPreviewContext();
+      if (!context.active || context.restoring || !interactionShieldAuthorityActive) {
+        return false;
+      }
+      await reportContentFact("preview-escape-requested", {
+        previewExitRequested: true,
+      });
+      return true;
+    },
+    onPreviewExitError(error) {
+      console.error("[Unfluffify][rewrite] Unable to request preview restoration", error);
+    },
   });
-  contentTransientSurfaces.setPreviewContext(contentPreviewContext());
+  contentTransientSurfaces.syncPreviewContext(contentPreviewContext());
   return contentTransientSurfaces;
 }
 
 function syncContentTransientPreviewContext(): void {
-  if (!contentPreviewContext().active) {
-    previewEscapeRequested = false;
-  }
-  contentTransientSurfaces?.setPreviewContext(contentPreviewContext());
+  contentTransientSurfaces?.syncPreviewContext(contentPreviewContext());
 }
 
 async function pingContentActivity(_command: CommandEnvelope): Promise<void> {
@@ -1947,7 +1932,7 @@ function renderContentSurface(): void {
             actions.appendChild(prompt);
             actions.appendChild(confirm);
             actions.appendChild(cancel);
-            contentLockConfirmation = ensureContentTransientSurfaces().open({
+            contentLockConfirmation = ensureContentTransientSurfaces().manager.open({
               id: "content-lock-confirmation",
               kind: "confirmation",
               root: () => actions,
@@ -2482,7 +2467,7 @@ function ensureMarkingListeners(): void {
     }
     closeMarkingMenu = openMarkingContextMenu({
       document,
-      manager: ensureContentTransientSurfaces(),
+      manager: ensureContentTransientSurfaces().manager,
       x: event.clientX,
       y: event.clientY,
       actions: [
@@ -2673,8 +2658,7 @@ function handleUrlChanged(nextUrl?: string): void {
   }
   const previousUrl = lastKnownPageUrl;
   contentTransientSurfaces?.closeAll("context-change");
-  contentTransientSurfaces?.setPreviewContext({ active: false, restoring: false });
-  previewEscapeRequested = false;
+  contentTransientSurfaces?.syncPreviewContext({ active: false, restoring: false });
   contentLockConfirmation = null;
   renderInspectionAdoptionGeneration += 1;
   const activeInspection = renderInspectionCurtain?.current() ?? null;
@@ -3142,45 +3126,8 @@ export default defineContentScript({
   runAt: "document_start",
   main(ctx) {
     const transientSurfaces = ensureContentTransientSurfaces();
-    const handleTransientKeyDown = (event: KeyboardEvent): void => {
-      transientSurfaces.handleEscape({
-        key: event.key,
-        preventDefault: () => event.preventDefault?.(),
-        stopImmediatePropagation: () => event.stopImmediatePropagation?.(),
-      });
-    };
-    const handleTransientPointerDown = (event: PointerEvent): void => {
-      if (typeof event.composedPath !== "function" || !transientSurfaces.handlePointerDown(event)) {
-        return;
-      }
-      dismissedOutsidePointer = {
-        x: event.clientX,
-        y: event.clientY,
-        at: event.timeStamp,
-      };
-      event.preventDefault?.();
-      event.stopImmediatePropagation?.();
-    };
-    const suppressDismissalClick = (event: MouseEvent): void => {
-      const dismissed = dismissedOutsidePointer;
-      dismissedOutsidePointer = null;
-      if (
-        !dismissed ||
-        Math.abs(dismissed.x - event.clientX) > 2 ||
-        Math.abs(dismissed.y - event.clientY) > 2 ||
-        Math.abs(dismissed.at - event.timeStamp) > 1_000
-      ) {
-        return;
-      }
-      event.preventDefault?.();
-      event.stopImmediatePropagation?.();
-    };
     if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
-      // Install before the interaction shield. Escape is extension authority;
-      // the shield must never swallow it as page input while Preview is open.
-      window.addEventListener("keydown", handleTransientKeyDown, true);
-      window.addEventListener("pointerdown", handleTransientPointerDown, true);
-      window.addEventListener("click", suppressDismissalClick, true);
+      transientSurfaces.attach(window);
     }
     installNavigationWatcher();
     let localSurfacesSuspended = false;
@@ -3193,11 +3140,6 @@ export default defineContentScript({
     };
     const unloadLocalSurfaces = (): void => {
       suspendLocalSurfaces();
-      if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
-        window.removeEventListener("keydown", handleTransientKeyDown, true);
-        window.removeEventListener("pointerdown", handleTransientPointerDown, true);
-        window.removeEventListener("click", suppressDismissalClick, true);
-      }
       transientSurfaces.dispose();
       contentTransientSurfaces = null;
       contentToasts.dispose();
@@ -3227,11 +3169,6 @@ export default defineContentScript({
       requestTerminalShieldClear("extension-invalidation");
       terminateConsentSuppression({ terminal: true });
       terminateInteractionShieldAuthority();
-      if (typeof window !== "undefined" && typeof window.removeEventListener === "function") {
-        window.removeEventListener("keydown", handleTransientKeyDown, true);
-        window.removeEventListener("pointerdown", handleTransientPointerDown, true);
-        window.removeEventListener("click", suppressDismissalClick, true);
-      }
       transientSurfaces.dispose();
       contentTransientSurfaces = null;
       contentToasts.dispose();
