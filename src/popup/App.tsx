@@ -820,11 +820,12 @@ export function App({
             {presentation.lockBanner.countdownSeconds ? ` (${presentation.lockBanner.countdownSeconds}s)` : ""}
           </span>
           {debugBuild ? (
-            <span className="property-lock__detail">
-              {`status ${diagnostics.lockStatus || "pending"} · role ${diagnostics.lockRole || "unknown"} · site ${diagnostics.siteId ?? "—"}`}
+            <span
+              className="property-lock__detail"
+              data-lock-fence={`property ${diagnostics.lockPropertyRevision ?? "—"} · feed ${diagnostics.lockFeedRevision ?? "—"}`}
+            >
+              {`status ${diagnostics.lockStatus || "pending"} · role ${diagnostics.lockRole || "unknown"} · site ${diagnostics.siteId ?? "—"} · property ${diagnostics.lockPropertyRevision ?? "—"} · feed ${diagnostics.lockFeedRevision ?? "—"}`}
             </span>
-          ) : presentation.lockBanner.text ? (
-            <span className="property-lock__detail">{presentation.lockBanner.text}</span>
           ) : null}
         </span>
         <span className="property-lock__actions">
@@ -1988,7 +1989,7 @@ export function App({
               </p>
             )}
 
-            {lynxChecklist.operationId ? (
+            {debugBuild && lynxChecklist.operationId ? (
               <p className="hint u-font-mono" data-publication-operation={lynxChecklist.operationId}>
                 Operation {lynxChecklist.operationId}
               </p>

@@ -59,6 +59,11 @@ export type PopupDiagnostics = Readonly<{
   siteId: number | null;
   lockStatus: string;
   lockRole: string;
+  /** Non-secret lock authority revisions. These are operator diagnostics and
+   *  must only be projected by debug builds. The lock token never enters the
+   *  popup presentation contract. */
+  lockPropertyRevision: number | null;
+  lockFeedRevision: number | null;
   configPresent: boolean;
   /** The outcome of the stored-config read, so a failed one is visible instead
    *  of looking the same as a property that simply has nothing stored. */
@@ -129,6 +134,8 @@ export const EMPTY_POPUP_DIAGNOSTICS: PopupDiagnostics = {
   siteId: null,
   lockStatus: "",
   lockRole: "",
+  lockPropertyRevision: null,
+  lockFeedRevision: null,
   configPresent: false,
   configStatus: "",
   configurationComplete: false,

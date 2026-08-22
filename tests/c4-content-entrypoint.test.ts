@@ -2297,12 +2297,26 @@ describe("C4 rewrite content entrypoints", () => {
     documentListeners.get("keydown")?.({ code: "Space" } as unknown as Event);
     dispatchTestEvent(windowListeners, "blur", {} as Event);
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
+    documentListeners.get("keydown")?.({ code: "Space" } as unknown as Event);
+    documentListeners.get("visibilitychange")?.({} as Event);
+    expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
+    vi.useFakeTimers();
+    documentListeners.get("keydown")?.({ code: "Space" } as unknown as Event);
+    await vi.advanceTimersByTimeAsync(1_199);
+    expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-passthrough");
+    await vi.advanceTimersByTimeAsync(1);
+    expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
+    vi.useRealTimers();
     expect(engine.refresh).toHaveBeenCalledTimes(1);
     expect(engine.renderReadOnly).not.toHaveBeenCalled();
     expect(engine.setPassthrough).toHaveBeenNthCalledWith(1, true);
     expect(engine.setPassthrough).toHaveBeenNthCalledWith(2, false);
     expect(engine.setPassthrough).toHaveBeenNthCalledWith(3, true);
     expect(engine.setPassthrough).toHaveBeenNthCalledWith(4, false);
+    expect(engine.setPassthrough).toHaveBeenNthCalledWith(5, true);
+    expect(engine.setPassthrough).toHaveBeenNthCalledWith(6, false);
+    expect(engine.setPassthrough).toHaveBeenNthCalledWith(7, true);
+    expect(engine.setPassthrough).toHaveBeenNthCalledWith(8, false);
     await dispatchContentCommand(listener, "pauseContentMainInteractions");
     expect(engine.setSuspended).toHaveBeenCalledWith(true);
     expect(contentRoot?.children.some((element) =>

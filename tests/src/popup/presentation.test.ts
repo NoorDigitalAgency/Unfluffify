@@ -116,6 +116,8 @@ describe("popup presentation contract", () => {
       siteId: null,
       lockStatus: "",
       lockRole: "",
+      lockPropertyRevision: null,
+      lockFeedRevision: null,
       configPresent: false,
       configStatus: "",
       configurationComplete: false,

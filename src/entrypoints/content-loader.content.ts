@@ -86,6 +86,12 @@ let markingActive = false;
 let userToggleCount = 0;
 let markingInteractionsPaused = false;
 let spacePassthroughActive = false;
+/** Key repeat refreshes this while Space is physically held. If a platform or
+ * focus transition drops keyup without delivering blur/visibilitychange, the
+ * bounded lease restores marking instead of leaving the page permanently
+ * pointer-transparent. */
+const SPACE_PASSTHROUGH_WATCHDOG_MS = 1_200;
+let spacePassthroughWatchdog: ReturnType<typeof setTimeout> | null = null;
 let altIncludeActive = false;
 let removeMarkingListeners: (() => void) | null = null;
 let removeSilentDebugCopyListener: (() => void) | null = null;
@@ -1029,12 +1035,27 @@ function destroyPageWorldSession(): void {
 
 function setSpacePassthrough(event: KeyboardEvent, active: boolean): void {
   if (event.code === "Space" || event.key === " ") {
+    if (spacePassthroughWatchdog !== null) {
+      clearTimeout(spacePassthroughWatchdog);
+      spacePassthroughWatchdog = null;
+    }
     const wasActive = spacePassthroughActive;
     spacePassthroughActive = active;
     markingEngine?.setPassthrough?.(active);
     syncMarkingCursor();
     if (!wasActive && active) {
       contentToasts.show({ message: "Page interaction mode", tone: "success" });
+    }
+    if (active) {
+      spacePassthroughWatchdog = setTimeout(() => {
+        spacePassthroughWatchdog = null;
+        if (!spacePassthroughActive) {
+          return;
+        }
+        spacePassthroughActive = false;
+        markingEngine?.setPassthrough?.(false);
+        syncMarkingCursor();
+      }, SPACE_PASSTHROUGH_WATCHDOG_MS);
     }
   }
 }
@@ -2532,6 +2553,10 @@ function ensureMarkingListeners(): void {
     }
   };
   const resetModifiers = (): void => {
+    if (spacePassthroughWatchdog !== null) {
+      clearTimeout(spacePassthroughWatchdog);
+      spacePassthroughWatchdog = null;
+    }
     const refreshNeeded = spacePassthroughActive;
     spacePassthroughActive = false;
     altIncludeActive = false;
@@ -2581,6 +2606,10 @@ function ensureMarkingListeners(): void {
     closeMarkingMenu?.();
     closeMarkingMenu = null;
     removeMarkingListeners = null;
+    if (spacePassthroughWatchdog !== null) {
+      clearTimeout(spacePassthroughWatchdog);
+      spacePassthroughWatchdog = null;
+    }
     spacePassthroughActive = false;
     markingEngine?.setPassthrough?.(false);
     altIncludeActive = false;

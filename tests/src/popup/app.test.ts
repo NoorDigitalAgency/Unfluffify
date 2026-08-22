@@ -906,11 +906,18 @@ describe("popup App surface", () => {
   });
 
   it("surfaces the lock status, role and site id a tester needs to tell blocked from broken", () => {
-    const markup = renderApp(LOCKED, { lockStatus: "ok", lockRole: "passive", siteId: 4821 });
+    const markup = renderApp(LOCKED, {
+      lockStatus: "ok",
+      lockRole: "passive",
+      siteId: 4821,
+      lockPropertyRevision: 17,
+      lockFeedRevision: 29,
+    });
 
     expect(markup).toContain("Locked by Dana R.");
     expect(markup).toContain("(42s)");
-    expect(markup).toContain("status ok · role passive · site 4821");
+    expect(markup).toContain("status ok · role passive · site 4821 · property 17 · feed 29");
+    expect(markup).toContain('data-lock-fence="property 17 · feed 29"');
     expect(markup).toContain('data-lock-banner="true"');
   });
 

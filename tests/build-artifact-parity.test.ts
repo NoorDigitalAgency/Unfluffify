@@ -83,6 +83,8 @@ test("generated extension manifest and resources resolve", async () => {
     "data-row-internal-classification",
     "data-preview-row-debug",
     "data-preview-row-debug-detail",
+    "data-lock-fence",
+    "data-publication-operation",
     "[Unfluffify][popup-trace]",
     "Debug direct mode enabled",
   ]) {

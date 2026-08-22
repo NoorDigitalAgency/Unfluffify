@@ -210,6 +210,8 @@ let silentSelectorsAppliedKey: string | null = null;
 let boundTabUrl = "";
 let lockStatus = "";
 let lockRole = "";
+let lockPropertyRevision: number | null = null;
+let lockFeedRevision: number | null = null;
 let activeEditorSessionId: string | null = null;
 let configPresent = false;
 let contentActive = false;
@@ -405,6 +407,8 @@ function buildDiagnostics(): PopupDiagnostics {
     siteId: activeSiteId,
     lockStatus,
     lockRole,
+    lockPropertyRevision,
+    lockFeedRevision,
     configPresent,
     configStatus: property.status,
     configurationComplete: isConfigurationComplete(),
@@ -665,6 +669,8 @@ function resetBoundSessionState(): void {
   activeEditorSessionId = null;
   lockStatus = "";
   lockRole = "";
+  lockPropertyRevision = null;
+  lockFeedRevision = null;
   configPresent = false;
   configurationController.resetPropertyBinding();
   contentActive = false;
@@ -1608,6 +1614,8 @@ async function refreshLockDirective(context: TargetTabContext, requestKey = boun
   activeEditorSessionId = lock.authority?.editorSessionId ?? null;
   lockStatus = lock.status;
   lockRole = lock.lockRole;
+  lockPropertyRevision = lock.authority?.propertyRevision ?? null;
+  lockFeedRevision = lock.authority?.feedRevision ?? null;
   configPresent = lock.configPresent;
   // The lock runtime reported facts before replying. Pull the brain's decided
   // edge so the popup organ enters or exits its lock overlay via the table.
