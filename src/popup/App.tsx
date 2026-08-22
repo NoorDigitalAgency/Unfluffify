@@ -6,6 +6,7 @@ import {
   PREVIEW_CLASSIFICATION_TONE,
   PreviewRowList,
 } from "./sections/PreviewRowList";
+import { PopupToast } from "./sections/PopupToast";
 import {
   useTransientSurfaceManager,
   useTransientSurfaceRegistration,
@@ -210,41 +211,6 @@ function StatRow({ icon, label, value, tone }: Readonly<{
       </span>
       <span className={`u-font-mono ${tone ?? "u-color-muted"}`} data-stat={label}>{value}</span>
     </div>
-  );
-}
-
-function PopupToast({
-  toast,
-  onDismiss,
-}: Readonly<{
-  toast: TransientToast | null;
-  onDismiss?: (id: number) => void;
-}>) {
-  if (!toast) {
-    return null;
-  }
-  const urgent = toast.tone === "danger";
-  return (
-    <output
-      className={`popup-toast popup-toast--${toast.tone === "warning" ? "warn" : toast.tone}`}
-      role={urgent ? "alert" : "status"}
-      aria-live={urgent ? "assertive" : "polite"}
-      data-popup-toast={toast.tone}
-      data-toast-id={toast.id}
-    >
-      <span>{toast.message}</span>
-      {onDismiss ? (
-        <button
-          type="button"
-          className="popup-toast__dismiss"
-          aria-label="Close notification"
-          data-popup-toast-close={toast.id}
-          onClick={() => onDismiss(toast.id)}
-        >
-          ×
-        </button>
-      ) : null}
-    </output>
   );
 }
 
