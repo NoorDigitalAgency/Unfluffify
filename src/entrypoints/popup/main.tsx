@@ -32,7 +32,7 @@ import { createRealmBus } from "../../messaging/realms";
 import { createTabTransport } from "../../messaging/transports/tabs";
 import { createRuntimeTransport } from "../../messaging/transports/runtime";
 import { pullRewriteSignals, type RewriteSignalBus } from "../../messaging/rewrite-signals";
-import type { ConfigSnapshot, PropertyPublishRequest, PropertySaveRequest, SelectorSet } from "../../storage/config";
+import type { PropertyPublishRequest, PropertySaveRequest, SelectorSet } from "../../storage/config";
 import { canonicalPageKey } from "../../storage/property-snapshot-authority";
 import type { RenderMode } from "../../domain/schema/property";
 import type {
@@ -161,7 +161,6 @@ let appliedEmulationMode: "mobile" | "desktop" | null = null;
  *  correct: picking one would label every submission with a mode nobody
  *  established, which is worse than refusing to proceed. Legacy called this
  *  "undetermined" and blocked the same actions on it. */
-let confirmedRenderMode: RenderMode | null = null;
 /** The operator's pick before they confirm it. Legacy kept the same separation:
  *  the control edits a pending value and `Set` commits it, so a stray click
  *  cannot relabel every later capture. Cleared on commit, cancel and rebind. */
@@ -200,13 +199,6 @@ const renderInspectionController = createPopupRenderInspectionController({
     console.error("[Unfluffify][rewrite] Unable to refresh after render inspection", error);
   },
 });
-/** Attempted, not loaded: a failed read must not re-request on every 500ms
- *  poll. The Refresh button clears this to retry deliberately. */
-let configLoadAttemptedSiteId: number | null = null;
-let configStatus = "";
-/** Where the effective render mode came from, so a locally-held choice is not
- *  presented as a backend decision. */
-let renderModeSource: "backend" | "local" = "local";
 /** The view the operator asked for, and the lock that lets an incomplete setup
  *  force the configuration view without stranding them there once it is fixed. */
 let requestedView: PopupViewRequest | null = null;
@@ -214,8 +206,6 @@ let configViewLocked = false;
 /** The property's stored selectors. Shown in silent mode and used to seed a
  *  clean marking session; never stored locally — they are backend property data
  *  with no exemption, so a 404 leaves none. */
-let loadedSelectors: SelectorSet | null = null;
-let loadedConfig: ConfigSnapshot | null = null;
 let silentSelectorsAppliedKey: string | null = null;
 let boundTabUrl = "";
 let lockStatus = "";
@@ -233,9 +223,6 @@ let candidateNavigationBusy = false;
 const DEBUG_BUILD = __UF_DEBUG_BUILD__;
 let debugTraceEnabled = false;
 let directModeActive = DEBUG_BUILD && new URLSearchParams(location.search).get("directMode") === "1";
-if (directModeActive && confirmedRenderMode === null) {
-  confirmedRenderMode = "rendered";
-}
 const todoController = createTodoController({
   loadContext(input) {
     return getPopupBus().request("page.context", input, { target: "background" });
@@ -363,15 +350,33 @@ const configurationController = createConfigurationController({
       ? { ok: true, data: response.data }
       : { ok: false, code: response.failure.code };
   },
+  async loadPropertyConfig(siteId) {
+    const response = await getPopupBus().request("config.load", { siteId }, { target: "background" });
+    return response.ok
+      ? { ok: true, data: response.data }
+      : { ok: false, code: response.failure.code };
+  },
+  isRenderModeConfirmed,
   refreshPopup,
   recordActivity: logEvent,
   onChange: render,
 });
+if (directModeActive) {
+  configurationController.setConfirmedRenderMode("rendered");
+}
 
 /** Legacy's configurationComplete: all three endpoints stored and a token held.
  *  A rejected token counts as absent — it cannot authorise anything. */
 function isConfigurationComplete(): boolean {
   return directModeActive || configurationController.snapshot().configurationComplete;
+}
+
+function currentPropertyConfiguration() {
+  return configurationController.snapshot().property;
+}
+
+function currentRenderMode(): RenderMode | null {
+  return currentPropertyConfiguration().renderMode;
 }
 
 function currentView(): PopupView {
@@ -392,6 +397,7 @@ function buildDiagnostics(): PopupDiagnostics {
   const state = store.getState();
   const maintenance = maintenanceController.snapshot();
   const configuration = configurationController.snapshot();
+  const property = configuration.property;
   return {
     stateName: state.name,
     pageUrl: boundTabUrl,
@@ -400,9 +406,9 @@ function buildDiagnostics(): PopupDiagnostics {
     lockStatus,
     lockRole,
     configPresent,
-    configStatus,
+    configStatus: property.status,
     configurationComplete: isConfigurationComplete(),
-    renderModeSource,
+    renderModeSource: property.renderModeSource,
     contentActive,
     contentDirty,
     contentReachable,
@@ -415,7 +421,7 @@ function buildDiagnostics(): PopupDiagnostics {
     authState: configuration.authState,
     authBusy: configuration.authBusy,
     authMessage: configuration.authMessage,
-    renderMode: confirmedRenderMode,
+    renderMode: property.renderMode,
     renderModePending: pendingRenderMode,
     renderModeView: renderInspectionController.snapshot().view as RenderModeView,
     renderModeDetail: renderInspectionController.snapshot().detail,
@@ -660,10 +666,7 @@ function resetBoundSessionState(): void {
   lockStatus = "";
   lockRole = "";
   configPresent = false;
-  configLoadAttemptedSiteId = null;
-  configStatus = "";
-  loadedConfig = null;
-  loadedSelectors = null;
+  configurationController.resetPropertyBinding();
   contentActive = false;
   contentDirty = false;
   contentReachable = true;
@@ -837,7 +840,7 @@ async function refreshPublicationInputs(): Promise<Readonly<{
   const requestKey = await handleBoundContext(context);
   await refreshTodoContext(context, requestKey, { force: true });
   const lock = await refreshLockDirective(context, requestKey);
-  configLoadAttemptedSiteId = null;
+  configurationController.retryPropertyLoad();
   await maybeLoadPropertyConfig();
   if (boundTabId !== context.tabId || boundTabKey !== requestKey) {
     return null;
@@ -877,7 +880,7 @@ async function openLynxChecklist(): Promise<void> {
   const gate = evaluatePublicationChecklist({
     contextStatus: todoController.snapshot().status,
     todo: todoController.snapshot().coverage,
-    config: loadedConfig,
+    config: currentPropertyConfiguration().config,
     authority: publicationAuthorityOf(inputs.lock),
   });
   lynxChecklist = {
@@ -912,12 +915,13 @@ async function navigateToCandidate(pageKey: string): Promise<void> {
     return;
   }
   let url: string;
+  const property = currentPropertyConfiguration();
   try {
-    url = new URL(canonicalTarget, loadedConfig?.baseUrl ?? context.url).toString();
+    url = new URL(canonicalTarget, property.config?.baseUrl ?? context.url).toString();
   } catch {
     return;
   }
-  const restoreNeeded = contentActive || loadedSelectors !== null;
+  const restoreNeeded = contentActive || property.selectors !== null;
   candidateNavigationBusy = true;
   try {
     const result = await executeConfirmedCandidateNavigation({
@@ -1028,6 +1032,7 @@ async function sendToLynx(): Promise<void> {
     context = inputs.context;
     requestKey = inputs.requestKey;
     const authority = publicationAuthorityOf(inputs.lock);
+    const loadedConfig = currentPropertyConfiguration().config;
     const gate = evaluatePublicationChecklist({
       contextStatus: todoController.snapshot().status,
       todo: todoController.snapshot().coverage,
@@ -1090,11 +1095,11 @@ async function sendToLynx(): Promise<void> {
 
   const result = response.data;
   if (result.config) {
-    loadedConfig = result.config;
-    loadedSelectors = result.config.selectors;
+    configurationController.adoptAuthoritativeConfig(
+      result.config,
+      result.status === "integrity_shrink" ? "integrity_shrink" : "ok",
+    );
     silentSelectorsAppliedKey = null;
-    renderModeSource = "backend";
-    configStatus = result.status === "integrity_shrink" ? "integrity_shrink" : "ok";
   }
   if (result.status === "published" || result.status === "already_published") {
     pendingPublicationRequest = null;
@@ -1131,7 +1136,7 @@ async function sendToLynx(): Promise<void> {
   const gate = evaluatePublicationChecklist({
     contextStatus: todoController.snapshot().status,
     todo: todoController.snapshot().coverage,
-    config: loadedConfig,
+    config: currentPropertyConfiguration().config,
     authority: null,
   });
   lynxChecklist = {
@@ -1266,7 +1271,7 @@ async function maybeResumeAiRun(context: TargetTabContext, requestKey = boundTab
  *  them actually changes rather than on every poll tick. */
 async function refreshSilentSelectorPreview(context: TargetTabContext, requestKey = boundTabKey): Promise<void> {
   const inSilentMode = store.getState().name === "silent";
-  const selectors = loadedSelectors;
+  const selectors = currentPropertyConfiguration().selectors;
   const key = inSilentMode && selectors
     ? [context.url, selectors.inclusionSelectors.join(","), selectors.exclusionSelectors.join(",")].join("|")
     : "";
@@ -1614,7 +1619,8 @@ async function captureSubmission(
   context: TargetTabContext,
   canonicalBaseUrl: string,
 ): Promise<AiRunPayloadSnapshot | null> {
-  if (confirmedRenderMode === null) {
+  const renderMode = currentRenderMode();
+  if (renderMode === null) {
     // The snapshot carries the render mode; there is nothing honest to put here.
     logEvent("Capture refused", "choose a render mode first", "warn");
     return null;
@@ -1623,7 +1629,7 @@ async function captureSubmission(
     return null;
   }
   let rawHtml: string | undefined;
-  if (confirmedRenderMode === "static") {
+  if (renderMode === "static") {
     const staticResponse = await getPopupBus().request("staticHtml.fetch", {
       url: context.url,
     }, { target: "background" });
@@ -1642,7 +1648,7 @@ async function captureSubmission(
     // Hub's canonical property host can differ from the observed page alias.
     // The content gate compares against lock authority, not browser cosmetics.
     baseUrl: canonicalBaseUrl,
-    renderMode: confirmedRenderMode,
+    renderMode,
     pageUrl: context.url,
     ...(rawHtml === undefined ? {} : { rawHtml }),
   });
@@ -1663,7 +1669,7 @@ function configFromSubmission(
     ? snapshot.pages.find((candidate) => canonicalPageKey(candidate.url) === pageKey)
     : undefined;
   const pageType = pageKey
-    ? loadedConfig?.pages[pageKey]?.pageType ?? pageTypeForCandidate(
+    ? currentPropertyConfiguration().config?.pages[pageKey]?.pageType ?? pageTypeForCandidate(
         todoController.snapshot().coverage,
         pageKey,
       )
@@ -1813,7 +1819,9 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
       realEditorActivation: true,
       // Seeds a clean session: the defaults first, then these laid over them.
       // The content script applies them once and then ignores them.
-      ...(loadedSelectors ? { selectors: loadedSelectors } : {}),
+      ...(currentPropertyConfiguration().selectors
+        ? { selectors: currentPropertyConfiguration().selectors }
+        : {}),
     });
     if (!bindingOccurrenceIsCurrent(binding)) {
       return;
@@ -2078,7 +2086,7 @@ async function preparePageAfterRenderMode(): Promise<void> {
 
 /** Legacy's `Set`. Serves the first choice and every later edit alike. */
 async function commitRenderMode(): Promise<void> {
-  const chosen = pendingRenderMode ?? confirmedRenderMode;
+  const chosen = pendingRenderMode ?? currentRenderMode();
   if (chosen === null) {
     notifyEvent("Cannot set the render mode", "choose one of the two first", "warn");
     render();
@@ -2153,7 +2161,7 @@ async function refreshPopup(): Promise<void> {
   await reconcileContentStatus(context, requestKey);
   await configurationController.adoptAuthStatus();
   // An explicit refresh is the retry for a config read that failed.
-  configLoadAttemptedSiteId = null;
+  configurationController.retryPropertyLoad();
   await maybeLoadPropertyConfig();
   await maybeResumeAiRun(context, requestKey);
   logEvent("Refreshed", lock ? `lock ${lock.status} · role ${lock.lockRole}` : "lock unavailable", lock ? "info" : "warn");
@@ -2169,80 +2177,40 @@ async function refreshPopup(): Promise<void> {
  *  just the schema default, and treating it as a decision is the very thing the
  *  unset state exists to prevent. */
 async function loadPropertyConfig(siteId: number): Promise<void> {
-  configLoadAttemptedSiteId = siteId;
-  const response = await getPopupBus().request("config.load", { siteId }, { target: "background" });
-  if (!response.ok) {
-    configStatus = response.failure.code;
-    logEvent("Config load failed", response.failure.code, "warn");
-    render();
+  const binding = captureBindingOccurrence();
+  const candidate = await configurationController.requestPropertyLoad(siteId);
+  if (
+    candidate === null ||
+    !bindingOccurrenceIsCurrent(binding) ||
+    activeSiteId !== siteId
+  ) {
     return;
   }
-  configStatus = response.data.status;
-  if (!["ok", "integrity_shrink"].includes(response.data.status) || !("config" in response.data)) {
-    // On a 404 the backend has nothing, and the render mode is the one thing the
-    // authority rule lets survive locally — the reply carries whatever did.
-    confirmedRenderMode = response.data.renderMode ?? null;
-    renderModeSource = response.data.renderModeSource;
-    // Selectors are backend property data with no local exemption, so nothing
-    // survives a 404 to apply.
-    if (response.data.status === "not_found") {
-      loadedConfig = null;
-      loadedSelectors = null;
-      silentSelectorsAppliedKey = null;
-    }
-    logEvent(
-      "Config not loaded",
-      response.data.status === "not_found"
-        ? response.data.renderMode
-          ? `no stored config · kept local render mode ${response.data.renderMode}`
-          : "no stored config for this property"
-        : response.data.status,
-      response.data.status === "not_found" ? "info" : "warn",
-    );
-    render();
-    return;
+  const outcome = configurationController.adoptPropertyLoad(candidate);
+  if (outcome.status === "adopted" && outcome.projectionInvalidated) {
+    // Backend property data changed; repaint the silent preview on the next tick.
+    silentSelectorsAppliedKey = null;
   }
-  renderModeSource = response.data.renderModeSource;
-  const config = response.data.config;
-  loadedConfig = config;
-  loadedSelectors = config.selectors;
-  // Repaint the silent preview on the next tick.
-  silentSelectorsAppliedKey = null;
-  if (isRenderModeConfirmed(config)) {
-    confirmedRenderMode = config.renderMode;
-    logEvent("Render mode restored", `${config.renderMode} · backend`, "success");
-  } else {
-    // The backend answered and its config carries no decided mode, so there is
-    // nothing to adopt — and per the authority rule any local copy is gone.
-    confirmedRenderMode = null;
-    logEvent("Render mode not stored", "choose one for this property", "info");
-  }
-  if (response.data.status === "integrity_shrink") {
-    logEvent(
-      "Configuration integrity warning",
-      response.data.reason,
-      "danger",
-    );
-  }
-  render();
 }
 
 async function maybeLoadPropertyConfig(): Promise<void> {
-  if (activeSiteId === null || configLoadAttemptedSiteId === activeSiteId) {
+  if (
+    activeSiteId === null ||
+    currentPropertyConfiguration().attemptedSiteId === activeSiteId
+  ) {
     return;
   }
   await loadPropertyConfig(activeSiteId);
 }
 
 function renderModeSet(): boolean {
-  return confirmedRenderMode !== null;
+  return currentRenderMode() !== null;
 }
 
 function setRenderMode(mode: RenderMode): void {
-  if (confirmedRenderMode === mode) {
+  if (!configurationController.setConfirmedRenderMode(mode)) {
     return;
   }
-  confirmedRenderMode = mode;
   logEvent("Render mode set", mode);
   render();
   // The background decides whether this may be stored locally: only a property
@@ -2359,7 +2327,7 @@ async function saveStoredSettings(): Promise<void> {
     }
     resetBoundSessionState();
     replacePopupStore();
-    confirmedRenderMode = null;
+    configurationController.clearConfirmedRenderMode();
     pendingRenderMode = null;
     requestedView = "configuration";
     configViewLocked = true;
@@ -2651,8 +2619,9 @@ async function saveSession(): Promise<void> {
     return;
   }
   if (response.ok && response.data.status === "ok") {
-    loadedConfig = response.data.config ?? loadedConfig;
-    loadedSelectors = loadedConfig?.selectors ?? loadedSelectors;
+    if (response.data.config) {
+      configurationController.adoptAuthoritativeConfig(response.data.config, "ok");
+    }
     await sendContentMessage(context.tabId, {
       type: "enterSilentContentMain",
       pageUrl: context.url,
@@ -2665,8 +2634,6 @@ async function saveSession(): Promise<void> {
     await ensureSessionEmulation(context);
     // The backend holds the configuration now, so the render mode is its
     // decision and the local copy has been cleared background-side.
-    renderModeSource = "backend";
-    configStatus = "ok";
     notifyBoundEvent(binding, "Session saved", snapshot.baseUrl, "success");
     await reportPopupFactAndPull(context, "session-saved", {
       savedSeq: nextPopupFactSequence(),
@@ -2676,10 +2643,8 @@ async function saveSession(): Promise<void> {
     await refreshTodoContext(context, requestKey, { force: true });
   } else {
     if (response.ok && response.data.status === "integrity_shrink" && response.data.config) {
-      loadedConfig = response.data.config;
-      loadedSelectors = response.data.config.selectors;
+      configurationController.adoptAuthoritativeConfig(response.data.config, "integrity_shrink");
       silentSelectorsAppliedKey = null;
-      configStatus = "integrity_shrink";
     }
     notifyBoundEvent(binding, "Save failed", response.ok ? response.data.status : response.failure.code, "danger");
     await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
@@ -2892,7 +2857,9 @@ function activateDirectMode(): void {
     return;
   }
   directModeActive = true;
-  confirmedRenderMode ??= "rendered";
+  if (currentRenderMode() === null) {
+    configurationController.setConfirmedRenderMode("rendered");
+  }
   requestedView = "marking";
   configViewLocked = false;
   logEvent("Debug direct mode enabled", boundTabUrl, "warn");

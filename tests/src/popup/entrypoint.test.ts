@@ -3857,6 +3857,77 @@ describe("rewrite popup entrypoint", () => {
     await waitFor(() => close.mock.calls.length === 1, "unregister completion");
   });
 
+  it("adopts property config only for the exact A to B to A binding occurrence", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    let tab = { id: 77, url: "https://example.com/a" };
+    const query = vi.fn(async () => [tab]);
+    const get = vi.fn(async () => tab);
+    const requests: Array<{
+      frame: BusFrame;
+      resolve(reply: BusFrame): void;
+    }> = [];
+    const runtime = makeRuntime(async (message) => replyFrame(message, []), "rendered", {
+      configLoad: async (frame) => await new Promise<BusFrame>((resolve) => {
+        requests.push({ frame, resolve });
+      }),
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: {
+        query,
+        get,
+        reload: vi.fn(),
+        sendMessage: makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" })),
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    await waitFor(() => props().diagnostics.settingsLoaded, "stored connection profile");
+    const poll = globalThis.window.setInterval.mock.calls[0]?.[0] as () => void;
+    poll();
+    await waitFor(() => requests.length === 1, "initial A config candidate");
+
+    tab = { id: 77, url: "https://example.com/b" };
+    poll();
+    await waitFor(() => requests.length === 2, "B config candidate");
+    requests[1].resolve(replyFrame(requests[1].frame, {
+      status: "ok",
+      config: { ...backendConfig(), renderMode: "static" },
+      renderMode: "static",
+      renderModeSource: "backend",
+    }));
+    await waitFor(() => props().diagnostics.renderMode === "static", "B config adoption");
+
+    tab = { id: 77, url: "https://example.com/a" };
+    poll();
+    await waitFor(() => requests.length === 3, "replacement A config candidate");
+    requests[2].resolve(replyFrame(requests[2].frame, {
+      status: "ok",
+      config: { ...backendConfig(), renderMode: "rendered" },
+      renderMode: "rendered",
+      renderModeSource: "backend",
+    }));
+    await waitFor(() => props().diagnostics.renderMode === "rendered", "replacement A adoption");
+
+    requests[0].resolve(replyFrame(requests[0].frame, {
+      status: "ok",
+      config: { ...backendConfig(), renderMode: "static" },
+      renderMode: "static",
+      renderModeSource: "backend",
+    }));
+    await flushEntrypointWork();
+
+    expect(props().diagnostics).toMatchObject({
+      pageUrl: "https://example.com/a",
+      renderMode: "rendered",
+      renderModeSource: "backend",
+      configStatus: "ok",
+    });
+  });
+
   it("retries a publication-unknown outcome with the exact same fenced Hub operation", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     const render = createReactRenderProbe();

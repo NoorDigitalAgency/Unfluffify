@@ -1,4 +1,6 @@
 import type { ConnectionSettings } from "../storage/settings";
+import type { ConfigSnapshot, SelectorSet } from "../storage/config";
+import type { RenderMode } from "../domain/schema/property";
 import {
   EMPTY_POPUP_CREDENTIALS_FORM,
   EMPTY_POPUP_SETTINGS_FORM,
@@ -42,6 +44,21 @@ export type AccountValidateResult = Readonly<{
   httpStatus?: number;
 }>;
 
+export type PropertyConfigLoadResult =
+  | Readonly<{
+    status: "ok" | "integrity_shrink";
+    config: ConfigSnapshot;
+    reason?: string;
+    renderMode?: RenderMode;
+    renderModeSource: "backend";
+  }>
+  | Readonly<{
+    status: "auth_error" | "not_found" | "invalid" | "environment_unconfigured" | "error";
+    httpStatus?: number;
+    renderMode?: RenderMode;
+    renderModeSource: "backend" | "local";
+  }>;
+
 export type ConfigurationPorts = Readonly<{
   loadSettings(): Promise<ConfigurationPortResult<SettingsLoadResult>>;
   saveSettings(settings: ConnectionSettings): Promise<ConfigurationPortResult<SettingsSaveResult>>;
@@ -49,6 +66,8 @@ export type ConfigurationPorts = Readonly<{
   login(input: Readonly<{ email: string; password: string }>): Promise<ConfigurationPortResult<AccountLoginResult>>;
   logout(): Promise<ConfigurationPortResult<Readonly<{ status: "ok" }>>>;
   validateToken(): Promise<ConfigurationPortResult<AccountValidateResult>>;
+  loadPropertyConfig(siteId: number): Promise<ConfigurationPortResult<PropertyConfigLoadResult>>;
+  isRenderModeConfirmed(config: ConfigSnapshot): boolean;
   refreshPopup(): Promise<void>;
   recordActivity(label: string, detail?: string, tone?: ConfigurationTone): void;
   onChange(): void;
@@ -68,7 +87,26 @@ export type ConfigurationSnapshot = Readonly<{
   authBusy: boolean;
   authMessage: string;
   configurationComplete: boolean;
+  property: Readonly<{
+    attemptedSiteId: number | null;
+    status: string;
+    config: ConfigSnapshot | null;
+    selectors: SelectorSet | null;
+    renderMode: RenderMode | null;
+    renderModeSource: "backend" | "local";
+  }>;
 }>;
+
+export type PropertyLoadCandidate = Readonly<{
+  siteId: number;
+  bindingVersion: number;
+  requestVersion: number;
+  response: ConfigurationPortResult<PropertyConfigLoadResult>;
+}>;
+
+export type PropertyAdoptionOutcome =
+  | Readonly<{ status: "adopted"; projectionInvalidated: boolean }>
+  | Readonly<{ status: "stale"; projectionInvalidated: false }>;
 
 export type SettingsSavePreparation = Readonly<{
   payload: ConnectionSettings;
@@ -93,6 +131,13 @@ export type ConfigurationController = Readonly<{
   login(): Promise<"completed" | "failed" | "skipped" | "busy">;
   logout(): Promise<"completed" | "failed" | "busy">;
   validateToken(): Promise<"completed" | "failed" | "busy">;
+  requestPropertyLoad(siteId: number): Promise<PropertyLoadCandidate | null>;
+  adoptPropertyLoad(candidate: PropertyLoadCandidate): PropertyAdoptionOutcome;
+  retryPropertyLoad(): void;
+  resetPropertyBinding(): void;
+  setConfirmedRenderMode(mode: RenderMode): boolean;
+  clearConfirmedRenderMode(): void;
+  adoptAuthoritativeConfig(config: ConfigSnapshot, status: "ok" | "integrity_shrink"): void;
 }>;
 
 const SETTINGS_FORM_FIELDS = ["configEndpoint", "aiEndpoint", "stageBase"] as const;
@@ -139,6 +184,14 @@ export function createConfigurationController(ports: ConfigurationPorts): Config
   let rawAuthState: PopupAuthState = "unknown";
   let authBusy = false;
   let authMessage = "";
+  let propertyBindingVersion = 0;
+  let propertyRequestVersion = 0;
+  let attemptedSiteId: number | null = null;
+  let propertyStatus = "";
+  let propertyConfig: ConfigSnapshot | null = null;
+  let propertySelectors: SelectorSet | null = null;
+  let confirmedRenderMode: RenderMode | null = null;
+  let renderModeSource: "backend" | "local" = "local";
 
   const resolvedAuthState = (): PopupAuthState => {
     if (authBusy) {
@@ -173,6 +226,14 @@ export function createConfigurationController(ports: ConfigurationPorts): Config
     authBusy,
     authMessage,
     configurationComplete: configurationComplete(),
+    property: Object.freeze({
+      attemptedSiteId,
+      status: propertyStatus,
+      config: propertyConfig,
+      selectors: propertySelectors,
+      renderMode: confirmedRenderMode,
+      renderModeSource,
+    }),
   });
 
   const adoptAuthStatus = async (): Promise<"adopted" | "failed"> => {
@@ -368,6 +429,102 @@ export function createConfigurationController(ports: ConfigurationPorts): Config
       }
       ports.onChange();
       return "completed";
+    },
+    async requestPropertyLoad(siteId) {
+      if (attemptedSiteId === siteId) {
+        return null;
+      }
+      attemptedSiteId = siteId;
+      const bindingVersion = propertyBindingVersion;
+      propertyRequestVersion += 1;
+      const requestVersion = propertyRequestVersion;
+      const response = await ports.loadPropertyConfig(siteId);
+      return Object.freeze({ siteId, bindingVersion, requestVersion, response });
+    },
+    adoptPropertyLoad(candidate) {
+      if (
+        candidate.bindingVersion !== propertyBindingVersion ||
+        candidate.requestVersion !== propertyRequestVersion ||
+        candidate.siteId !== attemptedSiteId
+      ) {
+        return { status: "stale", projectionInvalidated: false };
+      }
+      const response = candidate.response;
+      if (!response.ok) {
+        propertyStatus = response.code;
+        ports.recordActivity("Config load failed", response.code, "warn");
+        ports.onChange();
+        return { status: "adopted", projectionInvalidated: false };
+      }
+      const result = response.data;
+      propertyStatus = result.status;
+      if (result.status !== "ok" && result.status !== "integrity_shrink") {
+        confirmedRenderMode = result.renderMode ?? null;
+        renderModeSource = result.renderModeSource;
+        const projectionInvalidated = result.status === "not_found";
+        if (projectionInvalidated) {
+          propertyConfig = null;
+          propertySelectors = null;
+        }
+        ports.recordActivity(
+          "Config not loaded",
+          result.status === "not_found"
+            ? result.renderMode
+              ? `no stored config · kept local render mode ${result.renderMode}`
+              : "no stored config for this property"
+            : result.status,
+          result.status === "not_found" ? "info" : "warn",
+        );
+        ports.onChange();
+        return { status: "adopted", projectionInvalidated };
+      }
+      renderModeSource = result.renderModeSource;
+      propertyConfig = result.config;
+      propertySelectors = result.config.selectors;
+      if (ports.isRenderModeConfirmed(result.config)) {
+        confirmedRenderMode = result.config.renderMode;
+        ports.recordActivity("Render mode restored", `${result.config.renderMode} · backend`, "success");
+      } else {
+        confirmedRenderMode = null;
+        ports.recordActivity("Render mode not stored", "choose one for this property", "info");
+      }
+      if (result.status === "integrity_shrink") {
+        ports.recordActivity("Configuration integrity warning", result.reason ?? "integrity shrink", "danger");
+      }
+      ports.onChange();
+      return { status: "adopted", projectionInvalidated: true };
+    },
+    retryPropertyLoad() {
+      propertyRequestVersion += 1;
+      attemptedSiteId = null;
+    },
+    resetPropertyBinding() {
+      propertyBindingVersion += 1;
+      propertyRequestVersion += 1;
+      attemptedSiteId = null;
+      propertyStatus = "";
+      propertyConfig = null;
+      propertySelectors = null;
+    },
+    setConfirmedRenderMode(mode) {
+      if (confirmedRenderMode === mode) {
+        return false;
+      }
+      confirmedRenderMode = mode;
+      return true;
+    },
+    clearConfirmedRenderMode() {
+      confirmedRenderMode = null;
+    },
+    adoptAuthoritativeConfig(config, status) {
+      propertyConfig = config;
+      propertySelectors = config.selectors;
+      renderModeSource = "backend";
+      propertyStatus = status;
+      if (ports.isRenderModeConfirmed(config)) {
+        confirmedRenderMode = config.renderMode;
+      }
+      ports.onChange();
     },
   };
 }

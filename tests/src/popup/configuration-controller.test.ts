@@ -7,6 +7,33 @@ import {
   settingsFromForm,
   type ConfigurationPorts,
 } from "../../../src/popup/configuration-controller";
+import type { ConfigSnapshot } from "../../../src/storage/config";
+
+function propertyConfig(overrides: Partial<ConfigSnapshot> = {}): ConfigSnapshot {
+  return {
+    version: 2,
+    environmentKey: "example.com",
+    siteId: 1,
+    baseUrl: "https://example.com",
+    propertyRevision: 4,
+    feedRevision: 2,
+    membershipFingerprint: "membership",
+    assignmentFingerprint: "assignment",
+    renderMode: "rendered",
+    renderModeUpdatedAt: "2026-08-22T10:00:00Z",
+    selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+    selectorsUpdatedAt: "2026-08-22T10:00:00Z",
+    submittedSelectorsFingerprint: "selectors",
+    pages: {},
+    reconciliation: {
+      revision: 1,
+      feedFingerprint: "feed",
+      removedPageKeys: [],
+      relabelledPages: [],
+    },
+    ...overrides,
+  };
+}
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -30,6 +57,16 @@ function createHarness(overrides: Partial<ConfigurationPorts> = {}) {
     login: vi.fn(async () => ({ ok: true, data: { status: "ok" } })),
     logout: vi.fn(async () => ({ ok: true, data: { status: "ok" } })),
     validateToken: vi.fn(async () => ({ ok: true, data: { status: "valid" } })),
+    loadPropertyConfig: vi.fn(async () => ({
+      ok: true,
+      data: {
+        status: "ok",
+        config: propertyConfig(),
+        renderMode: "rendered",
+        renderModeSource: "backend",
+      },
+    })),
+    isRenderModeConfirmed: (config) => config.renderModeUpdatedAt !== "1970-01-01T00:00:00Z",
     refreshPopup: vi.fn(async () => undefined),
     recordActivity: vi.fn(),
     onChange: vi.fn(),
@@ -261,5 +298,121 @@ describe("popup configuration controller", () => {
       "reported by the background check",
       "danger",
     );
+  });
+
+  it("keeps property loads as unadopted candidates until main accepts the binding", async () => {
+    const load = deferred<{
+      ok: true;
+      data: {
+        status: "ok";
+        config: ConfigSnapshot;
+        renderMode: "rendered";
+        renderModeSource: "backend";
+      };
+    }>();
+    const harness = createHarness({
+      loadPropertyConfig: vi.fn(async () => await load.promise),
+    });
+
+    const request = harness.controller.requestPropertyLoad(1);
+    expect(harness.controller.snapshot().property).toMatchObject({
+      attemptedSiteId: 1,
+      config: null,
+      selectors: null,
+      renderMode: null,
+    });
+    load.resolve({
+      ok: true,
+      data: {
+        status: "ok",
+        config: propertyConfig(),
+        renderMode: "rendered",
+        renderModeSource: "backend",
+      },
+    });
+    const candidate = await request;
+    expect(candidate).not.toBeNull();
+    expect(harness.controller.snapshot().property.config).toBeNull();
+
+    expect(harness.controller.adoptPropertyLoad(candidate!)).toEqual({
+      status: "adopted",
+      projectionInvalidated: true,
+    });
+    expect(harness.controller.snapshot().property).toMatchObject({
+      status: "ok",
+      config: propertyConfig(),
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+      renderMode: "rendered",
+      renderModeSource: "backend",
+    });
+  });
+
+  it("rejects a delayed property candidate after reset and lets a fresh site load win", async () => {
+    const harness = createHarness();
+    const staleCandidate = await harness.controller.requestPropertyLoad(1);
+    harness.controller.resetPropertyBinding();
+    expect(harness.controller.adoptPropertyLoad(staleCandidate!)).toEqual({
+      status: "stale",
+      projectionInvalidated: false,
+    });
+    expect(harness.controller.snapshot().property).toMatchObject({
+      attemptedSiteId: null,
+      config: null,
+    });
+
+    const currentCandidate = await harness.controller.requestPropertyLoad(2);
+    expect(harness.controller.adoptPropertyLoad(currentCandidate!)).toMatchObject({ status: "adopted" });
+    expect(harness.controller.snapshot().property.attemptedSiteId).toBe(2);
+  });
+
+  it("invalidates an older same-site request when an explicit retry starts", async () => {
+    const harness = createHarness();
+    const first = await harness.controller.requestPropertyLoad(1);
+    harness.controller.retryPropertyLoad();
+    const retry = await harness.controller.requestPropertyLoad(1);
+
+    expect(harness.controller.adoptPropertyLoad(retry!)).toMatchObject({ status: "adopted" });
+    expect(harness.controller.adoptPropertyLoad(first!)).toEqual({
+      status: "stale",
+      projectionInvalidated: false,
+    });
+  });
+
+  it("applies not-found local mode and authoritative save projections without reconstructing them", async () => {
+    const harness = createHarness({
+      loadPropertyConfig: vi.fn(async () => ({
+        ok: true,
+        data: {
+          status: "not_found",
+          renderMode: "static",
+          renderModeSource: "local",
+        },
+      })),
+    });
+    const candidate = await harness.controller.requestPropertyLoad(1);
+    expect(harness.controller.adoptPropertyLoad(candidate!)).toEqual({
+      status: "adopted",
+      projectionInvalidated: true,
+    });
+    expect(harness.controller.snapshot().property).toMatchObject({
+      status: "not_found",
+      config: null,
+      selectors: null,
+      renderMode: "static",
+      renderModeSource: "local",
+    });
+
+    const authoritative = propertyConfig({ renderMode: "rendered" });
+    harness.controller.adoptAuthoritativeConfig(authoritative, "integrity_shrink");
+    expect(harness.controller.snapshot().property).toMatchObject({
+      status: "integrity_shrink",
+      config: authoritative,
+      selectors: authoritative.selectors,
+      renderMode: "rendered",
+      renderModeSource: "backend",
+    });
+    expect(harness.controller.setConfirmedRenderMode("rendered")).toBe(false);
+    expect(harness.controller.setConfirmedRenderMode("static")).toBe(true);
+    expect(harness.controller.snapshot().property.renderMode).toBe("static");
   });
 });
