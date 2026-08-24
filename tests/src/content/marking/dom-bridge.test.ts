@@ -39,6 +39,7 @@ class FakeElement {
   clientRectReadCount = 0;
   rectReadCount = 0;
   roleReadCount = 0;
+  scrollTop = 0;
 
   constructor(readonly tagName: string, readonly rect: Rect, text = "") {
     if (text) {
@@ -144,6 +145,7 @@ class FakeElement {
 
 class FakeDocument {
   readonly documentElement: FakeElement;
+  readonly scrollingElement: FakeElement;
   readonly defaultView = {
     innerWidth: 412,
     getComputedStyle: (element: FakeElement) => ({
@@ -161,6 +163,7 @@ class FakeDocument {
 
   constructor() {
     this.documentElement = this.createElement("html");
+    this.scrollingElement = this.documentElement;
   }
 
   createElement(tagName: string): FakeElement {
@@ -655,6 +658,36 @@ describe("P6 DOM bridge", () => {
     const rebased = after.rows.find((row) => row.text === "Original target");
     expect(after.revision).toBeGreaterThan(before.revision);
     expect(rebased).toMatchObject({ id: original!.id, xpath: "/main[1]/p[2]" });
+  });
+
+  it("falls back to the root scroller when a storefront ignores scrollIntoView", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 900));
+    const target = new FakeElement("P", rect(0, 640, 120, 20), "Offscreen target");
+    const scrollIntoView = vi.fn();
+    Object.assign(target, { scrollIntoView });
+    root.ownerDocument = doc;
+    target.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.scrollTop = 20;
+    Object.assign(doc.defaultView, { innerHeight: 300 });
+    doc.documentElement.appendChild(root);
+    root.appendChild(target);
+
+    const engine = createMarkingEngine(root as unknown as Element);
+    const projection = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: ["p"],
+      exclusionSelectors: [],
+    });
+    const row = projection.rows.find((candidate) => candidate.text === "Offscreen target");
+
+    expect(engine.activatePreviewRow(projection.projectionId, row!.id)).toBe(true);
+    expect(scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "center",
+      inline: "nearest",
+    });
+    expect(doc.documentElement.scrollTop).toBe(520);
   });
 
   it("advances one projection revision when only the preview selector set changes", () => {
@@ -2118,6 +2151,23 @@ describe("P6 DOM bridge", () => {
       expect(stripUncapturableHtml(`<main><style id="${bypassId}">helper</style><p>Content</p></main>`))
         .toBe("<main><p>Content</p></main>");
     }
+  });
+
+  it("removes extension cursor classes from every captured HTML path", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("HTML", rect(0, 0, 300, 300));
+    root.ownerDocument = doc;
+    root.setAttribute("class", "site-theme uf-cursor-exclude uf-cursor-disabled");
+
+    expect(captureFlattenedHtml(root as unknown as Element)).toBe(
+      '<html class="site-theme"></html>',
+    );
+    expect(stripUncapturableHtml(
+      '<html class="site-theme uf-cursor-include uf-cursor-passthrough"><body>Content</body></html>',
+    )).toBe('<html class="site-theme"><body>Content</body></html>');
+    expect(stripUncapturableHtml(
+      "<html class='uf-cursor-exclude'><body>Content</body></html>",
+    )).toBe("<html><body>Content</body></html>");
   });
 
   it("removes legacy consent-hidden subtrees without touching adjacent content", () => {

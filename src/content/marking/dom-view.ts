@@ -9,6 +9,7 @@ import {
   LEGACY_CONSENT_BYPASS_STYLE_ID,
   consentStyleForCapture,
 } from "../consent";
+import { sanitizeCaptureClassValue } from "./capture-hygiene";
 import { isActuallyPaintReachable } from "./paint-reachability";
 
 export type DomBridgeNode = Readonly<{
@@ -542,11 +543,17 @@ function serializeAttributes(element: Element): string {
   }
   return names
     .filter((name) => name !== "style" || !consentHidden || safeConsentStyle !== null)
-    .map((name) => {
-      const value = name === "style" && consentHidden
+    .flatMap((name) => {
+      let value = name === "style" && consentHidden
         ? safeConsentStyle ?? ""
         : element.getAttribute(name) ?? "";
-      return ` ${name}="${escapeHtmlAttribute(value)}"`;
+      if (name === "class") {
+        value = sanitizeCaptureClassValue(value);
+        if (!value) {
+          return [];
+        }
+      }
+      return [` ${name}="${escapeHtmlAttribute(value)}"`];
     })
     .join("");
 }

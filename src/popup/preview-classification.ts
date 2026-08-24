@@ -31,9 +31,11 @@ export function previewDebugDetailEnabled(): boolean {
 export function projectPreviewClassification(
   classification: PreviewClassification,
 ): PreviewDisplayClassification {
-  return classification === "explicit-included" || classification === "implicit-included"
-    ? "included"
-    : "excluded";
+  return classification === "excluded"
+    || classification === "immutable"
+    || classification === "closed-shadow"
+    ? "excluded"
+    : "included";
 }
 
 const TECHNICAL_SOURCE_LABELS: Readonly<Record<string, string>> = {

@@ -420,6 +420,37 @@ function initialMarksForBridge(
   };
 }
 
+/** Some storefront layouts put preview targets below an overflow-clipped
+ * responsive wrapper. Chromium then reports a successful native
+ * `scrollIntoView()` call without moving the root document. Keep the native
+ * path for nested scrollers, then synchronously repair only a still-offscreen
+ * vertical target through the document's authoritative scrolling element. */
+function scrollPreviewTargetIntoView(element: Element): void {
+  element.scrollIntoView?.({ block: "center", inline: "nearest", behavior: "smooth" });
+  const rect = element.getBoundingClientRect?.();
+  const ownerDocument = element.ownerDocument;
+  const view = ownerDocument?.defaultView;
+  const viewportHeight = view?.visualViewport?.height ??
+    view?.innerHeight ??
+    ownerDocument?.documentElement?.clientHeight ??
+    0;
+  if (
+    !rect ||
+    rect.height <= 0 ||
+    viewportHeight <= 0 ||
+    (rect.top >= 0 && rect.bottom <= viewportHeight)
+  ) {
+    return;
+  }
+  const scrollingElement = ownerDocument?.scrollingElement ?? ownerDocument?.documentElement;
+  if (!scrollingElement) {
+    return;
+  }
+  const currentTop = scrollingElement.scrollTop;
+  const centeredOffset = Math.max(0, (viewportHeight - rect.height) / 2);
+  scrollingElement.scrollTop = Math.max(0, currentTop + rect.top - centeredOffset);
+}
+
 export function createMarkingEngine(
   rootElement: Element,
   options: MarkingEngineInitializationOptions = {},
@@ -1071,7 +1102,7 @@ export function createMarkingEngine(
       }
       previewEmphasizedRowId = rowId;
       renderer.setHover(target.element, target.evaluationNode.xpath);
-      target.element.scrollIntoView?.({ block: "center", inline: "nearest", behavior: "smooth" });
+      scrollPreviewTargetIntoView(target.element);
       return true;
     },
     emphasizeXpath(xpath: string): boolean {
@@ -1089,7 +1120,7 @@ export function createMarkingEngine(
         return false;
       }
       renderer.setHover(target.element, xpath);
-      target.element.scrollIntoView?.({ block: "center", inline: "nearest", behavior: "smooth" });
+      scrollPreviewTargetIntoView(target.element);
       return true;
     },
     renderSilentHighlights(): readonly string[] {

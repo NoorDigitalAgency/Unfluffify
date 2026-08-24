@@ -9,9 +9,27 @@ describe("preview classification projection", () => {
   it("collapses the exact six-way model to the public included/excluded distinction", () => {
     expect(projectPreviewClassification("explicit-included")).toBe("included");
     expect(projectPreviewClassification("implicit-included")).toBe("included");
-    for (const classification of ["excluded", "undetected", "immutable", "closed-shadow"] as const) {
+    expect(projectPreviewClassification("undetected")).toBe("included");
+    for (const classification of ["excluded", "immutable", "closed-shadow"] as const) {
       expect(projectPreviewClassification(classification)).toBe("excluded");
     }
+  });
+
+  it("presents submitted default content as included even without selector coverage", () => {
+    const row = {
+      id: "default-content-row",
+      classification: "undetected" as const,
+      text: "Default extracted content",
+      xpath: "/html[1]/body[1]/main[1]/p[1]",
+      shadow: "none" as const,
+    };
+
+    expect(projectPreviewRow(row, false)).toEqual({
+      id: "default-content-row",
+      text: "Default extracted content",
+      classification: "included",
+      debugDetail: null,
+    });
   });
 
   it("keeps the expanded model in debug and collapses production to included/excluded", () => {

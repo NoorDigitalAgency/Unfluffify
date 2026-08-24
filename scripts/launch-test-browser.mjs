@@ -754,7 +754,9 @@ function makeControlChannel() {
   async function observeLoop() {
     while (observing) {
       try {
-        const result = await enqueue(() => runStateAction("state", CONTROL_OBSERVE_TIMEOUT_MS));
+        const result = await enqueue(() => runStateAction("state", CONTROL_OBSERVE_TIMEOUT_MS, {
+          includeTarget: false,
+        }));
         const summary = summarizeButtonState(result);
         const serialized = JSON.stringify(summary);
         if (serialized !== lastObserved) {
@@ -794,7 +796,9 @@ function makeControlChannel() {
       const resumeObserve = observing;
       observing = false;
       try {
-        const result = await enqueue(() => runStateAction("state", CONTROL_STATE_TIMEOUT_MS));
+        const result = await enqueue(() => runStateAction("state", CONTROL_STATE_TIMEOUT_MS, {
+          includeTarget: false,
+        }));
         printJson("[control:state]", result);
       } catch (error) {
         console.log(`[control:error] ${String(error && error.message ? error.message : error)}`);
@@ -809,7 +813,9 @@ function makeControlChannel() {
       const resumeObserve = observing;
       observing = false;
       try {
-        const result = await enqueue(() => runStateAction("exit-preview", CONTROL_STATE_TIMEOUT_MS));
+        const result = await enqueue(() => runStateAction("exit-preview", CONTROL_STATE_TIMEOUT_MS, {
+          includeTarget: false,
+        }));
         printJson("[control:exit-preview]", result);
       } catch (error) {
         console.log(`[control:error] ${String(error && error.message ? error.message : error)}`);
@@ -849,7 +855,10 @@ function makeControlChannel() {
       const resumeObserve = observing;
       observing = false;
       try {
-        const result = await enqueue(() => runStateAction("set-inputs", CONTROL_STATE_TIMEOUT_MS, { inputValues }));
+        const result = await enqueue(() => runStateAction("set-inputs", CONTROL_STATE_TIMEOUT_MS, {
+          inputValues,
+          includeTarget: false,
+        }));
         printJson("[control:set-inputs]", result);
       } catch (error) {
         console.log(`[control:error] ${String(error && error.message ? error.message : error)}`);
@@ -865,7 +874,10 @@ function makeControlChannel() {
       const resumeObserve = observing;
       observing = false;
       try {
-        const result = await enqueue(() => runStateAction("eval", CONTROL_STATE_TIMEOUT_MS, { expr }));
+        const result = await enqueue(() => runStateAction("eval", CONTROL_STATE_TIMEOUT_MS, {
+          expr,
+          includeTarget: false,
+        }));
         printJson("[control:eval]", result);
       } catch (error) {
         console.log(`[control:error] ${String(error && error.message ? error.message : error)}`);

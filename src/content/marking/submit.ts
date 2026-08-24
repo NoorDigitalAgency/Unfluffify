@@ -3,6 +3,7 @@ import { AiRunPayloadSnapshotSchema, type AiRunPayloadSnapshot } from "../../dom
 import type { RenderMode } from "../../domain/schema/property";
 import type { EvaluationResult } from "../../domain/evaluate";
 import { CONSENT_HIDDEN_ATTR } from "../consent";
+import { sanitizeCaptureClassValue } from "./capture-hygiene";
 
 export function buildSubmissionSnapshot(input: Readonly<{
   baseUrl: string;
@@ -50,8 +51,22 @@ export function stripUncapturableHtml(html: string): string {
   }
   return output.replace(
     /<([a-zA-Z][\w:-]*)([^>]*)>/g,
-    (_openTag, tagName: string, attributes: string) =>
-      `<${tagName}${attributes.replace(/\sdata-uf-[\w:-]+(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, "")}>`,
+    (_openTag, tagName: string, attributes: string) => {
+      const sanitizedAttributes = attributes
+        .replace(/\sdata-uf-[\w:-]+(?:=(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi, "")
+        .replace(
+          /\sclass=(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
+          (_classAttribute, doubleQuoted: string | undefined, singleQuoted: string | undefined, unquoted: string | undefined) => {
+            const value = sanitizeCaptureClassValue(doubleQuoted ?? singleQuoted ?? unquoted ?? "");
+            if (!value) {
+              return "";
+            }
+            const quote = doubleQuoted !== undefined ? '"' : singleQuoted !== undefined ? "'" : "";
+            return ` class=${quote}${value}${quote}`;
+          },
+        );
+      return `<${tagName}${sanitizedAttributes}>`;
+    },
   );
 }
 
