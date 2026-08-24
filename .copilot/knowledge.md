@@ -46,19 +46,26 @@
   itself through `xvfb-run -a --server-args="-screen 0 1280x900x24"` when that
   wrapper is installed. If `xvfb-run` is unavailable, the launcher prints the
   exact manual wrapper command and stops before trying to boot Chromium. It
-  writes a per-environment `.temp/browser-mcp.config.json` (drops
-  `executablePath`), and drives ONLY the `npm:@playwright/mcp@latest` managed
-  Chromium through the Node-backed launcher (`npx -y @playwright/mcp@latest`
-  under the hood) over a single launcher-owned stdio client — never the OS
-  Chrome. The
+  writes a per-environment `.temp/browser-mcp.config.json` (drops the
+  placeholder `executablePath`), resolves the managed Chromium installed by the
+  exactly-pinned `npm:@playwright/mcp` package, and starts that binary directly
+  through the Node-backed launcher — never the OS Chrome. No persistent
+  Playwright connection or `--remote-debugging-pipe` remains attached to the
+  website tab: either one occupies Chrome's single debugger-owner slot and makes
+  the extension's Render Inspection fail with `Another debugger is already
+  attached`. The
   launcher exposes a same-session control channel on its shell `shellId`; when
   the host environment supports writing to that running shell, use `state`,
   `exit-preview`, `observe`, `stop-observe`, and `help` there to
   inspect/control the bound popup and target page. Otherwise rely on the
   auto-enabled observation output plus `chromium.connectOverCDP(...)` against
   `http://127.0.0.1:9222` for active inspection/control of the already-open page
-  and extension popup. Do not start a second MCP client/server for the same
-  `.wxt/browser-profile`. The committed `.vscode/mcp.json`, `.mcp.json`, and
+  and extension popup. Do not start a second browser or MCP server for the same
+  `.wxt/browser-profile`. Before Render Inspection, stop launcher observation
+  and `pnpm browser:observe`, close one-shot CDP clients, and use the actual
+  `popup.html` side panel (not the `?debugTabId=` tab); restart observation only
+  after the inspection is set/cancelled and `chrome.debugger` is released. The
+  committed `.vscode/mcp.json`, `.mcp.json`, and
   `.vscode/browser-mcp.config.json` are intentionally placeholdered
   (`__UNFLUFFIFY_REPO_ROOT__`, `__CHROMIUM_EXECUTABLE_PATH__`) and
   non-launchable. Unpacked extension id is deterministic: SHA-256 of the

@@ -96,9 +96,9 @@ Use validation that matches the risk:
   `pnpm check`, `pnpm test`, and `pnpm build`
 - Live browser behavior: launch with `pnpm browser:live <target-url>` (the
   `live-browser` skill / committed launcher), which builds and loads
-  `.output/chrome-mv3` in only the `npm:@playwright/mcp@latest` managed
-  Chromium; reload the unpacked extension/service worker after a rebuild before
-  observing. Never touch the OS Chrome.
+  `.output/chrome-mv3` in only the exactly-pinned `npm:@playwright/mcp`
+  package's managed Chromium; reload the unpacked extension/service worker
+  after a rebuild before observing. Never touch the OS Chrome.
 
 ## Knowledge update rule
 

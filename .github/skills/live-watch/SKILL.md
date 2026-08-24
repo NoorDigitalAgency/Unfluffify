@@ -73,7 +73,8 @@ Run it `mode="async"`, keep the shellId (e.g. `browser-live`). It rebuilds
 `.output/chrome-mv3`, opens the page, resolves the extension id at runtime, and
 opens the popup bound to the page tab. Wait for the
 "live test browser ready" banner and record the printed extension id, page tabId,
-and bound popup URL. Confirm binding with the launcher control command `state`.
+bound popup URL, and actual side-panel URL. Confirm binding with the launcher
+control command `state`.
 
 ## Step 5 — Attach the full-console / JS-stack observer
 
@@ -92,6 +93,15 @@ streams `console.*`, uncaught exceptions, and `Log.entryAdded` warnings/errors f
 every attached target, tagged by target type/url, with short stack frames. It only
 reads — it never closes the browser. It de-duplicates targets so each console line
 appears once. `.temp/` is gitignored; the log is a throwaway session artifact.
+
+Render Inspection is the one deliberate observer exception: Chrome permits only
+one debugger owner for the website tab, and the extension itself must own that
+slot. Immediately before clicking With/Without JavaScript, send `stop-observe`,
+stop this raw-CDP observer, and close one-shot CDP clients. Drive the controls
+through the real `popup.html` side-panel target, not the `?debugTabId=` tab. Do
+not attach to the website target until the inspection is set or cancelled; then
+restart the observer and launcher observation. Record the pause/restart boundary
+in the live evidence so the coverage gap is explicit.
 
 For fresh popup view-state on demand, prefer a CDP one-shot over reading the huge
 launcher stdout buffer:

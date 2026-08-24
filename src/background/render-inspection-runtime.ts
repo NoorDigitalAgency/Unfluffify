@@ -113,7 +113,13 @@ function samePage(left: string | null, right: string): boolean {
 
 function pageBelongsToProperty(pageUrl: string, property: RenderInspectionPropertyScope): boolean {
   try {
-    return new URL(pageUrl).origin === new URL(property.baseUrl).origin;
+    const propertyHost = new URL(property.baseUrl).hostname.toLowerCase().replace(/^www\./, "");
+    const pageHost = new URL(pageUrl).hostname.toLowerCase().replace(/^www\./, "");
+    // The Hub has already authorized the observed URL for this property before
+    // the runtime starts. Keep a local unrelated-host fence, but do not turn a
+    // canonical <-> www redirect (or its scheme/port) into a second identity
+    // decision that contradicts the GraphQL-authoritative context.
+    return pageHost === propertyHost;
   } catch {
     return false;
   }

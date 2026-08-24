@@ -104,14 +104,15 @@ pnpm browser:live <target-url> --no-build
 On headless Linux hosts with no `DISPLAY`/`WAYLAND_DISPLAY`, the launcher now
 relaunches itself through `xvfb-run -a --server-args="-screen 0 1280x900x24"`
 when that wrapper is installed. If `xvfb-run` is missing, it prints the exact
-manual wrapper command and exits before MCP startup.
+manual wrapper command and exits before managed-Chromium startup.
 
 Expected output includes:
 
-- `MCP initialized`
+- `managed Chromium`
 - `page loaded`
 - `live test browser ready`
 - popup URL with `debugTabId`
+- actual side-panel URL
 - control commands banner
 
 ## Control-channel validation (required)
@@ -139,6 +140,12 @@ For Bonliva flows, popup actions are state-gated:
 4. Show Content List.
 5. Save Session.
 6. Final Send to Lynx confirmation.
+
+For a Render Inspection round, send `stop-observe` and stop any
+`pnpm browser:observe` process before clicking With/Without JavaScript. Chrome
+allows only one debugger owner and the extension must own the website tab until
+the inspection is set or cancelled. Use the real side panel for those clicks,
+then restart observation.
 
 Important: if Lynx checklist modal is open and `Send to Lynx` is disabled, this
 is usually not a terminal/control issue. It indicates checklist requirements are

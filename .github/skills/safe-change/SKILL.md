@@ -104,7 +104,7 @@ Treat these areas as compatibility contracts:
 - **Browser live validation:** Follow the `live-browser` skill — run
   `pnpm browser:live <target-url>` (the committed launcher) to build and load
   `.output/chrome-mv3`, write the per-environment `.temp/browser-mcp.config.json`,
-  and launch only the `playwright-local` (`npm:@playwright/mcp@latest`) managed
+  and launch only the exactly-pinned `npm:@playwright/mcp` package's managed
    Chromium bound to `.wxt/browser-profile`. A target page URL is mandatory; never
   touch the OS Chrome. Reload the unpacked extension/service worker after
   rebuilding.

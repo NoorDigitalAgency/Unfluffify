@@ -1,7 +1,9 @@
 /**
  * Launch the live test browser for the Unfluffify extension and bind the popup
- * to a target page — using ONLY the pinned `npm:@playwright/mcp` MCP server and
- * its own managed Chromium. This never touches the OS Chrome/Chromium install.
+ * to a target page — using ONLY the Chromium installed by the pinned
+ * `npm:@playwright/mcp` package. This never touches the OS Chrome/Chromium
+ * install, and it deliberately leaves no persistent external debugger attached
+ * to the target tab once startup is complete.
  *
  * Usage:
  *   pnpm browser:live <target-url> [--no-build]
@@ -13,9 +15,8 @@
  *      (substituting the repo root and dropping `executablePath` so Playwright
  *      uses its managed Chromium).
  *   3. Ensures the MCP-managed Chromium is installed (idempotent).
- *   4. Starts the pinned `npm:@playwright/mcp` server over stdio (single client
- *      = no profile-lock) bound to `.wxt/browser-profile`.
- *   5. Navigates the first tab to <target-url>.
+ *   4. Resolves and starts the pinned package's managed Chromium directly,
+ *      bound to `.wxt/browser-profile`, with the target URL as its first tab.
  *   6. Resolves the loaded extension id from the service worker (and verifies it
  *      against the deterministic path-hash id).
  *   7. Drops the profile's service-worker registration and stamps a monotonic build
@@ -30,7 +31,8 @@
  *      Chromium).
  *   9. Resolves the target page's Chrome tab id via the service worker.
  *  10. Opens a SECOND tab `popup.html?debugTabId=<pageTabId>` so the extension
- *      binds to the target page.
+ *      binds to the target page, then opens the real side panel for trusted
+ *      popup-only commands such as render inspection.
  *
  * The browser stays open until this process is stopped (Ctrl-C / kill <pid>).
  */
@@ -52,9 +54,8 @@ const PROFILE_DIR = join(repoRoot, ".wxt", "browser-profile");
 const PROFILE_EXISTED = await stat(PROFILE_DIR).then(() => true, () => false);
 const TEMP_DIR = join(repoRoot, ".temp");
 const TEMP_CONFIG = join(TEMP_DIR, "browser-mcp.config.json");
-const TEMP_OUT = join(TEMP_DIR, "out");
 const COMMITTED_CONFIG = join(repoRoot, ".vscode", "browser-mcp.config.json");
-/** The MCP server is PINNED, not floating.
+/** The MCP package/browser revision is PINNED, not floating.
  *
  *  `@latest` broke this harness twice in one day. First the Chromium it bundles
  *  began unloading the unpacked extension on chrome.runtime.reload(); then its
@@ -173,11 +174,57 @@ async function run(cmd, args) {
   });
 }
 
-function spawnPlaywrightMcp(extraArgs, stdio) {
-  return spawn("npx", ["-y", PLAYWRIGHT_MCP_PACKAGE, ...extraArgs], {
-   cwd: repoRoot,
-   env: process.env,
-   stdio,
+function resolveManagedChromiumExecutable() {
+  const probe = spawnSync(
+    "npm",
+    [
+      "exec",
+      "--yes",
+      `--package=${PLAYWRIGHT_MCP_PACKAGE}`,
+      "--",
+      "sh",
+      "-c",
+      [
+        'mcp_cli=$(readlink -f "$(command -v playwright-mcp)")',
+        'mcp_node_modules=$(dirname "$(dirname "$(dirname "$mcp_cli")")")',
+        '(cd "${TMPDIR:-/tmp}" && NODE_PATH="$mcp_node_modules" node -e \'console.log(require("playwright").chromium.executablePath())\')',
+      ].join("; "),
+    ],
+    { cwd: repoRoot, env: process.env, encoding: "utf8" },
+  );
+  const executable = String(probe.stdout ?? "").trim();
+  if (probe.status !== 0 || !executable) {
+    throw new Error(
+      `Could not resolve the managed Chromium executable from ${PLAYWRIGHT_MCP_PACKAGE}: ` +
+      String(probe.stderr ?? "").trim(),
+    );
+  }
+  return executable;
+}
+
+function spawnManagedChromium(executable, launchArgs, pageUrl) {
+  const args = [
+    ...launchArgs.filter((arg) =>
+      typeof arg === "string" &&
+      !arg.startsWith("--remote-debugging-port=") &&
+      !arg.startsWith("--remote-allow-origins=") &&
+      !arg.startsWith("--user-data-dir=") &&
+      arg !== "--remote-debugging-pipe"),
+    `--remote-debugging-port=${CDP_PORT}`,
+    "--remote-allow-origins=*",
+    `--user-data-dir=${PROFILE_DIR}`,
+    "--disable-field-trial-config",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-session-crashed-bubble",
+    "--disable-sync",
+    "--window-size=1280,900",
+    pageUrl,
+  ];
+  return spawn(executable, args, {
+    cwd: repoRoot,
+    env: process.env,
+    stdio: ["ignore", "pipe", "pipe"],
   });
 }
 
@@ -219,6 +266,53 @@ async function listCdpTargets() {
   return targets;
 }
 
+async function waitForCdpBrowser(browserProcess, timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (browserProcess.exitCode !== null || browserProcess.signalCode !== null) {
+      throw new Error(
+        `Managed Chromium exited before CDP became ready ` +
+        `(code=${String(browserProcess.exitCode)}, signal=${String(browserProcess.signalCode)})`,
+      );
+    }
+    try {
+      await listCdpTargets();
+      return;
+    } catch {
+      await delay(250);
+    }
+  }
+  throw new Error(`Managed Chromium did not expose CDP on port ${CDP_PORT}`);
+}
+
+async function waitForTargetPage(timeoutMs = 30_000) {
+  const deadline = Date.now() + timeoutMs;
+  let lastUrls = [];
+  while (Date.now() < deadline) {
+    const targets = await listCdpTargets();
+    lastUrls = targets.map((targetInfo) => String(targetInfo?.url ?? ""));
+    const targetPage = targets.find((targetInfo) => {
+      const url = String(targetInfo?.url ?? "");
+      return targetInfo?.type === "page" && /^https?:\/\//i.test(url);
+    });
+    if (targetPage) {
+      const state = await evaluateCdpTarget(
+        targetPage,
+        "({ href: location.href, ready: document.readyState })",
+        5_000,
+      ).catch(() => null);
+      if (state?.ready === "complete" && /^https?:\/\//i.test(String(state.href ?? ""))) {
+        // The command-line URL can redirect (Bonliva adds www). Bind against the
+        // document's current canonical URL, not the target-list value sampled
+        // while navigation was still in flight.
+        return { ...targetPage, url: String(state.href) };
+      }
+    }
+    await delay(250);
+  }
+  throw new Error(`Managed target page did not appear; targets=${JSON.stringify(lastUrls)}`);
+}
+
 async function waitForCdpTarget(url, timeoutMs = 15_000) {
   const deadline = Date.now() + timeoutMs;
   let lastUrls = [];
@@ -242,6 +336,30 @@ async function bringCdpPageToFront(url) {
     throw new Error(`Could not focus the managed page target for ${url}`);
   }
   await sendCdpCommand(pageTarget.webSocketDebuggerUrl, "Page.bringToFront", {}, 10_000);
+}
+
+async function openActualSidePanel(boundUrl, tabId) {
+  const popupTarget = await waitForCdpTarget(boundUrl);
+  const response = await sendCdpCommand(
+    popupTarget.webSocketDebuggerUrl,
+    "Runtime.evaluate",
+    {
+      expression: `chrome.sidePanel.open({ tabId: ${JSON.stringify(tabId)} })`,
+      awaitPromise: true,
+      returnByValue: true,
+      userGesture: true,
+    },
+    10_000,
+  );
+  if (response?.exceptionDetails) {
+    const description = response.exceptionDetails?.exception?.description
+      ?? response.exceptionDetails?.text
+      ?? "unknown side-panel error";
+    throw new Error(`Could not open the actual extension side panel: ${description}`);
+  }
+  const sidePanelUrl = boundUrl.replace(/\?.*$/, "");
+  await waitForCdpTarget(sidePanelUrl);
+  return sidePanelUrl;
 }
 
 function sendCdpCommand(webSocketDebuggerUrl, method, params, timeoutMs) {
@@ -347,6 +465,7 @@ async function bindPopupWithCdp(pageUrl) {
   await delay(1_500);
 
   let tabId = null;
+  let lastTabSnapshot = null;
   for (let attempt = 0; attempt < 40; attempt += 1) {
     worker = await waitForLiveServiceWorker(5_000);
     const expression = `(async () => {
@@ -355,18 +474,37 @@ async function bindPopupWithCdp(pageUrl) {
       const normalize = (url) => String(url || '').replace(/#.*$/, '');
       const normalizedTarget = normalize(targetUrl);
       const exact = tabs.find((tab) => normalize(tab.url) === normalizedTarget);
-      if (exact && Number.isFinite(exact.id)) return exact.id;
+      if (exact && Number.isFinite(exact.id)) return { tabId: exact.id, tabs };
       const fallback = tabs.find((tab) =>
         normalize(tab.url) && normalizedTarget
           && normalize(tab.url).startsWith(normalizedTarget.split('?')[0]));
-      return fallback && Number.isFinite(fallback.id) ? fallback.id : null;
+      const numericTabs = tabs.filter((tab) => Number.isFinite(tab.id));
+      return {
+        // Chrome can omit Tab.url when the persisted profile has host access set
+        // to "on click". Before the bound popup exists there is exactly one
+        // browser tab, so that one-tab identity is still authoritative.
+        tabId: fallback && Number.isFinite(fallback.id)
+          ? fallback.id
+          : numericTabs.length === 1
+            ? numericTabs[0].id
+            : null,
+        tabs: tabs.map((tab) => ({ id: tab.id, url: tab.url, status: tab.status })),
+      };
     })()`;
-    tabId = await evaluateCdpTarget(worker, expression, 5_000).catch(() => null);
+    const result = await evaluateCdpTarget(worker, expression, 5_000).catch((error) => ({
+      tabId: null,
+      error: String(error?.message ?? error),
+    }));
+    tabId = result?.tabId ?? null;
+    lastTabSnapshot = result;
     if (Number.isFinite(tabId)) break;
     await delay(500);
   }
   if (!Number.isFinite(tabId)) {
-    throw new Error(`Could not resolve a Chrome tab id for ${pageUrl}`);
+    throw new Error(
+      `Could not resolve a Chrome tab id for ${pageUrl}; ` +
+      `last=${JSON.stringify(lastTabSnapshot)}`,
+    );
   }
 
   return {
@@ -376,111 +514,6 @@ async function bindPopupWithCdp(pageUrl) {
     pageUrl,
     refreshed: true,
   };
-}
-
-function makeClient(child) {
-  if (!child.stdin || !child.stdout || !child.stderr) {
-    throw new Error("Playwright MCP child did not expose piped stdio");
-  }
-  const writer = child.stdin;
-  const pending = new Map();
-  let nextId = 1;
-
-  (async () => {
-    const decoder = new TextDecoder();
-    let buf = "";
-    for await (const chunk of child.stdout) {
-      buf += decoder.decode(chunk, { stream: true });
-      let idx;
-      while ((idx = buf.indexOf("\n")) >= 0) {
-        const line = buf.slice(0, idx).trim();
-        buf = buf.slice(idx + 1);
-        if (!line) continue;
-        let msg;
-        try {
-          msg = JSON.parse(line);
-        } catch {
-          continue;
-        }
-        const id = msg["id"];
-        if (typeof id === "number" && pending.has(id)) {
-          pending.get(id)(msg);
-          pending.delete(id);
-        }
-      }
-    }
-  })();
-
-  (async () => {
-    for await (const chunk of child.stderr) process.stderr.write(chunk);
-  })();
-
-  async function write(obj) {
-    await new Promise((resolvePromise, rejectPromise) => {
-      writer.write(`${JSON.stringify(obj)}\n`, (error) => {
-        if (error) {
-          rejectPromise(error);
-          return;
-        }
-        resolvePromise();
-      });
-    });
-  }
-
-  function request(method, params, timeoutMs = 180_000) {
-    const id = nextId++;
-    return new Promise((res, rej) => {
-      const timer = setTimeout(() => {
-        pending.delete(id);
-        rej(new Error(`timeout waiting for ${method}`));
-      }, timeoutMs);
-      pending.set(id, (msg) => {
-        clearTimeout(timer);
-        res(msg);
-      });
-      write({ jsonrpc: "2.0", id, method, params }).catch(rej);
-    });
-  }
-
-  function notify(method, params) {
-    return write({ jsonrpc: "2.0", method, params });
-  }
-
-  async function closeStdin() {
-    try {
-      if (writer.writableEnded) {
-        return;
-      }
-      await new Promise((resolvePromise, rejectPromise) => {
-        const onError = (error) => {
-          writer.off("error", onError);
-          rejectPromise(error);
-        };
-        writer.once("error", onError);
-        writer.end(() => {
-          writer.off("error", onError);
-          resolvePromise();
-        });
-      });
-    } catch {
-      // ignore
-    }
-  }
-
-  return { request, notify, closeStdin };
-}
-
-function toolText(resp) {
-  try {
-    const result = resp?.result;
-    const content = Array.isArray(result?.content) ? result.content : [];
-    return content
-      .filter((entry) => entry?.type === "text")
-      .map((entry) => entry.text ?? "")
-      .join("\n");
-  } catch {
-    return JSON.stringify(resp);
-  }
 }
 
 function buildPopupActionExpression(action, options = {}) {
@@ -597,9 +630,12 @@ function buildPopupActionExpression(action, options = {}) {
 async function runCdpStateAction(action, timeoutMs, options = {}) {
   const targets = await listCdpTargets();
   const pages = targets.filter((targetInfo) => targetInfo?.type === "page");
-  const popup = pages.find((targetInfo) =>
+  const actualSidePanel = pages.find((targetInfo) =>
+    /^chrome-extension:\/\/[^/]+\/popup\.html$/.test(String(targetInfo?.url ?? "")));
+  const boundPopup = pages.find((targetInfo) =>
     String(targetInfo?.url ?? "").startsWith("chrome-extension://")
-      && String(targetInfo?.url ?? "").includes("/popup.html"));
+      && String(targetInfo?.url ?? "").includes("/popup.html?debugTabId="));
+  const popup = actualSidePanel ?? boundPopup;
   const targetPage = pages.find((targetInfo) => {
     const url = String(targetInfo?.url ?? "");
     return !url.startsWith("chrome-extension://") && !url.startsWith("chrome://");
@@ -614,7 +650,7 @@ async function runCdpStateAction(action, timeoutMs, options = {}) {
     buildPopupActionExpression(action, options),
     timeoutMs,
   ));
-  const targetState = targetPage
+  const targetState = options.includeTarget !== false && targetPage
     ? await evaluateCdpTarget(
       targetPage,
       "({ url: location.href, title: document.title, activeElement: document.activeElement ? document.activeElement.tagName : '' })",
@@ -748,7 +784,13 @@ function makeControlChannel() {
       const resumeObserve = observing;
       observing = false;
       try {
-        const result = await enqueue(() => runStateAction("click", CONTROL_STATE_TIMEOUT_MS, { clickSelector: selector }));
+        // Popup commands are intentionally popup-only. Attaching a second CDP
+        // client to the website tab here would race the extension's own
+        // chrome.debugger session during render inspection.
+        const result = await enqueue(() => runStateAction("click", CONTROL_STATE_TIMEOUT_MS, {
+          clickSelector: selector,
+          includeTarget: false,
+        }));
         printJson("[control:click]", result);
       } catch (error) {
         console.log(`[control:error] ${String(error && error.message ? error.message : error)}`);
@@ -923,7 +965,6 @@ try {
 }
 
 await mkdir(TEMP_DIR, { recursive: true });
-await mkdir(TEMP_OUT, { recursive: true });
 
 // Before Chrome starts, so it finds nothing to reuse.
 const droppedWorker = await dropServiceWorkerRegistration();
@@ -971,23 +1012,33 @@ const predictedId = await deterministicExtensionId(EXT_DIR);
 console.log(`[launch] deterministic extension id for ${EXT_DIR}: ${predictedId}`);
 console.log(`[launch] CDP endpoint: http://127.0.0.1:${CDP_PORT} (for same-browser debug/control)`);
 
-// --- launch MCP server + drive -------------------------------------------
-console.log(`[launch] starting npm:${PLAYWRIGHT_MCP_PACKAGE} (managed Chromium, pinned)…`);
-const server = spawnPlaywrightMcp([
-  `--user-data-dir=${PROFILE_DIR}`,
-  `--config=${TEMP_CONFIG}`,
-  `--output-dir=${TEMP_OUT}`,
-], ["pipe", "pipe", "pipe"]);
-
-const client = makeClient(server);
+// --- launch the pinned package's managed Chromium + drive over transient CDP
+const managedChromiumExecutable = resolveManagedChromiumExecutable();
+console.log(`[launch] managed Chromium: ${managedChromiumExecutable}`);
+console.log(`[launch] starting npm:${PLAYWRIGHT_MCP_PACKAGE} managed Chromium without a persistent debugger…`);
+const launchArgs = Array.isArray(config?.browser?.launchOptions?.args)
+  ? config.browser.launchOptions.args
+  : [];
+const browserProcess = spawnManagedChromium(managedChromiumExecutable, launchArgs, target);
+browserProcess.stdout?.on("data", (chunk) => process.stdout.write(chunk));
+browserProcess.stderr?.on("data", (chunk) => process.stderr.write(chunk));
+const browserClosed = new Promise((resolvePromise, rejectPromise) => {
+  browserProcess.once("error", rejectPromise);
+  browserProcess.once("close", (code, signal) => resolvePromise({ code, signal }));
+});
 let controlChannel = null;
 let stopPromise = null;
+let stopping = false;
 
 const stop = () => {
   stopPromise ??= (async () => {
+    stopping = true;
     controlChannel?.stop();
     try {
-      await client.closeStdin();
+      if (browserProcess.exitCode === null && browserProcess.signalCode === null) {
+        browserProcess.kill("SIGTERM");
+      }
+      await browserClosed.catch(() => undefined);
     } finally {
       await restoreStampedManifest();
     }
@@ -996,73 +1047,66 @@ const stop = () => {
 };
 process.on("SIGINT", () => {
   console.log("\n[launch] stopping…");
-  stop().finally(() => process.exit(0));
+  void stop();
 });
 process.on("SIGTERM", () => {
-  stop().finally(() => process.exit(0));
+  void stop();
 });
-
-const init = await client.request("initialize", {
-  protocolVersion: "2024-11-05",
-  capabilities: {},
-  clientInfo: { name: "unfluffify-launch-test-browser", version: "1.0.0" },
-}, 60_000);
-const serverInfo = init?.result && typeof init.result === "object"
-  ? init.result.serverInfo
-  : undefined;
-console.log(`[launch] MCP initialized: ${JSON.stringify(serverInfo)}`);
-await client.notify("notifications/initialized", {});
-
-console.log(`[launch] navigating first tab -> ${target}`);
-const nav = await client.request("tools/call", {
-  name: "browser_navigate",
-  arguments: { url: target },
-});
-const navText = toolText(nav);
-const finalUrl = navText.match(/Page URL:\s*(\S+)/)?.[1] ?? target;
-console.log(`[launch] page loaded: ${finalUrl}`);
-
-console.log("[launch] binding popup to the page tab (debugTabId)…");
-const bindInfo = await bindPopupWithCdp(finalUrl);
-const { extId, tabId, boundUrl } = bindInfo;
-
-if (extId && tabId && boundUrl) {
-  console.log("[launch] opening bound popup through the managed browser CDP endpoint…");
-  await openCdpTab(boundUrl);
-  await waitForCdpTarget(boundUrl);
-  // The property lock tracks the bound website tab, not the debug popup. A new
-  // popup becomes Chrome's active tab by default and therefore suspends the lock
-  // as `tab-hidden`; return focus to the target while retaining CDP control of
-  // the hidden popup.
-  await bringCdpPageToFront(finalUrl);
-  console.log("");
-  console.log("================ live test browser ready ================");
-  console.log(`  target page : ${finalUrl}`);
-  console.log(`  extension id: ${extId}${extId === predictedId ? " (matches path hash)" : " (WARNING: differs from path hash)"}`);
-  console.log(`  page tabId  : ${tabId}`);
-  console.log(`  popup (tab2): ${boundUrl}`);
-  // The banner is evidence of what is actually running, so it must not claim more
-  // than the launch can guarantee. A reused profile can still serve a worker from
-  // a previous registration; only a fresh one rules that out.
-  console.log(`  freshness   : ${bindInfo.refreshed
-    ? `${droppedWorker ? "worker registration dropped" : "no prior worker registration"}`
-      + `${stampedVersion ? `, version ${stampedVersion}` : ", WARNING: version not stamped"}`
-      + `; page reloaded; profile ${PROFILE_EXISTED ? "reused (data kept)" : "new"}`
-    : "WARNING: not refreshed; the worker may be running a previous build"}`);
-  console.log("=========================================================");
-  console.log("Browser is open. Stop with Ctrl-C or `kill <pid>` to close it.");
-  controlChannel = makeControlChannel();
-  controlChannel.start();
-} else {
-  console.error("[launch] popup binding did not return the expected result");
-  console.error("[launch] the page is loaded; browser left open for inspection.");
-}
 
 try {
-  await new Promise((resolvePromise, rejectPromise) => {
-    server.once("error", rejectPromise);
-    server.once("close", () => resolvePromise());
-  });
+  await waitForCdpBrowser(browserProcess);
+  const targetInfo = await waitForTargetPage();
+  const finalUrl = String(targetInfo.url);
+  console.log(`[launch] page loaded: ${finalUrl}`);
+
+  console.log("[launch] binding popup to the page tab (debugTabId)…");
+  const bindInfo = await bindPopupWithCdp(finalUrl);
+  const { extId, tabId, boundUrl } = bindInfo;
+
+  if (extId && tabId && boundUrl) {
+    console.log("[launch] opening bound popup through the managed browser CDP endpoint…");
+    await openCdpTab(boundUrl);
+    await waitForCdpTarget(boundUrl);
+    // The property lock tracks the bound website tab, not the debug popup. A new
+    // popup becomes Chrome's active tab by default and therefore suspends the lock
+    // as `tab-hidden`; return focus to the target while retaining CDP control of
+    // the hidden popup.
+    await bringCdpPageToFront(finalUrl);
+    const sidePanelUrl = await openActualSidePanel(boundUrl, tabId);
+    console.log("");
+    console.log("================ live test browser ready ================");
+    console.log(`  target page : ${finalUrl}`);
+    console.log(`  extension id: ${extId}${extId === predictedId ? " (matches path hash)" : " (WARNING: differs from path hash)"}`);
+    console.log(`  page tabId  : ${tabId}`);
+    console.log(`  popup (tab2): ${boundUrl}`);
+    console.log(`  side panel  : ${sidePanelUrl}`);
+    // The banner is evidence of what is actually running, so it must not claim more
+    // than the launch can guarantee. A reused profile can still serve a worker from
+    // a previous registration; only a fresh one rules that out.
+    console.log(`  freshness   : ${bindInfo.refreshed
+      ? `${droppedWorker ? "worker registration dropped" : "no prior worker registration"}`
+        + `${stampedVersion ? `, version ${stampedVersion}` : ", WARNING: version not stamped"}`
+        + `; page reloaded; profile ${PROFILE_EXISTED ? "reused (data kept)" : "new"}`
+      : "WARNING: not refreshed; the worker may be running a previous build"}`);
+    console.log("=========================================================");
+    console.log("Browser is open. Stop with Ctrl-C or `kill <pid>` to close it.");
+    controlChannel = makeControlChannel();
+    controlChannel.start();
+  } else {
+    console.error("[launch] popup binding did not return the expected result");
+    console.error("[launch] the page is loaded; browser left open for inspection.");
+  }
+
+  await browserClosed;
+} catch (error) {
+  if (!stopping) {
+    throw error;
+  }
 } finally {
+  controlChannel?.stop();
+  if (browserProcess.exitCode === null && browserProcess.signalCode === null) {
+    browserProcess.kill("SIGTERM");
+    await browserClosed.catch(() => undefined);
+  }
   await restoreStampedManifest();
 }

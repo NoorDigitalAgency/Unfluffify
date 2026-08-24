@@ -36,7 +36,16 @@ test("live browser launcher targets the WXT output and canonical pnpm command", 
   assert.match(launcher, /const EXT_DIR = join\(repoRoot, "\.output", "chrome-mv3"\);/);
   assert.match(launcher, /await run\("pnpm", \["build"\]\);/);
   assert.match(launcher, /Run \\`pnpm build\\` first/);
-  assert.match(launcher, /spawn\("npx", \["-y", PLAYWRIGHT_MCP_PACKAGE/);
+  assert.match(launcher, /resolveManagedChromiumExecutable\(\)/);
+  assert.match(launcher, /spawnManagedChromium\(managedChromiumExecutable/);
+  assert.doesNotMatch(
+    launcher,
+    /spawnPlaywrightMcp\(/,
+    "the live launcher must not keep a Playwright debugger attached to the target tab",
+  );
+  assert.match(launcher, /arg !== "--remote-debugging-pipe"/);
+  assert.match(launcher, /"--disable-field-trial-config"/);
+  assert.match(launcher, /await openActualSidePanel\(boundUrl, tabId\)/);
   assert.match(launcher, /const XVFB_WRAP_ENV = "UNFLUFFIFY_BROWSER_LIVE_XVFB_WRAPPED";/);
   assert.match(launcher, /const XVFB_RUN_ARGS = \["-a", "--server-args=-screen 0 1280x900x24"\];/);
   assert.match(launcher, /spawn\(\s*"xvfb-run"/);

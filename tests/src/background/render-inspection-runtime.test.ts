@@ -90,6 +90,43 @@ async function bindReplacement(h: ReturnType<typeof harness>, documentId = "docu
 }
 
 describe("durable render inspection runtime", () => {
+  it("accepts a www redirect authorized for the canonical property host", async () => {
+    const h = harness();
+
+    await expect(h.runtime.start({
+      tabId: 7,
+      property: PROPERTY,
+      pageUrl: "https://www.example.com/jobs/1",
+      javascriptEnabled: false,
+      sourceDocumentId: "document-a",
+    })).resolves.toMatchObject({
+      status: "started",
+      session: { phase: "awaiting_document" },
+    });
+
+    expect(h.javascript).toEqual([{ tabId: 7, enabled: false }]);
+    expect(h.reloads).toEqual([7]);
+  });
+
+  it("retains the unrelated-host fence around render inspection", async () => {
+    const h = harness();
+
+    await expect(h.runtime.start({
+      tabId: 7,
+      property: PROPERTY,
+      pageUrl: "https://example.net/jobs/1",
+      javascriptEnabled: false,
+      sourceDocumentId: "document-a",
+    })).resolves.toMatchObject({
+      status: "error",
+      reason: "inspection-page-outside-property",
+      session: { terminalReason: "start-failed" },
+    });
+
+    expect(h.javascript).toEqual([{ tabId: 7, enabled: true }]);
+    expect(h.reloads).toEqual([7]);
+  });
+
   it("does not treat reload acceptance as inspection success", async () => {
     const h = harness();
     const started = await startStatic(h);

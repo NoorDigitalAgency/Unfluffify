@@ -50,8 +50,17 @@ test("public pnpm browser launcher is node-native", () => {
     "the MCP server version must be pinned to an exact release",
   );
   assert.ok(
-    launchScript.includes('spawn("npx", ["-y", PLAYWRIGHT_MCP_PACKAGE'),
-    "the server must be started from the pinned package",
+    launchScript.includes("resolveManagedChromiumExecutable()"),
+    "the Chromium executable must be resolved from the pinned package",
+  );
+  assert.ok(
+    launchScript.includes("spawnManagedChromium(managedChromiumExecutable"),
+    "the launcher must start that managed Chromium directly",
+  );
+  assert.equal(
+    launchScript.includes('spawnPlaywrightMcp(['),
+    false,
+    "a persistent Playwright session would occupy chrome.debugger and break render inspection",
   );
 });
 
@@ -149,6 +158,6 @@ test("browser launcher drops the worker registration without dropping the data",
   }
   // Before Chrome starts, or it will have reused the registration already.
   const drop = launchScript.indexOf("await dropServiceWorkerRegistration()");
-  const launch = launchScript.indexOf("spawnPlaywrightMcp([");
+  const launch = launchScript.indexOf("spawnManagedChromium(managedChromiumExecutable");
   assert.ok(drop > 0 && launch > 0 && drop < launch, "the drop must happen before Chrome is started");
 });

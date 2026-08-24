@@ -67,7 +67,8 @@ That single command runs the entire proven flow (`scripts/launch-test-browser.mj
    source checkout root.
 4. Writes a launchable, per-environment copy of the placeholdered config to the
    gitignored `.temp/browser-mcp.config.json` (substitutes the repo root and
-   drops `executablePath` so Playwright uses its own managed Chromium). The
+   drops the placeholder `executablePath`; the launcher resolves the executable
+   supplied by the pinned MCP package at runtime). The
    committed `.vscode/mcp.json`, `.mcp.json`, and
    `.vscode/browser-mcp.config.json` stay placeholdered and non-launchable;
    never edit them to bake in current-environment paths. The launcher injects
@@ -75,17 +76,19 @@ That single command runs the entire proven flow (`scripts/launch-test-browser.mj
    config so the same browser is controllable over CDP without opening a second
    profile.
 5. Ensures the MCP-managed Chromium is installed (idempotent).
-6. Starts `npm:@playwright/mcp@latest` over stdio (single launcher-owned client
-  = no profile-lock) with `--user-data-dir=<repoRoot>/.wxt/browser-profile` and
-   `--config=<repoRoot>/.temp/browser-mcp.config.json`.
-7. Navigates the first tab to `<target-url>`.
+6. Starts that pinned package's managed Chromium directly with
+   `--user-data-dir=<repoRoot>/.wxt/browser-profile`. No persistent Playwright
+   session remains attached to the website tab, because that would occupy
+   Chrome's single `chrome.debugger` owner and make Render Inspection fail.
+7. Opens `<target-url>` as the first tab.
 8. Resolves the loaded extension id from the service worker and cross-checks it
    against the deterministic path-hash id (changes per environment — never
    hardcode it).
 9. Resolves the target page's Chrome tab id via the service worker.
 10. Opens a SECOND tab `chrome-extension://<id>/popup.html?debugTabId=<pageTabId>`
    so the extension binds to the target page (`<pageTabId>` is the page's tab,
-   never the popup's own tab).
+   never the popup's own tab), then opens the real Chrome side panel so
+   popup-authorized commands use the same sender identity as production.
 
 On success it prints the target URL, extension id, page tabId, and bound popup
 URL. It also starts a launcher-owned control channel on the same process
@@ -93,11 +96,10 @@ stdin/stdout. To close the browser, stop the launcher (Ctrl-C or `kill <pid>`).
 
 ### 3. Control and observe through the launcher
 
-The MCP server is intentionally owned by the launcher. Do not start a second MCP
-server/client for the same `.wxt/browser-profile` to debug the open browser; it
-will either profile-lock or leave you unable to control the existing page/popup.
-Use the launcher's stdin/stdout control commands and/or the same-browser CDP
-endpoint `http://127.0.0.1:9222`.
+The launcher owns the managed Chromium process. Do not start another browser or
+MCP server with the same `.wxt/browser-profile`; it will profile-lock. Use the
+launcher's stdin/stdout control commands and/or the same-browser CDP endpoint
+`http://127.0.0.1:9222`.
 
 Keep the `shellId` returned by the async `pnpm browser:live ...` call. Once
 the ready banner appears, the launcher prints:
@@ -128,7 +130,7 @@ cannot write to the running shell session, rely on the launcher's auto-enabled
 observation output and use the CDP path below for active control.
 
 If you need direct programmatic control beyond the launcher commands, connect to
-the same browser over CDP instead of starting another MCP server, using any
+the same browser over CDP instead of starting another browser, using any
 Node environment where the `playwright` package is already available:
 
 ```bash
@@ -149,6 +151,13 @@ Through that CDP connection you can evaluate popup state with
 observe the target page, and capture screenshots/logs. Close only the CDP client with
 `browser.close()`; stop the launcher only when the live browser should close.
 
+Chrome permits only one debugger owner per website tab. Before exercising
+Render Inspection, send `stop-observe`, stop any `pnpm browser:observe` process,
+and close all one-shot CDP clients. Drive the Render mode controls through the
+real `popup.html` side-panel target, not the `?debugTabId=` tab. Keep CDP clients
+off the website target until the inspection is set or cancelled and the
+extension releases `chrome.debugger`; then restart observation.
+
 ### 4. Reload after every rebuild
 
 If you rebuild while the browser is open, the persisted profile can keep an older
@@ -163,16 +172,16 @@ then wait for the new service worker before retesting. Re-running
 
 ## Guardrails
 
-- **Use only the Playwright MCP browser; never touch the OS Chrome.** Operate the
-  browser exclusively through `pnpm browser:live`, its launcher-owned MCP
-  client, and the same-session control commands. Never run the OS
+- **Use only the pinned MCP package's managed Chromium; never touch the OS
+  Chrome.** Operate the browser exclusively through `pnpm browser:live`, its
+  launcher control channel, and the same-session CDP endpoint. Never run the OS
   Chrome/Chromium app binary directly,
   never `open -a 'Google Chrome'`, never set `executablePath` to the OS browser,
   never automate it with AppleScript/`osascript`, and never quit, kill,
   relaunch, or otherwise interfere with the user's OS Chrome instances, windows,
   or default profile. Only stop the launcher's own managed-Chromium process.
 - Always load `.output/chrome-mv3`, never the source checkout root.
-- Do not start a second MCP client/server for the same profile and do not
+- Do not start a second browser or MCP server for the same profile and do not
   default to `orchestration/profiles/*` Playwright flows for simple live
   observation; those are for orchestration scenarios and can fail on
   service-worker waits or profile-lock issues.
@@ -181,27 +190,20 @@ then wait for the new service worker before retesting. Re-running
 
 ## Debugging the launcher (internals)
 
-If you must drive the MCP browser by hand to extend the flow, mirror
-`scripts/launch-test-browser.mjs` and `orchestration/steps/browser.mjs`:
-
-- The `browser_run_code_unsafe` sandbox is NOT a full Node context: `setTimeout`
-  and `URL` are undefined there. Use Playwright APIs (`page.waitForTimeout`) and
-  plain string ops (`String(url).split('/')`) in the outer function; the inner
-  `worker.evaluate(...)` body runs in the extension service worker, where
-  `chrome.*` and `setTimeout` are available.
-- Use the single launcher-owned MCP client/connection and its control commands.
-  A second connection to the same `--user-data-dir` fails with "Browser is
-  already in use" or cannot observe/control the browser that is already open.
+If you must extend the flow, mirror `scripts/launch-test-browser.mjs`. Resolve
+the browser from the pinned MCP package, keep `.wxt/browser-profile`, and make
+CDP connections short-lived. Never add `--remote-debugging-pipe` or a persistent
+Playwright page session: either one reintroduces the Render Inspection conflict.
 
 ## Example
 
 - Right: confirm the user-instructed target page (ask if missing), then run
   `pnpm browser:live https://bonliva.se` in the background. It runs `pnpm build`,
   writes `.temp/browser-mcp.config.json`, launches the
-  `playwright-local` MCP managed Chromium with `.wxt/browser-profile`, opens the
+  pinned MCP package's managed Chromium with `.wxt/browser-profile`, opens the
   page in the first tab, resolves the extension id and page tabId, and opens a
   second tab `chrome-extension://<id>/popup.html?debugTabId=<pageTabId>` bound to
-  the page.
+  the page plus the actual side panel.
 - Wrong: launch without a user-instructed target page, run the OS Chrome binary
   / `open -a 'Google Chrome'`, set `executablePath` to the OS browser, drive or
   quit the OS Chrome with `osascript`, hardcode a stale extension id instead of
