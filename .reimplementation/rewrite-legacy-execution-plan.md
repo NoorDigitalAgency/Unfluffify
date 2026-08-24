@@ -966,7 +966,7 @@ in the owning phase and rerun its focused gate plus P9–P11.
   - `pnpm verify` passed on clean commit `3a5d11a7831b`: lint, generated
     page-world parity, all TypeScript projects, 122 files / 1,093 tests, the
     production build, and all 7 generated-manifest assertions.
-- [x] P20 — Integrated release gates and witnessed live acceptance
+- [ ] P20 — Integrated release gates and witnessed live acceptance (reopened for DPJ/Aleris sanity remediation)
   - Commits: `1c0ed3d7` (`Repair live render inspection acceptance`) and
     `900f8e62` (`Retain updated render inspection acceptance`).
   - Final evidence is recorded in
@@ -979,6 +979,19 @@ in the owning phase and rerun its focused gate plus P9–P11.
     continuation, and both render modes passed. The live round repaired the
     persistent-debugger launcher conflict and the canonical/`www` property
     identity defect before the final successful rerun.
+  - The 2026-08-24 DPJ supplement is recorded in
+    [`p20-dpj-live-workflow-report-2026-08-24.md`](./p20-dpj-live-workflow-report-2026-08-24.md).
+    Production v66 passed the full real-side-panel workflow, saved the homepage
+    with one current-page request, and advanced Todo 0/7 → 1/7. Production v68
+    closed the final canonical-authority Discard case. `pnpm verify` passes 123
+    files / 1,111 tests; all P14–P20 functional matrices are green. Current
+    full-gate aggregate bits withhold only clean-source provenance until these
+    accepted working-tree changes are committed.
+  - Post-acceptance DPJ/Aleris sanity remediation is governed by
+    [`p20-dpj-aleris-sanity-remediation-plan-2026-08-24.md`](./p20-dpj-aleris-sanity-remediation-plan-2026-08-24.md).
+    Consent suppression remains accepted; P20 stays reopened until the exact
+    shield, read-only inspection, lock-signal, single-client launcher, full-gate,
+    and headed live criteria in that addendum pass from the final source.
 
 For each completed item, append the commit SHA(s), exact test command, result,
 and any live artifact/version directly beneath the checkbox. The first unchecked

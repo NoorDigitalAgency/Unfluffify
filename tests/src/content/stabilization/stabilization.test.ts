@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   applyEmulation,
@@ -15,9 +15,39 @@ import {
   reloadWithoutJavascriptViaCdp,
   restoreJavascriptViaCdp,
   runReveal,
+  waitForWindowScrollEnd,
 } from "../../../../src/content/stabilization";
 
 describe("P5 page stabilization", () => {
+  it("settles on the wall-clock deadline when a motion freeze starves animation frames", async () => {
+    vi.useFakeTimers();
+    const requestAnimationFrame = vi.fn(() => 73);
+    const cancelAnimationFrame = vi.fn();
+    vi.stubGlobal("window", {
+      scrollY: 0,
+      requestAnimationFrame,
+      cancelAnimationFrame,
+    });
+    try {
+      let settled = false;
+      const waiting = waitForWindowScrollEnd(1_000, () => false).then(() => {
+        settled = true;
+      });
+
+      expect(requestAnimationFrame).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(7_999);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await waiting;
+
+      expect(settled).toBe(true);
+      expect(cancelAnimationFrame).toHaveBeenCalledWith(73);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("freezes page-visit scope and flushes deferred callbacks on resume/lift", () => {
     const freeze = createFreezeController();
     const flushed: string[] = [];
@@ -268,6 +298,7 @@ describe("P5 page stabilization", () => {
         method: "Emulation.setDeviceMetricsOverride",
         params: { width: 412, height: 960, deviceScaleFactor: 1, mobile: true, scale: 1 },
       },
+      { method: "Emulation.setPageScaleFactor", params: { pageScaleFactor: 1 } },
       { method: "Emulation.setTouchEmulationEnabled", params: { enabled: true, maxTouchPoints: 1 } },
       {
         method: "Emulation.setEmulatedMedia",
@@ -283,6 +314,7 @@ describe("P5 page stabilization", () => {
       },
       { method: "Emulation.setTouchEmulationEnabled", params: { enabled: false } },
       { method: "Emulation.setEmulatedMedia", params: { media: "", features: [] } },
+      { method: "Emulation.setPageScaleFactor", params: { pageScaleFactor: 1 } },
       { method: "Emulation.clearDeviceMetricsOverride", params: undefined },
     ]);
     expect(cleared.active).toBe(false);
@@ -339,6 +371,7 @@ describe("P5 page stabilization", () => {
 
     expect(calls.map((call) => call.method)).toEqual([
       "Emulation.setDeviceMetricsOverride",
+      "Emulation.setPageScaleFactor",
       "Emulation.setTouchEmulationEnabled",
       "Emulation.setEmulatedMedia",
     ]);
@@ -354,6 +387,7 @@ describe("P5 page stabilization", () => {
 
     expect(calls.map((call) => call.method)).toEqual([
       "Emulation.setDeviceMetricsOverride",
+      "Emulation.setPageScaleFactor",
       "Emulation.setTouchEmulationEnabled",
       "Emulation.setEmulatedMedia",
     ]);
@@ -370,13 +404,15 @@ describe("P5 page stabilization", () => {
 
     expect(calls.map((call) => call.method)).toEqual([
       "Emulation.setDeviceMetricsOverride",
+      "Emulation.setPageScaleFactor",
       "Emulation.setTouchEmulationEnabled",
       "Emulation.setEmulatedMedia",
       "Emulation.setUserAgentOverride",
     ]);
-    expect(calls[1].params).toEqual({ enabled: false });
-    expect(calls[2].params).toEqual({ media: "", features: [] });
-    expect(calls[3].params).toEqual({ userAgent: real });
+    expect(calls[1].params).toEqual({ pageScaleFactor: 1 });
+    expect(calls[2].params).toEqual({ enabled: false });
+    expect(calls[3].params).toEqual({ media: "", features: [] });
+    expect(calls[4].params).toEqual({ userAgent: real });
   });
 
   it("sends the mobile identity alongside the mobile metrics", async () => {
@@ -388,19 +424,21 @@ describe("P5 page stabilization", () => {
 
     expect(calls.map((call) => call.method)).toEqual([
       "Emulation.setDeviceMetricsOverride",
+      "Emulation.setPageScaleFactor",
       "Emulation.setTouchEmulationEnabled",
       "Emulation.setEmulatedMedia",
       "Emulation.setUserAgentOverride",
     ]);
-    const params = calls[3].params as { userAgent: string; platform: string; userAgentMetadata: { mobile: boolean } };
+    const params = calls[4].params as { userAgent: string; platform: string; userAgentMetadata: { mobile: boolean } };
     expect(params.userAgent).toContain("Mobile Safari");
     expect(params.userAgent).toContain("Googlebot/2.1");
     expect(params.platform).toBe("Android");
     expect(params.userAgentMetadata.mobile).toBe(true);
     // Viewport, input media, and identity must all describe the same device.
     expect(calls[0].params).toMatchObject({ mobile: true, width: 412 });
-    expect(calls[1].params).toEqual({ enabled: true, maxTouchPoints: 1 });
-    expect(calls[2].params).toMatchObject({
+    expect(calls[1].params).toEqual({ pageScaleFactor: 1 });
+    expect(calls[2].params).toEqual({ enabled: true, maxTouchPoints: 1 });
+    expect(calls[3].params).toMatchObject({
       features: expect.arrayContaining([
         { name: "pointer", value: "coarse" },
         { name: "hover", value: "none" },

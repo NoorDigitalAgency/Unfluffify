@@ -17,6 +17,7 @@ type RuntimeOnMessage = Readonly<{
 type RuntimeLike = Readonly<{
   sendMessage(message: unknown, responseCallback?: (response: unknown) => void): Promise<unknown> | unknown;
   onMessage: RuntimeOnMessage;
+  lastError?: Readonly<{ message?: string }>;
 }>;
 
 type PortLike = Readonly<{
@@ -97,7 +98,10 @@ function sendRuntimeMessage(runtime: RuntimeLike, frame: BusFrame): Promise<BusF
     };
     try {
       const maybePromise = runtime.sendMessage(frame, (response) => {
-        finish(() => resolve(parseFrame(response) ?? undefined));
+        const lastError = runtime.lastError;
+        finish(() => lastError
+          ? reject(new Error(lastError.message || "Runtime message delivery failed"))
+          : resolve(parseFrame(response) ?? undefined));
       });
       if (isPromiseLike<unknown>(maybePromise)) {
         void maybePromise.then(

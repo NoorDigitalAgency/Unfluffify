@@ -298,6 +298,25 @@ export function createRenderEmulationRuntime(input: Readonly<{
         await send(tabId, "Emulation.setScriptExecutionDisabled", { value: !enabled });
       });
     },
+    /** Executes an extension-owned debugger probe in the inspected document.
+     * This remains available when ordinary page/content scheduling is starved
+     * by Emulation.setScriptExecutionDisabled, and shares the posture queue so
+     * a restore cannot race the probe. */
+    async evaluate(tabId: number, expression: string): Promise<unknown> {
+      return withEmulationOperation(tabId, async () => {
+        const response = await send(tabId, "Runtime.evaluate", {
+          expression,
+          returnByValue: true,
+        }) as {
+          result?: { value?: unknown };
+          exceptionDetails?: unknown;
+        } | undefined;
+        if (response?.exceptionDetails) {
+          throw new Error("Debugger evaluation failed");
+        }
+        return response?.result?.value;
+      });
+    },
     /** Initiates the load. Its callback acknowledges only that Chrome accepted
      * the reload request; render inspection success belongs to the replacement
      * document's matching post-paint acknowledgement. */

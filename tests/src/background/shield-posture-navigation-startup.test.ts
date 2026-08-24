@@ -510,6 +510,13 @@ describe("P15 shield navigation/startup ordering", () => {
       });
 
       configExists = true;
+      await expect(call("page.context", {
+        pageUrl: "https://example.com/jobs/1",
+        refresh: true,
+      }, "content", "doc-a")).resolves.toMatchObject({
+        ok: true,
+        payload: { consentSuppressionAllowed: true },
+      });
       await expect(call("config.load", { siteId: 42 }, "popup")).resolves.toMatchObject({
         ok: true,
         payload: { status: "ok", config: { siteId: 42 } },

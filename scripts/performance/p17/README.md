@@ -17,8 +17,9 @@ and safely rendered copy, production-only simple status, debug-only technical
 detail and native diagnostic tooltip, shadow provenance, physical pointer
 hover/leave/click behavior, exact center scrolling, stable element and React-row
 identity after an XPath-changing mutation, stale-projection rejection, and
-absence from the keyboard focus order. Production rows and their descendants
-are both required to omit diagnostic `title` surfaces.
+semantic-button keyboard focus, focus emphasis, accessible names, and native
+Enter/Space activation. Production rows and their descendants are both
+required to omit diagnostic `title` surfaces.
 It also proves that a selector-only request crosses the shipping typed bus,
 content controller, engine, and popup store without changing projection or row
 identity while advancing the projection revision exactly once.

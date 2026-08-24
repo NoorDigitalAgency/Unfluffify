@@ -2379,6 +2379,37 @@ describe("C4 rewrite content entrypoints", () => {
       .filter((frame) => frame.name === "signals.emit")
       .map((frame) => frame.payload?.signal?.name);
     expect(emittedSignalNames).not.toContain("markings.changed");
+    await expect(dispatchContentCommand(listener, "markContentMainClean")).resolves.toMatchObject({
+      ok: true,
+      data: { ok: true, active: true, dirty: false },
+    });
+    expect((await dispatchContentCommand(listener, "getContentMainStatus")).data).toMatchObject({
+      dirty: false,
+      markedCount: 0,
+      markingToggleSeq: 1,
+    });
+    documentListeners.get("click")?.({
+      clientX: 10,
+      clientY: 20,
+      altKey: true,
+      shiftKey: false,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as Event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const markingToggleFacts = sendMessage.mock.calls
+      .map(([frame]) => frame as {
+        name?: string;
+        payload?: { sensation?: { reason?: string; facts?: { markingToggleSeq?: number } } };
+      })
+      .filter((frame) => frame.name === "fact.reported" && frame.payload?.sensation?.reason === "marking-toggle")
+      .map((frame) => frame.payload?.sensation?.facts?.markingToggleSeq);
+    expect(markingToggleFacts).toEqual([1, 2]);
+    expect((await dispatchContentCommand(listener, "getContentMainStatus")).data).toMatchObject({
+      dirty: true,
+      markedCount: 1,
+      markingToggleSeq: 2,
+    });
     engine.resolveAtPoint.mockReturnValueOnce(null);
     const unresolvedClick = {
       clientX: 1,
@@ -2391,7 +2422,7 @@ describe("C4 rewrite content entrypoints", () => {
     documentListeners.get("click")?.(unresolvedClick as unknown as Event);
     expect(unresolvedClick.preventDefault).toHaveBeenCalledTimes(1);
     expect(unresolvedClick.stopPropagation).toHaveBeenCalledTimes(1);
-    expect(engine.toggle).toHaveBeenCalledTimes(1);
+    expect(engine.toggle).toHaveBeenCalledTimes(2);
     const destroyCallsBeforeSilent = window.postMessage.mock.calls.filter(([message]) =>
       (message as { command?: string }).command === "DESTROY"
     ).length;
@@ -2434,6 +2465,13 @@ describe("C4 rewrite content entrypoints", () => {
     expect(shield).toBeDefined();
     expect(shield?.setActive).toHaveBeenCalledWith("silent-highlights", true);
     expect(engine.setInputTransparent).toHaveBeenCalledWith(true);
+    shield?.refresh.mockClear();
+    await expect(dispatchContentCommand(listener, "refreshInteractionShieldViewport"))
+      .resolves.toMatchObject({
+        ok: true,
+        data: { ok: true, active: true, tree: "rewrite" },
+      });
+    expect(shield?.refresh).toHaveBeenCalledOnce();
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal("navigator", { clipboard: { writeText } });
     const debugCopyEvent = {

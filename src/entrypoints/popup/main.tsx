@@ -137,7 +137,22 @@ const TERMINAL_CONTENT_COMMANDS = new Set([
   "deactivateContentMain",
   "terminateConsentSuppression",
 ]);
+const FAST_SIGNAL_POLL_MS = 500;
+const AUTHORITY_REFRESH_INTERVAL_MS = 15_000;
 let signalPollHandle: ReturnType<Window["setInterval"]> | null = null;
+let signalsAvailableUnsubscribe: (() => void) | null = null;
+const signalsAvailableRevisionByTab = new Map<number, number>();
+type SignalsAvailableWaiter = Readonly<{
+  afterRevision: number;
+  finish: (available: boolean) => void;
+}>;
+const signalsAvailableWaitersByTab = new Map<number, Set<SignalsAvailableWaiter>>();
+let fastSignalPollInFlight: Promise<void> | null = null;
+let fastSignalPollQueued = false;
+let authorityRefreshInFlight: Promise<void> | null = null;
+let authorityRefreshQueued = false;
+let authorityRefreshLastStartedAt = Number.NEGATIVE_INFINITY;
+let saveInFlight: Promise<void> | null = null;
 /** Which decided signals have already been consumed, and the queue that keeps
  *  concurrent arrivals from consuming the same ones twice. */
 const brainSignals = createSignalCursor();
@@ -154,6 +169,9 @@ let desktopPreviewEnabled = false;
  *  after a reload without re-attaching the debugger on every poll tick. Null means
  *  unknown — set on binding, and after anything that drops CDP overrides. */
 let appliedEmulationMode: "mobile" | "desktop" | null = null;
+let emulationApplyQueue: Promise<void> = Promise.resolve();
+let sessionTransitionQueue: Promise<void> = Promise.resolve();
+let sessionTransitionActive = false;
 /** Device size and JavaScript execution are independent axes; the legacy client
  *  conflated them here, so a desktop preview silently captured static HTML.
  *
@@ -263,7 +281,7 @@ function notifyEvent(
 ): void {
   logEvent(label, detail, tone);
   const toastTone: ToastTone = tone === "warn" ? "warning" : tone;
-  toastController.show({ message: label, tone: toastTone });
+  toastController.show({ message: detail ? `${label}: ${detail}` : label, tone: toastTone });
 }
 
 function captureBindingOccurrence(key = boundTabKey): PopupBindingOccurrence {
@@ -752,14 +770,69 @@ async function handleBoundContext(context: TargetTabContext): Promise<string> {
 }
 
 function ensureSignalPolling(): void {
-  if (signalPollHandle !== null) {
-    return;
-  }
-  signalPollHandle = window.setInterval(() => {
-    void pollCurrentTabSignals().catch((error: unknown) => {
-      console.error("[Unfluffify][rewrite] Unable to pull rewrite brain signals", error);
+  if (signalsAvailableUnsubscribe === null) {
+    signalsAvailableUnsubscribe = getPopupBus().on("signals.available", ({ tabId }) => {
+      const revision = (signalsAvailableRevisionByTab.get(tabId) ?? 0) + 1;
+      signalsAvailableRevisionByTab.set(tabId, revision);
+      const waiters = signalsAvailableWaitersByTab.get(tabId);
+      if (waiters) {
+        for (const waiter of [...waiters]) {
+          if (revision > waiter.afterRevision) {
+            waiter.finish(true);
+          }
+        }
+      }
+      if (boundTabId === tabId && !contentCommandTerminal) {
+        void queueFastSignalPoll();
+      }
     });
-  }, 500);
+  }
+  if (signalPollHandle === null) {
+    signalPollHandle = window.setInterval(() => {
+      void pollCurrentTabSignals().catch((error: unknown) => {
+        console.error("[Unfluffify][rewrite] Unable to pull rewrite brain signals", error);
+      });
+    }, FAST_SIGNAL_POLL_MS);
+  }
+}
+
+function waitForSignalsAvailable(
+  tabId: number,
+  afterRevision: number,
+  timeoutMs: number,
+): Promise<boolean> {
+  if ((signalsAvailableRevisionByTab.get(tabId) ?? 0) > afterRevision) {
+    return Promise.resolve(true);
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const waiters = signalsAvailableWaitersByTab.get(tabId) ?? new Set<SignalsAvailableWaiter>();
+    const finish = (available: boolean): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timeoutHandle !== null) {
+        clearTimeout(timeoutHandle);
+      }
+      waiters.delete(waiter);
+      if (waiters.size === 0) {
+        signalsAvailableWaitersByTab.delete(tabId);
+      }
+      resolve(available);
+    };
+    const waiter: SignalsAvailableWaiter = { afterRevision, finish };
+    waiters.add(waiter);
+    signalsAvailableWaitersByTab.set(tabId, waiters);
+    // Recheck after registration so an event delivered between the first read
+    // and the Set insertion cannot strand the waiter until the timeout.
+    if ((signalsAvailableRevisionByTab.get(tabId) ?? 0) > afterRevision) {
+      finish(true);
+      return;
+    }
+    timeoutHandle = setTimeout(() => finish(false), Math.max(0, timeoutMs));
+  });
 }
 
 async function refreshTodoContext(
@@ -1157,30 +1230,22 @@ async function sendToLynx(): Promise<void> {
   render();
 }
 
-async function pollCurrentTabSignals(): Promise<void> {
+async function pollFastSignalsOnce(): Promise<void> {
+  if (saveInFlight) {
+    fastSignalPollQueued = true;
+    return;
+  }
   const context = await resolveTargetTabContext();
   if (context === null) {
     return;
   }
-  const configuration = configurationController.snapshot();
-  if (!configuration.settingsLoaded) {
-    await configurationController.loadSettings();
-  }
-  // A cached in-memory read, so polling it costs nothing next to the lock
-  // directive already going out on this tick — and it means a token that dies
-  // while the popup sits open is named as rejected rather than just unreachable.
-  if (configurationController.snapshot().hasStoredToken) {
-    await configurationController.adoptAuthStatus();
-  }
+  const previousBindingKey = boundTabKey;
   const requestKey = await handleBoundContext(context);
-  await refreshTodoContext(context, requestKey);
-  const inspectionProperty = managedRenderInspectionPropertyFor(context, requestKey);
-  if (!isConfigurationComplete()) {
-    // Durable inspection projection is useful even while account/configuration
-    // setup is unavailable; it belongs to the tab, not to this popup's form.
-    await observeCurrentRenderInspection(context, requestKey, inspectionProperty);
-    render();
-    return;
+  if (previousBindingKey !== null && previousBindingKey !== requestKey) {
+    // A new document/property binding invalidates the slow-lane cache. Queue a
+    // forced authority pass; if one is already running it becomes the one
+    // coalesced trailing pass instead of overlapping the stale request.
+    void queueAuthorityRefresh(true);
   }
   await pullSignals(context.tabId, requestKey);
   if (previewStateIsOpen()) {
@@ -1189,14 +1254,95 @@ async function pollCurrentTabSignals(): Promise<void> {
     // when no marking signal was emitted.
     await ensurePreviewProjection(context, requestKey);
   }
+  render();
+}
+
+async function refreshAuthorityOnce(): Promise<void> {
+  if (saveInFlight) {
+    authorityRefreshQueued = true;
+    return;
+  }
+  const context = await resolveTargetTabContext();
+  if (context === null) {
+    return;
+  }
+  const configuration = configurationController.snapshot();
+  if (!configuration.settingsLoaded) {
+    await configurationController.loadSettings();
+  }
+  if (configurationController.snapshot().hasStoredToken) {
+    await configurationController.adoptAuthStatus();
+  }
+  const requestKey = await handleBoundContext(context);
+  await refreshTodoContext(context, requestKey);
+  const inspectionProperty = managedRenderInspectionPropertyFor(context, requestKey);
+  if (!isConfigurationComplete()) {
+    await observeCurrentRenderInspection(context, requestKey, inspectionProperty);
+    render();
+    return;
+  }
   await refreshLockDirective(context, requestKey);
   await observeCurrentRenderInspection(context, requestKey, inspectionProperty);
-  // Guarded by the attempted-site id, so this is one request per property once
-  // the site resolves — not one per tick.
   await maybeLoadPropertyConfig();
   await maybeResumeAiRun(context, requestKey);
   await refreshSilentSelectorPreview(context, requestKey);
   render();
+}
+
+function queueFastSignalPoll(): Promise<void> {
+  if (saveInFlight) {
+    fastSignalPollQueued = true;
+    return Promise.resolve();
+  }
+  if (fastSignalPollInFlight) {
+    fastSignalPollQueued = true;
+    return fastSignalPollInFlight;
+  }
+  const operation = (async () => {
+    do {
+      fastSignalPollQueued = false;
+      await pollFastSignalsOnce();
+    } while (fastSignalPollQueued && !saveInFlight);
+  })();
+  fastSignalPollInFlight = operation.finally(() => {
+    fastSignalPollInFlight = null;
+  });
+  return fastSignalPollInFlight;
+}
+
+function queueAuthorityRefresh(force = false): Promise<void> {
+  if (saveInFlight) {
+    authorityRefreshQueued = true;
+    return Promise.resolve();
+  }
+  if (!force && Date.now() - authorityRefreshLastStartedAt < AUTHORITY_REFRESH_INTERVAL_MS) {
+    return Promise.resolve();
+  }
+  if (authorityRefreshInFlight) {
+    // Reaching this branch means the refresh was either forced or its 15 s
+    // deadline elapsed. Collapse any number of such arrivals into one trailing
+    // authority pass.
+    authorityRefreshQueued = true;
+    return authorityRefreshInFlight;
+  }
+  const operation = (async () => {
+    do {
+      authorityRefreshQueued = false;
+      authorityRefreshLastStartedAt = Date.now();
+      await refreshAuthorityOnce();
+    } while (authorityRefreshQueued && !saveInFlight);
+  })();
+  authorityRefreshInFlight = operation.finally(() => {
+    authorityRefreshInFlight = null;
+  });
+  return authorityRefreshInFlight;
+}
+
+async function pollCurrentTabSignals(): Promise<void> {
+  await Promise.all([
+    queueFastSignalPoll(),
+    queueAuthorityRefresh(),
+  ]);
 }
 
 /** A side panel is disposable UI. The background owns the long-running job and
@@ -1330,12 +1476,36 @@ async function sendContentMessage(tabId: number, message: Record<string, unknown
   return Boolean(response && typeof response === "object" && "ok" in response && response.ok === true);
 }
 
-async function requestContentMessage(tabId: number, message: Record<string, unknown>): Promise<unknown> {
+type ContentMessageDelivery =
+  | Readonly<{ status: "delivered"; data: unknown }>
+  | Readonly<{ status: "no_receiver"; failure: unknown }>
+  | Readonly<{ status: "failed"; failure: unknown }>;
+
+function contentDeliveryFailureText(failure: unknown): string {
+  if (failure instanceof Error) {
+    return failure.message;
+  }
+  if (failure && typeof failure === "object") {
+    const record = failure as { code?: unknown; message?: unknown };
+    return [record.code, record.message].filter((value) => typeof value === "string").join(" · ");
+  }
+  return String(failure ?? "");
+}
+
+function contentReceiverMissing(failure: unknown): boolean {
+  return /receiving end does not exist|no receiver|message port closed|could not establish connection/i
+    .test(contentDeliveryFailureText(failure));
+}
+
+async function requestContentDelivery(
+  tabId: number,
+  message: Record<string, unknown>,
+): Promise<ContentMessageDelivery> {
   const commandName = typeof message.type === "string" ? message.type : "";
   const terminalCommand = TERMINAL_CONTENT_COMMANDS.has(commandName);
   const requestEpoch = contentCommandEpoch;
   if (contentCommandTerminal && !terminalCommand) {
-    return null;
+    return { status: "failed", failure: "content-command-terminal" };
   }
   try {
     const bus = createRealmBus({
@@ -1350,32 +1520,48 @@ async function requestContentMessage(tabId: number, message: Record<string, unkn
     }, { target: "content" });
     bus.dispose();
     if (!terminalCommand && (contentCommandTerminal || contentCommandEpoch !== requestEpoch)) {
-      return null;
+      return { status: "failed", failure: "content-command-stale" };
     }
     if (!response.ok) {
-      // Nothing answered on the tab. The usual cause is that the page has not
-      // been loaded since the extension was installed or reloaded, so the
-      // declarative content script was never injected — Chrome does not
-      // re-inject into already-open tabs. Report it once per binding rather
-      // than on every 500ms poll, which buries every other error.
-      contentReachable = false;
-      if (!contentUnreachableReported) {
-        contentUnreachableReported = true;
-        console.warn("[Unfluffify][rewrite] No content script answered on this tab; reload the page", response.failure);
-        logEvent("Content script unreachable", "reload the page to inject it", "warn");
+      if (contentReceiverMissing(response.failure)) {
+        contentReachable = false;
+        if (!contentUnreachableReported) {
+          contentUnreachableReported = true;
+          console.warn("[Unfluffify][rewrite] No content script answered on this tab; reload the page");
+          logEvent("Content script unreachable", "reload the page to inject it", "warn");
+        }
+        return { status: "no_receiver", failure: response.failure };
       }
-      return null;
+      console.error("[Unfluffify][rewrite] Content command failed", response.failure);
+      return { status: "failed", failure: response.failure };
     }
     contentReachable = true;
     contentUnreachableReported = false;
     if (!response.data.ok) {
-      return { ok: false, failure: response.data.failure, tree: "rewrite" };
+      return {
+        status: "delivered",
+        data: { ok: false, failure: response.data.failure, tree: "rewrite" },
+      };
     }
-    return response.data.data;
+    return { status: "delivered", data: response.data.data };
   } catch (error) {
+    if (contentReceiverMissing(error)) {
+      contentReachable = false;
+      if (!contentUnreachableReported) {
+        contentUnreachableReported = true;
+        console.warn("[Unfluffify][rewrite] No content script answered on this tab; reload the page");
+        logEvent("Content script unreachable", "reload the page to inject it", "warn");
+      }
+      return { status: "no_receiver", failure: error };
+    }
     console.error("[Unfluffify][rewrite] Unable to request content command", error);
-    return null;
+    return { status: "failed", failure: error };
   }
+}
+
+async function requestContentMessage(tabId: number, message: Record<string, unknown>): Promise<unknown> {
+  const delivery = await requestContentDelivery(tabId, message);
+  return delivery.status === "delivered" ? delivery.data : null;
 }
 
 async function requestTypedPreviewContent<T>(
@@ -1469,19 +1655,56 @@ function desiredEmulationMode(): "mobile" | "desktop" {
   return desktopPreviewEnabled && !contentActive ? "desktop" : "mobile";
 }
 
-async function applySessionEmulation(context: TargetTabContext): Promise<boolean> {
-  const mode = desiredEmulationMode();
-  const response = await getPopupBus().request("emulation.apply", {
-    tabId: context.tabId,
-    mode,
-    scale: 1,
-    // A reload is what makes a spoofed identity real, and it is only safe while
-    // there are no markings to lose. During a session the override still governs
-    // every later load; it just does not disturb the one being worked on.
-    allowReload: !contentActive,
-  }, { target: "background" });
-  const active = response.ok && response.data.active === true;
-  appliedEmulationMode = active ? mode : null;
+type SessionEmulationTarget = Readonly<{
+  mode: "mobile" | "desktop";
+  allowReload: boolean;
+}>;
+
+async function runSessionTransition<T>(operation: () => Promise<T>): Promise<T> {
+  let resolveResult!: (value: T | PromiseLike<T>) => void;
+  let rejectResult!: (reason?: unknown) => void;
+  const result = new Promise<T>((resolve, reject) => {
+    resolveResult = resolve;
+    rejectResult = reject;
+  });
+  sessionTransitionQueue = sessionTransitionQueue.then(async () => {
+    sessionTransitionActive = true;
+    try {
+      resolveResult(await operation());
+    } catch (error) {
+      rejectResult(error);
+    } finally {
+      sessionTransitionActive = false;
+    }
+  });
+  return result;
+}
+
+async function applySessionEmulation(
+  context: TargetTabContext,
+  target: SessionEmulationTarget,
+): Promise<boolean> {
+  let active = false;
+  const operation = emulationApplyQueue.then(async () => {
+    const response = await getPopupBus().request("emulation.apply", {
+      tabId: context.tabId,
+      mode: target.mode,
+      scale: 1,
+      allowReload: target.allowReload,
+    }, { target: "background" });
+    active = response.ok && response.data.active === true;
+    appliedEmulationMode = active ? target.mode : null;
+    if (active) {
+      // The CDP override can settle without a resize event in the content
+      // isolated world. Complete the serialized posture only after the active
+      // interaction shield has explicitly remeasured the confirmed viewport.
+      await requestContentMessage(context.tabId, {
+        type: "refreshInteractionShieldViewport",
+      });
+    }
+  });
+  emulationApplyQueue = operation.catch(() => undefined);
+  await operation;
   return active;
 }
 
@@ -1489,10 +1712,11 @@ async function applySessionEmulation(context: TargetTabContext): Promise<boolean
  *  already right — a page reload drops CDP overrides, so this has to be reachable
  *  from every path that follows one, but it must not re-attach on every poll. */
 async function ensureSessionEmulation(context: TargetTabContext): Promise<boolean> {
-  if (appliedEmulationMode === desiredEmulationMode()) {
+  const mode = desiredEmulationMode();
+  if (sessionTransitionActive || appliedEmulationMode === mode) {
     return true;
   }
-  return await applySessionEmulation(context);
+  return await applySessionEmulation(context, { mode, allowReload: !contentActive });
 }
 
 async function clearSessionEmulation(context: TargetTabContext): Promise<void> {
@@ -1633,7 +1857,7 @@ async function captureSubmission(
     logEvent("Capture refused", "choose a render mode first", "warn");
     return null;
   }
-  if (!await applySessionEmulation(context)) {
+  if (!await applySessionEmulation(context, { mode: "mobile", allowReload: !contentActive })) {
     return null;
   }
   let rawHtml: string | undefined;
@@ -1718,7 +1942,14 @@ async function reconcileContentStatus(context: TargetTabContext, requestKey = bo
   if (!response || typeof response !== "object" || !("ok" in response) || response.ok !== true) {
     return;
   }
-  const status = response as { active?: unknown; dirty?: unknown; pageUrl?: unknown; markedCount?: unknown; contentRows?: unknown };
+  const status = response as {
+    active?: unknown;
+    dirty?: unknown;
+    pageUrl?: unknown;
+    markedCount?: unknown;
+    markingToggleSeq?: unknown;
+    contentRows?: unknown;
+  };
   if (status.pageUrl && status.pageUrl !== context.url) {
     return;
   }
@@ -1734,7 +1965,9 @@ async function reconcileContentStatus(context: TargetTabContext, requestKey = bo
   // a fact and let the brain decide, rather than mint a second signal that could
   // disagree with the brain's own.
   if (status.active === true) {
-    const toggleSeq = typeof status.markedCount === "number" ? status.markedCount : 0;
+    const toggleSeq = typeof status.markingToggleSeq === "number"
+      ? status.markingToggleSeq
+      : typeof status.markedCount === "number" ? status.markedCount : 0;
     if (status.dirty === true && toggleSeq > 0) {
       await reportPopupFact(context, "marking-toggle-observed", { markingToggleSeq: toggleSeq }, requestKey);
       // Pull straight away so the brain's decision lands on this open rather than
@@ -1764,20 +1997,33 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
   }
   if (enabled && directModeActive) {
     ensureSignalPolling();
-    await applySessionEmulation(context);
-    if (!bindingOccurrenceIsCurrent(binding)) {
-      return;
-    }
-    const activated = await sendContentMessage(context.tabId, {
-      type: "activateContentMain",
-      baseUrl: safeOrigin(context.url),
-      pageUrl: context.url,
-      realEditorActivation: true,
+    const activated = await runSessionTransition(async () => {
+      const emulationApplied = await applySessionEmulation(context, {
+        mode: "mobile",
+        allowReload: true,
+      });
+      if (!emulationApplied || !bindingOccurrenceIsCurrent(binding)) {
+        return false;
+      }
+      const contentActivated = await sendContentMessage(context.tabId, {
+        type: "activateContentMain",
+        baseUrl: safeOrigin(context.url),
+        pageUrl: context.url,
+        realEditorActivation: true,
+      });
+      if (!bindingOccurrenceIsCurrent(binding)) {
+        return false;
+      }
+      contentActive = contentActivated;
+      if (!contentActivated) {
+        const mode = desiredEmulationMode();
+        await applySessionEmulation(context, { mode, allowReload: true });
+      }
+      return contentActivated;
     });
     if (!bindingOccurrenceIsCurrent(binding)) {
       return;
     }
-    contentActive = activated;
     if (activated) {
       await adoptMarkingRows(context.tabId, requestKey);
       await reportPopupFact(context, "debug-direct-marking-activated", { markingEnabled: true }, requestKey);
@@ -1811,35 +2057,44 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
       render();
       return;
     }
-    const emulationApplied = await applySessionEmulation(context);
-    if (!bindingOccurrenceIsCurrent(binding)) {
-      return;
-    }
-    if (!emulationApplied) {
-      notifyBoundEvent(binding, "Enable marking failed", "device emulation could not be applied", "danger");
-      render();
-      return;
-    }
-    const activated = await sendContentMessage(context.tabId, {
-      type: "activateContentMain",
-      baseUrl: lock.baseUrl,
-      pageUrl: context.url,
-      realEditorActivation: true,
-      // Seeds a clean session: the defaults first, then these laid over them.
-      // The content script applies them once and then ignores them.
-      ...(currentPropertyConfiguration().selectors
-        ? { selectors: currentPropertyConfiguration().selectors }
-        : {}),
+    const transition = await runSessionTransition(async () => {
+      const emulationApplied = await applySessionEmulation(context, {
+        mode: "mobile",
+        allowReload: true,
+      });
+      if (!emulationApplied || !bindingOccurrenceIsCurrent(binding)) {
+        return { emulationApplied, activated: false };
+      }
+      const activated = await sendContentMessage(context.tabId, {
+        type: "activateContentMain",
+        baseUrl: lock.baseUrl,
+        pageUrl: context.url,
+        realEditorActivation: true,
+        // Seeds a clean session: the defaults first, then these laid over them.
+        // The content script applies them once and then ignores them.
+        ...(currentPropertyConfiguration().selectors
+          ? { selectors: currentPropertyConfiguration().selectors }
+          : {}),
+      });
+      if (!bindingOccurrenceIsCurrent(binding)) {
+        return { emulationApplied, activated: false };
+      }
+      contentActive = activated;
+      if (!activated) {
+        const mode = desiredEmulationMode();
+        await applySessionEmulation(context, { mode, allowReload: true });
+      }
+      return { emulationApplied, activated };
     });
     if (!bindingOccurrenceIsCurrent(binding)) {
       return;
     }
-    contentActive = activated;
-    if (!activated) {
-      // Marking never armed, so the tab is silent again — and silent still means
-      // mobile, not released.
-      await ensureSessionEmulation(context);
+    if (!transition.emulationApplied) {
+      notifyBoundEvent(binding, "Enable marking failed", "device emulation could not be applied", "danger");
+      render();
+      return;
     }
+    const activated = transition.activated;
     if (activated) {
       // The seeded marks are the session's starting point, so show them without
       // pretending the operator has edited anything.
@@ -1860,31 +2115,39 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     }, requestKey);
     await pullSignals(context.tabId, requestKey);
   } else {
-    const deactivated = await sendContentMessage(context.tabId, {
-      type: "enterSilentContentMain",
-      pageUrl: context.url,
+    const transition = await runSessionTransition(async () => {
+      const contentDeactivated = await sendContentMessage(context.tabId, {
+        type: "enterSilentContentMain",
+        pageUrl: context.url,
+      });
+      if (!contentDeactivated || !bindingOccurrenceIsCurrent(binding)) {
+        return { contentDeactivated, emulationApplied: false };
+      }
+      lastSubmissionSnapshot = null;
+      lastSubmissionKey = null;
+      activeRunSessionId = null;
+      contentActive = false;
+      contentDirty = false;
+      const mode = desiredEmulationMode();
+      const emulationApplied = await applySessionEmulation(context, { mode, allowReload: true });
+      return { contentDeactivated, emulationApplied };
     });
     if (!bindingOccurrenceIsCurrent(binding)) {
       return;
     }
-    if (!deactivated) {
+    if (!transition.contentDeactivated) {
       notifyBoundEvent(binding, "Marking disable failed", "the content script did not confirm deactivation", "danger");
       render();
       return;
     }
-    lastSubmissionSnapshot = null;
-    lastSubmissionKey = null;
-    activeRunSessionId = null;
-    contentActive = false;
-    contentDirty = false;
-    // Leaving marking does not release the tab: the extension is still active on
-    // it, so the posture holds — and desktop preview only becomes available now.
-    await ensureSessionEmulation(context);
     logEvent("Marking disabled", "toggle");
     await reportPopupFact(context, "marking-deactivated", { markingEnabled: false }, requestKey);
     await pullSignals(context.tabId, requestKey);
     silentSelectorsAppliedKey = null;
     await refreshSilentSelectorPreview(context, requestKey);
+    if (!transition.emulationApplied) {
+      notifyBoundEvent(binding, "Device posture failed", "marking is off, but the silent device posture could not be applied", "danger");
+    }
   }
   render();
 }
@@ -1931,11 +2194,35 @@ async function reportPopupFactAndPull(
   reason: string,
   facts: Record<string, unknown>,
   requestKey = boundTabKey,
-): Promise<void> {
+  until?: () => boolean,
+  timeoutMs = 15_000,
+): Promise<boolean> {
+  let observedRevision = signalsAvailableRevisionByTab.get(context.tabId) ?? 0;
   await reportPopupFact(context, reason, facts, requestKey);
-  if (boundTabId === context.tabId && boundTabKey === requestKey) {
-    await pullSignals(context.tabId, requestKey);
+  if (boundTabId !== context.tabId || boundTabKey !== requestKey) {
+    return false;
   }
+  await pullSignals(context.tabId, requestKey);
+  if (!until || until()) {
+    return true;
+  }
+  const deadlineAt = Date.now() + timeoutMs;
+  while (boundTabId === context.tabId && boundTabKey === requestKey) {
+    const remainingMs = deadlineAt - Date.now();
+    if (remainingMs <= 0) {
+      return false;
+    }
+    const available = await waitForSignalsAvailable(context.tabId, observedRevision, remainingMs);
+    if (!available) {
+      return false;
+    }
+    observedRevision = signalsAvailableRevisionByTab.get(context.tabId) ?? observedRevision;
+    await pullSignals(context.tabId, requestKey);
+    if (until()) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Pulls the engine's current rows into the projection for display only. Used
@@ -2143,36 +2430,39 @@ async function setDesktopPreviewEnabled(enabled: boolean): Promise<void> {
   const binding = captureBindingOccurrence();
   // No armed-session requirement: this control lives on the silent view, which is
   // precisely where marking is off. Turning it off returns the tab to mobile.
-  if (!await applySessionEmulation(context)) {
+  if (!await runSessionTransition(() => applySessionEmulation(context, {
+    mode: enabled ? "desktop" : "mobile",
+    allowReload: true,
+  }))) {
     notifyBoundEvent(binding, "Device preview failed", "emulation could not be applied", "warn");
   }
   render();
 }
 
 async function refreshPopup(): Promise<void> {
-  const binding = captureBindingOccurrence();
   const context = await resolveTargetTabContext();
   if (context === null) {
-    notifyBoundEvent(binding, "Refresh failed", "no active tab", "danger");
+    notifyEvent("Refresh failed", "no active tab", "danger");
     render();
     return;
   }
   const requestKey = await handleBoundContext(context);
-  await pullSignals(context.tabId, requestKey);
-  const lock = await refreshLockDirective(context, requestKey);
-  await refreshTodoContext(context, requestKey, { force: true });
-  await observeCurrentRenderInspection(
-    context,
-    requestKey,
-    managedRenderInspectionPropertyFor(context, requestKey),
-  );
-  await reconcileContentStatus(context, requestKey);
-  await configurationController.adoptAuthStatus();
-  // An explicit refresh is the retry for a config read that failed.
+  const binding = captureBindingOccurrence(requestKey);
+  // An explicit refresh is the retry boundary for both transient property-load
+  // failures and a definitive not-found baseline.
   configurationController.retryPropertyLoad();
-  await maybeLoadPropertyConfig();
-  await maybeResumeAiRun(context, requestKey);
-  logEvent("Refreshed", lock ? `lock ${lock.status} · role ${lock.lockRole}` : "lock unavailable", lock ? "info" : "warn");
+  await queueFastSignalPoll();
+  await queueAuthorityRefresh(true);
+  if (!bindingOccurrenceIsCurrent(binding)) {
+    return;
+  }
+  await refreshTodoContext(context, requestKey, { force: true });
+  await reconcileContentStatus(context, requestKey);
+  logEvent(
+    "Refreshed",
+    lockStatus ? `lock ${lockStatus} · role ${lockRole || "unknown"}` : "lock unavailable",
+    lockStatus ? "info" : "warn",
+  );
   render();
 }
 
@@ -2184,31 +2474,48 @@ async function refreshPopup(): Promise<void> {
  *  session is not re-asked. Only a confirmed mode is adopted — an unset one is
  *  just the schema default, and treating it as a decision is the very thing the
  *  unset state exists to prevent. */
-async function loadPropertyConfig(siteId: number): Promise<void> {
+type PropertyLoadOutcome =
+  | Readonly<{ status: "loaded" | "not_found"; cached: boolean }>
+  | Readonly<{ status: "unavailable" | "failed" | "stale"; cached: false; reason: string }>;
+
+function propertyLoadOutcomeFromStatus(status: string, cached: boolean): PropertyLoadOutcome {
+  if (status === "ok") {
+    return { status: "loaded", cached };
+  }
+  if (status === "not_found") {
+    return { status: "not_found", cached };
+  }
+  return { status: "failed", cached: false, reason: status || "configuration unavailable" };
+}
+
+async function loadPropertyConfig(siteId: number): Promise<PropertyLoadOutcome> {
   const binding = captureBindingOccurrence();
   const candidate = await configurationController.requestPropertyLoad(siteId);
-  if (
-    candidate === null ||
-    !bindingOccurrenceIsCurrent(binding) ||
-    activeSiteId !== siteId
-  ) {
-    return;
+  if (candidate === null) {
+    return propertyLoadOutcomeFromStatus(currentPropertyConfiguration().status, true);
+  }
+  if (!bindingOccurrenceIsCurrent(binding) || activeSiteId !== siteId) {
+    return { status: "stale", cached: false, reason: "the property binding changed" };
   }
   const outcome = configurationController.adoptPropertyLoad(candidate);
+  if (outcome.status !== "adopted") {
+    return { status: "stale", cached: false, reason: "the property response became stale" };
+  }
   if (outcome.status === "adopted" && outcome.projectionInvalidated) {
     // Backend property data changed; repaint the silent preview on the next tick.
     silentSelectorsAppliedKey = null;
   }
+  return propertyLoadOutcomeFromStatus(currentPropertyConfiguration().status, false);
 }
 
-async function maybeLoadPropertyConfig(): Promise<void> {
-  if (
-    activeSiteId === null ||
-    currentPropertyConfiguration().attemptedSiteId === activeSiteId
-  ) {
-    return;
+async function maybeLoadPropertyConfig(): Promise<PropertyLoadOutcome> {
+  if (activeSiteId === null) {
+    return { status: "unavailable", cached: false, reason: "the property is unresolved" };
   }
-  await loadPropertyConfig(activeSiteId);
+  if (currentPropertyConfiguration().attemptedSiteId === activeSiteId) {
+    return propertyLoadOutcomeFromStatus(currentPropertyConfiguration().status, true);
+  }
+  return await loadPropertyConfig(activeSiteId);
 }
 
 function renderModeSet(): boolean {
@@ -2538,8 +2845,35 @@ async function runAi(): Promise<void> {
 }
 
 async function saveSession(): Promise<void> {
+  if (saveInFlight) {
+    await saveInFlight;
+    return;
+  }
+  const pendingPolls = [fastSignalPollInFlight, authorityRefreshInFlight]
+    .filter((operation): operation is Promise<void> => operation !== null);
+  const operation = (async () => {
+    await Promise.allSettled(pendingPolls);
+    await performSaveSession();
+  })();
+  saveInFlight = operation;
+  try {
+    await operation;
+  } finally {
+    saveInFlight = null;
+    if (fastSignalPollQueued) {
+      void queueFastSignalPoll();
+    }
+    if (authorityRefreshQueued) {
+      void queueAuthorityRefresh(true);
+    }
+  }
+}
+
+async function performSaveSession(): Promise<void> {
   const context = await resolveTargetTabContext();
   if (context === null) {
+    notifyEvent("Save blocked", "no bound browser tab is available", "danger");
+    render();
     return;
   }
   const requestKey = await handleBoundContext(context);
@@ -2547,13 +2881,29 @@ async function saveSession(): Promise<void> {
   await pullSignals(context.tabId, requestKey);
   const lock = await refreshLockDirective(context, requestKey);
   if (!lock || !lockAllowsEditing(lock)) {
+    notifyBoundEvent(
+      binding,
+      "Save blocked",
+      lock ? resolvePopupLockCopy(lock.lockBanner) || lock.status : "authoritative lock unavailable",
+      "danger",
+    );
     render();
     return;
   }
   // Save needs the authoritative candidate label for the singular current-page
   // request. A popup can reach Save before its first polling tick, so do not
   // assume the background baseline has already been loaded by polling.
-  await maybeLoadPropertyConfig();
+  const propertyLoad = await maybeLoadPropertyConfig();
+  if (propertyLoad.status !== "loaded" && propertyLoad.status !== "not_found") {
+    notifyBoundEvent(
+      binding,
+      "Save blocked",
+      "reason" in propertyLoad ? propertyLoad.reason : "property configuration unavailable",
+      "danger",
+    );
+    render();
+    return;
+  }
   const saveButton = resolvePopupActionButtons(store.getPresentation(), {
     runAi: true,
     save: true,
@@ -2562,6 +2912,7 @@ async function saveSession(): Promise<void> {
     renderModeSet: renderModeSet(),
   }).save;
   if (saveButton.disabled) {
+    notifyBoundEvent(binding, "Save blocked", saveButton.blockedReason || "the AI result is not current", "warn");
     render();
     return;
   }
@@ -2569,6 +2920,8 @@ async function saveSession(): Promise<void> {
     ? lastSubmissionSnapshot
     : await captureSubmission(context, lock.baseUrl);
   if (!snapshot) {
+    notifyBoundEvent(binding, "Save blocked", "the current page could not be captured", "danger");
+    render();
     return;
   }
   const currentSelectors = store.getState().selectors ?? { inclusionSelectors: [], exclusionSelectors: [] };
@@ -2576,72 +2929,86 @@ async function saveSession(): Promise<void> {
     inclusionSelectors: [...currentSelectors.inclusionSelectors],
     exclusionSelectors: [...currentSelectors.exclusionSelectors],
   };
-  const paused = await sendContentMessage(context.tabId, { type: "pauseContentMainInteractions" });
-  await pullSignals(context.tabId, requestKey);
-  if (!paused || !["post_ai_clean", "preview_open"].includes(store.getState().name)) {
-    await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
-    render();
-    return;
-  }
-  await reportPopupFactAndPull(context, "save-reconciliation-started", {
-    reconciliationPending: true,
-    reconciliationReason: "saving",
-  }, requestKey);
-  const reconciliationState = store.getState();
-  if (
-    reconciliationState.name !== "reconciling" ||
-    !["post_ai_clean", "preview_open"].includes(reconciliationState.priorState ?? "") ||
-    reconciliationState.reconciliationDirty
-  ) {
-    await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
-    await reportPopupFactAndPull(context, "save-reconciliation-ended", {
-      reconciliationPending: false,
-      reconciliationReason: "dirty-before-save",
-    }, requestKey);
-    render();
-    return;
-  }
-  const saveRequest = configFromSubmission(snapshot, selectors, lock, context.url);
-  if (!saveRequest) {
-    notifyBoundEvent(binding, "Save blocked", "authoritative lock or candidate page type is unavailable", "danger");
-    await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
-    await reportPopupFactAndPull(context, "save-reconciliation-ended", {
-      reconciliationPending: false,
-      reconciliationReason: "save-authority-unavailable",
-    }, requestKey);
-    render();
-    return;
-  }
-  const response = await getPopupBus().request("config.save", saveRequest, { target: "background" });
-  if (!bindingOccurrenceIsCurrent(binding)) {
-    return;
-  }
-  await pullSignals(context.tabId, requestKey);
-  if (store.getState().name === "reconciling" && store.getState().reconciliationDirty) {
-    await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
-    await reportPopupFactAndPull(context, "save-reconciliation-ended", {
-      reconciliationPending: false,
-      reconciliationReason: "dirty-during-save",
-    }, requestKey);
-    render();
-    return;
-  }
-  if (response.ok && response.data.status === "ok") {
+  let interactionsPaused = false;
+  let reconciliationStarted = false;
+  let reconciliationReason = "save-aborted";
+  try {
+    interactionsPaused = await sendContentMessage(context.tabId, { type: "pauseContentMainInteractions" });
+    if (!interactionsPaused) {
+      reconciliationReason = "content-pause-failed";
+      notifyBoundEvent(binding, "Save blocked", "page interactions could not be paused", "danger");
+      return;
+    }
+    await pullSignals(context.tabId, requestKey);
+    if (!["post_ai_clean", "preview_open"].includes(store.getState().name)) {
+      reconciliationReason = "dirty-before-save";
+      notifyBoundEvent(binding, "Save blocked", "the page changed after the AI run; run AI again", "warn");
+      return;
+    }
+    const reconciliationObserved = await reportPopupFactAndPull(context, "save-reconciliation-started", {
+      reconciliationPending: true,
+      reconciliationReason: "saving",
+    }, requestKey, () => store.getState().name === "reconciling");
+    reconciliationStarted = true;
+    if (!reconciliationObserved) {
+      reconciliationReason = "reconciliation-ack-timeout";
+      notifyBoundEvent(
+        binding,
+        "Save blocked",
+        "the reconciliation acknowledgement did not arrive; retry Save",
+        "danger",
+      );
+      return;
+    }
+    const reconciliationState = store.getState();
+    if (
+      reconciliationState.name !== "reconciling" ||
+      !["post_ai_clean", "preview_open"].includes(reconciliationState.priorState ?? "") ||
+      reconciliationState.reconciliationDirty
+    ) {
+      reconciliationReason = "dirty-before-save";
+      notifyBoundEvent(binding, "Save blocked", "the page changed during reconciliation; run AI again", "warn");
+      return;
+    }
+    const saveRequest = configFromSubmission(snapshot, selectors, lock, context.url);
+    if (!saveRequest) {
+      reconciliationReason = "save-authority-unavailable";
+      notifyBoundEvent(binding, "Save blocked", "authoritative lock or candidate page type is unavailable", "danger");
+      return;
+    }
+    const response = await getPopupBus().request("config.save", saveRequest, { target: "background" });
+    if (!bindingOccurrenceIsCurrent(binding)) {
+      reconciliationReason = "binding-changed";
+      return;
+    }
+    await pullSignals(context.tabId, requestKey);
+    if (store.getState().name === "reconciling" && store.getState().reconciliationDirty) {
+      reconciliationReason = "dirty-during-save";
+      notifyBoundEvent(binding, "Save needs review", "the page changed while Save was in flight", "warn");
+      return;
+    }
+    reconciliationReason = response.ok ? response.data.status : response.failure.code;
+    if (!response.ok || response.data.status !== "ok") {
+      if (response.ok && response.data.status === "integrity_shrink" && response.data.config) {
+        configurationController.adoptAuthoritativeConfig(response.data.config, "integrity_shrink");
+        silentSelectorsAppliedKey = null;
+      }
+      notifyBoundEvent(binding, "Save failed", reconciliationReason, "danger");
+      return;
+    }
     if (response.data.config) {
       configurationController.adoptAuthoritativeConfig(response.data.config, "ok");
     }
-    await sendContentMessage(context.tabId, {
+    const enteredSilent = await sendContentMessage(context.tabId, {
       type: "enterSilentContentMain",
       pageUrl: context.url,
     });
+    interactionsPaused = !enteredSilent;
     lastSubmissionSnapshot = null;
     lastSubmissionKey = null;
     contentActive = false;
     contentDirty = false;
-    // Saving ends the session, not the extension's presence on the tab.
     await ensureSessionEmulation(context);
-    // The backend holds the configuration now, so the render mode is its
-    // decision and the local copy has been cleared background-side.
     notifyBoundEvent(binding, "Session saved", snapshot.baseUrl, "success");
     await reportPopupFactAndPull(context, "session-saved", {
       savedSeq: nextPopupFactSequence(),
@@ -2649,23 +3016,28 @@ async function saveSession(): Promise<void> {
       previewActive: false,
     }, requestKey);
     await refreshTodoContext(context, requestKey, { force: true });
-  } else {
-    if (response.ok && response.data.status === "integrity_shrink" && response.data.config) {
-      configurationController.adoptAuthoritativeConfig(response.data.config, "integrity_shrink");
-      silentSelectorsAppliedKey = null;
-    }
-    notifyBoundEvent(binding, "Save failed", response.ok ? response.data.status : response.failure.code, "danger");
-    await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
-  }
-  await reportPopupFactAndPull(context, "save-reconciliation-ended", {
-    reconciliationPending: false,
-    reconciliationReason: response.ok ? response.data.status : response.failure.code,
-  }, requestKey);
-  if (response.ok && response.data.status === "ok") {
     silentSelectorsAppliedKey = null;
     await refreshSilentSelectorPreview(context, requestKey);
+  } catch (error: unknown) {
+    reconciliationReason = "save-request-failed";
+    notifyBoundEvent(
+      binding,
+      "Save failed",
+      error instanceof Error ? error.message : "an unexpected request failure occurred",
+      "danger",
+    );
+  } finally {
+    if (interactionsPaused && bindingOccurrenceIsCurrent(binding)) {
+      await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
+    }
+    if (reconciliationStarted && bindingOccurrenceIsCurrent(binding)) {
+      await reportPopupFactAndPull(context, "save-reconciliation-ended", {
+        reconciliationPending: false,
+        reconciliationReason,
+      }, requestKey, () => store.getState().name !== "reconciling");
+    }
+    render();
   }
-  render();
 }
 
 function previewOwner(
@@ -2788,8 +3160,25 @@ async function discardMarkings(): Promise<void> {
   }
   const requestKey = await handleBoundContext(context);
   const binding = captureBindingOccurrence(requestKey);
+  const lock = await refreshLockDirective(context, requestKey);
+  if (!bindingOccurrenceIsCurrent(binding)) {
+    return;
+  }
+  if (!lock || !lockAllowsEditing(lock)) {
+    notifyBoundEvent(
+      binding,
+      "Discard failed",
+      lock ? resolvePopupLockCopy(lock.lockBanner) || lock.status : "lock unavailable",
+      "danger",
+    );
+    render();
+    return;
+  }
   const reset = await sendContentMessage(context.tabId, {
     type: "resetContentMain",
+    // The observed page may be an alias (for example www vs apex). Data-
+    // affecting content commands must carry the canonical property authority.
+    baseUrl: lock.baseUrl,
     pageUrl: context.url,
   });
   if (!bindingOccurrenceIsCurrent(binding)) {
@@ -2803,10 +3192,18 @@ async function discardMarkings(): Promise<void> {
   contentDirty = false;
   await ensureSessionEmulation(context);
   logEvent("Markings discarded", context.url);
-  await reportPopupFactAndPull(context, "session-discarded", {
+  const discardObserved = await reportPopupFactAndPull(context, "session-discarded", {
     discardedSeq: nextPopupFactSequence(),
     previewActive: false,
-  }, requestKey);
+  }, requestKey, () => store.getState().name === "pre_ai_clean");
+  if (!discardObserved && bindingOccurrenceIsCurrent(binding)) {
+    notifyBoundEvent(
+      binding,
+      "Discard failed",
+      "the discard acknowledgement did not arrive; retry Discard",
+      "danger",
+    );
+  }
   render();
 }
 

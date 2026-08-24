@@ -128,11 +128,26 @@ class FakeElement extends FakeEventTarget {
     }
     this.parentElement = null;
   }
+
+  getBoundingClientRect(): DOMRect {
+    return {
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 412,
+      bottom: 960,
+      width: 412,
+      height: 960,
+      toJSON: () => ({}),
+    } as DOMRect;
+  }
 }
 
 class FakeDocument extends FakeEventTarget {
   documentElement: FakeElement | null = null;
   defaultView: FakeWindow | null = null;
+  visibilityState: DocumentVisibilityState = "visible";
 
   createElement(tagName: string): FakeElement {
     return new FakeElement(this, tagName.toUpperCase());
@@ -148,7 +163,9 @@ class FakeDocument extends FakeEventTarget {
 class FakeWindow extends FakeEventTarget {
   private frameCallbacks: FrameRequestCallback[] = [];
   private nextTimer = 1;
-  private readonly timers = new Map<number, VoidFunction>();
+  private readonly timers = new Map<number, { callback: VoidFunction; delay: number }>();
+  readonly innerWidth = 412;
+  readonly innerHeight = 960;
 
   requestAnimationFrame(callback: FrameRequestCallback): number {
     this.frameCallbacks.push(callback);
@@ -171,16 +188,37 @@ class FakeWindow extends FakeEventTarget {
     queueMicrotask(callback);
   }
 
-  setTimeout(callback: TimerHandler): number {
+  setTimeout(callback: TimerHandler, delay = 0): number {
     const id = this.nextTimer++;
     if (typeof callback === "function") {
-      this.timers.set(id, callback);
+      this.timers.set(id, { callback, delay });
     }
     return id;
   }
 
   clearTimeout(id: number): void {
     this.timers.delete(id);
+  }
+
+  flushTimer(delay: number): void {
+    const match = [...this.timers.entries()].find(([, timer]) => timer.delay === delay);
+    if (!match) {
+      return;
+    }
+    const [id, timer] = match;
+    this.timers.delete(id);
+    timer.callback();
+  }
+
+  getComputedStyle(element: FakeElement): CSSStyleDeclaration {
+    return {
+      position: element.style.getPropertyValue("position"),
+      display: element.style.getPropertyValue("display"),
+      visibility: element.style.getPropertyValue("visibility") || "visible",
+      pointerEvents: element.style.getPropertyValue("pointer-events"),
+      zIndex: element.style.getPropertyValue("z-index"),
+      opacity: element.style.getPropertyValue("opacity") || "1",
+    } as CSSStyleDeclaration;
   }
 }
 
@@ -220,7 +258,12 @@ function session(
   };
 }
 
-function harness(rootReady = true) {
+function harness(
+  rootReady = true,
+  schedulePaintFallback?: NonNullable<
+    Parameters<typeof createRenderInspectionCurtain>[0]["schedulePaintFallback"]
+  >,
+) {
   const document = new FakeDocument();
   const window = new FakeWindow();
   document.defaultView = window;
@@ -231,6 +274,7 @@ function harness(rootReady = true) {
   const painted = vi.fn();
   const failed = vi.fn();
   const surfaceChanged = vi.fn();
+  const lifecycleStage = vi.fn();
   const controller = createRenderInspectionCurtain({
     document: document as unknown as Document,
     window: window as unknown as Window,
@@ -239,12 +283,14 @@ function harness(rootReady = true) {
       observers.push(observer);
       return observer as unknown as MutationObserver;
     },
+    schedulePaintFallback,
     onPaintReady: painted,
     onFailure: failed,
     onSurfaceChanged: surfaceChanged,
+    onLifecycleStage: lifecycleStage,
     now: () => 0,
   });
-  return { controller, document, window, observers, painted, failed, surfaceChanged };
+  return { controller, document, window, observers, painted, failed, surfaceChanged, lifecycleStage };
 }
 
 async function flushMutation(): Promise<void> {
@@ -294,6 +340,68 @@ describe("render inspection replacement-document curtain", () => {
     expect(controller.element()).toBe(curtain);
     expect(curtain.parentElement).toBe(replacementRoot);
     expect(curtain.isConnected).toBe(true);
+  });
+
+  it("uses a guarded visible-curtain fallback when animation frames are starved", () => {
+    const { controller, window, painted, failed, lifecycleStage } = harness();
+    const adopted = { ...session("token-static", 2, "nonce-static"), javascriptEnabled: false };
+    controller.adopt(adopted);
+
+    expect(window.pendingFrames()).toBe(1);
+    window.flushTimer(1_000);
+
+    expect(painted).toHaveBeenCalledOnce();
+    expect(painted).toHaveBeenCalledWith(adopted);
+    expect(failed).not.toHaveBeenCalled();
+    expect(lifecycleStage.mock.calls.map(([, stage]) => stage)).toEqual([
+      "adopted",
+      "mounted",
+      "fallback",
+      "acknowledged",
+    ]);
+    window.flushFrame();
+    window.flushFrame();
+    expect(painted).toHaveBeenCalledOnce();
+  });
+
+  it("can source the starvation wake-up outside the page timer realm", () => {
+    let wake: VoidFunction | undefined;
+    const cancel = vi.fn();
+    const externalScheduler = vi.fn((_session, callback, delayMs) => {
+      expect(delayMs).toBe(1_000);
+      wake = callback;
+      return cancel;
+    });
+    const { controller, window, painted } = harness(true, externalScheduler);
+    const adopted = { ...session("token-worker-clock", 3, "nonce-worker-clock"), javascriptEnabled: false };
+
+    controller.adopt(adopted);
+    expect(externalScheduler).toHaveBeenCalledWith(adopted, expect.any(Function), 1_000);
+    expect(window.pendingFrames()).toBe(1);
+
+    wake?.();
+
+    expect(painted).toHaveBeenCalledOnce();
+    expect(painted).toHaveBeenCalledWith(adopted);
+    expect(cancel).not.toHaveBeenCalled();
+    window.flushFrame();
+    window.flushFrame();
+    expect(painted).toHaveBeenCalledOnce();
+  });
+
+  it("waits for visibility before using the starvation fallback", async () => {
+    const { controller, document, window, painted } = harness();
+    document.visibilityState = "hidden";
+    controller.adopt(session("token-hidden", 3, "nonce-hidden"));
+
+    window.flushTimer(1_000);
+    expect(painted).not.toHaveBeenCalled();
+
+    document.visibilityState = "visible";
+    document.dispatch("visibilitychange");
+    await flushMutation();
+    window.flushTimer(1_000);
+    expect(painted).toHaveBeenCalledOnce();
   });
 
   it("restarts the two-frame proof when the root is replaced between paint opportunities", async () => {

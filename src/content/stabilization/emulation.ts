@@ -111,6 +111,10 @@ export async function applyEmulationViaCdp(
     mobile: mode === "mobile",
     scale: state.scale,
   });
+  // Chrome can retain the compositor page scale chosen for the previous
+  // desktop/mobile posture even after device metrics change. Reset it on every
+  // explicit transition so a 412×960 device is also a 412×960 layout viewport.
+  await client.send("Emulation.setPageScaleFactor", { pageScaleFactor: 1 });
   await client.send("Emulation.setTouchEmulationEnabled", mode === "mobile"
     ? { enabled: true, maxTouchPoints: 1 }
     : { enabled: false });
@@ -147,6 +151,7 @@ export async function applyEmulationViaCdp(
 export async function clearEmulationViaCdp(client: CdpClient, state: EmulationState): Promise<EmulationState> {
   await client.send("Emulation.setTouchEmulationEnabled", { enabled: false });
   await client.send("Emulation.setEmulatedMedia", { media: "", features: [] });
+  await client.send("Emulation.setPageScaleFactor", { pageScaleFactor: 1 });
   await client.send("Emulation.clearDeviceMetricsOverride");
   return clearEmulation(state);
 }

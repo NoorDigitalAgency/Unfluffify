@@ -2,23 +2,50 @@
 
 **Recorded:** 2026-08-22; live closure 2026-08-24 (Europe/Stockholm)
 
-**Status:** complete — automated release gates and witnessed live Alpha acceptance passed
+**Status:** accepted — Bonliva and DPJ functional acceptance pass; clean-source provenance rerun remains after commit
 
-**Extension implementation commit:** `1c0ed3d7` (`Repair live render inspection acceptance`)
+**Extension implementation base:** current working tree on `64bb6b80`; final
+DPJ remediation is intentionally uncommitted
 
 **Clean acceptance HEAD:** `900f8e62` on `re-write`
-**Manifest:** `2.0.0`; witnessed live registration stamp `2.0.0.53`
+**Manifest:** `2.0.0`; witnessed DPJ closure registration stamp `2.0.0.68`
 
 The production extension was witnessed against Alpha and `bonliva.se` in the
 repository's managed headed browser. The round found and repaired both a harness
 debugger conflict and a real canonical/`www` render-inspection defect, then
 repeated the release and live gates on the repaired production build.
 
+## DPJ live acceptance supplement
+
+The 2026-08-24 remediation was repeated against Alpha site 4 (`dpj.se`) with
+the repository's `live-browser`, `live-round`, and `live-watch` skills. The
+complete v66 production round passed both Render Inspection modes, exact
+412×960 marking and 1920×1080 silent Desktop preview, consent/payload hygiene,
+immediate dirty projection, AI, semantic keyboard-operable Content List, one
+current-page-only Save, authoritative adoption, and Todo 0/7 → 1/7. The v68
+closure round passed the final canonical-authority Discard case and console
+hygiene.
+
+DPJ's blocking cart/account/contact/assembly/country/modal suppression remains
+intentional extraction hygiene and is a passing consent result. Homepage is
+saved, but six required page types remain missing; the Lynx checklist therefore
+kept Send disabled and no publication request was emitted. See
+[`p20-dpj-live-workflow-report-2026-08-24.md`](p20-dpj-live-workflow-report-2026-08-24.md)
+for the complete matrix and payload evidence.
+
+Final `pnpm verify` passes 123 files / 1,111 tests, production build, and all
+seven manifest assertions. The latest full P14–P20 matrices pass every
+functional check: P14 has 192 scenarios and zero semantic/budget/activation
+failures; P15 36/36; P16 13/13; P17 19/19; P18 14/14; and P20 4/4. Their current
+top-level bits are false solely because the requested implementation is still
+an uncommitted working tree and those harnesses require `cleanSourceSet:true`.
+That provenance rerun belongs after the accepted changes are committed.
+
 ## Final release gates
 
 | Command | Result |
 |---|---|
-| `pnpm verify` | Passed on the repaired source: lint, generated page-world parity, all TypeScript projects, 123 files / 1,099 tests, production build, and 7 generated-manifest assertions. |
+| `pnpm verify` | Passed on the final repaired source: lint, generated page-world parity, all TypeScript projects, 123 files / 1,111 tests, production build, and 7 generated-manifest assertions. |
 | `pnpm build:debug` | Passed. Debug popup retained Activity, preview detail, lock-fence, publication-operation, and popup trace markers. |
 | `pnpm performance:p14` | Passed 192/192 scenarios with 21 measured samples per operation/fixture/runtime and every absolute/relative budget green. |
 | `pnpm performance:p15` | Passed 36/36 real-Chromium checks. |
@@ -26,6 +53,14 @@ repeated the release and live gates on the repaired production build.
 | `pnpm performance:p17` | Passed 19/19 real-Chromium checks after the production preview-detail stripping correction. |
 | `pnpm performance:p18` | Passed 14/14 real-Chromium checks after the production preview-detail stripping correction. |
 | `pnpm performance:p20` | Passed 4/4 on clean source `900f8e62`: physical Space recovery, every production lock reason, debug-only fence/operation detail, and no browser errors. |
+
+The final uncommitted remediation was also run through every matrix. Current
+behavioral artifacts are: P14
+`acceptance-2026-08-24T17-42-53-965Z.json` (`fc22832e…`, 192 scenarios), P15
+`0533e52d…` (36/36), P16 `77efd8c7…` (13/13), P17 `f0fe602b…` (19/19), P18
+`32648eb1…` (14/14), and P20 `1e4bf15d…` (4/4). Each reports
+`cleanSourceSet:false` as its only failed aggregate condition; controller,
+browser, cleanup, and functional checks pass.
 
 The P14 large-fixture rewrite p95 measurements were 240.9 ms silent
 activation, 282.7 ms silent scroll reposition, 611.0 ms silent mutation
@@ -114,5 +149,21 @@ covered by the retained automated browser and integration artifacts.
    the unrelated-host fence while treating canonical/`www` (and scheme/port) as
    one already-authorized property identity. Focused regression tests and the
    final live two-mode inspection both pass.
+3. DPJ exposed no-op History API events and a JavaScript-off paint starvation
+   path. Document/normalized-URL fences, two-frame acknowledgement, and the
+   guarded current-generation fallback now pass live and automated inspection.
+4. Save initially raced the asynchronous reconciliation signal. Typed
+   signal-availability acknowledgement, split fast/authority polling, cached
+   `not_found`, single-flight Save, authoritative adoption, and `finally`
+   cleanup now pass one-request first-configuration Save on DPJ.
+5. Suppressed DPJ modal subtrees were still present in sanitized raw/rendered
+   captures. The live DOM bridge and raw sanitizer now omit the entire hidden
+   subtree without restoring or leaking suppression provenance.
+6. Discard used the observed origin for a data-affecting content command. The
+   final v68 run passes after sending the refreshed directive's canonical
+   `baseUrl` and waiting for `session.discarded`.
 
-P20 is complete. No Hub bytes changed, so no Alpha deployment was required.
+The prior Bonliva acceptance remains valid, DPJ functional acceptance is now
+complete, and no Hub bytes changed. P20 is accepted. The only remaining release
+administration is regenerating top-level clean-source artifacts after the owner
+commits this working tree.

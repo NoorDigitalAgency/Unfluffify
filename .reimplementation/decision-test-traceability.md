@@ -101,7 +101,7 @@ note by itself is not decision evidence.
 | D-30 | P8 | `tests/manifest-permissions.test.ts::manifest does not register global keyboard shortcuts` | `ACCEPT-P18-TRANSIENT-ESCAPE` |
 | D-31 | P1 | `tests/src/popup/root-recovery.test.ts::recreates a detached root, re-renders the latest UI, and rehydrates once` | P11 panel corruption recovery |
 | D-32 | P8 | `tests/src/popup/scroll-lock.test.ts::is idempotent and restores the captured panel position on every terminal path` | P11 modal/busy teardown |
-| N-01 | P13 | `tests/src/content/marking/dom-bridge.test.ts::serializes the live composed DOM without consent helper styles or artifacts`; `tests/src/content/marking/dom-bridge.test.ts::uses consent provenance when sanitizing an HTML string` | `ACCEPT-P13-CAPTURE-SANITIZER` |
+| N-01 | P13 | `tests/src/content/marking/dom-bridge.test.ts::omits live consent-suppressed subtrees from rows and capture without mutating the page`; `tests/src/content/marking/dom-bridge.test.ts::removes consent-hidden subtrees regardless of helper attribute quoting` | `ACCEPT-P13-CAPTURE-SANITIZER` |
 | N-02 | P15 | — | `ACCEPT-P15-FROZEN-SHIELD` |
 | N-03 | P16 | — | `ACCEPT-P16-INSPECTION-LIFECYCLE` |
 | N-04 | P17 | `tests/src/domain/evaluate.test.ts::produces all six preview classifications without downstream reconstruction`; `tests/src/messaging/contracts.test.ts::transports the canonical six-state preview corpus without binary collapse`; `tests/c4-content-entrypoint.test.ts::registers typed preview rows and retires their hover and bridge across exit and A-to-B navigation` | `ACCEPT-P17-PREVIEW-TRANSPORT` |

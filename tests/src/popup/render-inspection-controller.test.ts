@@ -138,7 +138,7 @@ describe("popup render-inspection controller", () => {
       })),
     });
 
-    await expect(harness.controller.observe(OWNER_A, PROPERTY)).resolves.toBe("stale");
+    await expect(harness.controller.observe(OWNER_A, PROPERTY)).resolves.toBe("inactive");
     expect(harness.controller.snapshot()).toMatchObject({
       session: null,
       view: "unknown",

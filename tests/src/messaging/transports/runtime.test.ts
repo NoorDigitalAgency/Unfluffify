@@ -103,6 +103,29 @@ describe("P1 runtime transports", () => {
     await expect(transport.send({ ...frame(), frameType: "request" })).resolves.toEqual(reply);
   });
 
+  it("consumes callback-style runtime.lastError and rejects the delivery", async () => {
+    const runtime: {
+      sendMessage: ((...args: unknown[]) => undefined) & { toString: () => string };
+      onMessage: { addListener(): void; removeListener(): void };
+      lastError?: { message: string };
+    } = {
+      sendMessage: (() => undefined) as ((...args: unknown[]) => undefined) & { toString: () => string },
+      onMessage: { addListener() {}, removeListener() {} },
+    };
+    runtime.sendMessage = function (...args: unknown[]) {
+      const callback = args[1] as ((response: unknown) => void) | undefined;
+      runtime.lastError = { message: "The message port closed before a response was received." };
+      callback?.(undefined);
+      runtime.lastError = undefined;
+      return undefined;
+    } as typeof runtime.sendMessage;
+    runtime.sendMessage.toString = () => "function sendMessage() { [native code] }";
+    const transport = createRuntimeTransport(runtime);
+
+    await expect(transport.send({ ...frame(), frameType: "request" }))
+      .rejects.toThrow("message port closed");
+  });
+
   it("combines runtime sender identity with the bus instance", async () => {
     const fake = runtimeLike();
     const transport = createRuntimeTransport(fake.api);

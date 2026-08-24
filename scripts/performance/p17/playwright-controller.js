@@ -321,9 +321,14 @@ async (page) => {
       fixtureId: row.fixtureId,
       tabIndex: row.tabIndex,
       role: row.role,
+      controlTagName: row.controlTagName,
+      controlTabIndex: row.controlTabIndex,
+      controlAccessibleName: row.controlAccessibleName,
+      copy: row.copy,
+      publicClassification: row.publicClassification,
+      projectionRow: row.projectionRow,
       interactiveDescendantCount: row.interactiveDescendantCount,
     }));
-    const beforeKeyboardCommands = (await runtimeCall("commandLog")).length;
     await runtimeCall("focusBody");
     const tabSequence = [];
     for (let index = 0; index < 12; index += 1) {
@@ -337,16 +342,35 @@ async (page) => {
         focus: await runtimeCall("focusRowProgrammatically", oracle.fixtureId),
       });
     }
-    await runtimeCall("focusBody");
+    const keyboardTarget = keyboardRows.find((row) => row.fixtureId === "explicit");
+    await runtimeCall("focusRowProgrammatically", "explicit");
+    const beforeEnterSequence = Math.max(0, ...(await runtimeCall("commandLog")).map((entry) => entry.sequence));
     await page.keyboard.press("Enter");
+    await waitForCommand("activate", keyboardTarget.projectionRow.id, null, beforeEnterSequence);
+    const enterActivation = (await runtimeCall("commandLog")).filter((entry) =>
+      entry.kind === "activate" && entry.rowId === keyboardTarget.projectionRow.id && entry.sequence > beforeEnterSequence
+    ).at(-1);
+    const beforeSpaceSequence = Math.max(0, ...(await runtimeCall("commandLog")).map((entry) => entry.sequence));
     await page.keyboard.press("Space");
-    const afterKeyboardCommands = (await runtimeCall("commandLog")).length;
-    await check("preview-rows-not-keyboard-focusable", async () => {
-      assertion(keyboardRows.every((row) => row.tabIndex === -1 && row.role === null && row.interactiveDescendantCount === 0), "A preview row entered the keyboard interaction model", keyboardRows);
-      assertion(tabSequence.every((entry) => !entry.withinPreviewRow), "Tab focus entered a preview row", tabSequence);
-      assertion(programmaticFocus.every((entry) => !entry.focus.withinPreviewRow), "A preview row accepted programmatic focus without tabindex", programmaticFocus);
-      assertion(afterKeyboardCommands === beforeKeyboardCommands, "Keyboard input emitted a preview interaction command", { beforeKeyboardCommands, afterKeyboardCommands });
-      return { keyboardRows, tabSequence, programmaticFocus, beforeKeyboardCommands, afterKeyboardCommands };
+    await waitForCommand("activate", keyboardTarget.projectionRow.id, null, beforeSpaceSequence);
+    const spaceActivation = (await runtimeCall("commandLog")).filter((entry) =>
+      entry.kind === "activate" && entry.rowId === keyboardTarget.projectionRow.id && entry.sequence > beforeSpaceSequence
+    ).at(-1);
+    const keyboardCommands = await runtimeCall("commandLog");
+    await check("preview-rows-keyboard-operable", async () => {
+      assertion(keyboardRows.every((row) => row.tabIndex === -1 && row.role === null && row.interactiveDescendantCount === 1), "A preview list item exposed the wrong interaction structure", keyboardRows);
+      assertion(keyboardRows.every((row) => row.controlTagName === "BUTTON" && row.controlTabIndex === 0), "A preview row omitted its native button", keyboardRows);
+      assertion(keyboardRows.every((row) => /^[1-6]\. /.test(row.controlAccessibleName) && row.controlAccessibleName.includes(`. ${row.copy}. ${row.publicClassification}`)), "A preview button omitted ordinal, readable label, or extraction status", keyboardRows);
+      assertion(new Set(keyboardRows.map((row) => row.controlAccessibleName.split(".", 1)[0])).size === 6, "Preview button ordinals were not unique", keyboardRows);
+      const tabbedRowTokens = new Set(tabSequence.filter((entry) => entry.withinPreviewRow).map((entry) => entry.previewRowNodeToken));
+      assertion(tabbedRowTokens.size === 6, "Tab focus did not visit every preview row", tabSequence);
+      assertion(programmaticFocus.every((entry) => entry.focus.withinPreviewRow && entry.focus.shadowActive?.tagName === "BUTTON"), "A preview button rejected programmatic focus", programmaticFocus);
+      for (const row of keyboardRows) {
+        assertion(keyboardCommands.some((entry) => entry.kind === "emphasize" && entry.rowId === row.projectionRow.id && entry.active === true), "Keyboard focus did not share pointer emphasis", { row, keyboardCommands });
+      }
+      assertion(enterActivation?.response?.ok && enterActivation.response.data?.targeted, "Enter did not activate the focused preview row", enterActivation);
+      assertion(spaceActivation?.response?.ok && spaceActivation.response.data?.targeted, "Space did not activate the focused preview row", spaceActivation);
+      return { keyboardRows, tabSequence, programmaticFocus, enterActivation, spaceActivation, keyboardCommands };
     });
 
     const selectorOnlyReprojection = await runtimeCall("selectorOnlyReprojection");
@@ -601,8 +625,8 @@ async (page) => {
         assertion(row.outerHTML.includes('data-preview-row-debug="true"'), "Debug row omitted its debug marker", row);
         assertion(row.outerHTML.includes('data-preview-row-debug-detail="true"'), "Debug row omitted its detail surface", row);
         assertion(row.outerHTML.includes(`data-preview-row-id="${projectionRow.id}"`), "Debug row omitted its stable ID", row);
-        assertion(row.selfHasTitle && row.selfTitle === expectedTitle, "Debug row omitted its exact native diagnostic tooltip", { expectedTitle, row });
-        assertion(row.descendantTitleCount === 0 && row.titleCount === 1, "Debug diagnostic tooltip was attached outside the row itself", row);
+        assertion(!row.selfHasTitle && row.controlTitle === expectedTitle, "Debug button omitted its exact native diagnostic tooltip", { expectedTitle, row });
+        assertion(row.descendantTitleCount === 1 && row.titleCount === 1, "Debug diagnostic tooltip was attached outside the semantic control", row);
         for (const literal of [projectionRow.classification, projectionRow.xpath, projectionRow.selector ?? "—", projectionRow.shadow]) {
           assertion(row.debugDetail.includes(literal), "Debug row omitted canonical technical detail", { literal, row });
         }

@@ -661,7 +661,7 @@ export function App({
           <p className="hint preview-sidebar__hint">
             {presentation.previewExitPending
               ? "Restoring the page…"
-              : "Point to a row to compare it with the page. Click a row to bring it into view. Exit preview to resume editing."}
+              : "Point to or focus a row to compare it with the page. Click it, or press Enter or Space, to bring it into view. Exit preview to resume editing."}
           </p>
           <PreviewRowList
             projection={presentation.previewProjection}
@@ -1378,8 +1378,7 @@ export function App({
               id="render-mode-with-js"
               type="button"
               className={diagnostics.renderModeView === "with_javascript" ? "" : "u-btn-secondary"}
-              disabled={!onInspectRenderMode || diagnostics.renderModeBusy || presentation.lockBanner.visible}
-              title={presentation.lockBanner.visible ? presentation.lockBanner.text : ""}
+              disabled={!onInspectRenderMode || diagnostics.renderModeBusy}
               onClick={() => onInspectRenderMode?.(true)}
             >
               <i className="mdi mdi-language-javascript btn-icon" aria-hidden="true" />
@@ -1389,8 +1388,7 @@ export function App({
               id="render-mode-without-js"
               type="button"
               className={diagnostics.renderModeView === "without_javascript" ? "" : "u-btn-secondary"}
-              disabled={!onInspectRenderMode || diagnostics.renderModeBusy || presentation.lockBanner.visible}
-              title={presentation.lockBanner.visible ? presentation.lockBanner.text : ""}
+              disabled={!onInspectRenderMode || diagnostics.renderModeBusy}
               onClick={() => onInspectRenderMode?.(false)}
             >
               <i className="mdi mdi-language-html5 btn-icon" aria-hidden="true" />

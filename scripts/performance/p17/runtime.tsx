@@ -380,6 +380,7 @@ function previewRowSnapshot(fixtureId: string) {
   const publicClassification = element?.querySelector<HTMLElement>(
     ".preview-sidebar__item-public-classification",
   ) ?? null;
+  const control = element?.querySelector<HTMLButtonElement>("button.preview-sidebar__item-button") ?? null;
   const debugDetail = element?.querySelector<HTMLElement>(".preview-sidebar__item-debug") ?? null;
   const descendantTitles = Array.from(element?.querySelectorAll<HTMLElement>("[title]") ?? [])
     .map((descendant) => descendant.title);
@@ -390,6 +391,10 @@ function previewRowSnapshot(fixtureId: string) {
     tagName: element?.tagName ?? null,
     tabIndex: element?.tabIndex ?? null,
     role: element?.getAttribute("role") ?? null,
+    controlTagName: control?.tagName ?? null,
+    controlTabIndex: control?.tabIndex ?? null,
+    controlAccessibleName: control?.getAttribute("aria-label") ?? "",
+    controlTitle: control?.title ?? "",
     selfHasTitle: element?.hasAttribute("title") ?? false,
     selfTitle: element?.title ?? "",
     descendantTitleCount: descendantTitles.length,
@@ -680,7 +685,9 @@ function createRuntimeApi() {
       return focusSnapshot();
     },
     focusRowProgrammatically: (fixtureId: string) => {
-      rowElementForFixture(fixtureId)?.focus();
+      rowElementForFixture(fixtureId)
+        ?.querySelector<HTMLButtonElement>("button.preview-sidebar__item-button")
+        ?.focus();
       return focusSnapshot();
     },
     focusSnapshot,

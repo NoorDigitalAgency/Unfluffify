@@ -111,7 +111,7 @@ Expected output includes:
 - `managed Chromium`
 - `page loaded`
 - `live test browser ready`
-- popup URL with `debugTabId`
+- closed helper URL with `debugTabId`
 - actual side-panel URL
 - control commands banner
 

@@ -169,4 +169,28 @@ describe("page context runtime", () => {
     await expect(runtime.resolve({ ...request, refresh: true })).resolves.toMatchObject({ siteId: 2 });
     expect(requests).toBe(2);
   });
+
+  it("coalesces scheduled authority samples across popup consumers for 15 seconds", async () => {
+    let requests = 0;
+    let currentTime = 1_000;
+    const runtime = createPageContextRuntime({
+      currentEnvironmentKey: async () => "stage.example.com",
+      hasToken: async () => true,
+      resolve: async () => managed(++requests, "/canonical-page"),
+      now: () => currentTime,
+    });
+    const request = { tabId: 9, pageUrl: "https://observed.example/page" };
+
+    await expect(runtime.resolve(request)).resolves.toMatchObject({ siteId: 1 });
+    currentTime += 1_500;
+    await expect(runtime.resolve({ ...request, backstop: true })).resolves.toMatchObject({ siteId: 1 });
+    expect(requests).toBe(1);
+
+    currentTime += 15_000;
+    await expect(runtime.resolve({ ...request, backstop: true })).resolves.toMatchObject({ siteId: 2 });
+    expect(requests).toBe(2);
+
+    await expect(runtime.resolve({ ...request, refresh: true })).resolves.toMatchObject({ siteId: 3 });
+    expect(requests).toBe(3);
+  });
 });

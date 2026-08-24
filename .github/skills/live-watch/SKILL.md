@@ -73,8 +73,8 @@ Run it `mode="async"`, keep the shellId (e.g. `browser-live`). It rebuilds
 `.output/chrome-mv3`, opens the page, resolves the extension id at runtime, and
 opens the popup bound to the page tab. Wait for the
 "live test browser ready" banner and record the printed extension id, page tabId,
-bound popup URL, and actual side-panel URL. Confirm binding with the launcher
-control command `state`.
+closed helper URL, and actual side-panel URL. Confirm binding with the launcher
+control command `state`; the helper must no longer appear in its open-page list.
 
 ## Step 5 — Attach the full-console / JS-stack observer
 
@@ -98,10 +98,10 @@ Render Inspection is the one deliberate observer exception: Chrome permits only
 one debugger owner for the website tab, and the extension itself must own that
 slot. Immediately before clicking With/Without JavaScript, send `stop-observe`,
 stop this raw-CDP observer, and close one-shot CDP clients. Drive the controls
-through the real `popup.html` side-panel target, not the `?debugTabId=` tab. Do
-not attach to the website target until the inspection is set or cancelled; then
-restart the observer and launcher observation. Record the pause/restart boundary
-in the live evidence so the coverage gap is explicit.
+through the real `popup.html` side-panel target; the `?debugTabId=` helper has
+already closed. Do not attach to the website target until the inspection is set
+or cancelled; then restart the observer and launcher observation. Record the
+pause/restart boundary in the live evidence so the coverage gap is explicit.
 
 For fresh popup view-state on demand, prefer a CDP one-shot over reading the huge
 launcher stdout buffer:
@@ -111,8 +111,16 @@ node --input-type=module -e '
 import { chromium } from "playwright";
 const b = await chromium.connectOverCDP("http://127.0.0.1:9222");
 const ctx = b.contexts()[0];
-const popup = ctx.pages().find((p) => p.url().includes("/popup.html"));
-console.log(JSON.stringify(await popup.evaluate(() => window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState()), null, 2));
+const popup = ctx.pages().find((p) => /\/popup\.html$/.test(p.url()));
+console.log(JSON.stringify(await popup.evaluate(() => ({
+  view: document.querySelector("[data-view]")?.getAttribute("data-view") || "",
+  controls: [...document.querySelectorAll("button,input")].map((node) => ({
+    id: node.id,
+    disabled: Boolean(node.disabled),
+    checked: "checked" in node ? node.checked : null,
+  })),
+  debug: window.__UNFLUFFIFY_POPUP_DEBUG__?.getViewState?.() || null,
+})), null, 2));
 await b.close();
 '
 ```
@@ -121,7 +129,7 @@ Close only the CDP client (`b.close()`); never kill the launcher from a one-shot
 
 ## Step 6 — Signal ready
 
-Once the dev server, live browser (bound popup), and observer are all confirmed
+Once the dev server, live browser (real side panel), and observer are all confirmed
 healthy, tell the user you are observing everything and they can start using the
 system. Keep the three shells running.
 

@@ -278,11 +278,19 @@ function makeRuntime(
     lockDirective?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
     pageContextStatus?: "managed_candidate" | "managed_non_candidate";
     delegatePageContextToHandler?: boolean;
+    deferReconciliationFactAvailability?: boolean;
+    deferFactAvailabilityReasons?: readonly string[];
   }> = {},
 ) {
   const factBrain = createRewriteBrain(77);
   const factSignals: Array<ReturnType<typeof factBrain.observe>[number]> = [];
   let deliveredSignalSeq = 0;
+  let availabilitySeq = 0;
+  const runtimeListeners = new Set<(
+    message: unknown,
+    sender: unknown,
+    sendResponse: (value: unknown) => void,
+  ) => unknown>();
 
   const b2SignalNames = new Set([
     "run.started",
@@ -325,9 +333,39 @@ function makeRuntime(
       const frame = message as BusFrame;
       if (frame.name === "fact.reported") {
         const sensation = (frame.payload as { sensation?: BrainSensation }).sensation;
-        if (sensation) {
+        const observe = (): void => {
+          if (!sensation) {
+            return;
+          }
           factSignals.push(...factBrain.observe(sensation).filter((signal) => b2SignalNames.has(signal.name)));
+        };
+        if (
+          (options.deferReconciliationFactAvailability &&
+            sensation?.reason.startsWith("save-reconciliation-")) ||
+          (sensation !== undefined && options.deferFactAvailabilityReasons?.includes(sensation.reason))
+        ) {
+          const handled = await handler(frame);
+          setTimeout(() => {
+            observe();
+            availabilitySeq += 1;
+            const event: BusFrame = {
+              kind: "uf-bus/1",
+              frameType: "event",
+              id: `signals-available-${availabilitySeq}`,
+              seq: availabilitySeq,
+              name: "signals.available",
+              source: "background",
+              sourceInstance: "background:test",
+              target: "popup",
+              payload: { tabId: 77 },
+            };
+            for (const listener of runtimeListeners) {
+              listener(event, {}, () => undefined);
+            }
+          }, 5);
+          return handled;
         }
+        observe();
         return await handler(frame);
       }
       if (frame.name === "signals.pull") {
@@ -437,8 +475,8 @@ function makeRuntime(
       return await handler(frame);
     }),
     onMessage: {
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
+      addListener: vi.fn((listener) => runtimeListeners.add(listener)),
+      removeListener: vi.fn((listener) => runtimeListeners.delete(listener)),
     },
   };
 }
@@ -504,12 +542,15 @@ describe("rewrite popup entrypoint", () => {
     // This is a final, user-triggered refusal. It appears in Activity and as one
     // concise transient occurrence.
     props().onCandidateNavigate("//invalid-cross-origin-page-key");
-    await waitFor(() => props().toast?.message === "Candidate navigation blocked", "navigation refusal toast");
+    await waitFor(
+      () => props().toast?.message === "Candidate navigation blocked: invalid relative page key",
+      "navigation refusal toast",
+    );
     const occurrence = props().toast;
     expect(occurrence).toMatchObject({
       id: expect.any(Number),
       tone: "warning",
-      message: "Candidate navigation blocked",
+      message: "Candidate navigation blocked: invalid relative page key",
     });
     expect(props().diagnostics.log[0]).toMatchObject({ label: "Candidate navigation blocked", tone: "warn" });
 
@@ -707,6 +748,148 @@ describe("rewrite popup entrypoint", () => {
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("enterSilentContentMain", {
       pageUrl: "https://example.com",
     }));
+  });
+
+  it("serializes desktop-silent to marking-mobile to desktop-silent transitions", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
+    let signalSeq = 0;
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "signals.emit") {
+        const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
+        signalSeq += 1;
+        return replyFrame(message, [{
+          kind: "uf-signal/1", tabId: request.tabId, seq: signalSeq, name: request.signal?.name,
+          source: "brain", cause: "test", at: signalSeq, payload: request.signal?.payload ?? {},
+        }]);
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+    const emulationModes = () => runtime.sendMessage.mock.calls
+      .map(([frame]) => frame as { name?: string; payload?: { mode?: string } })
+      .filter((frame) => frame.name === "emulation.apply")
+      .map((frame) => frame.payload?.mode);
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    confirmRenderMode(render);
+    await waitFor(() => emulationModes().length > 0, "initial emulation posture");
+    props().onDesktopPreviewChange(true);
+    await waitFor(() => emulationModes().at(-1) === "desktop", "desktop silent posture");
+
+    props().onEnableChange(true);
+    await waitFor(
+      () => tabsSendMessage.mock.calls.some(([, frame]) =>
+        ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "activateContentMain"),
+      "marking activation",
+    );
+    expect(emulationModes().at(-1)).toBe("mobile");
+    const viewportRefreshesAfterMobile = tabsSendMessage.mock.calls.filter(([, frame]) =>
+      ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "refreshInteractionShieldViewport");
+    expect(viewportRefreshesAfterMobile.length).toBeGreaterThan(0);
+
+    props().onEnableChange(false);
+    await waitFor(() => emulationModes().at(-1) === "desktop", "restored desktop silent posture");
+    expect(emulationModes().slice(-3)).toEqual(["desktop", "mobile", "desktop"]);
+
+    const enterSilentCall = tabsSendMessage.mock.calls.findIndex(([, frame]) =>
+      ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "enterSilentContentMain");
+    const finalDesktopCall = runtime.sendMessage.mock.calls.findLastIndex(([frame]) =>
+      frame.name === "emulation.apply" && frame.payload.mode === "desktop");
+    expect(enterSilentCall).toBeGreaterThanOrEqual(0);
+    expect(finalDesktopCall).toBeGreaterThanOrEqual(0);
+    expect(tabsSendMessage.mock.invocationCallOrder[enterSilentCall]!)
+      .toBeLessThan(runtime.sendMessage.mock.invocationCallOrder[finalDesktopCall]!);
+    const finalViewportRefresh = tabsSendMessage.mock.calls.findLastIndex(([, frame]) =>
+      ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "refreshInteractionShieldViewport");
+    expect(finalViewportRefresh).toBeGreaterThanOrEqual(0);
+    expect(runtime.sendMessage.mock.invocationCallOrder[finalDesktopCall]!)
+      .toBeLessThan(tabsSendMessage.mock.invocationCallOrder[finalViewportRefresh]!);
+  });
+
+  it("keeps authority refresh single-flight and no more frequent than every 15 seconds", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    let now = 1_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    let lockCalls = 0;
+    let firstLockFrame: BusFrame | null = null;
+    let resolveFirstLock: ((frame: BusFrame) => void) | null = null;
+    const firstLock = new Promise<BusFrame>((resolve) => { resolveFirstLock = resolve; });
+    const lockPayload = {
+      status: "ok",
+      baseUrl: "https://example.com",
+      siteId: 1,
+      lockRole: "editor",
+      configPresent: true,
+      canEdit: true,
+      blockedReason: "editor",
+      authority: {
+        environmentKey: "example.com",
+        editorSessionId: "editor-1",
+        lockToken: "lock-1",
+        propertyRevision: 4,
+        feedRevision: 2,
+      },
+      lockBanner: { visible: false, reason: "editor" },
+    };
+    const runtime = makeRuntime(async (message) => replyFrame(message, []), "rendered", {
+      lockDirective: async (frame) => {
+        lockCalls += 1;
+        if (lockCalls === 1) {
+          firstLockFrame = frame;
+          return await firstLock;
+        }
+        return replyFrame(frame, lockPayload);
+      },
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" })) },
+    } as unknown as typeof chrome;
+
+    try {
+      await import("../../../src/entrypoints/popup/main.tsx");
+      await waitFor(() => render.mock.calls.at(-1)?.[0].props.diagnostics.settingsLoaded, "stored settings");
+      const poll = globalThis.window.setInterval.mock.calls[0]?.[0] as () => void;
+      poll();
+      await waitFor(() => lockCalls === 1, "first authority request");
+
+      now += 15_000;
+      poll();
+      poll();
+      poll();
+      await flushEntrypointWork();
+      expect(lockCalls).toBe(1);
+
+      resolveFirstLock?.(replyFrame(firstLockFrame!, lockPayload));
+      await waitFor(() => lockCalls === 2, "one coalesced trailing authority request");
+      await flushEntrypointWork();
+      expect(runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "config.load")).toHaveLength(1);
+
+      poll();
+      await flushEntrypointWork();
+      expect(lockCalls).toBe(2);
+      now += 14_999;
+      poll();
+      await flushEntrypointWork();
+      expect(lockCalls).toBe(2);
+      now += 1;
+      poll();
+      await waitFor(() => lockCalls === 3, "next scheduled authority request");
+      expect(runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "config.load")).toHaveLength(1);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it("does not adopt a render mode until the operator confirms it", async () => {
@@ -1085,7 +1268,9 @@ describe("rewrite popup entrypoint", () => {
       updatedAt: current.updatedAt + 1,
       terminalReason: "unexpected-navigation",
     });
-    poll?.();
+    // Inspection is slow-lane authority and therefore does not re-fetch on a
+    // second 500 ms backstop tick. Explicit Refresh is its immediate retry.
+    render.mock.calls.at(-1)?.[0].props.onRefresh();
     await waitFor(
       () => render.mock.calls.at(-1)?.[0].props.diagnostics.renderModeDetail !== "",
       "same-generation navigation invalidation",
@@ -1329,6 +1514,50 @@ describe("rewrite popup entrypoint", () => {
     }
   });
 
+  it("exits render mode when current authority belongs to the prior document", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const pageUrl = "https://example.com/off-candidate";
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: pageUrl }]);
+    const runtime = makeRuntime(
+      async (message) => replyFrame(message, []),
+      "rendered",
+      {
+        renderInspectionCurrent: (message) => replyFrame(message, {
+          status: "active",
+          session: renderInspectionSession({
+            pageUrl: "https://example.com/prior-candidate",
+            phase: "awaiting_document",
+          }),
+        }),
+      },
+    );
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, active: false }));
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    confirmRenderMode(render);
+    await waitFor(() => props().view === "silent", "the established session view");
+    expect(props().diagnostics.renderMode).toBe("rendered");
+    props().onOpenRenderMode();
+    expect(props().view).toBe("render-mode");
+
+    props().onRenderModeCancel();
+    await waitFor(() => props().view === "silent", "render-mode cancellation");
+
+    expect(props().diagnostics).toMatchObject({
+      renderModeBusy: false,
+      renderModeView: "unknown",
+    });
+    expect(runtime.sendMessage.mock.calls.some(([frame]) =>
+      frame.name === "renderInspection.start")).toBe(false);
+  });
+
   it.each(["timeout", "content-failed"] as const)(
     "keeps render-mode open when authoritative terminal %s cannot restore JavaScript",
     async (terminalReason) => {
@@ -1508,6 +1737,10 @@ describe("rewrite popup entrypoint", () => {
 
     await import("../../../src/entrypoints/popup/main.tsx");
     await waitFor(() => render.mock.calls.length > 0, "popup render while current is pending");
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "renderInspection.current"),
+      "older current inspection request",
+    );
     render.mock.calls.at(-1)?.[0].props.onInspectRenderMode(false);
     await waitFor(
       () => render.mock.calls.at(-1)?.[0].props.diagnostics.renderModeView === "without_javascript",
@@ -1691,6 +1924,11 @@ describe("rewrite popup entrypoint", () => {
         return replyFrame(message, pending);
       }
       return replyFrame(message, []);
+    }, "rendered", {
+      // The production background can acknowledge the event transport before
+      // the brain has published its signal. Discard must remain fenced until
+      // the resulting session.discarded projection is actually consumable.
+      deferFactAvailabilityReasons: ["session-discarded"],
     });
     globalThis.chrome = {
       runtime: {
@@ -1713,7 +1951,10 @@ describe("rewrite popup entrypoint", () => {
       blockedReason: "",
     });
     render.mock.calls.at(-1)?.[0].props.onDiscard();
-    await flushEntrypointWork();
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled === true,
+      "delayed discard acknowledgement",
+    );
     expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(true);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(false);
     await flushEntrypointWork();
@@ -1743,6 +1984,7 @@ describe("rewrite popup entrypoint", () => {
     expect(runtimeFrames.filter((frame) => frame.name === "signals.emit").map((frame) => frame.payload?.signal?.name))
       .not.toEqual(expect.arrayContaining(["marking.enabled", "marking.disabled"]));
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("resetContentMain", {
+      baseUrl: "https://example.com",
       pageUrl: "https://example.com",
     }));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
@@ -2012,6 +2254,152 @@ describe("rewrite popup entrypoint", () => {
         selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
       }),
     }));
+  });
+
+  it("saves one first configuration from a cached not-found baseline and adopts authority", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const snapshot = {
+      baseUrl: "https://example.com",
+      renderMode: "rendered" as const,
+      defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"] as const,
+      pages: [{
+        url: "https://example.com/page",
+        renderedHtml: "<html><body><main>first configuration</main></body></html>",
+        renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
+      }],
+    };
+    const tabsSendMessage = makeTabsSendMessage((_tabId, message) => {
+      if (message.type === "captureSubmissionSnapshot") {
+        return { ok: true, snapshot, rows: [{ xpath: "/html[1]/body[1]/main[1]", classification: "included" }] };
+      }
+      return { ok: true, initialized: true, tree: "rewrite" };
+    });
+    let signalSeq = 0;
+    const saveRequests: BusFrame[] = [];
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "page.context") {
+        return replyFrame(message, {
+          status: "managed_candidate",
+          generation: 1,
+          observedUrl: "https://example.com/page",
+          draftDisposition: "preserve",
+          environmentKey: "example.com",
+          siteId: 1,
+          baseUrl: "https://example.com",
+          pageKey: "/page",
+          pageTypes: [{
+            pageType: "detail",
+            pages: [{ pageKey: "/page", wordsCount: 100 }],
+          }],
+          membershipFingerprint: "membership",
+          assignmentFingerprint: "assignment",
+          conflicts: [],
+          upstreamCode: null,
+          renderModeSet: true,
+          todo: {
+            covered: 0,
+            actionable: 1,
+            pageTypes: [{
+              pageType: "detail",
+              markedCount: 0,
+              current: true,
+              candidates: [{ pageKey: "/page", wordsCount: 100, marked: false, current: true }],
+            }],
+          },
+        });
+      }
+      if (message.name === "signals.emit") {
+        const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
+        signalSeq += 1;
+        return replyFrame(message, [{
+          kind: "uf-signal/1", tabId: request.tabId, seq: signalSeq, name: request.signal?.name,
+          source: "brain", cause: "test", at: signalSeq, payload: request.signal?.payload ?? {},
+        }]);
+      }
+      if (message.name === "ai.run") {
+        return replyFrame(message, {
+          status: "ok",
+          sessionId: "first-config-ai",
+          selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+        });
+      }
+      if (message.name === "transferPayload.put") {
+        const value = String((message.payload as { value?: unknown }).value ?? "");
+        return replyFrame(message, {
+          handle: {
+            id: "first-config-rendered",
+            scope: "ai-refinement-rendered",
+            sha256: "a".repeat(64),
+            byteLength: new TextEncoder().encode(value).byteLength,
+          },
+        });
+      }
+      if (message.name === "transferPayload.release") {
+        return replyFrame(message, { released: 1 });
+      }
+      if (message.name === "config.save") {
+        saveRequests.push(message);
+        return replyFrame(message, { status: "ok", config: backendConfig() });
+      }
+      return replyFrame(message, []);
+    }, "rendered", {
+      delegatePageContextToHandler: true,
+      deferReconciliationFactAvailability: true,
+      configLoad: (frame) => replyFrame(frame, {
+        status: "not_found",
+        renderMode: "rendered",
+        renderModeSource: "local",
+      }),
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    const poll = globalThis.window.setInterval.mock.calls[0]?.[0] as () => void;
+    poll();
+    await waitFor(() => props().diagnostics.configStatus === "not_found", "first-config baseline");
+    expect(props().diagnostics).toMatchObject({
+      renderMode: "rendered",
+      renderModeSource: "local",
+    });
+
+    poll();
+    poll();
+    poll();
+    await flushEntrypointWork();
+    expect(runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "config.load")).toHaveLength(1);
+
+    props().onEnableChange(true);
+    await waitFor(() => props().diagnostics.contentActive === true, "first-config marking activation");
+    props().onRunAi();
+    await waitFor(() => props().presentation.saveDisabled === false, "fresh first-config AI result");
+    props().onSave();
+    props().onSave();
+    await waitFor(() => saveRequests.length === 1, "single first-config save request");
+    await waitFor(() => props().diagnostics.configStatus === "ok", "authoritative first-config adoption");
+
+    expect(saveRequests).toHaveLength(1);
+    expect(saveRequests[0]).toMatchObject({
+      name: "config.save",
+      payload: {
+        environmentKey: "example.com",
+        siteId: 1,
+        page: expect.objectContaining({ pageKey: "/page", pageType: "detail" }),
+        selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+      },
+    });
+    expect(runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "config.load")).toHaveLength(1);
+    expect(props().diagnostics).toMatchObject({
+      configStatus: "ok",
+      renderMode: "rendered",
+      renderModeSource: "backend",
+    });
   });
 
   it("surfaces a background-completed AI run when the side panel opens again", async () => {
@@ -2320,6 +2708,10 @@ describe("rewrite popup entrypoint", () => {
     expect(runtime.sendMessage).not.toHaveBeenCalledWith(expect.objectContaining({ name: "config.save" }));
     expect(render.mock.calls.at(-1)?.[0].props.presentation.saveDisabled).toBe(true);
     expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(false);
+    expect(render.mock.calls.at(-1)?.[0].props.toast).toMatchObject({
+      tone: "warning",
+      message: expect.stringContaining("Save blocked:"),
+    });
   });
 
   it("does not let session.saved skip an intervening dirty signal", async () => {
@@ -2835,18 +3227,18 @@ describe("rewrite popup entrypoint", () => {
     }));
     expect(render.mock.calls.at(-1)?.[0].props.presentation.enableToggleChecked).toBe(false);
 
-    // The open preview is re-projected on the normal popup poll. Let revision 2
-    // lag while revision 3 observes a DOM mutation: the later response wins, and
-    // the delayed older XPath must never replace it.
+    // The open preview is re-projected on the normal popup poll. A second tick
+    // while revision 2 is pending coalesces into exactly one trailing request;
+    // after revision 2 settles, that trailing request observes the DOM mutation.
     raceProjectionRequests = true;
     pollCurrentTab?.();
     await waitFor(() => resolveDelayedRevision !== null, "the delayed revision-one projection request");
     pollCurrentTab?.();
+    resolveDelayedRevision?.(projection(2, "Stale article", "/html[1]/body[1]/main[1]", projectionOccurrenceId));
     await waitFor(
       () => render.mock.calls.at(-1)?.[0].props.presentation.previewProjection?.revision === 3,
       "the mutation-driven revision-three projection",
     );
-    resolveDelayedRevision?.(projection(2, "Stale article", "/html[1]/body[1]/main[1]", projectionOccurrenceId));
     await flushEntrypointWork();
     expect(render.mock.calls.at(-1)?.[0].props.presentation.previewProjection).toMatchObject({
       projectionId: "silent-projection-a",
@@ -3892,6 +4284,17 @@ describe("rewrite popup entrypoint", () => {
 
     tab = { id: 77, url: "https://example.com/b" };
     poll();
+    await flushEntrypointWork();
+    // Authority refreshes are single-flight. The B binding queues one trailing
+    // pass while the initial A load is pending; A's response is fenced because
+    // its binding occurrence is no longer current.
+    expect(requests).toHaveLength(1);
+    requests[0].resolve(replyFrame(requests[0].frame, {
+      status: "ok",
+      config: { ...backendConfig(), renderMode: "rendered" },
+      renderMode: "rendered",
+      renderModeSource: "backend",
+    }));
     await waitFor(() => requests.length === 2, "B config candidate");
     requests[1].resolve(replyFrame(requests[1].frame, {
       status: "ok",
@@ -3911,14 +4314,6 @@ describe("rewrite popup entrypoint", () => {
       renderModeSource: "backend",
     }));
     await waitFor(() => props().diagnostics.renderMode === "rendered", "replacement A adoption");
-
-    requests[0].resolve(replyFrame(requests[0].frame, {
-      status: "ok",
-      config: { ...backendConfig(), renderMode: "static" },
-      renderMode: "static",
-      renderModeSource: "backend",
-    }));
-    await flushEntrypointWork();
 
     expect(props().diagnostics).toMatchObject({
       pageUrl: "https://example.com/a",

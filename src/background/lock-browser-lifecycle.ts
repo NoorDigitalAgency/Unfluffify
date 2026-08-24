@@ -7,6 +7,32 @@ export type MainDocumentCommit = Readonly<{
   pageUrl: string | null;
 }>;
 
+function normalizedPageUrl(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+function isNoopSameDocumentNavigation(
+  previous: MainDocumentCommit | undefined,
+  next: MainDocumentCommit,
+): boolean {
+  return Boolean(
+    previous?.documentId &&
+    next.documentId &&
+    previous.documentId === next.documentId &&
+    normalizedPageUrl(previous.pageUrl) !== null &&
+    normalizedPageUrl(previous.pageUrl) === normalizedPageUrl(next.pageUrl),
+  );
+}
+
 type BrowserEvent<TListener> = Readonly<{
   addListener(listener: TListener): void;
 }>;
@@ -104,6 +130,7 @@ export function createLockBrowserLifecycle(input: Readonly<{
   const tabWindowById = new Map<number, number>();
   const activeTabByWindow = new Map<number, number>();
   const lastPresenceByTab = new Map<number, string>();
+  const lastMainDocumentByTab = new Map<number, MainDocumentCommit>();
   let focusedWindowId: number | null = null;
   let browserIdle = true;
   let started = false;
@@ -180,6 +207,7 @@ export function createLockBrowserLifecycle(input: Readonly<{
         const windowId = tabWindowById.get(tabId);
         tabWindowById.delete(tabId);
         lastPresenceByTab.delete(tabId);
+        lastMainDocumentByTab.delete(tabId);
         if (windowId !== undefined && activeTabByWindow.get(windowId) === tabId) {
           activeTabByWindow.delete(windowId);
         }
@@ -231,6 +259,7 @@ export function createLockBrowserLifecycle(input: Readonly<{
             documentId: typeof documentId === "string" && documentId ? documentId : null,
             pageUrl: typeof url === "string" && url ? url : null,
           };
+          lastMainDocumentByTab.set(tabId, commit);
           input.onMainDocumentCommitted?.(tabId, commit.documentId, commit.pageUrl);
           terminate(tabId, "navigation", commit);
         }
@@ -251,6 +280,10 @@ export function createLockBrowserLifecycle(input: Readonly<{
             documentId: typeof documentId === "string" && documentId ? documentId : null,
             pageUrl: typeof url === "string" && url ? url : null,
           };
+          if (isNoopSameDocumentNavigation(lastMainDocumentByTab.get(tabId), commit)) {
+            return;
+          }
+          lastMainDocumentByTab.set(tabId, commit);
           input.onMainDocumentHistoryChanged?.(tabId, commit.documentId, commit.pageUrl);
           terminate(tabId, "navigation", commit);
         }

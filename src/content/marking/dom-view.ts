@@ -322,10 +322,11 @@ function hasStyleHiddenAncestor(element: Element, pass: DomBridgePass): boolean 
 }
 
 function isExtensionUi(element: Element): boolean {
-  return element.hasAttribute("data-wxt-shadow-root") ||
+  return element.hasAttribute(CONSENT_HIDDEN_ATTR) ||
+    element.hasAttribute("data-wxt-shadow-root") ||
     element.getAttribute("data-uf-extension-ui") === "true" ||
-  element.tagName.toLowerCase() === "browser-mcp-container" ||
-  element.id === "browser-mcp-container" ||
+    element.tagName.toLowerCase() === "browser-mcp-container" ||
+    element.id === "browser-mcp-container" ||
     element.id === LEGACY_CONSENT_BYPASS_STYLE_ID ||
     element.id.startsWith("unfluffify-");
 }

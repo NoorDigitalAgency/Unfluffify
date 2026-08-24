@@ -577,8 +577,8 @@ describe("P6 content marking engine", () => {
       baseUrl: "https://example.com",
       renderMode: "static",
       pageUrl: "https://example.com/page",
-      renderedHtml: '<main data-uf-motion-paused="true"><p>Rendered</p></main>',
-      rawHtml: '<main><div id="unfluffify-consent-bypass-style">Helper</div><p>Static</p></main>',
+      renderedHtml: '<main data-uf-motion-paused="true"><aside data-uf-consent-hidden="true">Hidden rendered modal</aside><p>Rendered</p></main>',
+      rawHtml: '<main><div id="unfluffify-consent-bypass-style">Helper</div><aside data-uf-consent-hidden="true">Hidden static modal</aside><p>Static</p></main>',
       evaluation,
     });
     expect(snapshot.pages[0]?.renderedHtml).toBe("<main><p>Rendered</p></main>");

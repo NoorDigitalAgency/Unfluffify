@@ -85,14 +85,17 @@ That single command runs the entire proven flow (`scripts/launch-test-browser.mj
    against the deterministic path-hash id (changes per environment — never
    hardcode it).
 9. Resolves the target page's Chrome tab id via the service worker.
-10. Opens a SECOND tab `chrome-extension://<id>/popup.html?debugTabId=<pageTabId>`
-   so the extension binds to the target page (`<pageTabId>` is the page's tab,
-   never the popup's own tab), then opens the real Chrome side panel so
-   popup-authorized commands use the same sender identity as production.
+10. Opens a temporary helper tab
+   `chrome-extension://<id>/popup.html?debugTabId=<pageTabId>` so the extension
+   can request the real Chrome side panel for the target page (`<pageTabId>` is
+   the page's tab, never the helper's). Once the exact production side-panel
+   target exists, the launcher closes the helper so only one popup client polls
+   configuration, lock, and signal authority.
 
-On success it prints the target URL, extension id, page tabId, and bound popup
-URL. It also starts a launcher-owned control channel on the same process
-stdin/stdout. To close the browser, stop the launcher (Ctrl-C or `kill <pid>`).
+On success it prints the target URL, extension id, page tabId, the now-closed
+helper URL, and the live side-panel URL. It also starts a launcher-owned control
+channel on the same process stdin/stdout. To close the browser, stop the launcher
+(Ctrl-C or `kill <pid>`).
 
 ### 3. Control and observe through the launcher
 
@@ -112,11 +115,11 @@ the ready banner appears, the launcher prints:
 If your host environment supports writing to the running shell session, use the
 launcher's stdin control channel with the same `shellId`:
 
-- `state` captures the bound popup's
-  `window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState()` button fields,
-  the live DOM state for `#compute`, `#marking-preview`, `#page-save`,
-  `#page-revert`, and `#toggle-enabled`, a target-page summary, and open page
-  URLs.
+- `state` captures production-safe active-view, control, input, and disabled
+  state from the real side-panel DOM, plus a target-page summary and open page
+  URLs. Debug builds additionally merge selected
+  `window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState()` fields; production does not
+  require or expose that hook.
 - `exit-preview` captures before/after state around a launcher click on
   `.preview-sidebar__dismiss` (Exit Preview), waiting 1.5 seconds for restore.
 - `observe` enables continuous button-state polling and logs `[observe:buttons]`
@@ -146,17 +149,19 @@ await browser.close();
 '
 ```
 
-Through that CDP connection you can evaluate popup state with
-`window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState()`, click popup controls,
-observe the target page, and capture screenshots/logs. Close only the CDP client with
+Through that CDP connection you can inspect the real side-panel DOM, click popup
+controls, observe the target page, and capture screenshots/logs. In debug builds
+you may also evaluate `window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState()`; never
+make production observation depend on it. Close only the CDP client with
 `browser.close()`; stop the launcher only when the live browser should close.
 
 Chrome permits only one debugger owner per website tab. Before exercising
 Render Inspection, send `stop-observe`, stop any `pnpm browser:observe` process,
 and close all one-shot CDP clients. Drive the Render mode controls through the
-real `popup.html` side-panel target, not the `?debugTabId=` tab. Keep CDP clients
-off the website target until the inspection is set or cancelled and the
-extension releases `chrome.debugger`; then restart observation.
+real `popup.html` side-panel target. The `?debugTabId=` helper has already
+closed. Keep CDP clients off the website target until the inspection is set or
+cancelled and the extension releases `chrome.debugger`; then restart
+observation.
 
 ### 4. Reload after every rebuild
 
@@ -201,9 +206,9 @@ Playwright page session: either one reintroduces the Render Inspection conflict.
   `pnpm browser:live https://bonliva.se` in the background. It runs `pnpm build`,
   writes `.temp/browser-mcp.config.json`, launches the
   pinned MCP package's managed Chromium with `.wxt/browser-profile`, opens the
-  page in the first tab, resolves the extension id and page tabId, and opens a
-  second tab `chrome-extension://<id>/popup.html?debugTabId=<pageTabId>` bound to
-  the page plus the actual side panel.
+  page in the first tab, resolves the extension id and page tabId, uses a
+  temporary `popup.html?debugTabId=<pageTabId>` helper to open the actual side
+  panel, and closes the helper after the panel is ready.
 - Wrong: launch without a user-instructed target page, run the OS Chrome binary
   / `open -a 'Google Chrome'`, set `executablePath` to the OS browser, drive or
   quit the OS Chrome with `osascript`, hardcode a stale extension id instead of

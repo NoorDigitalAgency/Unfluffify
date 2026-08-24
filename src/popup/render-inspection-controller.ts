@@ -110,7 +110,7 @@ export function createPopupRenderInspectionController(
     session: RenderInspectionSession,
     property: RenderInspectionPropertyScope | null = null,
     authoritativeCurrent = false,
-  ): "active" | "terminal" | "ignored" => {
+  ): "active" | "terminal" | "inactive" | "ignored" => {
     if (!ports.isCurrent(owner)) {
       return "ignored";
     }
@@ -118,6 +118,10 @@ export function createPopupRenderInspectionController(
     if (!renderInspectionMatchesBinding(session, binding)) {
       if (authoritativeCurrent) {
         publish(projectInactiveRenderInspection());
+        // The authority answered for this tab and this popup owner, but its
+        // session belongs to an earlier document/property occurrence. For the
+        // current binding that is definitively inactive, not a stale read.
+        return "inactive";
       }
       return "ignored";
     }

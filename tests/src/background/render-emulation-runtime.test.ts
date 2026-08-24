@@ -71,7 +71,7 @@ function fakeDebugger() {
 
 /** Waits for the fire-and-forget re-assertion the detach listener starts. */
 async function flush(): Promise<void> {
-  for (let index = 0; index < 20; index += 1) {
+  for (let index = 0; index < 50; index += 1) {
     await Promise.resolve();
   }
 }
@@ -197,18 +197,20 @@ describe("render emulation runtime", () => {
 
     expect(debuggerApi.sent.map((call) => call.method)).toEqual([
       "Emulation.setDeviceMetricsOverride",
+      "Emulation.setPageScaleFactor",
       "Emulation.setTouchEmulationEnabled",
       "Emulation.setEmulatedMedia",
       "Emulation.setUserAgentOverride",
     ]);
-    expect(debuggerApi.sent[1]?.params).toEqual({ enabled: true, maxTouchPoints: 1 });
-    expect(debuggerApi.sent[2]?.params).toMatchObject({
+    expect(debuggerApi.sent[1]?.params).toEqual({ pageScaleFactor: 1 });
+    expect(debuggerApi.sent[2]?.params).toEqual({ enabled: true, maxTouchPoints: 1 });
+    expect(debuggerApi.sent[3]?.params).toMatchObject({
       features: expect.arrayContaining([
         { name: "pointer", value: "coarse" },
         { name: "hover", value: "none" },
       ]),
     });
-    expect(debuggerApi.sent[3]?.params).toMatchObject({
+    expect(debuggerApi.sent[4]?.params).toMatchObject({
       userAgent: expect.stringContaining("Googlebot/2.1"),
       userAgentMetadata: expect.objectContaining({ mobile: true, model: "Nexus 5X" }),
     });

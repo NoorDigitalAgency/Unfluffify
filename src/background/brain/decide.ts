@@ -1,11 +1,24 @@
 import type { BrainSignal, BrainSignalName } from "../../domain/schema/signals";
-import type { TabFacts } from "../../domain/schema/facts";
+import type { LockBannerVocabulary, TabFacts } from "../../domain/schema/facts";
 
 export type SignalDecision = Readonly<{
   name: BrainSignalName;
   cause: string;
   payload: BrainSignal["payload"];
 }>;
+
+/** The countdown is a continuously changing presentation value, not a new lock
+ * decision. Every other banner field can change what the operator sees or can
+ * do, so it remains part of the signal edge identity. */
+function semanticLockBanner(
+  banner: LockBannerVocabulary | undefined,
+): Omit<LockBannerVocabulary, "countdownSeconds"> | null {
+  if (!banner) {
+    return null;
+  }
+  const { countdownSeconds: _countdownSeconds, ...semantic } = banner;
+  return semantic;
+}
 
 export function decideSignals(prev: TabFacts | null, next: TabFacts): readonly SignalDecision[] {
   const decisions: SignalDecision[] = [];
@@ -115,7 +128,8 @@ export function decideSignals(prev: TabFacts | null, next: TabFacts): readonly S
   }
   const lockPresentationChanged =
     prev?.lockBlockedReason !== next.lockBlockedReason ||
-    JSON.stringify(prev?.lockBanner) !== JSON.stringify(next.lockBanner);
+    JSON.stringify(semanticLockBanner(prev?.lockBanner)) !==
+      JSON.stringify(semanticLockBanner(next.lockBanner));
   if (next.lockCanEdit === false && (prev?.lockCanEdit !== false || lockPresentationChanged)) {
     decisions.push({
       name: "lock.blocked",

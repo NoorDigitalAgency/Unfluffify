@@ -61,6 +61,7 @@ describe("popup Todo controller", () => {
       tabId: 77,
       pageUrl: "https://example.com/page",
       refresh: false,
+      backstop: false,
     });
     expect(controller.snapshot().status).toBe("unresolved");
 
@@ -99,7 +100,10 @@ describe("popup Todo controller", () => {
       pageUrl: "https://example.com/page",
     });
     expect(due.status).toBe("candidate");
-    expect(loadContext).toHaveBeenCalledWith(expect.objectContaining({ refresh: true }));
+    expect(loadContext).toHaveBeenCalledWith(expect.objectContaining({
+      refresh: false,
+      backstop: true,
+    }));
   });
 
   it("samples suspended authority without forcing another Hub refresh", async () => {

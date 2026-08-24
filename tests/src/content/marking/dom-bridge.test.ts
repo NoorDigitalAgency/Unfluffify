@@ -4,7 +4,6 @@ import {
   CONSENT_BYPASS_STYLE_ID,
   CONSENT_HIDDEN_ATTR,
   LEGACY_CONSENT_BYPASS_STYLE_ID,
-  CONSENT_STYLE_STATE_ATTR,
 } from "../../../../src/content/consent";
 import {
   createDomBridgeView,
@@ -2070,32 +2069,36 @@ describe("P6 DOM bridge", () => {
     ]);
   });
 
-  it("serializes the live composed DOM without consent helper styles or artifacts", () => {
+  it("omits live consent-suppressed subtrees from rows and capture without mutating the page", () => {
     const doc = new FakeDocument();
-    const root = new FakeElement("SECTION", rect(0, 0, 300, 300), "Consent copy");
-    root.ownerDocument = doc;
-    root.setAttribute("class", "cookie-modal");
-    root.setAttribute("style", "color: red; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; border: 0");
-    root.setAttribute(CONSENT_HIDDEN_ATTR, "true");
-    root.setAttribute(CONSENT_STYLE_STATE_ATTR, encodeURIComponent(JSON.stringify([
-      ["opacity", "0.65", "important"],
-      ["visibility", "collapse", ""],
-      ["pointer-events", "", ""],
-    ])));
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const suppressed = new FakeElement("P", rect(0, 0, 200, 40), "Hidden modal copy");
+    const content = new FakeElement("P", rect(0, 50, 200, 40), "Page content");
+    for (const element of [root, suppressed, content]) {
+      element.ownerDocument = doc;
+    }
+    suppressed.setAttribute("class", "cookie-modal");
+    suppressed.setAttribute("style", "opacity: 0 !important; visibility: hidden !important; pointer-events: none !important");
+    suppressed.setAttribute(CONSENT_HIDDEN_ATTR, "true");
+    root.appendChild(suppressed);
+    root.appendChild(content);
 
-    const before = new Map(root.attributes);
+    const before = new Map(suppressed.attributes);
+    const view = createDomBridgeView(root as unknown as Element);
     const captured = captureFlattenedHtml(root as unknown as Element);
-    const submission = createMarkingEngine(root as unknown as Element).buildSubmission({
+    const engine = createMarkingEngine(root as unknown as Element);
+    const submission = engine.buildSubmission({
       baseUrl: "https://example.com",
       renderMode: "rendered",
       pageUrl: "https://example.com/page",
     });
 
-    expect(captured).toBe(
-      '<section class="cookie-modal" style="color: red; border: 0; opacity: 0.65 !important; visibility: collapse">Consent copy</section>',
-    );
+    expect(view.byElement.has(suppressed as unknown as Element)).toBe(false);
+    expect(view.byElement.get(content as unknown as Element)?.evaluationNode.xpath).toBe("/main[1]/p[1]");
+    expect(engine.rows().some((row) => row.xpath === "/main[1]/p[2]")).toBe(false);
+    expect(captured).toBe("<main><p>Page content</p></main>");
     expect(submission.pages[0]?.renderedHtml).toBe(captured);
-    expect(root.attributes).toEqual(before);
+    expect(suppressed.attributes).toEqual(before);
   });
 
   it("omits current and live-update legacy consent bypass styles from every capture path", () => {
@@ -2117,21 +2120,16 @@ describe("P6 DOM bridge", () => {
     }
   });
 
-  it("sanitizes legacy consent helper declarations without corrupting adjacent CSS", () => {
+  it("removes legacy consent-hidden subtrees without touching adjacent content", () => {
     expect(stripUncapturableHtml(
-      '<div data-uf-consent-hidden="true" style="color: red; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; border: 0">Copy</div>',
-    )).toBe('<div style="color: red; border: 0">Copy</div>');
+      '<main><div data-uf-consent-hidden="true" style="color: red"><p>Modal copy</p></div><p style="color: blue">Page copy</p></main>',
+    )).toBe('<main><p style="color: blue">Page copy</p></main>');
   });
 
-  it("uses consent provenance when sanitizing an HTML string", () => {
-    const state = encodeURIComponent(JSON.stringify([
-      ["opacity", "0.4", ""],
-      ["visibility", "", ""],
-      ["pointer-events", "auto", "important"],
-    ]));
+  it("removes consent-hidden subtrees regardless of helper attribute quoting", () => {
     expect(stripUncapturableHtml(
-      `<div ${CONSENT_HIDDEN_ATTR}="true" ${CONSENT_STYLE_STATE_ATTR}="${state}" style="color: blue; opacity: 0 !important; visibility: hidden !important; pointer-events: none !important">Copy</div>`,
-    )).toBe('<div style="color: blue; opacity: 0.4; pointer-events: auto !important">Copy</div>');
+      `<main><section ${CONSENT_HIDDEN_ATTR}='true'><div>Country modal</div></section><p>Content</p></main>`,
+    )).toBe("<main><p>Content</p></main>");
   });
 
   it("submits a row for direct open-shadow text captured on the host", () => {

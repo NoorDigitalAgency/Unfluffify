@@ -47,6 +47,7 @@ export type TodoControllerPorts = Readonly<{
     tabId: number;
     pageUrl: string;
     refresh: boolean;
+    backstop: boolean;
   }>): Promise<TodoLoadResult>;
   now?: () => number;
 }>;
@@ -101,7 +102,8 @@ export function createTodoController(ports: TodoControllerPorts): TodoController
           // The background owns suspension recovery while the panel is closed.
           // During either suspension, the popup samples that generation-safe
           // cached projection instead of forcing another Hub request.
-          refresh: input.force === true || (due && shouldAskHub(current.status)),
+          refresh: input.force === true,
+          backstop: input.force !== true && due && shouldAskHub(current.status),
         });
       } catch {
         response = { ok: false };

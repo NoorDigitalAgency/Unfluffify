@@ -30,9 +30,9 @@
  *      extension reload unloads the extension outright in the current managed
  *      Chromium).
  *   9. Resolves the target page's Chrome tab id via the service worker.
- *  10. Opens a SECOND tab `popup.html?debugTabId=<pageTabId>` so the extension
- *      binds to the target page, then opens the real side panel for trusted
- *      popup-only commands such as render inspection.
+ *  10. Uses a temporary `popup.html?debugTabId=<pageTabId>` helper to open the
+ *      real side panel for trusted popup-only commands such as render
+ *      inspection, then closes the helper so only one popup client remains.
  *
  * The browser stays open until this process is stopped (Ctrl-C / kill <pid>).
  */
@@ -326,6 +326,32 @@ async function waitForCdpTarget(url, timeoutMs = 15_000) {
   throw new Error(`CDP popup target did not appear: ${url}; targets=${JSON.stringify(lastUrls)}`);
 }
 
+async function waitForCdpTargetClosed(targetId, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const targets = await listCdpTargets();
+    if (!targets.some((targetInfo) => String(targetInfo?.id ?? "") === targetId)) {
+      return;
+    }
+    await delay(100);
+  }
+  throw new Error(`CDP helper target did not close: ${targetId}`);
+}
+
+async function closeCdpTarget(targetInfo) {
+  const targetId = String(targetInfo?.id ?? "");
+  if (!targetId) {
+    throw new Error("CDP helper target has no id");
+  }
+  const endpoint = `http://127.0.0.1:${CDP_PORT}/json/close/${encodeURIComponent(targetId)}`;
+  const response = await fetch(endpoint, { method: "PUT" });
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(`CDP could not close the helper popup (${response.status}): ${body.slice(0, 500)}`);
+  }
+  await waitForCdpTargetClosed(targetId);
+}
+
 async function bringCdpPageToFront(url) {
   const normalizedUrl = String(url).replace(/#.*$/, "");
   const targets = await listCdpTargets();
@@ -358,6 +384,12 @@ async function openActualSidePanel(boundUrl, tabId) {
     throw new Error(`Could not open the actual extension side panel: ${description}`);
   }
   const sidePanelUrl = boundUrl.replace(/\?.*$/, "");
+  await waitForCdpTarget(sidePanelUrl);
+  // The debugTabId page exists only to issue chrome.sidePanel.open with a user
+  // gesture. Leaving it alive creates a second popup client, which duplicates
+  // property loads, lock refreshes, and signal polling. Close that exact target
+  // only after the production side-panel target is present.
+  await closeCdpTarget(popupTarget);
   await waitForCdpTarget(sidePanelUrl);
   return sidePanelUrl;
 }
@@ -481,7 +513,7 @@ async function bindPopupWithCdp(pageUrl) {
       const numericTabs = tabs.filter((tab) => Number.isFinite(tab.id));
       return {
         // Chrome can omit Tab.url when the persisted profile has host access set
-        // to "on click". Before the bound popup exists there is exactly one
+        // to "on click". Before the temporary helper exists there is exactly one
         // browser tab, so that one-tab identity is still authoritative.
         tabId: fallback && Number.isFinite(fallback.id)
           ? fallback.id
@@ -529,29 +561,15 @@ function buildPopupActionExpression(action, options = {}) {
   const sleep = (ms) => new Promise((resolvePromise) => setTimeout(resolvePromise, ms));
 
   async function collectPopupState() {
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      if (window.__UNFLUFFIFY_POPUP_DEBUG__ && typeof window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState === 'function') break;
-      await sleep(250);
-    }
     const popupDebug = window.__UNFLUFFIFY_POPUP_DEBUG__;
-    if (!popupDebug || typeof popupDebug.getViewState !== 'function') {
-      return { error: 'Popup debug hook is unavailable', url: location.href, title: document.title };
-    }
-    const view = popupDebug.getViewState();
-    const viewKeys = [
-      'previewActive', 'previewBlocked', 'previewItemsPending', 'previewWillRestoreMarking',
-      'toggleEnabled', 'toggleEnabledDisabled', 'computeButtonDisabled',
-      'markingPreviewVisible', 'markingPreviewDisabled',
-      'pageSaveDisabled', 'pageRevertDisabled',
-      'sessionHasPendingChanges', 'currentPageHasPendingChanges',
-      'sessionRequiresAiRun', 'currentDraftDirty',
-      'pageDraftStatusText', 'aiDirtyNoticeText',
-      'isBusy', 'busyMessage',
-      'previewBlockedReason', 'currentBaseUrl'
+    const debugHookAvailable = Boolean(popupDebug && typeof popupDebug.getViewState === 'function');
+    const view = debugHookAvailable ? popupDebug.getViewState() : {};
+    const activeView = document.querySelector('[data-view]')?.getAttribute('data-view') || '';
+    const domIds = [
+      'compute', 'marking-preview', 'page-save', 'page-revert', 'toggle-enabled',
+      'desktop-preview-enabled', 'preview-latest', 'save-excludes',
+      'render-mode-with-js', 'render-mode-without-js', 'render-mode-cancel',
     ];
-    const pickedView = {};
-    for (const key of viewKeys) pickedView[key] = view[key];
-    const domIds = ['compute', 'marking-preview', 'page-save', 'page-revert', 'toggle-enabled'];
     const dom = {};
     for (const id of domIds) {
       const element = document.getElementById(id);
@@ -566,6 +584,32 @@ function buildPopupActionExpression(action, options = {}) {
         }
         : null;
     }
+    const viewKeys = [
+      'previewActive', 'previewBlocked', 'previewItemsPending', 'previewWillRestoreMarking',
+      'toggleEnabled', 'toggleEnabledDisabled', 'computeButtonDisabled',
+      'markingPreviewVisible', 'markingPreviewDisabled',
+      'pageSaveDisabled', 'pageRevertDisabled',
+      'sessionHasPendingChanges', 'currentPageHasPendingChanges',
+      'sessionRequiresAiRun', 'currentDraftDirty',
+      'pageDraftStatusText', 'aiDirtyNoticeText',
+      'isBusy', 'busyMessage',
+      'previewBlockedReason', 'currentBaseUrl'
+    ];
+    const pickedView = {
+      activeView,
+      toggleEnabled: dom['toggle-enabled']?.checked,
+      toggleEnabledDisabled: dom['toggle-enabled']?.disabled,
+      computeButtonDisabled: dom.compute?.disabled,
+      markingPreviewVisible: dom['marking-preview']?.visible,
+      markingPreviewDisabled: dom['marking-preview']?.disabled,
+      pageSaveDisabled: dom['page-save']?.disabled,
+      pageRevertDisabled: dom['page-revert']?.disabled,
+      isBusy: Boolean(document.querySelector('[aria-busy="true"]')),
+      currentBaseUrl: String(document.getElementById('property-url-readout')?.textContent || '').trim(),
+    };
+    for (const key of viewKeys) {
+      if (Object.prototype.hasOwnProperty.call(view, key)) pickedView[key] = view[key];
+    }
     const inputs = Array.from(document.querySelectorAll('input[type=text], input[type=url], input[type=password], textarea'));
     const inputState = inputs.map((input) => ({
       id: input.id || input.name || '?',
@@ -573,7 +617,7 @@ function buildPopupActionExpression(action, options = {}) {
       placeholder: input.placeholder || '',
       visible: Boolean(input.offsetWidth || input.offsetHeight),
     }));
-    return { url: location.href, title: document.title, view: pickedView, dom, inputs: inputState };
+    return { url: location.href, title: document.title, debugHookAvailable, activeView, view: pickedView, dom, inputs: inputState };
   }
 
   if (action === 'click' && clickSelector) {
@@ -632,17 +676,14 @@ async function runCdpStateAction(action, timeoutMs, options = {}) {
   const pages = targets.filter((targetInfo) => targetInfo?.type === "page");
   const actualSidePanel = pages.find((targetInfo) =>
     /^chrome-extension:\/\/[^/]+\/popup\.html$/.test(String(targetInfo?.url ?? "")));
-  const boundPopup = pages.find((targetInfo) =>
-    String(targetInfo?.url ?? "").startsWith("chrome-extension://")
-      && String(targetInfo?.url ?? "").includes("/popup.html?debugTabId="));
-  const popup = actualSidePanel ?? boundPopup;
+  const popup = actualSidePanel;
   const targetPage = pages.find((targetInfo) => {
     const url = String(targetInfo?.url ?? "");
     return !url.startsWith("chrome-extension://") && !url.startsWith("chrome://");
   });
   const pageUrls = pages.map((targetInfo) => String(targetInfo?.url ?? ""));
   if (!popup) {
-    return { error: "Could not find the bound Unfluffify popup tab", pages: pageUrls };
+    return { error: "Could not find the actual Unfluffify side panel", pages: pageUrls };
   }
 
   const result = asJson(await evaluateCdpTarget(
@@ -1064,7 +1105,7 @@ try {
   const { extId, tabId, boundUrl } = bindInfo;
 
   if (extId && tabId && boundUrl) {
-    console.log("[launch] opening bound popup through the managed browser CDP endpoint…");
+    console.log("[launch] opening temporary side-panel helper through the managed browser CDP endpoint…");
     await openCdpTab(boundUrl);
     await waitForCdpTarget(boundUrl);
     // The property lock tracks the bound website tab, not the debug popup. A new
@@ -1078,7 +1119,7 @@ try {
     console.log(`  target page : ${finalUrl}`);
     console.log(`  extension id: ${extId}${extId === predictedId ? " (matches path hash)" : " (WARNING: differs from path hash)"}`);
     console.log(`  page tabId  : ${tabId}`);
-    console.log(`  popup (tab2): ${boundUrl}`);
+    console.log(`  helper popup: ${boundUrl} (closed after side-panel open)`);
     console.log(`  side panel  : ${sidePanelUrl}`);
     // The banner is evidence of what is actually running, so it must not claim more
     // than the launch can guarantee. A reused profile can still serve a worker from

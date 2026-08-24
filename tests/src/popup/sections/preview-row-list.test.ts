@@ -45,6 +45,8 @@ describe("focused Preview row section", () => {
     }));
     expect(production).toContain("Readable &lt;safe&gt; content");
     expect(production).toContain("Included");
+    expect(production).toContain('<button type="button" class="preview-sidebar__item-button"');
+    expect(production).toContain('aria-label="1. Readable &lt;safe&gt; content. Included"');
     expect(production).not.toContain(PROJECTION.rows[0].xpath);
     expect(production).not.toContain("title=");
     expect(production).not.toContain("data-preview-row-debug");

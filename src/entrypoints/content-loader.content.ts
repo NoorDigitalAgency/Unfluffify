@@ -37,7 +37,13 @@ import {
   type ContentPresentation,
   type ContentState,
 } from "../content/organ";
-import { createFreezeController, createRevealVisitController, createSpaGuard, runReveal } from "../content/stabilization";
+import {
+  createFreezeController,
+  createRevealVisitController,
+  createSpaGuard,
+  runReveal,
+  waitForWindowScrollEnd,
+} from "../content/stabilization";
 import type { BrainSignal } from "../domain/schema/signals";
 import type { LockActionKind } from "../domain/schema/facts";
 import type { CommandEnvelope } from "../messaging/contracts";
@@ -84,6 +90,10 @@ let markingActive = false;
  *  would read as an edit, and a toggle that removes rows would not. One toggle is
  *  one change, which is the only definition that holds on a dynamic page. */
 let userToggleCount = 0;
+/** Brain-facing event cursor. AI cleanup resets userToggleCount because the
+ * current decisions are no longer dirty, but it must not reset this sequence:
+ * the next operator edit still has to advance past the last observed fact. */
+let markingToggleSeq = 0;
 let markingInteractionsPaused = false;
 let spacePassthroughActive = false;
 /** Key repeat refreshes this while Space is physically held. If a platform or
@@ -405,11 +415,37 @@ function ensureRenderInspectionCurtain(): RenderInspectionCurtainController | nu
   renderInspectionCurtain = createRenderInspectionCurtain({
     document,
     window,
+    schedulePaintFallback(session, callback) {
+      let cancelled = false;
+      void getContentBus().request("renderInspection.paintFallbackTick", {
+        token: session.token,
+        generation: session.generation,
+        pageUrl: session.pageUrl,
+        documentNonce: session.documentNonce,
+      }, { target: "background" }).then((response) => {
+        if (!cancelled && response.ok && response.data.status === "ready") {
+          callback();
+        }
+      }).catch(() => undefined);
+      return () => {
+        cancelled = true;
+      };
+    },
     onPaintReady(session) {
       void acknowledgeRenderInspectionPaint(session);
     },
     onFailure(session, reason) {
       void reportRenderInspectionFailure(session, reason);
+    },
+    onLifecycleStage(session, stage) {
+      if (__UF_DEBUG_BUILD__) {
+        console.debug("[Unfluffify][render-inspection] Curtain lifecycle", {
+          stage,
+          generation: session.generation,
+          documentId: session.documentId,
+          javascriptEnabled: session.javascriptEnabled,
+        });
+      }
     },
     onSurfaceChanged() {
       // The durable inspection is its own background-authorized lease and can
@@ -849,53 +885,6 @@ function currentDocumentScrollHeight(): number {
   );
 }
 
-function waitForWindowScrollEnd(targetY: number, isStale: () => boolean): Promise<void> {
-  if (typeof window === "undefined") {
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => {
-    const startedAt = Date.now();
-    let reachedAt = Math.abs(window.scrollY - targetY) <= 2 ? startedAt : 0;
-    let rafHandle = 0;
-    let timerHandle: ReturnType<typeof setTimeout> | null = null;
-    let settled = false;
-    const finish = (): void => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      if (rafHandle && typeof window.cancelAnimationFrame === "function") {
-        window.cancelAnimationFrame(rafHandle);
-      }
-      if (timerHandle !== null) {
-        clearTimeout(timerHandle);
-      }
-      resolve();
-    };
-    const sample = (): void => {
-      if (isStale() || Date.now() - startedAt >= 8_000) {
-        finish();
-        return;
-      }
-      if (Math.abs(window.scrollY - targetY) <= 2) {
-        reachedAt ||= Date.now();
-        if (Date.now() - reachedAt >= 220) {
-          finish();
-          return;
-        }
-      } else {
-        reachedAt = 0;
-      }
-      if (typeof window.requestAnimationFrame === "function") {
-        rafHandle = window.requestAnimationFrame(sample);
-      } else {
-        timerHandle = setTimeout(sample, 16);
-      }
-    };
-    sample();
-  });
-}
-
 async function runActivationStabilization(pageUrl: string): Promise<{ skipped: boolean } | null> {
   try {
     return await revealController.runTask(async () => {
@@ -1081,7 +1070,7 @@ function markModeForClick(event: MouseEvent): "passthrough" | "include" | "exclu
  *  are fetched from getContentMainStatus when the popup wants them, rather than
  *  riding a signal. */
 function reportMarkingToggle(): void {
-  void reportContentFact("marking-toggle", { markingToggleSeq: userToggleCount })
+  void reportContentFact("marking-toggle", { markingToggleSeq })
     .catch((error: unknown) => {
       console.error("[Unfluffify][rewrite] Unable to report a marking toggle", error);
     });
@@ -2394,6 +2383,7 @@ function ensureMarkingListeners(): void {
       return;
     }
     userToggleCount += 1;
+    markingToggleSeq += 1;
     reportMarkingToggle();
   };
   const scheduleHover = (): void => {
@@ -2994,6 +2984,7 @@ function contentStatus(): Record<string, unknown> {
     dirty: isUserMarkingDirty(),
     pageUrl: currentPageUrl(),
     markedCount: userToggleCount,
+    markingToggleSeq,
     contentRows: contentRowsFromEngine(),
     sessionState: contentState,
     authority: contentAuthority,
@@ -3051,6 +3042,21 @@ function createContentRouter() {
         return activateContentMain(payload);
       },
       getContentMainStatus: () => contentStatus(),
+      refreshInteractionShieldViewport: () => {
+        // DevTools device metrics do not consistently dispatch a viewport event
+        // into an already-running isolated world. Emulation therefore asks the
+        // content owner for one explicit, synchronous remeasurement after CDP
+        // confirms the new target posture.
+        interactionShield?.refresh();
+        const viewport = window.visualViewport;
+        return {
+          ok: true,
+          active: interactionShield?.isActive() ?? false,
+          width: viewport?.width ?? window.innerWidth ?? document.documentElement?.clientWidth ?? 0,
+          height: viewport?.height ?? window.innerHeight ?? document.documentElement?.clientHeight ?? 0,
+          tree: "rewrite",
+        };
+      },
       pauseContentMainInteractions: () => ({ ok: pauseMarkingInteractions(), active: markingActive, dirty: isUserMarkingDirty(), tree: "rewrite" }),
       resumeContentMainInteractions: () => contentAuthority.lockBlocked || contentPresentation.markingEditsBlocked
         ? { ok: false, active: markingActive, dirty: isUserMarkingDirty(), tree: "rewrite", reason: "session-blocked" }

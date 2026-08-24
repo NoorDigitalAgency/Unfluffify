@@ -51,6 +51,8 @@ function previewTextElementExcluded(element: Element, root: Element): boolean {
     return true;
   }
   if (element !== root && (
+    element.hasAttribute("data-uf-consent-hidden") ||
+    Boolean(element.closest?.("[data-uf-consent-hidden]")) ||
     element.hasAttribute("data-wxt-shadow-root") ||
     element.getAttribute("data-uf-extension-ui") === "true" ||
     element.tagName.toLowerCase() === "browser-mcp-container" ||

@@ -95,7 +95,7 @@ export const REQUIRED_CHECK_IDS = Object.freeze([
   "post-mutation-id-command-ignores-stale-xpath",
   "stale-projection-rejected",
   "active-hover-mutation-rebinds-and-clears",
-  "preview-rows-not-keyboard-focusable",
+  "preview-rows-keyboard-operable",
   "no-browser-errors",
 ]);
 

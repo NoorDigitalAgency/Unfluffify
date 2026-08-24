@@ -16,6 +16,7 @@ type TabContext = {
   environmentKey: string | null | undefined;
   credentialPresent?: boolean;
   latest?: PageContextResolution;
+  latestAt?: number;
   inFlight?: Readonly<{
     generation: number;
     promise: Promise<PageContextResolution>;
@@ -110,8 +111,11 @@ export function createPageContextRuntime(input: Readonly<{
   currentEnvironmentKey: () => Promise<string | null>;
   hasToken: () => Promise<boolean>;
   resolve: Resolver;
+  now?: () => number;
 }>) {
   const tabs = new Map<number, TabContext>();
+  const now = input.now ?? Date.now;
+  const authorityBackstopMs = 15_000;
 
   const stale = (generation: number, observedUrl: string): PageContextResolution => ({
     status: "stale",
@@ -211,7 +215,12 @@ export function createPageContextRuntime(input: Readonly<{
   };
 
   return {
-    async resolve(request: Readonly<{ tabId: number; pageUrl: string; refresh?: boolean }>): Promise<PageContextResolution> {
+    async resolve(request: Readonly<{
+      tabId: number;
+      pageUrl: string;
+      refresh?: boolean;
+      backstop?: boolean;
+    }>): Promise<PageContextResolution> {
       let tab = tabs.get(request.tabId);
       if (!tab) {
         tab = { generation: 1, observedUrl: request.pageUrl, environmentKey: undefined };
@@ -223,6 +232,7 @@ export function createPageContextRuntime(input: Readonly<{
         tab.credentialPresent = undefined;
         tab.inFlight = undefined;
         tab.latest = undefined;
+        tab.latestAt = undefined;
         tab.suspendedCandidate = undefined;
       }
       let generation = tab.generation;
@@ -235,6 +245,7 @@ export function createPageContextRuntime(input: Readonly<{
         tab.generation += 1;
         tab.inFlight = undefined;
         tab.latest = undefined;
+        tab.latestAt = undefined;
         tab.suspendedCandidate = undefined;
       }
       tab.environmentKey = environmentKey;
@@ -247,11 +258,15 @@ export function createPageContextRuntime(input: Readonly<{
         tab.generation += 1;
         tab.inFlight = undefined;
         tab.latest = undefined;
+        tab.latestAt = undefined;
         tab.suspendedCandidate = undefined;
       }
       tab.credentialPresent = credentialPresent;
       generation = tab.generation;
-      if (!request.refresh && tab.latest) {
+      const freshBackstop = request.backstop === true &&
+        tab.latestAt !== undefined &&
+        now() - tab.latestAt < authorityBackstopMs;
+      if (tab.latest && ((!request.refresh && !request.backstop) || freshBackstop)) {
         return tab.latest;
       }
       if (tab.inFlight?.generation === generation) {
@@ -303,6 +318,7 @@ export function createPageContextRuntime(input: Readonly<{
           projected.status === "unmanaged"
         ) {
           currentTab.latest = projected;
+          currentTab.latestAt = now();
         }
         return projected;
       })();

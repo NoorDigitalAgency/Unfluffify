@@ -54,26 +54,33 @@ export function PreviewRowList({
             ].join("\n")
           : undefined;
         const tone = display.classification === "included" ? "keep" : "remove";
+        const classificationLabel = PREVIEW_CLASSIFICATION_LABEL[display.classification] ?? "Excluded";
+        const accessibleName = `${index + 1}. ${display.text}. ${classificationLabel}`;
         return (
           <li
             key={display.id}
             className={`preview-sidebar__item preview-sidebar__item--${tone} ${hoveredRowId === display.id ? "preview-sidebar__item--active" : ""}`}
-            title={debugTitle}
             {...(debugEnabled ? {
               "data-preview-row-debug": "true",
               "data-preview-row-id": display.id,
             } : {})}
-            onPointerEnter={() => onRowHover?.(display.id, true)}
-            onPointerLeave={() => onRowHover?.(display.id, false)}
-            onClick={() => onRowActivate?.(display.id)}
           >
-            {/* D16: correspondence remains pointer-only, not a focus stop. */}
-            <div className="preview-sidebar__item-button">
+            <button
+              type="button"
+              className="preview-sidebar__item-button"
+              aria-label={accessibleName}
+              title={debugTitle}
+              onPointerEnter={() => onRowHover?.(display.id, true)}
+              onPointerLeave={() => onRowHover?.(display.id, false)}
+              onFocus={() => onRowHover?.(display.id, true)}
+              onBlur={() => onRowHover?.(display.id, false)}
+              onClick={() => onRowActivate?.(display.id)}
+            >
               <span className="preview-sidebar__item-index" aria-hidden="true">{index + 1}.</span>
               <span className="preview-sidebar__item-text">
                 <span className="preview-sidebar__item-copy">{display.text}</span>
                 <span className={`preview-sidebar__item-public-classification ${PREVIEW_CLASSIFICATION_TONE[display.classification] ?? "u-color-muted"}`}>
-                  {PREVIEW_CLASSIFICATION_LABEL[display.classification]}
+                  {classificationLabel}
                 </span>
                 {detail ? (
                   <span className="preview-sidebar__item-debug" data-preview-row-debug-detail="true">
@@ -84,7 +91,7 @@ export function PreviewRowList({
                   </span>
                 ) : null}
               </span>
-            </div>
+            </button>
           </li>
         );
       })}

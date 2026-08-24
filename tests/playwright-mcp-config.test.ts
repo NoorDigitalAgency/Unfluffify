@@ -46,6 +46,11 @@ test("live browser launcher targets the WXT output and canonical pnpm command", 
   assert.match(launcher, /arg !== "--remote-debugging-pipe"/);
   assert.match(launcher, /"--disable-field-trial-config"/);
   assert.match(launcher, /await openActualSidePanel\(boundUrl, tabId\)/);
+  assert.match(launcher, /await closeCdpTarget\(popupTarget\)/);
+  assert.match(launcher, /async function waitForCdpTargetClosed\(targetId/);
+  assert.match(launcher, /\/json\/close\/\$\{encodeURIComponent\(targetId\)\}/);
+  assert.doesNotMatch(launcher, /const boundPopup = pages\.find/);
+  assert.match(launcher, /Could not find the actual Unfluffify side panel/);
   assert.match(launcher, /const XVFB_WRAP_ENV = "UNFLUFFIFY_BROWSER_LIVE_XVFB_WRAPPED";/);
   assert.match(launcher, /const XVFB_RUN_ARGS = \["-a", "--server-args=-screen 0 1280x900x24"\];/);
   assert.match(launcher, /spawn\(\s*"xvfb-run"/);
@@ -56,6 +61,9 @@ test("live browser launcher targets the WXT output and canonical pnpm command", 
   assert.match(launcher, /"Runtime\.evaluate"/);
   assert.match(launcher, /awaitPromise: true, returnByValue: true/);
   assert.match(launcher, /buildPopupActionExpression\(action, options\)/);
+  assert.match(launcher, /const debugHookAvailable = Boolean\(/);
+  assert.match(launcher, /document\.querySelector\('\[data-view\]'\)/);
+  assert.doesNotMatch(launcher, /Popup debug hook is unavailable/);
   assert.doesNotMatch(launcher, /browser\.close\(\)/);
   assert.match(launcher, /runStateAction\("state", CONTROL_OBSERVE_TIMEOUT_MS\)/);
   assert.match(launcher, /async function restoreStampedManifest\(\)/);

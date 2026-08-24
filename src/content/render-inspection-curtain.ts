@@ -19,15 +19,38 @@ export type AdoptedRenderInspectionSession = RenderInspectionSession & Readonly<
   documentNonce: string;
 }>;
 
+export type RenderInspectionCurtainStage =
+  | "adopted"
+  | "mounted"
+  | "frame-one"
+  | "frame-two"
+  | "fallback"
+  | "acknowledged"
+  | "rejected";
+
 type MutationObserverLike = Pick<MutationObserver, "disconnect" | "observe">;
 
 export type RenderInspectionCurtainOptions = Readonly<{
   document: Document;
   window?: Window;
   createMutationObserver?: (callback: MutationCallback) => MutationObserverLike;
+  /** The page realm can starve both requestAnimationFrame and timers while
+   * Chrome is inspecting a JavaScript-disabled document. A caller may source
+   * the one-second wake-up and guarded acknowledgement from an extension-owned
+   * debugger realm. A legacy `ready` result may still invoke this callback so
+   * the local guard remains independently testable. */
+  schedulePaintFallback?: (
+    session: AdoptedRenderInspectionSession,
+    callback: VoidFunction,
+    delayMs: number,
+  ) => VoidFunction;
   onPaintReady: (session: AdoptedRenderInspectionSession) => void;
   onFailure?: (session: AdoptedRenderInspectionSession, reason: string) => void;
   onSurfaceChanged?: () => void;
+  onLifecycleStage?: (
+    session: AdoptedRenderInspectionSession,
+    stage: RenderInspectionCurtainStage,
+  ) => void;
   now?: () => number;
 }>;
 
@@ -43,6 +66,7 @@ export type RenderInspectionCurtainController = Readonly<{
 
 const CURTAIN_COPY = "Inspecting page... it will be ready soon";
 const MAXIMUM_DOCUMENT_Z_INDEX = "2147483647";
+const PAINT_STARVATION_FALLBACK_MS = 1_000;
 
 function sameIdentity(
   session: AdoptedRenderInspectionSession | null,
@@ -98,6 +122,8 @@ export function createRenderInspectionCurtain(
   let paintScheduledFor = "";
   let failureReportedFor = "";
   let deadlineHandle: number | null = null;
+  let cancelPaintFallback: VoidFunction | null = null;
+  const reportedLifecycleStages = new Set<string>();
   let terminated = false;
 
   const identityKey = (candidate: AdoptedRenderInspectionSession): string =>
@@ -117,6 +143,22 @@ export function createRenderInspectionCurtain(
     return true;
   };
 
+  const reportLifecycleStage = (
+    candidate: AdoptedRenderInspectionSession,
+    stage: RenderInspectionCurtainStage,
+  ): void => {
+    const key = `${identityKey(candidate)}\u0000${stage}`;
+    if (!sameIdentity(session, candidate) || reportedLifecycleStages.has(key)) {
+      return;
+    }
+    reportedLifecycleStages.add(key);
+    try {
+      options.onLifecycleStage?.(candidate, stage);
+    } catch {
+      // Debug lifecycle reporting must never influence inspection authority.
+    }
+  };
+
   const clearDeadline = (): void => {
     if (deadlineHandle === null) {
       return;
@@ -129,12 +171,22 @@ export function createRenderInspectionCurtain(
     deadlineHandle = null;
   };
 
+  const clearPaintFallback = (): void => {
+    if (cancelPaintFallback === null) {
+      return;
+    }
+    const cancel = cancelPaintFallback;
+    cancelPaintFallback = null;
+    cancel();
+  };
+
   const reportFailure = (candidate: AdoptedRenderInspectionSession, reason: string): void => {
     const key = identityKey(candidate);
     if (!sameIdentity(session, candidate) || failureReportedFor === key) {
       return;
     }
     failureReportedFor = key;
+    reportLifecycleStage(candidate, "rejected");
     try {
       options.onFailure?.(candidate, reason);
     } catch {
@@ -286,8 +338,25 @@ export function createRenderInspectionCurtain(
     const epoch = ++paintEpoch;
     const stillCurrent = (): boolean =>
       !terminated && epoch === paintEpoch && sameIdentity(session, candidate) && curtain?.isConnected === true;
+    const finish = (stage: "frame-two" | "fallback"): void => {
+      if (!stillCurrent()) {
+        return;
+      }
+      reportLifecycleStage(candidate, stage);
+      clearPaintFallback();
+      paintEpoch += 1;
+      reportLifecycleStage(candidate, "acknowledged");
+      try {
+        options.onPaintReady(candidate);
+      } catch {
+        paintScheduledFor = "";
+        reportFailure(candidate, "paint-acknowledgement-callback-failed");
+      }
+    };
     const retryIfStillOwned = (): void => {
       if (!terminated && epoch === paintEpoch && sameIdentity(session, candidate)) {
+        clearPaintFallback();
+        paintEpoch += 1;
         paintScheduledFor = "";
         scheduleSync();
       }
@@ -296,9 +365,69 @@ export function createRenderInspectionCurtain(
       if (!sameIdentity(session, candidate)) {
         return;
       }
+      clearPaintFallback();
+      paintEpoch += 1;
       paintScheduledFor = "";
       reportFailure(candidate, reason);
     };
+    const curtainHasVisibleViewportCoverage = (): boolean => {
+      if (
+        !view ||
+        document.visibilityState !== "visible" ||
+        !curtain ||
+        !curtain.isConnected ||
+        curtain.parentElement !== document.documentElement ||
+        document.documentElement?.lastElementChild !== curtain
+      ) {
+        return false;
+      }
+      const style = view.getComputedStyle(curtain);
+      const opacity = Number.parseFloat(style.opacity || "1");
+      const rect = curtain.getBoundingClientRect();
+      return style.position === "fixed" &&
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        style.pointerEvents !== "none" &&
+        style.zIndex === MAXIMUM_DOCUMENT_Z_INDEX &&
+        Number.isFinite(opacity) && opacity > 0 &&
+        rect.left <= 0 && rect.top <= 0 &&
+        rect.right >= view.innerWidth && rect.bottom >= view.innerHeight;
+    };
+    const onPaintStarvation = (): void => {
+      cancelPaintFallback = null;
+      if (!stillCurrent()) {
+        return;
+      }
+      reportLifecycleStage(candidate, "fallback");
+      if (document.visibilityState !== "visible") {
+        paintEpoch += 1;
+        paintScheduledFor = "";
+        return;
+      }
+      if (curtainHasVisibleViewportCoverage()) {
+        finish("fallback");
+        return;
+      }
+      retryIfStillOwned();
+    };
+    if (options.schedulePaintFallback) {
+      cancelPaintFallback = options.schedulePaintFallback(
+        candidate,
+        onPaintStarvation,
+        PAINT_STARVATION_FALLBACK_MS,
+      );
+    } else {
+      const handle = view
+        ? view.setTimeout(onPaintStarvation, PAINT_STARVATION_FALLBACK_MS)
+        : setTimeout(onPaintStarvation, PAINT_STARVATION_FALLBACK_MS) as unknown as number;
+      cancelPaintFallback = () => {
+        if (view) {
+          view.clearTimeout(handle);
+        } else {
+          clearTimeout(handle);
+        }
+      };
+    }
     try {
       if (!requestFrame(() => {
         if (!stillCurrent()) {
@@ -311,14 +440,11 @@ export function createRenderInspectionCurtain(
               retryIfStillOwned();
               return;
             }
-            try {
-              options.onPaintReady(candidate);
-            } catch {
-              failed("paint-acknowledgement-callback-failed");
-            }
+            finish("frame-two");
           })) {
             failed("request-animation-frame-unavailable");
           }
+          reportLifecycleStage(candidate, "frame-one");
         } catch {
           failed("request-animation-frame-failed");
         }
@@ -348,6 +474,7 @@ export function createRenderInspectionCurtain(
         options.onSurfaceChanged?.();
       }
       observe();
+      reportLifecycleStage(session, "mounted");
       schedulePaintAcknowledgement();
       return true;
     } catch {
@@ -371,6 +498,7 @@ export function createRenderInspectionCurtain(
   const removeRootReadyListeners = (): void => {
     document.removeEventListener("DOMContentLoaded", scheduleSync);
     document.removeEventListener("readystatechange", scheduleSync);
+    document.removeEventListener("visibilitychange", scheduleSync);
   };
 
   const clearLocal = (): void => {
@@ -379,6 +507,8 @@ export function createRenderInspectionCurtain(
     failureReportedFor = "";
     syncScheduled = false;
     clearDeadline();
+    clearPaintFallback();
+    reportedLifecycleStages.clear();
     observer?.disconnect();
     observer = null;
     removeRootReadyListeners();
@@ -405,8 +535,10 @@ export function createRenderInspectionCurtain(
     if (!same) {
       clearLocal();
       session = adopted;
+      reportLifecycleStage(adopted, "adopted");
       document.addEventListener("DOMContentLoaded", scheduleSync);
       document.addEventListener("readystatechange", scheduleSync);
+      document.addEventListener("visibilitychange", scheduleSync);
       const delay = Math.max(0, adopted.deadlineAt - now());
       const onDeadline = (): void => {
         deadlineHandle = null;

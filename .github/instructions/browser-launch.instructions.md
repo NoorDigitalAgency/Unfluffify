@@ -77,14 +77,15 @@ to re-derive it:
    The id changes per environment / load path — never hardcode it.
 9. Resolves the target page's Chrome tab id via the service worker
    (`chrome.tabs.query`) matched against `page.url()`.
-10. Opens a SECOND tab `chrome-extension://<id>/popup.html?debugTabId=<pageTabId>`
-   so the extension binds to the target page. `<pageTabId>` is the target page's
-   tab id, never the popup's own tab. It then opens the real Chrome side panel;
-   popup-authorized commands must use that production sender identity.
+10. Opens a temporary helper tab
+   `chrome-extension://<id>/popup.html?debugTabId=<pageTabId>` so the extension
+   can request the real Chrome side panel. `<pageTabId>` is the target page's tab
+   id, never the helper's. After the exact side-panel target exists, it closes
+   the helper so only the production popup client remains.
 
-On success it prints the target URL, the extension id, the page tabId, and the
-bound popup URL, then starts the launcher control channel on the same process
-stdin/stdout.
+On success it prints the target URL, extension id, page tabId, the closed helper
+URL, and the live side-panel URL, then starts the launcher control channel on the
+same process stdin/stdout.
 
 ## Required control protocol for observation/debugging
 
@@ -105,11 +106,10 @@ ready banner appears, the launcher prints:
 If your host environment supports writing to the running shell session, use the
 launcher's stdin control channel with that same `shellId` to send commands:
 
-- `state` — captures the bound popup's
-  `window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState()` fields,
-  live DOM state for `#compute`, `#marking-preview`, `#page-save`,
-  `#page-revert`, and `#toggle-enabled`, plus a target-page summary and open
-  page URLs.
+- `state` — captures production-safe active-view, control, input, and disabled
+  state from the real side-panel DOM, plus a target-page summary and open page
+  URLs. A debug build additionally merges selected debug-hook fields; production
+  observation never waits for or requires the hook.
 - `exit-preview` — captures the same state before and after clicking
   `.preview-sidebar__dismiss` (Exit Preview) and waits 1.5 seconds for restore.
 - `observe` — enables continuous polling and prints `[observe:buttons]` only
@@ -141,18 +141,19 @@ await browser.close();
 '
 ```
 
-Use that CDP connection to evaluate popup state
-(`window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState()`),
-click popup controls, inspect the target page, and capture screenshots/logs.
+Use that CDP connection to inspect the real side-panel DOM, click popup controls,
+inspect the target page, and capture screenshots/logs. The
+`window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState()` helper is optional and
+debug-build-only.
 Close only the CDP client (`browser.close()`); do not kill the launcher unless
 you intend to close the live browser.
 
 Chrome permits only one debugger owner per website tab. Before testing Render
 Inspection, send `stop-observe`, stop `pnpm browser:observe`, and close every
 one-shot CDP client. Operate the Render mode controls through the real
-`popup.html` side-panel target, not the `?debugTabId=` tab, and do not attach CDP
-to the website until the inspection is set or cancelled. Restart observation
-after the extension releases `chrome.debugger`.
+`popup.html` side-panel target; the `?debugTabId=` helper has already closed.
+Do not attach CDP to the website until the inspection is set or cancelled.
+Restart observation after the extension releases `chrome.debugger`.
 
 ## Use only the Playwright MCP browser; never touch the OS Chrome
 

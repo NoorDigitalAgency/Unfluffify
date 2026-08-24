@@ -48,6 +48,59 @@ type RewriteExtensionApi = InstalledBrowserApi & Readonly<{
   }>;
 }>;
 
+function renderInspectionCurtainProofExpression(identity: Readonly<{
+  token: string;
+  generation: number;
+  documentNonce: string;
+}>): string {
+  const expected = JSON.stringify(identity);
+  return `(() => {
+    const expected = ${expected};
+    const root = document.documentElement;
+    const curtain = document.querySelector('[data-uf-render-inspection-curtain="true"]');
+    if (
+      document.visibilityState !== 'visible' ||
+      !root ||
+      !curtain ||
+      !curtain.isConnected ||
+      curtain.parentElement !== root ||
+      root.lastElementChild !== curtain ||
+      curtain.getAttribute('data-uf-inspection-token') !== expected.token ||
+      curtain.getAttribute('data-uf-inspection-generation') !== String(expected.generation) ||
+      curtain.getAttribute('data-uf-document-nonce') !== expected.documentNonce
+    ) {
+      return false;
+    }
+    const style = getComputedStyle(curtain);
+    const opacity = Number.parseFloat(style.opacity || '1');
+    const rect = curtain.getBoundingClientRect();
+    return style.position === 'fixed' &&
+      style.display !== 'none' &&
+      style.visibility === 'visible' &&
+      style.pointerEvents !== 'none' &&
+      style.zIndex === '2147483647' &&
+      Number.isFinite(opacity) && opacity === 1 &&
+      rect.left <= 0 && rect.top <= 0 &&
+      rect.right >= innerWidth && rect.bottom >= innerHeight;
+  })()`;
+}
+
+function reportRenderInspectionFallbackStage(
+  stage: "fallback" | "acknowledged" | "rejected",
+  generation: number,
+  documentId: string,
+  reason?: string,
+): void {
+  if (__UF_DEBUG_BUILD__) {
+    console.debug("[Unfluffify][render-inspection] Curtain lifecycle", {
+      stage,
+      generation,
+      documentId,
+      ...(reason ? { reason } : {}),
+    });
+  }
+}
+
 function reportActionOpenFailure(error: unknown): void {
   console.error("[Unfluffify][rewrite] Unable to open side panel", error);
 }
@@ -922,6 +975,7 @@ export function startRewriteBackground(): void {
           lockRuntime.republish(tabId, baseUrl);
         }
       }
+      await bus.emit("signals.available", { tabId }, { target: "popup" });
     };
     if (meta.source === "content") {
       const documentId = parseSenderDocumentId(meta.sourceInstance);
@@ -1031,6 +1085,10 @@ export function startRewriteBackground(): void {
    * Keep its last settled value by authoritative identity so a transient context
    * retry does not make a configured property appear unconfigured. */
   const renderModeByProperty = new Map<string, boolean>();
+  /** A backend 404 is authoritative configuration state, not a transient load
+   * failure. Share it across page-context and popup consumers so a property
+   * binding performs one remote load until explicit Refresh or Save. */
+  const definitiveConfigAuthority = new Map<string, "ok" | "not_found">();
   bus.onCommand("page.context", (request, meta) => {
     const tabId = request.tabId ?? parseSenderTabId(meta.sourceInstance) ?? 0;
     const incomingDocumentId = parseSenderDocumentId(meta.sourceInstance);
@@ -1060,6 +1118,7 @@ export function startRewriteBackground(): void {
       tabId,
       pageUrl: request.pageUrl,
       refresh: request.refresh,
+      backstop: request.backstop,
     });
     if (!await currentContentDocument()) {
       return stalePageContextResponse(request.pageUrl);
@@ -1101,6 +1160,9 @@ export function startRewriteBackground(): void {
     const propertyKey = context.environmentKey && context.siteId !== null
       ? `${context.environmentKey}\u0000${context.siteId}`
       : null;
+    if (request.refresh === true && propertyKey) {
+      definitiveConfigAuthority.delete(propertyKey);
+    }
     let renderModeSet = propertyKey ? renderModeByProperty.get(propertyKey) ?? false : false;
     let authoritativeConfig: ConfigSnapshot | null = null;
     if (context.environmentKey && context.siteId !== null) {
@@ -1117,22 +1179,27 @@ export function startRewriteBackground(): void {
         context.status === "suspended_candidate_removed" ||
         context.status === "suspended_candidate_feed_conflict")
     ) {
-      const loaded = await services.lynx.loadConfigSnapshot(context.environmentKey, context.siteId);
-      const authority = await services.property.applyBackendLoad(
-        context.environmentKey,
-        context.siteId,
-        loaded.status === "ok"
-          ? { status: loaded.status, config: loaded.data }
-          : { status: loaded.status },
-      );
-      if (loaded.status === "not_found") {
-        await shieldPosture.removeProperty(context.environmentKey, context.siteId);
-      }
-      renderModeSet = authority.renderMode !== undefined;
-      if (loaded.status === "ok" || loaded.status === "not_found") {
-        renderModeByProperty.set(propertyKey, renderModeSet);
-        const stored = await services.repos.configRepo.load(context.environmentKey, context.siteId);
-        authoritativeConfig = stored.ok && stored.value ? stored.value : null;
+      if (!definitiveConfigAuthority.has(propertyKey)) {
+        const loaded = await services.lynx.loadConfigSnapshot(context.environmentKey, context.siteId);
+        const authority = await services.property.applyBackendLoad(
+          context.environmentKey,
+          context.siteId,
+          loaded.status === "ok"
+            ? { status: loaded.status, config: loaded.data }
+            : { status: loaded.status },
+        );
+        if (loaded.status === "not_found") {
+          definitiveConfigAuthority.set(propertyKey, "not_found");
+          await shieldPosture.removeProperty(context.environmentKey, context.siteId);
+        } else if (loaded.status === "ok") {
+          definitiveConfigAuthority.set(propertyKey, "ok");
+        }
+        renderModeSet = authority.renderMode !== undefined;
+        if (loaded.status === "ok" || loaded.status === "not_found") {
+          renderModeByProperty.set(propertyKey, renderModeSet);
+          const stored = await services.repos.configRepo.load(context.environmentKey, context.siteId);
+          authoritativeConfig = stored.ok && stored.value ? stored.value : null;
+        }
       }
     }
     const todo = projectTodoCoverage(
@@ -1575,6 +1642,61 @@ export function startRewriteBackground(): void {
         documentNonce: request.documentNonce,
       }));
   });
+  bus.onCommand("renderInspection.paintFallbackTick", async (request, meta) => {
+    const sender = renderInspectionDocument(request, meta);
+    if (!sender) {
+      return Promise.resolve({ status: "stale" as const, reason: "main-content-document-required" });
+    }
+    return withRenderInspectionDocument(sender, request.pageUrl, async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+      const current = await renderInspection.current(sender.tabId);
+      const exact = current.status === "active" &&
+        current.session.phase === "adopted" &&
+        current.session.token === request.token &&
+        current.session.generation === request.generation &&
+        current.session.documentId === sender.documentId &&
+        current.session.documentNonce === request.documentNonce;
+      if (!exact) {
+        return { status: "stale" as const, reason: "inspection-identity-changed" };
+      }
+      reportRenderInspectionFallbackStage("fallback", request.generation, sender.documentId);
+      const curtainProven = await renderEmulation.evaluate(
+        sender.tabId,
+        renderInspectionCurtainProofExpression(request),
+      ).catch(() => false);
+      if (curtainProven !== true) {
+        reportRenderInspectionFallbackStage(
+          "rejected",
+          request.generation,
+          sender.documentId,
+          "curtain-proof-rejected",
+        );
+        return { status: "stale" as const, reason: "curtain-proof-rejected" };
+      }
+      if (
+        !await isCurrentMainDocument(sender.tabId, sender.documentId) ||
+        await consentSuppressionDisabled(sender.tabId)
+      ) {
+        return { status: "stale" as const, reason: "inspection-document-changed" };
+      }
+      const acknowledged = await renderInspection.acknowledgePaint({
+        tabId: sender.tabId,
+        documentId: sender.documentId,
+        token: request.token,
+        generation: request.generation,
+        pageUrl: request.pageUrl,
+        documentNonce: request.documentNonce,
+      });
+      if (acknowledged.status !== "ok") {
+        return {
+          status: "stale" as const,
+          reason: acknowledged.status === "stale" ? acknowledged.reason : "inspection-inactive",
+        };
+      }
+      reportRenderInspectionFallbackStage("acknowledged", request.generation, sender.documentId);
+      return { status: "acknowledged" as const };
+    });
+  });
   bus.onCommand("renderInspection.ackPaint", async (request, meta) => {
     const sender = renderInspectionDocument(request, meta);
     if (!sender) {
@@ -1668,7 +1790,22 @@ export function startRewriteBackground(): void {
     if (!environmentKey) {
       return { status: "environment_unconfigured" as const, renderModeSource: "local" as const };
     }
-    const result = await services.lynx.loadConfigSnapshot(environmentKey, request.siteId);
+    const propertyKey = `${environmentKey}\u0000${request.siteId}`;
+    if (definitiveConfigAuthority.get(propertyKey) === "ok") {
+      const stored = await services.repos.configRepo.load(environmentKey, request.siteId);
+      if (stored.ok && stored.value) {
+        return {
+          status: "ok" as const,
+          config: stored.value,
+          renderMode: stored.value.renderMode,
+          renderModeSource: "backend" as const,
+        };
+      }
+      definitiveConfigAuthority.delete(propertyKey);
+    }
+    const result = definitiveConfigAuthority.get(propertyKey) === "not_found"
+      ? { status: "not_found" as const, httpStatus: 404 }
+      : await services.lynx.loadConfigSnapshot(environmentKey, request.siteId);
     // The rule lives in services, not here and not in the popup: one place
     // decides what local data survives a backend answer.
     try {
@@ -1683,6 +1820,7 @@ export function startRewriteBackground(): void {
           throw new PropertySnapshotIntegrityError("Validated backend load did not produce a snapshot.");
         }
         await shieldPosture.authorizeProperty(environmentKey, request.siteId);
+        definitiveConfigAuthority.set(propertyKey, "ok");
         if (applied.integrityWarning) {
           return {
             status: "integrity_shrink" as const,
@@ -1705,6 +1843,7 @@ export function startRewriteBackground(): void {
         { status: result.status },
       );
       if (result.status === "not_found") {
+        definitiveConfigAuthority.set(propertyKey, "not_found");
         await shieldPosture.removeProperty(environmentKey, request.siteId);
       }
       return {
@@ -1722,9 +1861,18 @@ export function startRewriteBackground(): void {
   });
   bus.onCommand("renderMode.remember", async (request) => {
     const environmentKey = await services.lynx.currentEnvironmentKey();
-    return environmentKey
-      ? services.property.rememberRenderMode(environmentKey, request.siteId, request.renderMode)
-      : { stored: false as const, reason: "environment-unconfigured" as const };
+    if (!environmentKey) {
+      return { stored: false as const, reason: "environment-unconfigured" as const };
+    }
+    const remembered = await services.property.rememberRenderMode(
+      environmentKey,
+      request.siteId,
+      request.renderMode,
+    );
+    if (remembered.stored) {
+      renderModeByProperty.set(`${environmentKey}\u0000${request.siteId}`, true);
+    }
+    return remembered;
   });
   bus.onCommand("config.save", async (request) => {
     const environmentKey = await services.lynx.currentEnvironmentKey();
@@ -1755,6 +1903,7 @@ export function startRewriteBackground(): void {
           request.siteId,
           result.data,
         );
+        definitiveConfigAuthority.set(`${request.environmentKey}\u0000${request.siteId}`, "ok");
         return adoption.integrityWarning
           ? {
               status: "integrity_shrink" as const,

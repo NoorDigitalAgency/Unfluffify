@@ -42,4 +42,24 @@ describe("preview classification projection", () => {
       },
     });
   });
+
+  it("replaces raw technical source in production while retaining it in debug", () => {
+    const rows = [
+      ["script", "Script or embedded code"],
+      ["style", "Style rules"],
+      ["noscript", "No-script fallback content"],
+    ] as const;
+
+    for (const [tagName, label] of rows) {
+      const row = {
+        id: `${tagName}-row`,
+        classification: "excluded" as const,
+        text: `raw ${tagName} source { do-not-render: true; }`,
+        xpath: `/html[1]/body[1]/${tagName}[1]`,
+        shadow: "none" as const,
+      };
+      expect(projectPreviewRow(row, false).text).toBe(label);
+      expect(projectPreviewRow(row, true).text).toBe(row.text);
+    }
+  });
 });

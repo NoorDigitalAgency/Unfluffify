@@ -131,6 +131,9 @@ const PageContextRequestSchema = z.object({
   tabId: z.number().int().nonnegative().optional(),
   pageUrl: z.string(),
   refresh: z.boolean().optional(),
+  /** A scheduled authority sample. The background coalesces separate popup
+   * consumers onto the same 15-second property resolution window. */
+  backstop: z.boolean().optional(),
 });
 
 const PageContextResponseSchema = PageContextResolutionSchema.extend({
@@ -455,6 +458,14 @@ export const applicationContract = defineContract({
       request: RenderInspectionAdoptRequestSchema,
       response: RenderInspectionAdoptResponseSchema,
     },
+    "renderInspection.paintFallbackTick": {
+      request: RenderInspectionAckPaintRequestSchema,
+      response: z.discriminatedUnion("status", [
+        z.object({ status: z.literal("ready") }),
+        z.object({ status: z.literal("acknowledged") }),
+        z.object({ status: z.literal("stale"), reason: z.string().min(1) }),
+      ]),
+    },
     "renderInspection.ackPaint": {
       request: RenderInspectionAckPaintRequestSchema,
       response: RenderInspectionMutationResponseSchema,
@@ -488,6 +499,9 @@ export const applicationContract = defineContract({
   },
   events: {
     "fact.reported": FactEnvelopeSchema,
+    "signals.available": z.object({
+      tabId: z.number().int().positive(),
+    }),
   },
 });
 

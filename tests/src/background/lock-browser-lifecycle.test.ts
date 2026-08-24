@@ -144,4 +144,82 @@ describe("background property-lock browser lifecycle", () => {
       suspensionReason: "window-unfocused",
     }]);
   });
+
+  it("ignores no-op same-document URL notifications but fences real route changes", async () => {
+    const committed = event<(details: {
+      tabId: number;
+      frameId: number;
+      documentId?: string;
+      url?: string;
+    }) => void>();
+    const historyChanged = event<(details: {
+      tabId: number;
+      frameId: number;
+      documentId?: string;
+      url?: string;
+    }) => void>();
+    const fragmentChanged = event<(details: {
+      tabId: number;
+      frameId: number;
+      documentId?: string;
+      url?: string;
+    }) => void>();
+    const observed: Array<{ documentId: string | null; pageUrl: string | null }> = [];
+    const terminations: Array<{ reason: LockTabTerminationReason; pageUrl: string | null }> = [];
+    const lifecycle = createLockBrowserLifecycle({
+      api: {
+        webNavigation: {
+          onCommitted: committed.api,
+          onHistoryStateUpdated: historyChanged.api,
+          onReferenceFragmentUpdated: fragmentChanged.api,
+        },
+      },
+      onPresenceChanged() {},
+      onMainDocumentHistoryChanged(_tabId, documentId, pageUrl) {
+        observed.push({ documentId, pageUrl });
+      },
+      onTabTerminated(_tabId, reason, commit) {
+        terminations.push({ reason, pageUrl: commit?.pageUrl ?? null });
+      },
+    });
+    await lifecycle.start();
+
+    committed.emit({
+      tabId: 7,
+      frameId: 0,
+      documentId: "document-a",
+      url: "https://www.dpj.se/",
+    });
+    terminations.length = 0;
+
+    historyChanged.emit({
+      tabId: 7,
+      frameId: 0,
+      documentId: "document-a",
+      url: "https://www.dpj.se/",
+    });
+    fragmentChanged.emit({
+      tabId: 7,
+      frameId: 0,
+      documentId: "document-a",
+      url: "https://www.dpj.se/#products",
+    });
+    expect(observed).toEqual([]);
+    expect(terminations).toEqual([]);
+
+    historyChanged.emit({
+      tabId: 7,
+      frameId: 0,
+      documentId: "document-a",
+      url: "https://www.dpj.se/search?q=desk",
+    });
+    expect(observed).toEqual([{
+      documentId: "document-a",
+      pageUrl: "https://www.dpj.se/search?q=desk",
+    }]);
+    expect(terminations).toEqual([{
+      reason: "navigation",
+      pageUrl: "https://www.dpj.se/search?q=desk",
+    }]);
+  });
 });

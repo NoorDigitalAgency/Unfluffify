@@ -128,6 +128,7 @@ function installLockRuntime(scope: PropertyScope | null, options: Readonly<{
 
 function installBrowser(options: Readonly<{
   frameUnavailable?: boolean;
+  runtimeEvaluateValue?: unknown;
   createAlarm?: (name: string, info: unknown) => Promise<void> | void;
   clearAlarm?: (name: string) => Promise<boolean> | boolean | void;
 }> = {}) {
@@ -180,7 +181,9 @@ function installBrowser(options: Readonly<{
         callback?: (result?: unknown) => void,
       ) {
         commands.push({ method, ...(params ? { params } : {}) });
-        callback?.({});
+        callback?.(method === "Runtime.evaluate" && "runtimeEvaluateValue" in options
+          ? { result: { value: options.runtimeEvaluateValue } }
+          : {});
       },
       onDetach: {
         addListener(listener: typeof debuggerDetached) {
@@ -425,6 +428,66 @@ describe("background render inspection integration", () => {
       method: "Emulation.setScriptExecutionDisabled",
       params: { value: false },
     });
+  });
+
+  it("acknowledges a JavaScript-off curtain from the debugger-owned starvation fallback", async () => {
+    vi.useFakeTimers();
+    try {
+      installLockRuntime(SCOPE);
+      const browser = installBrowser({ runtimeEvaluateValue: true });
+      const { startRewriteBackground } = await import("../../../src/background/index");
+      startRewriteBackground();
+      const call = caller(browser.listener());
+
+      browser.commit("document-a", SCOPE.pageUrl);
+      const started = await call("renderInspection.start", {
+        tabId: 7,
+        property: {
+          environmentKey: SCOPE.environmentKey,
+          siteId: SCOPE.siteId,
+          baseUrl: SCOPE.baseUrl,
+        },
+        pageUrl: SCOPE.pageUrl,
+        javascriptEnabled: false,
+      }, "popup");
+      browser.commit("document-b", SCOPE.pageUrl);
+      const adopted = await call("renderInspection.adopt", {
+        pageUrl: SCOPE.pageUrl,
+        documentNonce: "replacement-nonce",
+      }, "content", "document-b");
+      const session = (adopted.payload as {
+        session: { token: string; generation: number };
+      }).session;
+      expect(started).toMatchObject({ ok: true, payload: { status: "started" } });
+
+      const fallback = call("renderInspection.paintFallbackTick", {
+        token: session.token,
+        generation: session.generation,
+        pageUrl: SCOPE.pageUrl,
+        documentNonce: "replacement-nonce",
+      }, "content", "document-b");
+      await vi.advanceTimersByTimeAsync(1_000);
+      await expect(fallback).resolves.toMatchObject({
+        ok: true,
+        payload: { status: "acknowledged" },
+      });
+      await expect(call("renderInspection.current", { tabId: 7 }, "popup")).resolves.toMatchObject({
+        ok: true,
+        payload: {
+          status: "terminal",
+          session: { terminalReason: "paint-acknowledged" },
+        },
+      });
+      expect(browser.commands).toContainEqual(expect.objectContaining({
+        method: "Runtime.evaluate",
+        params: expect.objectContaining({
+          expression: expect.stringContaining("data-uf-render-inspection-curtain"),
+          returnByValue: true,
+        }),
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects a popup scope that differs from the canonical lock property or page", async () => {

@@ -36,6 +36,18 @@ export function projectPreviewClassification(
     : "excluded";
 }
 
+const TECHNICAL_SOURCE_LABELS: Readonly<Record<string, string>> = {
+  script: "Script or embedded code",
+  style: "Style rules",
+  noscript: "No-script fallback content",
+};
+
+function productionPreviewText(row: PreviewRow): string {
+  const lastElement = Array.from(row.xpath.matchAll(/\/([a-zA-Z][\w:-]*)\[\d+\]/g)).at(-1);
+  const tagName = lastElement?.[1]?.toLowerCase();
+  return tagName === undefined ? row.text : TECHNICAL_SOURCE_LABELS[tagName] ?? row.text;
+}
+
 /** Pure production/debug seam used by both rendering and parity tests. */
 export function projectPreviewRow(
   row: PreviewRow,
@@ -43,7 +55,7 @@ export function projectPreviewRow(
 ): PreviewDisplayRow {
   return {
     id: row.id,
-    text: row.text,
+    text: debug ? row.text : productionPreviewText(row),
     classification: projectPreviewClassification(row.classification),
     debugDetail: debug
       ? {

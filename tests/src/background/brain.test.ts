@@ -726,8 +726,41 @@ describe("P3 background brain", () => {
       lockRole: "passive",
       lockCanEdit: false,
       lockBlockedReason: "locked",
-      lockBanner: { visible: true, reason: "locked", editorName: "Dana", countdownSeconds: 42 },
+      lockBanner: { visible: true, reason: "locked", editorName: "Dana", countdownSeconds: 41 },
     })).toEqual([]);
+    expect(observe({
+      lockRole: "passive",
+      lockCanEdit: false,
+      lockBlockedReason: "locked",
+      lockBanner: { visible: true, reason: "locked", editorName: "Lee", countdownSeconds: 40 },
+    })).toMatchObject([{
+      name: "lock.blocked",
+      payload: { banner: { editorName: "Lee", countdownSeconds: 40 } },
+    }]);
+    expect(observe({
+      lockRole: "passive",
+      lockCanEdit: false,
+      lockBlockedReason: "locked",
+      lockBanner: {
+        visible: true,
+        reason: "locked",
+        editorName: "Lee",
+        countdownSeconds: 39,
+        actions: [{ kind: "continue-here", confirmDiscard: true }],
+      },
+    })).toMatchObject([{
+      name: "lock.blocked",
+      payload: { banner: { actions: [{ kind: "continue-here", confirmDiscard: true }] } },
+    }]);
+    expect(observe({
+      lockRole: "passive",
+      lockCanEdit: false,
+      lockBlockedReason: "not-candidate",
+      lockBanner: { visible: true, reason: "not-candidate", countdownSeconds: 38 },
+    })).toMatchObject([{
+      name: "lock.blocked",
+      payload: { blockedReason: "not-candidate", banner: { reason: "not-candidate" } },
+    }]);
     expect(observe({
       lockRole: "editor",
       lockCanEdit: true,

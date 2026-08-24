@@ -1950,6 +1950,7 @@ span.todo-candidate-link {
 }
 
 .preview-sidebar__item-button {
+  appearance: none;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;

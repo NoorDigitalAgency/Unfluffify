@@ -309,11 +309,12 @@ describe("popup App surface", () => {
     expect(markup).toContain('data-transient-trigger="preview-exit"');
     expect(markup).toContain('aria-label="Exit Preview"');
     expect(markup).toContain("Exit preview to resume editing.");
-    expect(markup).toContain("Point to a row to compare it with the page");
+    expect(markup).toContain("Point to or focus a row to compare it with the page");
+    expect(markup).toContain("press Enter or Space");
     expect(markup).toContain("Readable article introduction");
     expect(markup).toContain('class="preview-sidebar__item-button"');
-    expect(markup).not.toContain('class="preview-sidebar__item-button" tabindex=');
-    expect(markup).not.toContain('<button class="preview-sidebar__item-button"');
+    expect(markup).toContain('<button type="button" class="preview-sidebar__item-button"');
+    expect(markup).toContain('aria-label="1. Readable article introduction. Included"');
     expect(markup).toContain('data-preview-row-debug="true"');
     expect(markup).toContain("explicit-included");
     expect(markup).toContain("/html[1]/body[1]/main[1]/p[1]");
@@ -375,7 +376,9 @@ describe("popup App surface", () => {
     expect(production).not.toContain("title=");
     expect(production).not.toContain("data-");
     expect(production).not.toContain("tabindex=");
-    expect(production).not.toContain("<button");
+    expect(production.match(/<button type="button"/g)).toHaveLength(6);
+    expect(production).toContain('aria-label="1. Readable row 1. Included"');
+    expect(production).toContain('aria-label="6. Readable row 6. Excluded"');
     expect(production).not.toContain(" role=");
 
     const debug = renderRows(true);
@@ -720,12 +723,15 @@ describe("popup App surface", () => {
     expect(markup).toContain("u-color-warning");
   });
 
-  it("refuses to reload while the lock blocks editing", () => {
-    // Reloading the page needs the editor lock.
+  it("keeps read-only render inspection available while the lock blocks editing", () => {
+    // The comparison reload does not mutate markings or configuration. A
+    // managed non-candidate page has no editor lease but is still inspectable.
     const markup = renderRenderModeView({ ...SIGNED_IN, lockStatus: "ok", lockRole: "passive" }, LOCKED);
 
-    expect(markup).toMatch(/id="render-mode-with-js"[^>]*disabled/);
-    expect(markup).toMatch(/id="render-mode-without-js"[^>]*disabled/);
+    expect(markup).not.toMatch(/id="render-mode-with-js"[^>]*disabled/);
+    expect(markup).not.toMatch(/id="render-mode-without-js"[^>]*disabled/);
+    expect(markup).not.toMatch(/id="render-mode-with-js"[^>]*title=/);
+    expect(markup).not.toMatch(/id="render-mode-without-js"[^>]*title=/);
   });
 
   it("says when a chosen render mode is only held locally", () => {

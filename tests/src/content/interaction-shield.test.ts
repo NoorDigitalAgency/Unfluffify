@@ -382,6 +382,38 @@ describe("interaction shield controller", () => {
     expect(styleOf(shield, "width")).toEqual(["320px", "important"]);
   });
 
+  it("remeasures an active shield when emulation changes without a viewport event", () => {
+    const context = harness();
+    const viewport = context.window.visualViewport!;
+    viewport.width = 412;
+    viewport.height = 960;
+    const controller = createInteractionShield({
+      document: asDocument(context.document),
+      window: asWindow(context.window),
+    });
+    controller.activate("silent-highlighting");
+    const shield = controller.element() as unknown as FakeElement;
+
+    expect(styleOf(shield, "width")).toEqual(["412px", "important"]);
+    expect(styleOf(shield, "height")).toEqual(["960px", "important"]);
+
+    // CDP has changed the viewport, but neither resize listener fired.
+    viewport.width = 1_920;
+    viewport.height = 1_080;
+    expect(styleOf(shield, "width")).toEqual(["412px", "important"]);
+    expect(styleOf(shield, "height")).toEqual(["960px", "important"]);
+
+    controller.refresh();
+    expect(styleOf(shield, "width")).toEqual(["1920px", "important"]);
+    expect(styleOf(shield, "height")).toEqual(["1080px", "important"]);
+
+    viewport.width = 412;
+    viewport.height = 960;
+    controller.refresh();
+    expect(styleOf(shield, "width")).toEqual(["412px", "important"]);
+    expect(styleOf(shield, "height")).toEqual(["960px", "important"]);
+  });
+
   it("retains an active lease until a document-start root becomes available", () => {
     const context = harness();
     const root = context.document.documentElement;
