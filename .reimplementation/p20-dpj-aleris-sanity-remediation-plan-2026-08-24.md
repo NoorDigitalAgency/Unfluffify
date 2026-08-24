@@ -1,5 +1,10 @@
 # P20 DPJ/Aleris sanity-remediation plan — 2026-08-24
 
+**Status:** completed on 2026-08-25.
+
+**Outcome evidence:**
+[`p20-dpj-aleris-live-sanity-report-2026-08-25.md`](./p20-dpj-aleris-live-sanity-report-2026-08-25.md)
+
 ## Goal
 
 Close the post-acceptance defects found by the full headed DPJ and Aleris rerun,
@@ -223,3 +228,19 @@ revision.
 - P20 evidence is internally consistent and no speculative Save cause is stated
   as fact.
 - The final scoped commit is pushed and `re-write...origin/re-write` is `0 0`.
+
+## Execution outcome
+
+- Implemented shield geometry acknowledgement, read-only inspection under the
+  non-candidate banner, authoritative inactive restoration, semantic lock-signal
+  deduplication, a single-client production launcher, split polling, serialized
+  Save/emulation, accessible preview controls, and expected no-receiver handling.
+- Live DPJ testing added a guarded root-scroller fallback for overflow-clipped
+  storefront layouts. Live Aleris testing corrected default submitted preview
+  content from Excluded to Included and removed extension cursor classes from
+  every captured/saved HTML path.
+- `pnpm verify` passed 123 files / 1,116 tests. Production and debug builds pass.
+  Clean-source P14–P20 acceptance is 192 scenarios, 36/36, 13/13, 19/19,
+  14/14, and 4/4 respectively.
+- DPJ remains correctly publication-fenced at 1/7; Aleris remains correctly
+  publication-fenced at 1/2. No publish request was made.

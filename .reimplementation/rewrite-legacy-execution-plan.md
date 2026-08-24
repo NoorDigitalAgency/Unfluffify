@@ -966,32 +966,25 @@ in the owning phase and rerun its focused gate plus P9–P11.
   - `pnpm verify` passed on clean commit `3a5d11a7831b`: lint, generated
     page-world parity, all TypeScript projects, 122 files / 1,093 tests, the
     production build, and all 7 generated-manifest assertions.
-- [ ] P20 — Integrated release gates and witnessed live acceptance (reopened for DPJ/Aleris sanity remediation)
-  - Commits: `1c0ed3d7` (`Repair live render inspection acceptance`) and
-    `900f8e62` (`Retain updated render inspection acceptance`).
-  - Final evidence is recorded in
-    [`p20-release-evidence.md`](./p20-release-evidence.md): `pnpm verify` passed
-    123 files / 1,099 tests plus production build and 7 manifest checks;
-    clean-source P16 passed 13/13 and P20 passed 4/4 with new retained artifacts.
-  - The production extension was witnessed in managed Chrome `151.0.7922.10`
-    against environment `a.lynxdev.se`, site `60`, and `https://bonliva.se`.
-    Consent suppression, non-candidate posture, silent shield/scrolling, lock
-    continuation, and both render modes passed. The live round repaired the
-    persistent-debugger launcher conflict and the canonical/`www` property
-    identity defect before the final successful rerun.
-  - The 2026-08-24 DPJ supplement is recorded in
-    [`p20-dpj-live-workflow-report-2026-08-24.md`](./p20-dpj-live-workflow-report-2026-08-24.md).
-    Production v66 passed the full real-side-panel workflow, saved the homepage
-    with one current-page request, and advanced Todo 0/7 → 1/7. Production v68
-    closed the final canonical-authority Discard case. `pnpm verify` passes 123
-    files / 1,111 tests; all P14–P20 functional matrices are green. Current
-    full-gate aggregate bits withhold only clean-source provenance until these
-    accepted working-tree changes are committed.
-  - Post-acceptance DPJ/Aleris sanity remediation is governed by
-    [`p20-dpj-aleris-sanity-remediation-plan-2026-08-24.md`](./p20-dpj-aleris-sanity-remediation-plan-2026-08-24.md).
-    Consent suppression remains accepted; P20 stays reopened until the exact
-    shield, read-only inspection, lock-signal, single-client launcher, full-gate,
-    and headed live criteria in that addendum pass from the final source.
+- [x] P20 — Integrated release gates and witnessed live acceptance
+  - Final remediation commits: `55300452` (`Repair P20 DPJ and Aleris
+    workflows`), `7d466c36` (`Harden P20 live preview and payload hygiene`),
+    and `15f1c186` (`Align P17 preview acceptance semantics`).
+  - `pnpm verify` passed lint, generated page-world parity, every TypeScript
+    project, 123 files / 1,116 tests, the production build, and seven manifest
+    assertions. `pnpm build:debug` passed.
+  - Clean-source browser acceptance passed: P14 192 scenarios with zero
+    semantic/budget/activation failures; P15 36/36; P16 13/13; P17 19/19;
+    P18 14/14; and P20 4/4. Exact retained paths and hashes are in
+    [`p20-release-evidence.md`](./p20-release-evidence.md).
+  - Bonliva remains accepted. The repository live-browser workflow repeated
+    DPJ and Aleris in headed production Chromium: inspection, emulation, shield,
+    intentional consent suppression, AI/freshness, semantic preview, Save,
+    payload hygiene, lock recovery, publication fences, and console hygiene
+    pass. See
+    [`p20-dpj-aleris-live-sanity-report-2026-08-25.md`](./p20-dpj-aleris-live-sanity-report-2026-08-25.md).
+  - DPJ remains correctly fenced at 1/7 coverage and Aleris at 1/2; no publish
+    request was issued. Consent suppression is accepted extraction hygiene.
 
 For each completed item, append the commit SHA(s), exact test command, result,
 and any live artifact/version directly beneath the checkbox. The first unchecked
