@@ -190,7 +190,7 @@ async (page) => {
     });
 
     await check("production-simple-projection", async () => {
-      const included = new Set(["explicit-included", "implicit-included"]);
+      const included = new Set(["explicit-included", "implicit-included", "undetected"]);
       const expectedStatuses = expected.map((row) => included.has(row.classification) ? "Included" : "Excluded");
       const actualStatuses = productionPopup.rows.map((row) => row.publicClassification);
       assertion(JSON.stringify(actualStatuses) === JSON.stringify(expectedStatuses), "Production App did not collapse to the two public statuses", { expectedStatuses, actualStatuses });

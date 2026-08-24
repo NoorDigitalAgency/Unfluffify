@@ -20,6 +20,10 @@ identity after an XPath-changing mutation, stale-projection rejection, and
 semantic-button keyboard focus, focus emphasis, accessible names, and native
 Enter/Space activation. Production rows and their descendants are both
 required to omit diagnostic `title` surfaces.
+The production status projection treats submitted `undetected` rows as Included:
+they are default extraction content without explicit selector coverage, not
+exclusions. Only excluded, immutable, and inaccessible closed-shadow rows are
+presented as Excluded.
 It also proves that a selector-only request crosses the shipping typed bus,
 content controller, engine, and popup store without changing projection or row
 identity while advancing the projection revision exactly once.
