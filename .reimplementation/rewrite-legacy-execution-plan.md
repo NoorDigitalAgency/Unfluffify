@@ -966,17 +966,19 @@ in the owning phase and rerun its focused gate plus P9–P11.
   - `pnpm verify` passed on clean commit `3a5d11a7831b`: lint, generated
     page-world parity, all TypeScript projects, 122 files / 1,093 tests, the
     production build, and all 7 generated-manifest assertions.
-- [ ] P20 — Integrated release gates and witnessed live acceptance
-  - Automated release evidence is complete in
+- [x] P20 — Integrated release gates and witnessed live acceptance
+  - Commits: `1c0ed3d7` (`Repair live render inspection acceptance`) and
+    `900f8e62` (`Retain updated render inspection acceptance`).
+  - Final evidence is recorded in
     [`p20-release-evidence.md`](./p20-release-evidence.md): `pnpm verify` passed
-    123 files / 1,097 tests plus production build and manifest checks; retained
-    P14–P18 and P20 browser acceptances all pass; production/debug stripping,
-    package hashes, Hub commit, and deployed Alpha version are recorded.
-  - P20 remains unchecked because the browser-control connection reported no
-    available browser instances on 2026-08-22. The production extension still
-    must be witnessed against environment `a.lynxdev.se`, site `60`, and
-    `https://bonliva.se`; local fixtures and the earlier P11 witness were not
-    substituted for this final live matrix.
+    123 files / 1,099 tests plus production build and 7 manifest checks;
+    clean-source P16 passed 13/13 and P20 passed 4/4 with new retained artifacts.
+  - The production extension was witnessed in managed Chrome `151.0.7922.10`
+    against environment `a.lynxdev.se`, site `60`, and `https://bonliva.se`.
+    Consent suppression, non-candidate posture, silent shield/scrolling, lock
+    continuation, and both render modes passed. The live round repaired the
+    persistent-debugger launcher conflict and the canonical/`www` property
+    identity defect before the final successful rerun.
 
 For each completed item, append the commit SHA(s), exact test command, result,
 and any live artifact/version directly beneath the checkbox. The first unchecked
