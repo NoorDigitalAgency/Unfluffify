@@ -792,10 +792,21 @@ describe("popup App surface", () => {
       { ...LOCKED, projectionBlockedReason: "Property lock unavailable", lockBanner: { visible: true, text: "Property lock unavailable" } },
       { ...SIGNED_IN, lockStatus: "unavailable", siteId: null },
     );
+    const managedRoot = renderApp(
+      {
+        ...LOCKED,
+        projectionBlockedReason: "managed-non-candidate",
+        lockBanner: { visible: true, text: "Managed property · this page is not a Live Page candidate" },
+      },
+      { ...SIGNED_IN, lockStatus: "not_candidate", siteId: 5542 },
+    );
 
     expect(outOfScope).toContain("Not a managed property");
     expect(outOfScope).toContain("u-tone-muted");
     expect(outOfScope).not.toContain("u-tone-danger");
+    expect(managedRoot).toContain("Managed property · this page is not a Live Page candidate");
+    expect(managedRoot).not.toContain("Not a managed property");
+    expect(managedRoot).toContain("u-tone-muted");
     // An unreachable backend is a real fault and still reads as one.
     expect(offline).toContain("u-tone-danger");
   });

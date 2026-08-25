@@ -36,6 +36,7 @@ export const LockReasonSchema = z.enum([
   "locked",
   "not-configured",
   "not-candidate",
+  "managed-non-candidate",
   "candidate-removed",
   "candidate-feed-conflict",
   "signed-out",

@@ -156,6 +156,7 @@ const signalsAvailableWaitersByTab = new Map<number, Set<SignalsAvailableWaiter>
 let fastSignalPollInFlight: Promise<void> | null = null;
 let fastSignalPollQueued = false;
 let saveInFlight: Promise<void> | null = null;
+let postSaveAuthorityRefreshRequired = false;
 const authorityRefreshQueue = createAuthorityRefreshQueue({
   intervalMs: AUTHORITY_REFRESH_INTERVAL_MS,
   isPaused: () => saveInFlight !== null,
@@ -3046,6 +3047,7 @@ async function saveSession(): Promise<void> {
     .filter((operation): operation is Promise<void> => operation !== null);
   const operation = (async () => {
     await Promise.allSettled(pendingPolls);
+    postSaveAuthorityRefreshRequired = false;
     await performSaveSession();
   })();
   saveInFlight = operation;
@@ -3053,10 +3055,12 @@ async function saveSession(): Promise<void> {
     await operation;
   } finally {
     saveInFlight = null;
+    const refreshAfterSave = postSaveAuthorityRefreshRequired;
+    postSaveAuthorityRefreshRequired = false;
     if (fastSignalPollQueued) {
       void queueFastSignalPoll();
     }
-    if (authorityRefreshQueue.hasQueued()) {
+    if (refreshAfterSave || authorityRefreshQueue.hasQueued()) {
       void queueAuthorityRefresh(true);
     }
   }
@@ -3226,6 +3230,10 @@ async function performSaveSession(): Promise<void> {
     if (response.data.config) {
       configurationController.adoptAuthoritativeConfig(response.data.config, "ok");
     }
+    // From here on Hub has accepted the mutation. Even if a local posture or
+    // content acknowledgement fails, the paused slow lane must reconcile the
+    // authoritative property exactly once after cleanup.
+    postSaveAuthorityRefreshRequired = true;
     const enteredSilent = await sendContentMessage(context.tabId, {
       type: "enterSilentContentMain",
       pageUrl: context.url,
@@ -3235,16 +3243,49 @@ async function performSaveSession(): Promise<void> {
     lastSubmissionKey = null;
     contentActive = false;
     contentDirty = false;
-    await ensureSessionEmulation(context);
+    const lockEnvironmentKey = mutationLock.environmentKey ?? mutationLock.authority?.environmentKey ?? null;
+    const expectedProperty: ReloadPropertyIdentity | null = lockEnvironmentKey && mutationLock.siteId !== null
+      ? { environmentKey: lockEnvironmentKey, siteId: mutationLock.siteId }
+      : null;
+    const silentTransition = await runSessionTransition(async () => {
+      const mode = desiredEmulationMode();
+      if (appliedEmulationMode === mode) {
+        return { status: "ready" as const, context };
+      }
+      const emulation = await applySessionEmulationResult(context, { mode, allowReload: true });
+      if (!emulation.active) {
+        return { status: "failed" as const, context };
+      }
+      if (!emulation.reloadExpected) {
+        return { status: "ready" as const, context };
+      }
+      if (!expectedProperty) {
+        return { status: "identity_changed" as const, context };
+      }
+      return await waitForEmulationReload(context, expectedProperty);
+    });
     notifyBoundEvent(binding, "Session saved", snapshot.baseUrl, "success");
+    if (silentTransition.status !== "ready") {
+      notifyBoundEvent(
+        binding,
+        "Device posture failed",
+        silentTransition.status === "identity_changed"
+          ? "the property identity changed while restoring the silent device posture"
+          : silentTransition.status === "timed_out"
+            ? "the replacement page did not become ready after Save"
+            : "the silent device posture could not be applied",
+        "danger",
+      );
+    }
     await reportPopupFactAndPull(context, "session-saved", {
       savedSeq: nextPopupFactSequence(),
       markingEnabled: false,
       previewActive: false,
     }, requestKey);
-    await refreshTodoContext(context, requestKey, { force: true });
     silentSelectorsAppliedKey = null;
-    await refreshSilentSelectorPreview(context, requestKey);
+    // Save owns the mutation and authoritative response adoption. Context,
+    // Todo, lock, configuration and silent-selector reconciliation resume once
+    // through the paused slow-lane queue after every cleanup path completes.
   } catch (error: unknown) {
     reconciliationReason = "save-request-failed";
     notifyBoundEvent(

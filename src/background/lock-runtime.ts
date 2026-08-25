@@ -707,9 +707,11 @@ export function createPropertyLockRuntime(input: Readonly<{
         const response = lockStateFromState({
           pageUrl: request.pageUrl,
           baseUrl,
-          siteId: null,
+          environmentKey: context.environmentKey,
+          siteId: context.siteId,
           state: null,
           status: "not_candidate",
+          blockedReason: "managed-non-candidate",
         });
         await observeLockState(request.tabId, request.pageUrl, response);
         publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);

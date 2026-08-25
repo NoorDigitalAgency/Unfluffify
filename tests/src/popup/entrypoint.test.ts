@@ -274,6 +274,7 @@ function makeRuntime(
   renderMode: "rendered" | "static" = "rendered",
   options: Readonly<{
     configLoad?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
+    emulationApply?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
     renderInspectionCurrent?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
     lockDirective?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
     pageContextStatus?: "managed_candidate" | "managed_non_candidate";
@@ -405,6 +406,9 @@ function makeRuntime(
         });
       }
       if (frame.name === "emulation.apply") {
+        if (options.emulationApply) {
+          return await options.emulationApply(frame);
+        }
         return replyFrame(frame, {
           mode: "mobile",
           width: 412,
@@ -2272,6 +2276,8 @@ describe("rewrite popup entrypoint", () => {
       }],
     };
     let mutationAuthorityCurrent = false;
+    let releaseSave!: () => void;
+    const saveRelease = new Promise<void>((resolve) => { releaseSave = resolve; });
     const tabsSendMessage = makeTabsSendMessage((_tabId, message) => {
       if (message.type === "captureSubmissionSnapshot") {
         return { ok: true, snapshot, rows: [{ xpath: "/html[1]/body[1]/main[1]", classification: "included" }] };
@@ -2280,6 +2286,13 @@ describe("rewrite popup entrypoint", () => {
         // Simulate a recovery rotating the lease while the popup is preparing
         // Save. The singular mutation must use the late authoritative fence.
         mutationAuthorityCurrent = true;
+      }
+      if (message.type === "getContentMainStatus") {
+        return {
+          ok: true,
+          pageUrl: "https://example.com/page",
+          authority: { environmentKey: "example.com", siteId: 1, lockBlocked: false },
+        };
       }
       return { ok: true, initialized: true, tree: "rewrite" };
     });
@@ -2348,6 +2361,7 @@ describe("rewrite popup entrypoint", () => {
       }
       if (message.name === "config.save") {
         saveRequests.push(message);
+        await saveRelease;
         return replyFrame(message, { status: "ok", config: backendConfig() });
       }
       return replyFrame(message, []);
@@ -2358,6 +2372,15 @@ describe("rewrite popup entrypoint", () => {
         status: "not_found",
         renderMode: "rendered",
         renderModeSource: "local",
+      }),
+      emulationApply: (frame) => replyFrame(frame, {
+        mode: (frame.payload as { mode: "mobile" | "desktop" }).mode,
+        width: (frame.payload as { mode: string }).mode === "desktop" ? 1920 : 412,
+        height: (frame.payload as { mode: string }).mode === "desktop" ? 1080 : 960,
+        scale: 1,
+        active: true,
+        identityStale: mutationAuthorityCurrent &&
+          (frame.payload as { mode: string }).mode === "desktop",
       }),
       lockDirective: (frame) => replyFrame(frame, {
         status: "ok",
@@ -2392,6 +2415,13 @@ describe("rewrite popup entrypoint", () => {
       renderModeSource: "local",
     });
 
+    props().onDesktopPreviewChange(true);
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.some(([frame]) =>
+        frame.name === "emulation.apply" && (frame.payload as { mode?: string }).mode === "desktop"),
+      "initial desktop preview posture",
+    );
+
     poll();
     poll();
     poll();
@@ -2402,10 +2432,23 @@ describe("rewrite popup entrypoint", () => {
     await waitFor(() => props().diagnostics.contentActive === true, "first-config marking activation");
     props().onRunAi();
     await waitFor(() => props().presentation.saveDisabled === false, "fresh first-config AI result");
+    const contextCallsBeforeSave = runtime.sendMessage.mock.calls
+      .filter(([frame]) => frame.name === "page.context").length;
     props().onSave();
     props().onSave();
     await waitFor(() => saveRequests.length === 1, "single first-config save request");
+    poll();
+    poll();
+    await flushEntrypointWork();
+    expect(runtime.sendMessage.mock.calls
+      .filter(([frame]) => frame.name === "page.context")).toHaveLength(contextCallsBeforeSave);
+    releaseSave();
     await waitFor(() => props().diagnostics.configStatus === "ok", "authoritative first-config adoption");
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "page.context").length > contextCallsBeforeSave,
+      "one post-save authority refresh",
+    );
+    await flushEntrypointWork();
 
     expect(saveRequests).toHaveLength(1);
     expect(saveRequests[0]).toMatchObject({
@@ -2421,12 +2464,21 @@ describe("rewrite popup entrypoint", () => {
         selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
       },
     });
+    expect(runtime.sendMessage.mock.calls
+      .filter(([frame]) => frame.name === "page.context")).toHaveLength(contextCallsBeforeSave + 1);
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("getContentMainStatus", {}));
+    expect(runtime.sendMessage.mock.calls.some(([frame]) =>
+      frame.name === "emulation.apply" &&
+      (frame.payload as { mode?: string }).mode === "desktop" &&
+      (frame.payload as { allowReload?: boolean }).allowReload === true)).toBe(true);
     expect(runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "config.load")).toHaveLength(1);
     expect(props().diagnostics).toMatchObject({
       configStatus: "ok",
       renderMode: "rendered",
       renderModeSource: "backend",
     });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await flushEntrypointWork();
   });
 
   it("surfaces a background-completed AI run when the side panel opens again", async () => {

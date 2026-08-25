@@ -77,13 +77,13 @@ describe("P10 golden AI snapshot", () => {
       baseUrl: "https://example.com",
       renderMode: "static",
       pageUrl: "https://example.com/page",
-      renderedHtml: "<html><body>browser render</body></html>",
-      rawHtml: "<html><body>server source</body></html>",
+      renderedHtml: "<html><head><script>browser code</script><style>.browser{}</style></head><body>browser render</body></html>",
+      rawHtml: "<html><head><noscript>server fallback</noscript><script>server code</script></head><body>server source</body></html>",
       evaluation: createMarkingStore({ root }).currentEvaluation(),
     }).pages[0]).toMatchObject({
       url: "https://example.com/page",
-      renderedHtml: "<html><body>browser render</body></html>",
-      rawHtml: "<html><body>server source</body></html>",
+      renderedHtml: "<html><head><script></script><style></style></head><body>browser render</body></html>",
+      rawHtml: "<html><head><noscript></noscript><script></script></head><body>server source</body></html>",
     });
   });
 });

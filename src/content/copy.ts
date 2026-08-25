@@ -57,6 +57,7 @@ const CONTENT_LOCK_COPY = {
   },
   "not-configured": () => "Property lock not configured",
   "not-candidate": () => "Not a managed property",
+  "managed-non-candidate": () => "This is a managed property, but this page is not a current Live Page candidate",
   "candidate-removed": () => "This page is no longer a candidate",
   "candidate-feed-conflict": () => "Candidate feed assignments conflict",
   "signed-out": () => "Sign in to use the property lock",

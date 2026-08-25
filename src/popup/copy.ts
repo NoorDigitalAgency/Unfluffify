@@ -21,6 +21,7 @@ const POPUP_LOCK_COPY = {
   locked: (lock) => lock.editorName ? `Locked by ${lock.editorName}` : "Property locked",
   "not-configured": () => "Property lock not configured",
   "not-candidate": () => "Not a managed property",
+  "managed-non-candidate": () => "Managed property · this page is not a Live Page candidate",
   "candidate-removed": () => "This page is no longer a candidate",
   "candidate-feed-conflict": () => "Candidate feed assignments conflict",
   "signed-out": () => "Sign in to use the property lock",

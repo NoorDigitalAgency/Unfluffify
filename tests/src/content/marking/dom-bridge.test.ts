@@ -2220,6 +2220,21 @@ describe("P6 DOM bridge", () => {
     )).toBe("<main><p>Content</p></main>");
   });
 
+  it("strips production source bodies without disturbing element identity or adjacent content", () => {
+    const source = [
+      '<main><p>Before</p>',
+      '<ScRiPt data-expression="1 > 0">window.template = "<section>not markup</section>";</sCrIpT>',
+      '<style media="screen and (width > 1px)">.cookie-banner { display: block; }</STYLE>',
+      '<NOSCRIPT><aside><p>Enable JavaScript</p></aside></noscript>',
+      '<script type="application/ld+json" />',
+      '<p class="real-copy">After</p></main>',
+    ].join("");
+
+    expect(stripUncapturableHtml(source)).toBe(
+      '<main><p>Before</p><ScRiPt data-expression="1 > 0"></sCrIpT><style media="screen and (width > 1px)"></STYLE><NOSCRIPT></noscript><script type="application/ld+json" /><p class="real-copy">After</p></main>',
+    );
+  });
+
   it("submits a row for direct open-shadow text captured on the host", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("SECTION", rect(0, 0, 300, 300));

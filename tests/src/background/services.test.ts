@@ -646,12 +646,16 @@ describe("rewrite background services", () => {
     const notCandidate = createRewriteBackgroundServices({
       transport: async (request) => hubContext(request, { status: "property_not_found" }),
     });
+    const managedNonCandidate = createRewriteBackgroundServices({
+      transport: async (request) => hubContext(request, { status: "managed_non_candidate", siteId: 5542 }),
+    });
     const unavailable = createRewriteBackgroundServices({
       transport: async () => { throw new Error("network down"); },
     });
     const request = { tabId: 7, pageUrl: "https://out-of-scope.example.com/page", baseUrl: "https://out-of-scope.example.com" };
     // Both cases are about what the backend said, so both need to get that far.
     await notCandidate.settings.update((current) => ({ ...current, stageBase: "stage.example.com", token: "live" }));
+    await managedNonCandidate.settings.update((current) => ({ ...current, stageBase: "stage.example.com", token: "live" }));
     await unavailable.settings.update((current) => ({ ...current, stageBase: "stage.example.com", token: "live" }));
 
     const outOfScope = await createPropertyLockRuntime({ services: notCandidate }).directive(request);
@@ -659,6 +663,15 @@ describe("rewrite background services", () => {
       status: "not_candidate",
       siteId: null,
       lockBanner: { visible: true, reason: "not-candidate" },
+    });
+
+    const managedRoot = await createPropertyLockRuntime({ services: managedNonCandidate }).directive(request);
+    expect(managedRoot).toMatchObject({
+      status: "not_candidate",
+      environmentKey: "stage.example.com",
+      siteId: 5542,
+      blockedReason: "managed-non-candidate",
+      lockBanner: { visible: true, reason: "managed-non-candidate" },
     });
 
     const offline = await createPropertyLockRuntime({ services: unavailable }).directive(request);

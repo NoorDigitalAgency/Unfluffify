@@ -70,6 +70,7 @@ describe("per-layer property-lock copy", () => {
       [{ visible: true, reason: "locked" }, "This property is currently being edited"],
       [{ visible: true, reason: "not-configured" }, "Property lock not configured"],
       [{ visible: true, reason: "not-candidate" }, "Not a managed property"],
+      [{ visible: true, reason: "managed-non-candidate" }, "This is a managed property, but this page is not a current Live Page candidate"],
       [{ visible: true, reason: "candidate-removed" }, "This page is no longer a candidate"],
       [{ visible: true, reason: "candidate-feed-conflict" }, "Candidate feed assignments conflict"],
       [{ visible: true, reason: "signed-out" }, "Sign in to use the property lock"],
@@ -79,5 +80,7 @@ describe("per-layer property-lock copy", () => {
     for (const [vocabulary, expected] of cases) {
       expect(resolveContentLockCopy(vocabulary)).toBe(expected);
     }
+    expect(resolvePopupLockCopy({ visible: true, reason: "managed-non-candidate" }))
+      .toBe("Managed property · this page is not a Live Page candidate");
   });
 });
