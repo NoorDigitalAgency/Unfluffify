@@ -1,7 +1,6 @@
 # P20 Assist24/Arno/Bigbag/ArkivIT remediation plan — 2026-08-25
 
-**Status:** implementation and integrated validation complete; final review and
-push are in progress.
+**Status:** completed, reviewed, and pushed to `origin/re-write`.
 
 **Finding evidence:**
 [`p20-assist24-arno-bigbag-arkivit-live-sanity-report-2026-08-25.md`](./p20-assist24-arno-bigbag-arkivit-live-sanity-report-2026-08-25.md)
