@@ -1,0 +1,3518 @@
+{
+  "schemaVersion": "p20-integrated-browser-gate/v1",
+  "acceptanceIds": [
+    "ACCEPT-P20-SPACE-RECOVERY",
+    "ACCEPT-P20-LOCK-COPY"
+  ],
+  "runKind": "acceptance",
+  "pass": true,
+  "startedAt": "2026-08-25T15:09:10.311Z",
+  "finishedAt": "2026-08-25T15:09:40.171Z",
+  "durationMs": 29860,
+  "source": {
+    "headCommit": "0c2cdaacbb3531ab882069a6b1fd949490405807",
+    "cleanSourceSet": true,
+    "status": [],
+    "trackedDiffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "harnessManifest": {
+      ".gitignore": {
+        "bytes": 1171,
+        "mode": "664",
+        "sha256": "7033a36dcd99cb199e8011f32d72986f6ad6f4a3f57d755553e0f6a57ee68144"
+      },
+      "package.json": {
+        "bytes": 3542,
+        "mode": "664",
+        "sha256": "a1b3623f66b5e94cc79ce8c6ba8a3ea68bf69b7030b881d6d23aeccba49090a3"
+      },
+      "pnpm-lock.yaml": {
+        "bytes": 148523,
+        "mode": "664",
+        "sha256": "f810cc7ef3934e1597cddf6e7e570b272ed37ce723e8114fe0319d0b928e2438"
+      },
+      "scripts/performance/p18/content-runtime.ts": {
+        "bytes": 13848,
+        "mode": "644",
+        "sha256": "a8cc8d0fdcf0a34be0e885f5a8c0dea4b68366ebf445c4df2a93467d401ea2b5"
+      },
+      "scripts/performance/p18/fixture.mjs": {
+        "bytes": 3861,
+        "mode": "644",
+        "sha256": "bdebbe3da45a9b877d5bc2699e472b38c4ecb45928c6ee0104bdccd65ce13e5b"
+      },
+      "scripts/performance/p18/playwright-cli.sh": {
+        "bytes": 218,
+        "mode": "755",
+        "sha256": "9ae2532da43d711f25d856da0c19cd76b13b33b891a543d77ef7bb93430be70d"
+      },
+      "scripts/performance/p20-integrated-browser-gate.mjs": {
+        "bytes": 16627,
+        "mode": "755",
+        "sha256": "2dd57930fb37b0f47b7da16c00dc612f4d470e6b4164e4756195d877444d90dc"
+      },
+      "scripts/performance/p20/README.md": {
+        "bytes": 1385,
+        "mode": "600",
+        "sha256": "d7d7e085539837666413c27660d726165315f5fbe929c6acf04367468988a33f"
+      },
+      "scripts/performance/p20/contract.mjs": {
+        "bytes": 4545,
+        "mode": "600",
+        "sha256": "3595940c6fec01897bf0587faabc26ec3cdb2550260c58f6497e0c1c29077062"
+      },
+      "scripts/performance/p20/playwright-controller.js": {
+        "bytes": 13721,
+        "mode": "600",
+        "sha256": "96c4a13c677d4141c8f94754de716d6c515dc0e5e45c7dd56cc7d8cc04de3c65"
+      },
+      "scripts/performance/p20/popup-runtime.tsx": {
+        "bytes": 5759,
+        "mode": "600",
+        "sha256": "243b33f7461867ceafbe780e7589a6672908a6f59aa1e2bee487c0fd8cfe1d17"
+      },
+      "tests/p20-browser-integrated-contract.test.ts": {
+        "bytes": 3371,
+        "mode": "600",
+        "sha256": "1f7d91572c88977841f724a72d7657cb00fcea278a475aa384d1c505f845b39b"
+      }
+    },
+    "harnessManifestSha256": "af40e0fca263ebbf23f8786b624c3adad27f532c322edd03b3b0d261cd4df4b1"
+  },
+  "sourceRequirement": {
+    "requiredClean": true,
+    "pass": true
+  },
+  "host": {
+    "platform": "linux",
+    "release": "7.0.0-30-generic",
+    "architecture": "x64",
+    "node": "v22.22.1"
+  },
+  "toolchain": {
+    "playwrightCli": {
+      "expected": "0.1.17",
+      "actual": "0.1.17",
+      "raw": "0.1.17"
+    },
+    "browserCompiler": {
+      "name": "esbuild",
+      "version": "0.28.1",
+      "packageManifest": {
+        "bytes": 3980,
+        "mode": "600",
+        "sha256": "d55d1d19fcc5b6079e4a71dd4111340c79c682bc36835ac7058a0c364c7db58a"
+      }
+    }
+  },
+  "runtimeBundles": {
+    "popupProduction": {
+      "generatedName": "popup-runtime-production.js (ephemeral; removed after hashing)",
+      "realm": "popup",
+      "debugBuild": false,
+      "bytes": 1882045,
+      "sha256": "bc013c732acbe8e559d345b420f0a3bc0172576a9f59ef90084f4b5168089588",
+      "inputManifest": {
+        "node_modules/.pnpm/react-dom@19.2.7_react@19.2.7/node_modules/react-dom/cjs/react-dom-client.development.js": {
+          "bytes": 1065698,
+          "mode": "664",
+          "sha256": "638fcb800207eaf4c5b2427f13fb82362b8e06df51e65d92fa350fbfeaa8fd89"
+        },
+        "node_modules/.pnpm/react-dom@19.2.7_react@19.2.7/node_modules/react-dom/cjs/react-dom.development.js": {
+          "bytes": 17673,
+          "mode": "664",
+          "sha256": "f298fb00cb038e7edea2b17df668c54658560ee9486a897d1d8175accac70a17"
+        },
+        "node_modules/.pnpm/react-dom@19.2.7_react@19.2.7/node_modules/react-dom/client.js": {
+          "bytes": 1373,
+          "mode": "664",
+          "sha256": "00e348ab3d6bc2eef908345d0bc4e008c95bcfecec060dfda5c4967953761396"
+        },
+        "node_modules/.pnpm/react-dom@19.2.7_react@19.2.7/node_modules/react-dom/index.js": {
+          "bytes": 1359,
+          "mode": "664",
+          "sha256": "ba1a3e33489f868371561777607e3ee5091df0f7ea3f1a10f789d6b86e4c1505"
+        },
+        "node_modules/.pnpm/react@19.2.7/node_modules/react/cjs/react-jsx-runtime.development.js": {
+          "bytes": 12452,
+          "mode": "664",
+          "sha256": "dd50fd0db2fba44e0eee66243a45c81cfa3774cf41e4e6c0c080a601815c694d"
+        },
+        "node_modules/.pnpm/react@19.2.7/node_modules/react/cjs/react.development.js": {
+          "bytes": 47219,
+          "mode": "664",
+          "sha256": "a5a052eac47e030dc93231e9226defb5e44980eb014961a504c241285966910e"
+        },
+        "node_modules/.pnpm/react@19.2.7/node_modules/react/index.js": {
+          "bytes": 186,
+          "mode": "664",
+          "sha256": "60caffdecbdc5db3bc4ec4e83df9488345ccb271d07533b9210bf5750918d97e"
+        },
+        "node_modules/.pnpm/react@19.2.7/node_modules/react/jsx-runtime.js": {
+          "bytes": 210,
+          "mode": "664",
+          "sha256": "b392951a77d0a2e6a6bd017e49d768481ae5b63c4109c6c31f622cf7b2433edc"
+        },
+        "node_modules/.pnpm/scheduler@0.27.0/node_modules/scheduler/cjs/scheduler.development.js": {
+          "bytes": 12144,
+          "mode": "664",
+          "sha256": "646eb671c8585382baff16daf92fe16a4cdd10dcf1a363c58b2ae1f6bf3a2b8d"
+        },
+        "node_modules/.pnpm/scheduler@0.27.0/node_modules/scheduler/index.js": {
+          "bytes": 194,
+          "mode": "664",
+          "sha256": "145965504d60007bc25486ab930b0367867dcd5d579ccd343c148d69349a7cfb"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js": {
+          "bytes": 121,
+          "mode": "664",
+          "sha256": "c733a1897d6b4b30dad6998597f6896b265b094a65534359ada34b08ecf8932c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/checks.js": {
+          "bytes": 663,
+          "mode": "664",
+          "sha256": "78a162d29e06001b4d919e1ed08f6e7d0d665bba0ef983201373745410d7b354"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/coerce.js": {
+          "bytes": 550,
+          "mode": "664",
+          "sha256": "fb2efe3b6eacc475c77cbb571b5fb8650d92a10f316dc869e49b722973d83c3c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/compat.js": {
+          "bytes": 1090,
+          "mode": "664",
+          "sha256": "0e948b101771cc0e7b753e54b3f5b486929d3db9bd4c09d98fe4ce86271bcf7b"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/errors.js": {
+          "bytes": 1609,
+          "mode": "664",
+          "sha256": "b155316267f79068ddc2dddc7046e13785804b768ca36e6deff1691d154f7c20"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js": {
+          "bytes": 907,
+          "mode": "664",
+          "sha256": "179a03ace3d1d77895cc5b3c54a3fcbf2b7f8bad44d6f030092491c10e5d9097"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/from-json-schema.js": {
+          "bytes": 24161,
+          "mode": "664",
+          "sha256": "d8866bf5232e55d12cda032bde6a56a05a0a8b276945c2e4eed66432ef5cc9b2"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/iso.js": {
+          "bytes": 1151,
+          "mode": "664",
+          "sha256": "3cc5e6b4da086b8ffc7ee3188c69e4d3c945b368092e78d2299b5321182752c5"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/parse.js": {
+          "bytes": 997,
+          "mode": "664",
+          "sha256": "14cbcc416ab9169abc2cde97af77da54ca769684eac1e03a3753c16ea4a7cd95"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/schemas.js": {
+          "bytes": 51378,
+          "mode": "664",
+          "sha256": "eb4af7946a092aff8678b9251728ea58dab40154920cd65ec4a2ca1d4df68393"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/api.js": {
+          "bytes": 28054,
+          "mode": "664",
+          "sha256": "00cb5edcfde8098e5a169e66c1dce50c101484d21436e3d78e137e1fa87c4836"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/checks.js": {
+          "bytes": 20005,
+          "mode": "664",
+          "sha256": "5a33a20dcad372b4d18ead8d1e58b1950454f136a2216e62f247e0e5601ac838"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/core.js": {
+          "bytes": 2578,
+          "mode": "664",
+          "sha256": "a5e713beaac4647151e03716a83f51ab714e5337cf66850f3b28eaf072a0bbfe"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/doc.js": {
+          "bytes": 1088,
+          "mode": "664",
+          "sha256": "e084bbcc536746a8942fd33b08afe4db345554b3a0383114f1dca95261c958d9"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/errors.js": {
+          "bytes": 6413,
+          "mode": "664",
+          "sha256": "bdd0ed8fd4a6e9d04fe6423b0f9df3a0b403939bc7dcedd8930a4b8df1fb118c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/index.js": {
+          "bytes": 594,
+          "mode": "664",
+          "sha256": "f9698820ee8371215e8d015cfa060230c62e65428397dce83f78e6538976301c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema-generator.js": {
+          "bytes": 3218,
+          "mode": "664",
+          "sha256": "9cc884cdb535a9c87b85b66e61a593ff6b686222f038834f81c5e92552cd6e23"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema-processors.js": {
+          "bytes": 20716,
+          "mode": "664",
+          "sha256": "ff15f567c9401dd7d3151ce11736283ff747c9a9e205cc08ee96f90eadc1c0c6"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema.js": {
+          "bytes": 11,
+          "mode": "664",
+          "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/parse.js": {
+          "bytes": 4444,
+          "mode": "664",
+          "sha256": "2578b8d1341c3882a6c089f9ec57ce1c1a16b8b2b477721d4d89ba3d3ee50c9c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/regexes.js": {
+          "bytes": 9078,
+          "mode": "664",
+          "sha256": "3cb122080c1154321331322ebc0cbe04878fe104c8c7b335891d9f85fc4b3f63"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/registries.js": {
+          "bytes": 1512,
+          "mode": "664",
+          "sha256": "620ea1a715ccc4e6e605a271343bf47942dccae90885dc71f137b1f08a972e50"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/schemas.js": {
+          "bytes": 83322,
+          "mode": "664",
+          "sha256": "09da9b0cb9b9d2d795c349bc47c7521d5aaffe241885f0c9728f2aa7de3834c9"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/to-json-schema.js": {
+          "bytes": 17006,
+          "mode": "664",
+          "sha256": "fb3c9ab59947582f7671a53c8e20a3ced5eaa92d1c220ce8b27717a59033ad0d"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/util.js": {
+          "bytes": 22018,
+          "mode": "664",
+          "sha256": "968e3433e810cf7ba5efb609a1cb6d9a6cfb51215fd1f699938228f7ac25deb3"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/versions.js": {
+          "bytes": 70,
+          "mode": "664",
+          "sha256": "bf082fde98fa7725412d713c7f56da3a5603bdef199d68d5769263f30ce9c756"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ar.js": {
+          "bytes": 5188,
+          "mode": "664",
+          "sha256": "220ca3ca8cf67e4ccc05d789eeed2692d970269fe0cd82f05db8fd899b661b9e"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/az.js": {
+          "bytes": 4511,
+          "mode": "664",
+          "sha256": "4725ffef0b2f2df947194f9698c792b69f52a8c3a5a1e1bdfabbf62259a1dd46"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/be.js": {
+          "bytes": 6619,
+          "mode": "664",
+          "sha256": "da4bda7fbc940dd9f50efdd914caa9397243be779a505b82bd4be5395d3b795e"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/bg.js": {
+          "bytes": 5785,
+          "mode": "664",
+          "sha256": "48511ad2f86043f0eea6e7673d5e2b848a3295a26c9c4650e96b3884d640196d"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ca.js": {
+          "bytes": 4710,
+          "mode": "664",
+          "sha256": "796f9ba7dcd53648171aa0132c50271ef358936765cec0a44a642c41d05b3e8c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/cs.js": {
+          "bytes": 4772,
+          "mode": "664",
+          "sha256": "670a75fe1db1104db090c95aabb01e4eb6decd451fe77fd830c2e4dafc79b49a"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/da.js": {
+          "bytes": 4804,
+          "mode": "664",
+          "sha256": "cdaad7a1fa370abda1943fe9c2caba961e7896b9808d51275daf33f964af49cc"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/de.js": {
+          "bytes": 4588,
+          "mode": "664",
+          "sha256": "521a4ed29fcaf3f781163875dc282cfb5262047773aa2b70a852996b1d8a51b9"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/el.js": {
+          "bytes": 5544,
+          "mode": "664",
+          "sha256": "9857a9e4909282b2efd86317fc3e67ed86e24287f32329cfa5ab833c05fc0d81"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/en.js": {
+          "bytes": 4805,
+          "mode": "664",
+          "sha256": "232a0828d64df8e410b23ac9825a667bd9d485fd70acdc4b4d0870539faef0a4"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/eo.js": {
+          "bytes": 4603,
+          "mode": "664",
+          "sha256": "ebe08048aa3ee9871ce9fe1271e254cb672b1968ec40ac253066d08d176e8a65"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/es.js": {
+          "bytes": 5439,
+          "mode": "664",
+          "sha256": "4edd9302e9724c408b024220e99092fbd2f90100ac3c6407a94543b79843610c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fa.js": {
+          "bytes": 5131,
+          "mode": "664",
+          "sha256": "2dc1bee1e984e8a15191fb3c69aaecaa26c922e12a0d4486ac005a0372b78565"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fi.js": {
+          "bytes": 4818,
+          "mode": "664",
+          "sha256": "3911184979f01d2ae580ce611710ee40597eff97a410d0fa823ab6ea27cee88c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fr-CA.js": {
+          "bytes": 4554,
+          "mode": "664",
+          "sha256": "f8716c2baaccdfd1d958743bbc5250c9bdef5152d0801470e9b9a380d618f4ab"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fr.js": {
+          "bytes": 5137,
+          "mode": "664",
+          "sha256": "3ea466ca5737984bb5acc9008822060272f596317004618cfe1e05109f707577"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/he.js": {
+          "bytes": 12005,
+          "mode": "664",
+          "sha256": "290512e43d2907700211da09dc3959fd98d120bfb89f8836e6e3f83a472e26fe"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hr.js": {
+          "bytes": 5052,
+          "mode": "664",
+          "sha256": "1ea65433c32b89bead43113ac69b3acc520bb73ae231dd2e05fedf8e8c5656d6"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hu.js": {
+          "bytes": 4696,
+          "mode": "664",
+          "sha256": "913ee94a253db79b31463ae23a337060b6fe28be73dfc7657d8a83a4942bd8a8"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hy.js": {
+          "bytes": 6390,
+          "mode": "664",
+          "sha256": "0d3bbb96c0f8bc74468a2dfc7d066e838bb56fab64fd5ec03ce9c4d89eccbe99"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/id.js": {
+          "bytes": 4577,
+          "mode": "664",
+          "sha256": "cd2c19b5c30dade3ed91ffcff3deb0b068713be24f02248e7e46b87b2b9553ee"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/index.js": {
+          "bytes": 2149,
+          "mode": "664",
+          "sha256": "d73f41a76614855d43eea493030a1aa05dca30c9a17015a0da5b8b70da61b6b1"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/is.js": {
+          "bytes": 4635,
+          "mode": "664",
+          "sha256": "ead5b14eac892229f915fe38ec94ab3b1e676f8aa2df2a8450848ba9ca9a1612"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/it.js": {
+          "bytes": 4582,
+          "mode": "664",
+          "sha256": "439969d199427d77ebf1e477bf2295b226712804b25437d442f9dfc78aca95e0"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ja.js": {
+          "bytes": 4851,
+          "mode": "664",
+          "sha256": "43ee10378cac22b0b8aee912a66c3f36a834d5b4c76e9748f88a784044f248fd"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ka.js": {
+          "bytes": 6202,
+          "mode": "664",
+          "sha256": "0ab5322368f9ac6e6b58f93dac484a4f4f06cdf4c0677f4df88164e9d8b4bf81"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/kh.js": {
+          "bytes": 111,
+          "mode": "664",
+          "sha256": "78c3d1991041bb8c8fc0f7c5d745aae422d4c2e4e8f30bae44f3fef4765900a8"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/km.js": {
+          "bytes": 6242,
+          "mode": "664",
+          "sha256": "dbdabda94dd93d4a1827e6c809505c79fa6aa7abefec91dc50fa0871382c99cc"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ko.js": {
+          "bytes": 4929,
+          "mode": "664",
+          "sha256": "d2efe22ac069d9b32b0109fa07713ac0695ac1c1357afc4e4277056466f2e196"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/lt.js": {
+          "bytes": 8082,
+          "mode": "664",
+          "sha256": "dad886e52c56a1329d22e072f8b08dc8730f69c3dc5e5acf8267cac18df1ab28"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/mk.js": {
+          "bytes": 5157,
+          "mode": "664",
+          "sha256": "9eb4af0392fc5b9c438cdc6ceea446acc541b59e221dba918f7b80800d9da3d1"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ms.js": {
+          "bytes": 4491,
+          "mode": "664",
+          "sha256": "c550a9185d997e8fcd17311951aa1e29793a50b8e825e18310efd5a46c641795"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/nl.js": {
+          "bytes": 4762,
+          "mode": "664",
+          "sha256": "acba414579c5bbd7f83dc6661fa1a12d65f1822f9b0f5035549ac60f46d93763"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/no.js": {
+          "bytes": 4506,
+          "mode": "664",
+          "sha256": "1854483c7cf158b8f97f0faf6fd799eb1f762009018b5fde893ca33f2fb0b313"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ota.js": {
+          "bytes": 4525,
+          "mode": "664",
+          "sha256": "34ae496104bc17fea7d30c3d45c94cfe3d1d569b5d39a6ca51de6c177690c556"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/pl.js": {
+          "bytes": 4966,
+          "mode": "664",
+          "sha256": "18eab58f395e30b906e8e3fddc5f212eb19f2c4362410889a5c5e0141ebe2144"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ps.js": {
+          "bytes": 4909,
+          "mode": "664",
+          "sha256": "f977b5141fa8fb6a8459372e0b2895d74b381c9f2ff4899141f7ee3e639a4513"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/pt.js": {
+          "bytes": 4568,
+          "mode": "664",
+          "sha256": "df172afc585544dee7c063c484f5a07b5ed103e2c1072a782c763ad8ceb08e17"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ro.js": {
+          "bytes": 4774,
+          "mode": "664",
+          "sha256": "ecae409f4299ab91e2aff1095db14e23f3cf2c05b3654e242047655352c7f46b"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ru.js": {
+          "bytes": 6714,
+          "mode": "664",
+          "sha256": "c397a473e94d7d189a9c09c7890fe379c4f6f46d9556d52a040a90ffa56f7b93"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/sl.js": {
+          "bytes": 4567,
+          "mode": "664",
+          "sha256": "ee2ff3a19b62cd2f89b54b165088773b937de15df7253df220bef07d9adf2d80"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/sv.js": {
+          "bytes": 4663,
+          "mode": "664",
+          "sha256": "97d6718fb643e05d6fe30fa4f9f09b8d9a3eda4a3a350b57dfb2944943d19502"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ta.js": {
+          "bytes": 6369,
+          "mode": "664",
+          "sha256": "04bbde9766251f9047e786fdd77632f2ecd53aec2eb060eb2fc85bf576ad729d"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/th.js": {
+          "bytes": 6290,
+          "mode": "664",
+          "sha256": "aea70c9ac2b399fe4749e19ba3aa99c3efb4dfb50eadfb62b0b2a6e005748f3d"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/tr.js": {
+          "bytes": 4454,
+          "mode": "664",
+          "sha256": "4449f41d22c6f15ede5066f79d840a52ec45a6b694c859e16f9121062b6fad2f"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ua.js": {
+          "bytes": 111,
+          "mode": "664",
+          "sha256": "9391169ffbc72f777a83230b6ffcc3f4cf46ab5945ec540de9ef4609dca1f4cc"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/uk.js": {
+          "bytes": 5430,
+          "mode": "664",
+          "sha256": "77136a2a60eef62f7cc803a0f9971aebbc641403af77c1b41fd5ce59abfa5de3"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ur.js": {
+          "bytes": 5271,
+          "mode": "664",
+          "sha256": "858f4f38d651073e7a3fbec7ed356692578b3ad1fae1b453cb3d85312a4f39d2"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/uz.js": {
+          "bytes": 4739,
+          "mode": "664",
+          "sha256": "d540bed482d15c47cb45439cff34e053379c53019c7c7c5fbe43f222d0c81f04"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/vi.js": {
+          "bytes": 4772,
+          "mode": "664",
+          "sha256": "2c61bd3f4a733f3cbb1ad85e75a053cb15a8ebeb83ab56dc21f2948b1138e12f"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/yo.js": {
+          "bytes": 4665,
+          "mode": "664",
+          "sha256": "98b9cbf31bf00c8b2c00de62725a9dd7cb718ac72d6e8fd4e0a1a7c49723e0f4"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/zh-CN.js": {
+          "bytes": 4452,
+          "mode": "664",
+          "sha256": "99a4b16af598834a0b11607fcdebd1c6de026386ff1d6a5a306b364c154c5899"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/zh-TW.js": {
+          "bytes": 4498,
+          "mode": "664",
+          "sha256": "37dcae620e1553e9174a4b9434bbcc4e465150a627e80c9c17fd01de8baaf59a"
+        },
+        "scripts/performance/p20/popup-runtime.tsx": {
+          "bytes": 5759,
+          "mode": "600",
+          "sha256": "243b33f7461867ceafbe780e7589a6672908a6f59aa1e2bee487c0fd8cfe1d17"
+        },
+        "src/domain/schema/facts.ts": {
+          "bytes": 6281,
+          "mode": "664",
+          "sha256": "9bd20d1f3ff886319f52380d4a1badc0e124a3bd4a12c19a49fa06699d215c90"
+        },
+        "src/domain/schema/property.ts": {
+          "bytes": 542,
+          "mode": "664",
+          "sha256": "685b6a3d27986967cd2a5706599d45605e9aee0c6901945f053570d1758b7fe9"
+        },
+        "src/popup.css": {
+          "bytes": 8990,
+          "mode": "664",
+          "sha256": "66ed3b7a812d327eaea448c39af91af815bb35463fe6fbb1f632072dd68df2dc"
+        },
+        "src/popup/App.tsx": {
+          "bytes": 86620,
+          "mode": "664",
+          "sha256": "0a7fdbc51bb0c01e3d52fa8bd81633ed119a5d43692c06b8d90813af0a08bbf3"
+        },
+        "src/popup/build-mode.ts": {
+          "bytes": 225,
+          "mode": "600",
+          "sha256": "fdff0ff2a13b9ea59c1ca91a6fca97a05e49f24bada255a9f651778973c5037e"
+        },
+        "src/popup/copy.ts": {
+          "bytes": 1770,
+          "mode": "664",
+          "sha256": "ac560409cfe56b83432e8013d865b4f894651b126a31581c652dffca09d29220"
+        },
+        "src/popup/organ/machine.ts": {
+          "bytes": 11063,
+          "mode": "664",
+          "sha256": "f150b99a513d6ff0aab15d3d20d31c2946aedcd5ae3c1545dcc34724b4dc0385"
+        },
+        "src/popup/organ/memory.ts": {
+          "bytes": 10917,
+          "mode": "664",
+          "sha256": "0d8e7d7b142e6799b4c6365e717651c5f92aa58dd87675b3c3e2761b40437edd"
+        },
+        "src/popup/presentation.ts": {
+          "bytes": 8975,
+          "mode": "600",
+          "sha256": "8cb2341c3099f581e1eefcde958fde95f1ec04fef18914719cb5fcc87452c096"
+        },
+        "src/popup/preview-classification.ts": {
+          "bytes": 2179,
+          "mode": "600",
+          "sha256": "58d87d977ef4d2206c243c6d083f274bf68350f679ab5436e91f29e1835cc323"
+        },
+        "src/popup/scroll-lock.ts": {
+          "bytes": 1242,
+          "mode": "600",
+          "sha256": "37213b0cc9ea5ba510b57596a6466f0c5099e0377b84b78dad850ec9e1cfe4cd"
+        },
+        "src/popup/sections/PopupToast.tsx": {
+          "bytes": 986,
+          "mode": "600",
+          "sha256": "c8db62640805d89f0de85fe2d66639abfa2c074e4a0d4c80f1fe96392d1f1431"
+        },
+        "src/popup/sections/PreviewRowList.tsx": {
+          "bytes": 4157,
+          "mode": "600",
+          "sha256": "78be30cbcabb03be2bd716e82f75fcc92ff35c16d40ac1163fdd703585381583"
+        },
+        "src/popup/store.ts": {
+          "bytes": 2264,
+          "mode": "664",
+          "sha256": "07b46b2393be395223888729536b9d03175479d55172241e95ebbb28428ad30c"
+        },
+        "src/popup/theme.ts": {
+          "bytes": 2721,
+          "mode": "664",
+          "sha256": "2144b3f9c33c6bba332e6832f0571486c49ff24d7f92c528729e181342f796b8"
+        },
+        "src/popup/todo-recovery.ts": {
+          "bytes": 947,
+          "mode": "664",
+          "sha256": "5594d9d5dd878c919ce5b84d28960069ae8156dddc30069d4e558eb4df75e55d"
+        },
+        "src/popup/use-transient-surfaces.ts": {
+          "bytes": 2975,
+          "mode": "600",
+          "sha256": "fbf0ded7d58c9f1c63dc5a8916dd67776406da6d2d507579827ff219e6f8122d"
+        },
+        "src/popup/view.ts": {
+          "bytes": 3773,
+          "mode": "664",
+          "sha256": "a2d0c26f636cdf285cbde224a171fc21fe4e1bccbf9e9b6fa989a9f34e9c0406"
+        },
+        "src/theme-color.css": {
+          "bytes": 9478,
+          "mode": "664",
+          "sha256": "7921aebe42188e5039699f2df20425bc61a1ae7ff6620df2ae0e876b7e91e1a4"
+        },
+        "src/theme-components.css": {
+          "bytes": 44335,
+          "mode": "664",
+          "sha256": "51188b02225829a73b61e6c361483a4cbb55efb153b5f37805b8a02e94748f03"
+        },
+        "src/theme-utilities.css": {
+          "bytes": 9432,
+          "mode": "664",
+          "sha256": "753c35623a29d042b591e1b201aac8de50e16e43bf4b39c0185c1ce12974e8ce"
+        },
+        "src/ui/transient-surface-manager.ts": {
+          "bytes": 6674,
+          "mode": "600",
+          "sha256": "b9ceeee414a9903329e9dad1422c45910a4adcda63b66d4ef07e51ac5fb289e5"
+        }
+      },
+      "inputManifestSha256": "2e580fdaf942601f3f84d01d824d9ad76a32dc581f2fa3bc16e6bda1bd282deb"
+    },
+    "popupDebug": {
+      "generatedName": "popup-runtime-debug.js (ephemeral; removed after hashing)",
+      "realm": "popup",
+      "debugBuild": true,
+      "bytes": 1882041,
+      "sha256": "12d5663f97839e4c510153a2d5491fc0324017258d5e4644de18f5cb58404c55",
+      "inputManifest": {
+        "node_modules/.pnpm/react-dom@19.2.7_react@19.2.7/node_modules/react-dom/cjs/react-dom-client.development.js": {
+          "bytes": 1065698,
+          "mode": "664",
+          "sha256": "638fcb800207eaf4c5b2427f13fb82362b8e06df51e65d92fa350fbfeaa8fd89"
+        },
+        "node_modules/.pnpm/react-dom@19.2.7_react@19.2.7/node_modules/react-dom/cjs/react-dom.development.js": {
+          "bytes": 17673,
+          "mode": "664",
+          "sha256": "f298fb00cb038e7edea2b17df668c54658560ee9486a897d1d8175accac70a17"
+        },
+        "node_modules/.pnpm/react-dom@19.2.7_react@19.2.7/node_modules/react-dom/client.js": {
+          "bytes": 1373,
+          "mode": "664",
+          "sha256": "00e348ab3d6bc2eef908345d0bc4e008c95bcfecec060dfda5c4967953761396"
+        },
+        "node_modules/.pnpm/react-dom@19.2.7_react@19.2.7/node_modules/react-dom/index.js": {
+          "bytes": 1359,
+          "mode": "664",
+          "sha256": "ba1a3e33489f868371561777607e3ee5091df0f7ea3f1a10f789d6b86e4c1505"
+        },
+        "node_modules/.pnpm/react@19.2.7/node_modules/react/cjs/react-jsx-runtime.development.js": {
+          "bytes": 12452,
+          "mode": "664",
+          "sha256": "dd50fd0db2fba44e0eee66243a45c81cfa3774cf41e4e6c0c080a601815c694d"
+        },
+        "node_modules/.pnpm/react@19.2.7/node_modules/react/cjs/react.development.js": {
+          "bytes": 47219,
+          "mode": "664",
+          "sha256": "a5a052eac47e030dc93231e9226defb5e44980eb014961a504c241285966910e"
+        },
+        "node_modules/.pnpm/react@19.2.7/node_modules/react/index.js": {
+          "bytes": 186,
+          "mode": "664",
+          "sha256": "60caffdecbdc5db3bc4ec4e83df9488345ccb271d07533b9210bf5750918d97e"
+        },
+        "node_modules/.pnpm/react@19.2.7/node_modules/react/jsx-runtime.js": {
+          "bytes": 210,
+          "mode": "664",
+          "sha256": "b392951a77d0a2e6a6bd017e49d768481ae5b63c4109c6c31f622cf7b2433edc"
+        },
+        "node_modules/.pnpm/scheduler@0.27.0/node_modules/scheduler/cjs/scheduler.development.js": {
+          "bytes": 12144,
+          "mode": "664",
+          "sha256": "646eb671c8585382baff16daf92fe16a4cdd10dcf1a363c58b2ae1f6bf3a2b8d"
+        },
+        "node_modules/.pnpm/scheduler@0.27.0/node_modules/scheduler/index.js": {
+          "bytes": 194,
+          "mode": "664",
+          "sha256": "145965504d60007bc25486ab930b0367867dcd5d579ccd343c148d69349a7cfb"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js": {
+          "bytes": 121,
+          "mode": "664",
+          "sha256": "c733a1897d6b4b30dad6998597f6896b265b094a65534359ada34b08ecf8932c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/checks.js": {
+          "bytes": 663,
+          "mode": "664",
+          "sha256": "78a162d29e06001b4d919e1ed08f6e7d0d665bba0ef983201373745410d7b354"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/coerce.js": {
+          "bytes": 550,
+          "mode": "664",
+          "sha256": "fb2efe3b6eacc475c77cbb571b5fb8650d92a10f316dc869e49b722973d83c3c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/compat.js": {
+          "bytes": 1090,
+          "mode": "664",
+          "sha256": "0e948b101771cc0e7b753e54b3f5b486929d3db9bd4c09d98fe4ce86271bcf7b"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/errors.js": {
+          "bytes": 1609,
+          "mode": "664",
+          "sha256": "b155316267f79068ddc2dddc7046e13785804b768ca36e6deff1691d154f7c20"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js": {
+          "bytes": 907,
+          "mode": "664",
+          "sha256": "179a03ace3d1d77895cc5b3c54a3fcbf2b7f8bad44d6f030092491c10e5d9097"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/from-json-schema.js": {
+          "bytes": 24161,
+          "mode": "664",
+          "sha256": "d8866bf5232e55d12cda032bde6a56a05a0a8b276945c2e4eed66432ef5cc9b2"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/iso.js": {
+          "bytes": 1151,
+          "mode": "664",
+          "sha256": "3cc5e6b4da086b8ffc7ee3188c69e4d3c945b368092e78d2299b5321182752c5"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/parse.js": {
+          "bytes": 997,
+          "mode": "664",
+          "sha256": "14cbcc416ab9169abc2cde97af77da54ca769684eac1e03a3753c16ea4a7cd95"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/schemas.js": {
+          "bytes": 51378,
+          "mode": "664",
+          "sha256": "eb4af7946a092aff8678b9251728ea58dab40154920cd65ec4a2ca1d4df68393"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/api.js": {
+          "bytes": 28054,
+          "mode": "664",
+          "sha256": "00cb5edcfde8098e5a169e66c1dce50c101484d21436e3d78e137e1fa87c4836"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/checks.js": {
+          "bytes": 20005,
+          "mode": "664",
+          "sha256": "5a33a20dcad372b4d18ead8d1e58b1950454f136a2216e62f247e0e5601ac838"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/core.js": {
+          "bytes": 2578,
+          "mode": "664",
+          "sha256": "a5e713beaac4647151e03716a83f51ab714e5337cf66850f3b28eaf072a0bbfe"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/doc.js": {
+          "bytes": 1088,
+          "mode": "664",
+          "sha256": "e084bbcc536746a8942fd33b08afe4db345554b3a0383114f1dca95261c958d9"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/errors.js": {
+          "bytes": 6413,
+          "mode": "664",
+          "sha256": "bdd0ed8fd4a6e9d04fe6423b0f9df3a0b403939bc7dcedd8930a4b8df1fb118c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/index.js": {
+          "bytes": 594,
+          "mode": "664",
+          "sha256": "f9698820ee8371215e8d015cfa060230c62e65428397dce83f78e6538976301c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema-generator.js": {
+          "bytes": 3218,
+          "mode": "664",
+          "sha256": "9cc884cdb535a9c87b85b66e61a593ff6b686222f038834f81c5e92552cd6e23"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema-processors.js": {
+          "bytes": 20716,
+          "mode": "664",
+          "sha256": "ff15f567c9401dd7d3151ce11736283ff747c9a9e205cc08ee96f90eadc1c0c6"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema.js": {
+          "bytes": 11,
+          "mode": "664",
+          "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/parse.js": {
+          "bytes": 4444,
+          "mode": "664",
+          "sha256": "2578b8d1341c3882a6c089f9ec57ce1c1a16b8b2b477721d4d89ba3d3ee50c9c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/regexes.js": {
+          "bytes": 9078,
+          "mode": "664",
+          "sha256": "3cb122080c1154321331322ebc0cbe04878fe104c8c7b335891d9f85fc4b3f63"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/registries.js": {
+          "bytes": 1512,
+          "mode": "664",
+          "sha256": "620ea1a715ccc4e6e605a271343bf47942dccae90885dc71f137b1f08a972e50"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/schemas.js": {
+          "bytes": 83322,
+          "mode": "664",
+          "sha256": "09da9b0cb9b9d2d795c349bc47c7521d5aaffe241885f0c9728f2aa7de3834c9"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/to-json-schema.js": {
+          "bytes": 17006,
+          "mode": "664",
+          "sha256": "fb3c9ab59947582f7671a53c8e20a3ced5eaa92d1c220ce8b27717a59033ad0d"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/util.js": {
+          "bytes": 22018,
+          "mode": "664",
+          "sha256": "968e3433e810cf7ba5efb609a1cb6d9a6cfb51215fd1f699938228f7ac25deb3"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/versions.js": {
+          "bytes": 70,
+          "mode": "664",
+          "sha256": "bf082fde98fa7725412d713c7f56da3a5603bdef199d68d5769263f30ce9c756"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ar.js": {
+          "bytes": 5188,
+          "mode": "664",
+          "sha256": "220ca3ca8cf67e4ccc05d789eeed2692d970269fe0cd82f05db8fd899b661b9e"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/az.js": {
+          "bytes": 4511,
+          "mode": "664",
+          "sha256": "4725ffef0b2f2df947194f9698c792b69f52a8c3a5a1e1bdfabbf62259a1dd46"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/be.js": {
+          "bytes": 6619,
+          "mode": "664",
+          "sha256": "da4bda7fbc940dd9f50efdd914caa9397243be779a505b82bd4be5395d3b795e"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/bg.js": {
+          "bytes": 5785,
+          "mode": "664",
+          "sha256": "48511ad2f86043f0eea6e7673d5e2b848a3295a26c9c4650e96b3884d640196d"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ca.js": {
+          "bytes": 4710,
+          "mode": "664",
+          "sha256": "796f9ba7dcd53648171aa0132c50271ef358936765cec0a44a642c41d05b3e8c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/cs.js": {
+          "bytes": 4772,
+          "mode": "664",
+          "sha256": "670a75fe1db1104db090c95aabb01e4eb6decd451fe77fd830c2e4dafc79b49a"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/da.js": {
+          "bytes": 4804,
+          "mode": "664",
+          "sha256": "cdaad7a1fa370abda1943fe9c2caba961e7896b9808d51275daf33f964af49cc"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/de.js": {
+          "bytes": 4588,
+          "mode": "664",
+          "sha256": "521a4ed29fcaf3f781163875dc282cfb5262047773aa2b70a852996b1d8a51b9"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/el.js": {
+          "bytes": 5544,
+          "mode": "664",
+          "sha256": "9857a9e4909282b2efd86317fc3e67ed86e24287f32329cfa5ab833c05fc0d81"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/en.js": {
+          "bytes": 4805,
+          "mode": "664",
+          "sha256": "232a0828d64df8e410b23ac9825a667bd9d485fd70acdc4b4d0870539faef0a4"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/eo.js": {
+          "bytes": 4603,
+          "mode": "664",
+          "sha256": "ebe08048aa3ee9871ce9fe1271e254cb672b1968ec40ac253066d08d176e8a65"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/es.js": {
+          "bytes": 5439,
+          "mode": "664",
+          "sha256": "4edd9302e9724c408b024220e99092fbd2f90100ac3c6407a94543b79843610c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fa.js": {
+          "bytes": 5131,
+          "mode": "664",
+          "sha256": "2dc1bee1e984e8a15191fb3c69aaecaa26c922e12a0d4486ac005a0372b78565"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fi.js": {
+          "bytes": 4818,
+          "mode": "664",
+          "sha256": "3911184979f01d2ae580ce611710ee40597eff97a410d0fa823ab6ea27cee88c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fr-CA.js": {
+          "bytes": 4554,
+          "mode": "664",
+          "sha256": "f8716c2baaccdfd1d958743bbc5250c9bdef5152d0801470e9b9a380d618f4ab"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fr.js": {
+          "bytes": 5137,
+          "mode": "664",
+          "sha256": "3ea466ca5737984bb5acc9008822060272f596317004618cfe1e05109f707577"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/he.js": {
+          "bytes": 12005,
+          "mode": "664",
+          "sha256": "290512e43d2907700211da09dc3959fd98d120bfb89f8836e6e3f83a472e26fe"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hr.js": {
+          "bytes": 5052,
+          "mode": "664",
+          "sha256": "1ea65433c32b89bead43113ac69b3acc520bb73ae231dd2e05fedf8e8c5656d6"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hu.js": {
+          "bytes": 4696,
+          "mode": "664",
+          "sha256": "913ee94a253db79b31463ae23a337060b6fe28be73dfc7657d8a83a4942bd8a8"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hy.js": {
+          "bytes": 6390,
+          "mode": "664",
+          "sha256": "0d3bbb96c0f8bc74468a2dfc7d066e838bb56fab64fd5ec03ce9c4d89eccbe99"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/id.js": {
+          "bytes": 4577,
+          "mode": "664",
+          "sha256": "cd2c19b5c30dade3ed91ffcff3deb0b068713be24f02248e7e46b87b2b9553ee"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/index.js": {
+          "bytes": 2149,
+          "mode": "664",
+          "sha256": "d73f41a76614855d43eea493030a1aa05dca30c9a17015a0da5b8b70da61b6b1"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/is.js": {
+          "bytes": 4635,
+          "mode": "664",
+          "sha256": "ead5b14eac892229f915fe38ec94ab3b1e676f8aa2df2a8450848ba9ca9a1612"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/it.js": {
+          "bytes": 4582,
+          "mode": "664",
+          "sha256": "439969d199427d77ebf1e477bf2295b226712804b25437d442f9dfc78aca95e0"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ja.js": {
+          "bytes": 4851,
+          "mode": "664",
+          "sha256": "43ee10378cac22b0b8aee912a66c3f36a834d5b4c76e9748f88a784044f248fd"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ka.js": {
+          "bytes": 6202,
+          "mode": "664",
+          "sha256": "0ab5322368f9ac6e6b58f93dac484a4f4f06cdf4c0677f4df88164e9d8b4bf81"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/kh.js": {
+          "bytes": 111,
+          "mode": "664",
+          "sha256": "78c3d1991041bb8c8fc0f7c5d745aae422d4c2e4e8f30bae44f3fef4765900a8"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/km.js": {
+          "bytes": 6242,
+          "mode": "664",
+          "sha256": "dbdabda94dd93d4a1827e6c809505c79fa6aa7abefec91dc50fa0871382c99cc"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ko.js": {
+          "bytes": 4929,
+          "mode": "664",
+          "sha256": "d2efe22ac069d9b32b0109fa07713ac0695ac1c1357afc4e4277056466f2e196"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/lt.js": {
+          "bytes": 8082,
+          "mode": "664",
+          "sha256": "dad886e52c56a1329d22e072f8b08dc8730f69c3dc5e5acf8267cac18df1ab28"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/mk.js": {
+          "bytes": 5157,
+          "mode": "664",
+          "sha256": "9eb4af0392fc5b9c438cdc6ceea446acc541b59e221dba918f7b80800d9da3d1"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ms.js": {
+          "bytes": 4491,
+          "mode": "664",
+          "sha256": "c550a9185d997e8fcd17311951aa1e29793a50b8e825e18310efd5a46c641795"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/nl.js": {
+          "bytes": 4762,
+          "mode": "664",
+          "sha256": "acba414579c5bbd7f83dc6661fa1a12d65f1822f9b0f5035549ac60f46d93763"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/no.js": {
+          "bytes": 4506,
+          "mode": "664",
+          "sha256": "1854483c7cf158b8f97f0faf6fd799eb1f762009018b5fde893ca33f2fb0b313"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ota.js": {
+          "bytes": 4525,
+          "mode": "664",
+          "sha256": "34ae496104bc17fea7d30c3d45c94cfe3d1d569b5d39a6ca51de6c177690c556"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/pl.js": {
+          "bytes": 4966,
+          "mode": "664",
+          "sha256": "18eab58f395e30b906e8e3fddc5f212eb19f2c4362410889a5c5e0141ebe2144"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ps.js": {
+          "bytes": 4909,
+          "mode": "664",
+          "sha256": "f977b5141fa8fb6a8459372e0b2895d74b381c9f2ff4899141f7ee3e639a4513"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/pt.js": {
+          "bytes": 4568,
+          "mode": "664",
+          "sha256": "df172afc585544dee7c063c484f5a07b5ed103e2c1072a782c763ad8ceb08e17"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ro.js": {
+          "bytes": 4774,
+          "mode": "664",
+          "sha256": "ecae409f4299ab91e2aff1095db14e23f3cf2c05b3654e242047655352c7f46b"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ru.js": {
+          "bytes": 6714,
+          "mode": "664",
+          "sha256": "c397a473e94d7d189a9c09c7890fe379c4f6f46d9556d52a040a90ffa56f7b93"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/sl.js": {
+          "bytes": 4567,
+          "mode": "664",
+          "sha256": "ee2ff3a19b62cd2f89b54b165088773b937de15df7253df220bef07d9adf2d80"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/sv.js": {
+          "bytes": 4663,
+          "mode": "664",
+          "sha256": "97d6718fb643e05d6fe30fa4f9f09b8d9a3eda4a3a350b57dfb2944943d19502"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ta.js": {
+          "bytes": 6369,
+          "mode": "664",
+          "sha256": "04bbde9766251f9047e786fdd77632f2ecd53aec2eb060eb2fc85bf576ad729d"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/th.js": {
+          "bytes": 6290,
+          "mode": "664",
+          "sha256": "aea70c9ac2b399fe4749e19ba3aa99c3efb4dfb50eadfb62b0b2a6e005748f3d"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/tr.js": {
+          "bytes": 4454,
+          "mode": "664",
+          "sha256": "4449f41d22c6f15ede5066f79d840a52ec45a6b694c859e16f9121062b6fad2f"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ua.js": {
+          "bytes": 111,
+          "mode": "664",
+          "sha256": "9391169ffbc72f777a83230b6ffcc3f4cf46ab5945ec540de9ef4609dca1f4cc"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/uk.js": {
+          "bytes": 5430,
+          "mode": "664",
+          "sha256": "77136a2a60eef62f7cc803a0f9971aebbc641403af77c1b41fd5ce59abfa5de3"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ur.js": {
+          "bytes": 5271,
+          "mode": "664",
+          "sha256": "858f4f38d651073e7a3fbec7ed356692578b3ad1fae1b453cb3d85312a4f39d2"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/uz.js": {
+          "bytes": 4739,
+          "mode": "664",
+          "sha256": "d540bed482d15c47cb45439cff34e053379c53019c7c7c5fbe43f222d0c81f04"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/vi.js": {
+          "bytes": 4772,
+          "mode": "664",
+          "sha256": "2c61bd3f4a733f3cbb1ad85e75a053cb15a8ebeb83ab56dc21f2948b1138e12f"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/yo.js": {
+          "bytes": 4665,
+          "mode": "664",
+          "sha256": "98b9cbf31bf00c8b2c00de62725a9dd7cb718ac72d6e8fd4e0a1a7c49723e0f4"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/zh-CN.js": {
+          "bytes": 4452,
+          "mode": "664",
+          "sha256": "99a4b16af598834a0b11607fcdebd1c6de026386ff1d6a5a306b364c154c5899"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/zh-TW.js": {
+          "bytes": 4498,
+          "mode": "664",
+          "sha256": "37dcae620e1553e9174a4b9434bbcc4e465150a627e80c9c17fd01de8baaf59a"
+        },
+        "scripts/performance/p20/popup-runtime.tsx": {
+          "bytes": 5759,
+          "mode": "600",
+          "sha256": "243b33f7461867ceafbe780e7589a6672908a6f59aa1e2bee487c0fd8cfe1d17"
+        },
+        "src/domain/schema/facts.ts": {
+          "bytes": 6281,
+          "mode": "664",
+          "sha256": "9bd20d1f3ff886319f52380d4a1badc0e124a3bd4a12c19a49fa06699d215c90"
+        },
+        "src/domain/schema/property.ts": {
+          "bytes": 542,
+          "mode": "664",
+          "sha256": "685b6a3d27986967cd2a5706599d45605e9aee0c6901945f053570d1758b7fe9"
+        },
+        "src/popup.css": {
+          "bytes": 8990,
+          "mode": "664",
+          "sha256": "66ed3b7a812d327eaea448c39af91af815bb35463fe6fbb1f632072dd68df2dc"
+        },
+        "src/popup/App.tsx": {
+          "bytes": 86620,
+          "mode": "664",
+          "sha256": "0a7fdbc51bb0c01e3d52fa8bd81633ed119a5d43692c06b8d90813af0a08bbf3"
+        },
+        "src/popup/build-mode.ts": {
+          "bytes": 225,
+          "mode": "600",
+          "sha256": "fdff0ff2a13b9ea59c1ca91a6fca97a05e49f24bada255a9f651778973c5037e"
+        },
+        "src/popup/copy.ts": {
+          "bytes": 1770,
+          "mode": "664",
+          "sha256": "ac560409cfe56b83432e8013d865b4f894651b126a31581c652dffca09d29220"
+        },
+        "src/popup/organ/machine.ts": {
+          "bytes": 11063,
+          "mode": "664",
+          "sha256": "f150b99a513d6ff0aab15d3d20d31c2946aedcd5ae3c1545dcc34724b4dc0385"
+        },
+        "src/popup/organ/memory.ts": {
+          "bytes": 10917,
+          "mode": "664",
+          "sha256": "0d8e7d7b142e6799b4c6365e717651c5f92aa58dd87675b3c3e2761b40437edd"
+        },
+        "src/popup/presentation.ts": {
+          "bytes": 8975,
+          "mode": "600",
+          "sha256": "8cb2341c3099f581e1eefcde958fde95f1ec04fef18914719cb5fcc87452c096"
+        },
+        "src/popup/preview-classification.ts": {
+          "bytes": 2179,
+          "mode": "600",
+          "sha256": "58d87d977ef4d2206c243c6d083f274bf68350f679ab5436e91f29e1835cc323"
+        },
+        "src/popup/scroll-lock.ts": {
+          "bytes": 1242,
+          "mode": "600",
+          "sha256": "37213b0cc9ea5ba510b57596a6466f0c5099e0377b84b78dad850ec9e1cfe4cd"
+        },
+        "src/popup/sections/PopupToast.tsx": {
+          "bytes": 986,
+          "mode": "600",
+          "sha256": "c8db62640805d89f0de85fe2d66639abfa2c074e4a0d4c80f1fe96392d1f1431"
+        },
+        "src/popup/sections/PreviewRowList.tsx": {
+          "bytes": 4157,
+          "mode": "600",
+          "sha256": "78be30cbcabb03be2bd716e82f75fcc92ff35c16d40ac1163fdd703585381583"
+        },
+        "src/popup/store.ts": {
+          "bytes": 2264,
+          "mode": "664",
+          "sha256": "07b46b2393be395223888729536b9d03175479d55172241e95ebbb28428ad30c"
+        },
+        "src/popup/theme.ts": {
+          "bytes": 2721,
+          "mode": "664",
+          "sha256": "2144b3f9c33c6bba332e6832f0571486c49ff24d7f92c528729e181342f796b8"
+        },
+        "src/popup/todo-recovery.ts": {
+          "bytes": 947,
+          "mode": "664",
+          "sha256": "5594d9d5dd878c919ce5b84d28960069ae8156dddc30069d4e558eb4df75e55d"
+        },
+        "src/popup/use-transient-surfaces.ts": {
+          "bytes": 2975,
+          "mode": "600",
+          "sha256": "fbf0ded7d58c9f1c63dc5a8916dd67776406da6d2d507579827ff219e6f8122d"
+        },
+        "src/popup/view.ts": {
+          "bytes": 3773,
+          "mode": "664",
+          "sha256": "a2d0c26f636cdf285cbde224a171fc21fe4e1bccbf9e9b6fa989a9f34e9c0406"
+        },
+        "src/theme-color.css": {
+          "bytes": 9478,
+          "mode": "664",
+          "sha256": "7921aebe42188e5039699f2df20425bc61a1ae7ff6620df2ae0e876b7e91e1a4"
+        },
+        "src/theme-components.css": {
+          "bytes": 44335,
+          "mode": "664",
+          "sha256": "51188b02225829a73b61e6c361483a4cbb55efb153b5f37805b8a02e94748f03"
+        },
+        "src/theme-utilities.css": {
+          "bytes": 9432,
+          "mode": "664",
+          "sha256": "753c35623a29d042b591e1b201aac8de50e16e43bf4b39c0185c1ce12974e8ce"
+        },
+        "src/ui/transient-surface-manager.ts": {
+          "bytes": 6674,
+          "mode": "600",
+          "sha256": "b9ceeee414a9903329e9dad1422c45910a4adcda63b66d4ef07e51ac5fb289e5"
+        }
+      },
+      "inputManifestSha256": "2e580fdaf942601f3f84d01d824d9ad76a32dc581f2fa3bc16e6bda1bd282deb"
+    },
+    "contentProduction": {
+      "generatedName": "content-runtime-production.js (ephemeral; removed after hashing)",
+      "realm": "content",
+      "debugBuild": false,
+      "bytes": 994554,
+      "sha256": "528f9daad0763a3bbf097a202da14ec2794c7649703648c25ee19052b6ec426c",
+      "inputManifest": {
+        "node_modules/.pnpm/@wxt-dev+browser@0.2.0/node_modules/@wxt-dev/browser/src/index.mjs": {
+          "bytes": 142,
+          "mode": "664",
+          "sha256": "b284b8403cff4c8eb700d3bbd34dec4c770e0165093fb9ac32e129f0813b2144"
+        },
+        "node_modules/.pnpm/wxt@0.20.27_@types+node@26.0.0_eslint@10.5.0_jiti@2.7.0__jiti@2.7.0_rolldown@1.1.2/node_modules/wxt/dist/browser.mjs": {
+          "bytes": 400,
+          "mode": "664",
+          "sha256": "fb07c2c280ed49c1a212bba157a9daa55f4112179a75deb394867fb916d2e492"
+        },
+        "node_modules/.pnpm/wxt@0.20.27_@types+node@26.0.0_eslint@10.5.0_jiti@2.7.0__jiti@2.7.0_rolldown@1.1.2/node_modules/wxt/dist/utils/define-content-script.mjs": {
+          "bytes": 155,
+          "mode": "664",
+          "sha256": "b091992595232a2dd7cd0c1cbe178ff5265deb4e19bcae8f9818b443a5a02009"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js": {
+          "bytes": 121,
+          "mode": "664",
+          "sha256": "c733a1897d6b4b30dad6998597f6896b265b094a65534359ada34b08ecf8932c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/checks.js": {
+          "bytes": 663,
+          "mode": "664",
+          "sha256": "78a162d29e06001b4d919e1ed08f6e7d0d665bba0ef983201373745410d7b354"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/coerce.js": {
+          "bytes": 550,
+          "mode": "664",
+          "sha256": "fb2efe3b6eacc475c77cbb571b5fb8650d92a10f316dc869e49b722973d83c3c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/compat.js": {
+          "bytes": 1090,
+          "mode": "664",
+          "sha256": "0e948b101771cc0e7b753e54b3f5b486929d3db9bd4c09d98fe4ce86271bcf7b"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/errors.js": {
+          "bytes": 1609,
+          "mode": "664",
+          "sha256": "b155316267f79068ddc2dddc7046e13785804b768ca36e6deff1691d154f7c20"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js": {
+          "bytes": 907,
+          "mode": "664",
+          "sha256": "179a03ace3d1d77895cc5b3c54a3fcbf2b7f8bad44d6f030092491c10e5d9097"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/from-json-schema.js": {
+          "bytes": 24161,
+          "mode": "664",
+          "sha256": "d8866bf5232e55d12cda032bde6a56a05a0a8b276945c2e4eed66432ef5cc9b2"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/iso.js": {
+          "bytes": 1151,
+          "mode": "664",
+          "sha256": "3cc5e6b4da086b8ffc7ee3188c69e4d3c945b368092e78d2299b5321182752c5"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/parse.js": {
+          "bytes": 997,
+          "mode": "664",
+          "sha256": "14cbcc416ab9169abc2cde97af77da54ca769684eac1e03a3753c16ea4a7cd95"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/schemas.js": {
+          "bytes": 51378,
+          "mode": "664",
+          "sha256": "eb4af7946a092aff8678b9251728ea58dab40154920cd65ec4a2ca1d4df68393"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/api.js": {
+          "bytes": 28054,
+          "mode": "664",
+          "sha256": "00cb5edcfde8098e5a169e66c1dce50c101484d21436e3d78e137e1fa87c4836"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/checks.js": {
+          "bytes": 20005,
+          "mode": "664",
+          "sha256": "5a33a20dcad372b4d18ead8d1e58b1950454f136a2216e62f247e0e5601ac838"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/core.js": {
+          "bytes": 2578,
+          "mode": "664",
+          "sha256": "a5e713beaac4647151e03716a83f51ab714e5337cf66850f3b28eaf072a0bbfe"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/doc.js": {
+          "bytes": 1088,
+          "mode": "664",
+          "sha256": "e084bbcc536746a8942fd33b08afe4db345554b3a0383114f1dca95261c958d9"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/errors.js": {
+          "bytes": 6413,
+          "mode": "664",
+          "sha256": "bdd0ed8fd4a6e9d04fe6423b0f9df3a0b403939bc7dcedd8930a4b8df1fb118c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/index.js": {
+          "bytes": 594,
+          "mode": "664",
+          "sha256": "f9698820ee8371215e8d015cfa060230c62e65428397dce83f78e6538976301c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema-generator.js": {
+          "bytes": 3218,
+          "mode": "664",
+          "sha256": "9cc884cdb535a9c87b85b66e61a593ff6b686222f038834f81c5e92552cd6e23"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema-processors.js": {
+          "bytes": 20716,
+          "mode": "664",
+          "sha256": "ff15f567c9401dd7d3151ce11736283ff747c9a9e205cc08ee96f90eadc1c0c6"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema.js": {
+          "bytes": 11,
+          "mode": "664",
+          "sha256": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/parse.js": {
+          "bytes": 4444,
+          "mode": "664",
+          "sha256": "2578b8d1341c3882a6c089f9ec57ce1c1a16b8b2b477721d4d89ba3d3ee50c9c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/regexes.js": {
+          "bytes": 9078,
+          "mode": "664",
+          "sha256": "3cb122080c1154321331322ebc0cbe04878fe104c8c7b335891d9f85fc4b3f63"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/registries.js": {
+          "bytes": 1512,
+          "mode": "664",
+          "sha256": "620ea1a715ccc4e6e605a271343bf47942dccae90885dc71f137b1f08a972e50"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/schemas.js": {
+          "bytes": 83322,
+          "mode": "664",
+          "sha256": "09da9b0cb9b9d2d795c349bc47c7521d5aaffe241885f0c9728f2aa7de3834c9"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/to-json-schema.js": {
+          "bytes": 17006,
+          "mode": "664",
+          "sha256": "fb3c9ab59947582f7671a53c8e20a3ced5eaa92d1c220ce8b27717a59033ad0d"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/util.js": {
+          "bytes": 22018,
+          "mode": "664",
+          "sha256": "968e3433e810cf7ba5efb609a1cb6d9a6cfb51215fd1f699938228f7ac25deb3"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/versions.js": {
+          "bytes": 70,
+          "mode": "664",
+          "sha256": "bf082fde98fa7725412d713c7f56da3a5603bdef199d68d5769263f30ce9c756"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ar.js": {
+          "bytes": 5188,
+          "mode": "664",
+          "sha256": "220ca3ca8cf67e4ccc05d789eeed2692d970269fe0cd82f05db8fd899b661b9e"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/az.js": {
+          "bytes": 4511,
+          "mode": "664",
+          "sha256": "4725ffef0b2f2df947194f9698c792b69f52a8c3a5a1e1bdfabbf62259a1dd46"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/be.js": {
+          "bytes": 6619,
+          "mode": "664",
+          "sha256": "da4bda7fbc940dd9f50efdd914caa9397243be779a505b82bd4be5395d3b795e"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/bg.js": {
+          "bytes": 5785,
+          "mode": "664",
+          "sha256": "48511ad2f86043f0eea6e7673d5e2b848a3295a26c9c4650e96b3884d640196d"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ca.js": {
+          "bytes": 4710,
+          "mode": "664",
+          "sha256": "796f9ba7dcd53648171aa0132c50271ef358936765cec0a44a642c41d05b3e8c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/cs.js": {
+          "bytes": 4772,
+          "mode": "664",
+          "sha256": "670a75fe1db1104db090c95aabb01e4eb6decd451fe77fd830c2e4dafc79b49a"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/da.js": {
+          "bytes": 4804,
+          "mode": "664",
+          "sha256": "cdaad7a1fa370abda1943fe9c2caba961e7896b9808d51275daf33f964af49cc"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/de.js": {
+          "bytes": 4588,
+          "mode": "664",
+          "sha256": "521a4ed29fcaf3f781163875dc282cfb5262047773aa2b70a852996b1d8a51b9"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/el.js": {
+          "bytes": 5544,
+          "mode": "664",
+          "sha256": "9857a9e4909282b2efd86317fc3e67ed86e24287f32329cfa5ab833c05fc0d81"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/en.js": {
+          "bytes": 4805,
+          "mode": "664",
+          "sha256": "232a0828d64df8e410b23ac9825a667bd9d485fd70acdc4b4d0870539faef0a4"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/eo.js": {
+          "bytes": 4603,
+          "mode": "664",
+          "sha256": "ebe08048aa3ee9871ce9fe1271e254cb672b1968ec40ac253066d08d176e8a65"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/es.js": {
+          "bytes": 5439,
+          "mode": "664",
+          "sha256": "4edd9302e9724c408b024220e99092fbd2f90100ac3c6407a94543b79843610c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fa.js": {
+          "bytes": 5131,
+          "mode": "664",
+          "sha256": "2dc1bee1e984e8a15191fb3c69aaecaa26c922e12a0d4486ac005a0372b78565"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fi.js": {
+          "bytes": 4818,
+          "mode": "664",
+          "sha256": "3911184979f01d2ae580ce611710ee40597eff97a410d0fa823ab6ea27cee88c"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fr-CA.js": {
+          "bytes": 4554,
+          "mode": "664",
+          "sha256": "f8716c2baaccdfd1d958743bbc5250c9bdef5152d0801470e9b9a380d618f4ab"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fr.js": {
+          "bytes": 5137,
+          "mode": "664",
+          "sha256": "3ea466ca5737984bb5acc9008822060272f596317004618cfe1e05109f707577"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/he.js": {
+          "bytes": 12005,
+          "mode": "664",
+          "sha256": "290512e43d2907700211da09dc3959fd98d120bfb89f8836e6e3f83a472e26fe"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hr.js": {
+          "bytes": 5052,
+          "mode": "664",
+          "sha256": "1ea65433c32b89bead43113ac69b3acc520bb73ae231dd2e05fedf8e8c5656d6"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hu.js": {
+          "bytes": 4696,
+          "mode": "664",
+          "sha256": "913ee94a253db79b31463ae23a337060b6fe28be73dfc7657d8a83a4942bd8a8"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hy.js": {
+          "bytes": 6390,
+          "mode": "664",
+          "sha256": "0d3bbb96c0f8bc74468a2dfc7d066e838bb56fab64fd5ec03ce9c4d89eccbe99"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/id.js": {
+          "bytes": 4577,
+          "mode": "664",
+          "sha256": "cd2c19b5c30dade3ed91ffcff3deb0b068713be24f02248e7e46b87b2b9553ee"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/index.js": {
+          "bytes": 2149,
+          "mode": "664",
+          "sha256": "d73f41a76614855d43eea493030a1aa05dca30c9a17015a0da5b8b70da61b6b1"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/is.js": {
+          "bytes": 4635,
+          "mode": "664",
+          "sha256": "ead5b14eac892229f915fe38ec94ab3b1e676f8aa2df2a8450848ba9ca9a1612"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/it.js": {
+          "bytes": 4582,
+          "mode": "664",
+          "sha256": "439969d199427d77ebf1e477bf2295b226712804b25437d442f9dfc78aca95e0"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ja.js": {
+          "bytes": 4851,
+          "mode": "664",
+          "sha256": "43ee10378cac22b0b8aee912a66c3f36a834d5b4c76e9748f88a784044f248fd"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ka.js": {
+          "bytes": 6202,
+          "mode": "664",
+          "sha256": "0ab5322368f9ac6e6b58f93dac484a4f4f06cdf4c0677f4df88164e9d8b4bf81"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/kh.js": {
+          "bytes": 111,
+          "mode": "664",
+          "sha256": "78c3d1991041bb8c8fc0f7c5d745aae422d4c2e4e8f30bae44f3fef4765900a8"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/km.js": {
+          "bytes": 6242,
+          "mode": "664",
+          "sha256": "dbdabda94dd93d4a1827e6c809505c79fa6aa7abefec91dc50fa0871382c99cc"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ko.js": {
+          "bytes": 4929,
+          "mode": "664",
+          "sha256": "d2efe22ac069d9b32b0109fa07713ac0695ac1c1357afc4e4277056466f2e196"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/lt.js": {
+          "bytes": 8082,
+          "mode": "664",
+          "sha256": "dad886e52c56a1329d22e072f8b08dc8730f69c3dc5e5acf8267cac18df1ab28"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/mk.js": {
+          "bytes": 5157,
+          "mode": "664",
+          "sha256": "9eb4af0392fc5b9c438cdc6ceea446acc541b59e221dba918f7b80800d9da3d1"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ms.js": {
+          "bytes": 4491,
+          "mode": "664",
+          "sha256": "c550a9185d997e8fcd17311951aa1e29793a50b8e825e18310efd5a46c641795"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/nl.js": {
+          "bytes": 4762,
+          "mode": "664",
+          "sha256": "acba414579c5bbd7f83dc6661fa1a12d65f1822f9b0f5035549ac60f46d93763"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/no.js": {
+          "bytes": 4506,
+          "mode": "664",
+          "sha256": "1854483c7cf158b8f97f0faf6fd799eb1f762009018b5fde893ca33f2fb0b313"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ota.js": {
+          "bytes": 4525,
+          "mode": "664",
+          "sha256": "34ae496104bc17fea7d30c3d45c94cfe3d1d569b5d39a6ca51de6c177690c556"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/pl.js": {
+          "bytes": 4966,
+          "mode": "664",
+          "sha256": "18eab58f395e30b906e8e3fddc5f212eb19f2c4362410889a5c5e0141ebe2144"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ps.js": {
+          "bytes": 4909,
+          "mode": "664",
+          "sha256": "f977b5141fa8fb6a8459372e0b2895d74b381c9f2ff4899141f7ee3e639a4513"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/pt.js": {
+          "bytes": 4568,
+          "mode": "664",
+          "sha256": "df172afc585544dee7c063c484f5a07b5ed103e2c1072a782c763ad8ceb08e17"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ro.js": {
+          "bytes": 4774,
+          "mode": "664",
+          "sha256": "ecae409f4299ab91e2aff1095db14e23f3cf2c05b3654e242047655352c7f46b"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ru.js": {
+          "bytes": 6714,
+          "mode": "664",
+          "sha256": "c397a473e94d7d189a9c09c7890fe379c4f6f46d9556d52a040a90ffa56f7b93"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/sl.js": {
+          "bytes": 4567,
+          "mode": "664",
+          "sha256": "ee2ff3a19b62cd2f89b54b165088773b937de15df7253df220bef07d9adf2d80"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/sv.js": {
+          "bytes": 4663,
+          "mode": "664",
+          "sha256": "97d6718fb643e05d6fe30fa4f9f09b8d9a3eda4a3a350b57dfb2944943d19502"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ta.js": {
+          "bytes": 6369,
+          "mode": "664",
+          "sha256": "04bbde9766251f9047e786fdd77632f2ecd53aec2eb060eb2fc85bf576ad729d"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/th.js": {
+          "bytes": 6290,
+          "mode": "664",
+          "sha256": "aea70c9ac2b399fe4749e19ba3aa99c3efb4dfb50eadfb62b0b2a6e005748f3d"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/tr.js": {
+          "bytes": 4454,
+          "mode": "664",
+          "sha256": "4449f41d22c6f15ede5066f79d840a52ec45a6b694c859e16f9121062b6fad2f"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ua.js": {
+          "bytes": 111,
+          "mode": "664",
+          "sha256": "9391169ffbc72f777a83230b6ffcc3f4cf46ab5945ec540de9ef4609dca1f4cc"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/uk.js": {
+          "bytes": 5430,
+          "mode": "664",
+          "sha256": "77136a2a60eef62f7cc803a0f9971aebbc641403af77c1b41fd5ce59abfa5de3"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ur.js": {
+          "bytes": 5271,
+          "mode": "664",
+          "sha256": "858f4f38d651073e7a3fbec7ed356692578b3ad1fae1b453cb3d85312a4f39d2"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/uz.js": {
+          "bytes": 4739,
+          "mode": "664",
+          "sha256": "d540bed482d15c47cb45439cff34e053379c53019c7c7c5fbe43f222d0c81f04"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/vi.js": {
+          "bytes": 4772,
+          "mode": "664",
+          "sha256": "2c61bd3f4a733f3cbb1ad85e75a053cb15a8ebeb83ab56dc21f2948b1138e12f"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/yo.js": {
+          "bytes": 4665,
+          "mode": "664",
+          "sha256": "98b9cbf31bf00c8b2c00de62725a9dd7cb718ac72d6e8fd4e0a1a7c49723e0f4"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/zh-CN.js": {
+          "bytes": 4452,
+          "mode": "664",
+          "sha256": "99a4b16af598834a0b11607fcdebd1c6de026386ff1d6a5a306b364c154c5899"
+        },
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/zh-TW.js": {
+          "bytes": 4498,
+          "mode": "664",
+          "sha256": "37dcae620e1553e9174a4b9434bbcc4e465150a627e80c9c17fd01de8baaf59a"
+        },
+        "scripts/performance/p18/content-runtime.ts": {
+          "bytes": 13848,
+          "mode": "644",
+          "sha256": "a8cc8d0fdcf0a34be0e885f5a8c0dea4b68366ebf445c4df2a93467d401ea2b5"
+        },
+        "src/common/browser.ts": {
+          "bytes": 3375,
+          "mode": "664",
+          "sha256": "639807bbd1ee86fec56acf588100330e01b8c96150ffe936134ae443a5dd53d2"
+        },
+        "src/content/activation.ts": {
+          "bytes": 1122,
+          "mode": "664",
+          "sha256": "05a03bf80461f36a38af853725dd0f9d097cac5cd6ae57987fd694c006e63daf"
+        },
+        "src/content/command-router.ts": {
+          "bytes": 6548,
+          "mode": "664",
+          "sha256": "d6d87e164dba3f9ee8f4288a410641e4ceae08b26fb7d6430913fc0f4fbabae2"
+        },
+        "src/content/consent-lifecycle.ts": {
+          "bytes": 7474,
+          "mode": "600",
+          "sha256": "e1ecb701f60ea2c7eeb5f90128e1332eca030a7d848d7a91bb8ad9bc3588eebf"
+        },
+        "src/content/consent.ts": {
+          "bytes": 15151,
+          "mode": "664",
+          "sha256": "bdcc3283ecda5e9b1e359f3c9c00bcf5d3496fe78185de863e589d60a06f5fd2"
+        },
+        "src/content/copy.ts": {
+          "bytes": 3203,
+          "mode": "664",
+          "sha256": "448e104c6048dd3538d66100eb91edd1ab23d9cbd459b2bc9841628799a7d17a"
+        },
+        "src/content/input-firewall.ts": {
+          "bytes": 4440,
+          "mode": "600",
+          "sha256": "af3ab532169c3a29f059744dfc5a520c74d8d37eb7b44c856e037ebd02bab504"
+        },
+        "src/content/interaction-shield.ts": {
+          "bytes": 18471,
+          "mode": "600",
+          "sha256": "6f2dd4c3a08fc18ec75a670ff52a5ab8228dddebb74dffc962796a189c7d533c"
+        },
+        "src/content/marking/capture-hygiene.ts": {
+          "bytes": 917,
+          "mode": "664",
+          "sha256": "b28fc1ffcda98e64d91c1ae8cf5ef8173323d0e11a431a93f548e802d0b44bec"
+        },
+        "src/content/marking/dom-view.ts": {
+          "bytes": 18761,
+          "mode": "664",
+          "sha256": "cfc48f598b2a601648638eb1f36b706c872fd0ccae007db5d1742dffd530fe92"
+        },
+        "src/content/marking/element-identity.ts": {
+          "bytes": 227,
+          "mode": "664",
+          "sha256": "bcbf2f5b6145c2496b369f17984f4205235efc9dcba13698b35cd2f274330500"
+        },
+        "src/content/marking/engine.ts": {
+          "bytes": 44006,
+          "mode": "664",
+          "sha256": "daa1dabf21da4ce479e75cb7a42a33b25d09f62553292a288935b312e0ee8339"
+        },
+        "src/content/marking/flatten.ts": {
+          "bytes": 1173,
+          "mode": "664",
+          "sha256": "eef59abe0d8c914768243cf5fa4088222d68aa96bee60d88d15dfd7b8a4d2a0c"
+        },
+        "src/content/marking/hit-testing.ts": {
+          "bytes": 3434,
+          "mode": "664",
+          "sha256": "f6fc70f2db00705b528e2187e5eb1c4dadc6ee72071ebf21912eea99f04d3b62"
+        },
+        "src/content/marking/index.ts": {
+          "bytes": 319,
+          "mode": "664",
+          "sha256": "0ed36115064003cedc8c804d44e3c90257577d1c0ed868b91fe271473fdd7b9c"
+        },
+        "src/content/marking/interaction.ts": {
+          "bytes": 2490,
+          "mode": "600",
+          "sha256": "6f12b290cd06aaa714d2ac3819721742507b3b20b2e1c358b3779efa7c567951"
+        },
+        "src/content/marking/overlay.ts": {
+          "bytes": 8080,
+          "mode": "664",
+          "sha256": "840ad349367ac9cd9edc370a099711ab5e4679c3bd1defbf98b19a8a887abc88"
+        },
+        "src/content/marking/paint-reachability.ts": {
+          "bytes": 3251,
+          "mode": "664",
+          "sha256": "2b0c45c0d9858f3b2bbea2b72f12ea8898663a75da149e38702373afb7dca8e1"
+        },
+        "src/content/marking/renderer.ts": {
+          "bytes": 26119,
+          "mode": "664",
+          "sha256": "cd5e2496c66b54e88e3825bdeb68e263ff4ada22346389818b7b9c98141edd08"
+        },
+        "src/content/marking/resolve.ts": {
+          "bytes": 1809,
+          "mode": "664",
+          "sha256": "f95656ed96dd245aaead79cf683c11ecd66e47a61e730f528cffeab53f014b03"
+        },
+        "src/content/marking/silent-highlight.ts": {
+          "bytes": 651,
+          "mode": "664",
+          "sha256": "21c19aec4ac6246b97b6647cc6ccebc26b971a2202100a3130c9ee230fbc4778"
+        },
+        "src/content/marking/stabilizer.ts": {
+          "bytes": 1807,
+          "mode": "600",
+          "sha256": "92342ecb06e686821d2404af3302cde637f4bc1aae5282bbffd3f271d42ba6a7"
+        },
+        "src/content/marking/store.ts": {
+          "bytes": 6476,
+          "mode": "664",
+          "sha256": "aedc0c1dd5b655a596c638cb19be9758f580123a7db691a41d31ba9c7d927fbc"
+        },
+        "src/content/marking/submit.ts": {
+          "bytes": 5031,
+          "mode": "664",
+          "sha256": "f1d48d234a417a384cb9fe8f80f066222fadfabaa137589a9a1ce2cc7428b887"
+        },
+        "src/content/organ/index.ts": {
+          "bytes": 53,
+          "mode": "664",
+          "sha256": "55864cbd957298c4f636090472e3c9e8a30e2f3c86232aa77ca5a6ac95ac3001"
+        },
+        "src/content/organ/machine.ts": {
+          "bytes": 6758,
+          "mode": "664",
+          "sha256": "e54590de0dab724bf7f6262be7e3806ac4f8dc483b096f2a5515a46bf7506b22"
+        },
+        "src/content/organ/memory.ts": {
+          "bytes": 2273,
+          "mode": "664",
+          "sha256": "1d10f69ea50f2f3ddb94d68b8fddb1ac87b91c399bb34d97738458fb6c56a519"
+        },
+        "src/content/preview-controller.ts": {
+          "bytes": 2488,
+          "mode": "600",
+          "sha256": "2f1f83385181fe17d1ce69f308428503cb3aa7b78962a0f05830e23f52412aa3"
+        },
+        "src/content/render-inspection-curtain.ts": {
+          "bytes": 19837,
+          "mode": "600",
+          "sha256": "9916638c1f25d78e93138b4a8474f095c4752f2a651928d124bc58cc37dad00d"
+        },
+        "src/content/stabilization/emulation.ts": {
+          "bytes": 5992,
+          "mode": "664",
+          "sha256": "ea354643506d8561315154a86aea24cd99ea648425bcdc2015cff309a2f75763"
+        },
+        "src/content/stabilization/freeze.ts": {
+          "bytes": 1041,
+          "mode": "664",
+          "sha256": "0ed132cc52624ee7961b0488d8d7d7ccf431c7902e03efc431922784762ef918"
+        },
+        "src/content/stabilization/index.ts": {
+          "bytes": 197,
+          "mode": "664",
+          "sha256": "feb357bd15c73079139b04b554e71181af2bcba57c4fc3307a1edca1933e0d98"
+        },
+        "src/content/stabilization/lazy-media.ts": {
+          "bytes": 2353,
+          "mode": "664",
+          "sha256": "42ebb4323d0159cf1924907678fe138123278ab794e780a491083790c5bf34ae"
+        },
+        "src/content/stabilization/render-mode.ts": {
+          "bytes": 1034,
+          "mode": "664",
+          "sha256": "490bf9c317be42e2dda9ca4d7fb3afba5c3fa88e428b161997418cf0478df2d4"
+        },
+        "src/content/stabilization/reveal.ts": {
+          "bytes": 7925,
+          "mode": "664",
+          "sha256": "60f5566887b496591dc0beab563681e591ef0c33eea338fb2ce2a29ac85ef563"
+        },
+        "src/content/stabilization/scroll.ts": {
+          "bytes": 2116,
+          "mode": "664",
+          "sha256": "3aa932afc532b1190a10f3903e8e856a2c285c97e5e29f9b314fb44f89341d32"
+        },
+        "src/content/stabilization/spa-guard.ts": {
+          "bytes": 548,
+          "mode": "664",
+          "sha256": "161651743a46256a792750f6792cad1b90aa5dfa875f298fef77cebfe66aa2f2"
+        },
+        "src/content/toast-lifecycle.ts": {
+          "bytes": 2710,
+          "mode": "600",
+          "sha256": "03ccd3f037ec87bf7a6b857cfaf106f28b2406ffa4cc6d85cbb0ddfaa8cfbc8a"
+        },
+        "src/content/transient-surfaces.ts": {
+          "bytes": 5465,
+          "mode": "600",
+          "sha256": "e7cdca48feabf3cf77ca2754b3532ec23628b05d825ac5799fabaca06cd84e75"
+        },
+        "src/domain/boundary.ts": {
+          "bytes": 2526,
+          "mode": "664",
+          "sha256": "873a93869bfce86fae6f4371d98e75bb2f30ad8f982b85f5914bd96b10b1a7ff"
+        },
+        "src/domain/constants.ts": {
+          "bytes": 1631,
+          "mode": "664",
+          "sha256": "0fd164d99a36d29a1eb576a533c58b8a1a5bfca6557485e2aa260dc411a339bc"
+        },
+        "src/domain/evaluate.ts": {
+          "bytes": 10338,
+          "mode": "664",
+          "sha256": "7f7f9263f405d137a5df767c24cd03b93dea7ea54582b42f9b4421371b4a66ee"
+        },
+        "src/domain/schema/context.ts": {
+          "bytes": 2961,
+          "mode": "664",
+          "sha256": "95f2635aadd826d61669f08202f568782cf0d6f61ad8084e5ad1e875e96c1ce1"
+        },
+        "src/domain/schema/facts.ts": {
+          "bytes": 6281,
+          "mode": "664",
+          "sha256": "9bd20d1f3ff886319f52380d4a1badc0e124a3bd4a12c19a49fa06699d215c90"
+        },
+        "src/domain/schema/marking.ts": {
+          "bytes": 1558,
+          "mode": "664",
+          "sha256": "b4c2d77a50fc3d12301fce2318ee6f39e9fa1f75ef0373d8e91dfa949da45309"
+        },
+        "src/domain/schema/preview.ts": {
+          "bytes": 2104,
+          "mode": "600",
+          "sha256": "4782d096176d6eda315858ba3b3bea1506cee053d7ac6e3ff5fd3bc63de2d818"
+        },
+        "src/domain/schema/property.ts": {
+          "bytes": 542,
+          "mode": "664",
+          "sha256": "685b6a3d27986967cd2a5706599d45605e9aee0c6901945f053570d1758b7fe9"
+        },
+        "src/domain/schema/publication.ts": {
+          "bytes": 1134,
+          "mode": "664",
+          "sha256": "e1f5e86e70250fcda3df1252d62f692c5244ec29c1f94c84630db20424d32608"
+        },
+        "src/domain/schema/signals.ts": {
+          "bytes": 1451,
+          "mode": "664",
+          "sha256": "c83f4b1a89dd47fa7e66559d6bdc4a0bb25baa65c3920b726e49384fa2d4109b"
+        },
+        "src/domain/schema/submission.ts": {
+          "bytes": 1863,
+          "mode": "664",
+          "sha256": "940b89d8d255850918023a4c9b7834fcf66374c9bd2782ca220a402bfb6b2e61"
+        },
+        "src/domain/schema/todo.ts": {
+          "bytes": 651,
+          "mode": "664",
+          "sha256": "b9797a5cd12bc90d605e7209acab210e144be01696251c0ebefa80778d1e6345"
+        },
+        "src/domain/selector-seed.ts": {
+          "bytes": 1706,
+          "mode": "664",
+          "sha256": "8d6c3784ef2fa89eec01573427b3b8c428862b2549f324666b578d860d9dd2d3"
+        },
+        "src/domain/taxonomy.ts": {
+          "bytes": 882,
+          "mode": "664",
+          "sha256": "022ffdf368a147b65eacc702d78fa9ea498d544bc15341e79b618672b64743bf"
+        },
+        "src/domain/visibility.ts": {
+          "bytes": 2852,
+          "mode": "664",
+          "sha256": "0554b57a527f10dffe9a165565d70caba6b0ab6e37a23f0432a83e06cc682d09"
+        },
+        "src/domain/widening.ts": {
+          "bytes": 3741,
+          "mode": "664",
+          "sha256": "c024334e00d4e12c6136fd9e5555f899d140c30ef7c8cc3954c59b6aabef75d9"
+        },
+        "src/domain/xpath.ts": {
+          "bytes": 2416,
+          "mode": "664",
+          "sha256": "8bcb761bada7146463fb9c8a8b1421804d0bd3ea838a1cd8afc1476a77f72a58"
+        },
+        "src/entrypoints/content-loader.content.ts": {
+          "bytes": 121961,
+          "mode": "664",
+          "sha256": "54393149d95b774474fd869907514e46d332d0dfe7b3786a7e12ec349ba25bf9"
+        },
+        "src/messaging/bus.ts": {
+          "bytes": 12576,
+          "mode": "664",
+          "sha256": "07d2f6c4456fd4c7e857128c38a5baf9b5f025700983045435e337ab22029a04"
+        },
+        "src/messaging/contract.ts": {
+          "bytes": 2187,
+          "mode": "664",
+          "sha256": "8cd9fd1faa14e4715bec7dae514b79863af25eea199853eff2ebd82495b62b98"
+        },
+        "src/messaging/contracts/commands.ts": {
+          "bytes": 640,
+          "mode": "664",
+          "sha256": "919dbb61b65222dcc9ae1a9a7936edba6e955e39e6d260c658c123bbeec93339"
+        },
+        "src/messaging/contracts/facts.ts": {
+          "bytes": 273,
+          "mode": "664",
+          "sha256": "680f11a79e95967133013f06a0929e4e788cedf86d0aed8eef1c1a983fb9ecd1"
+        },
+        "src/messaging/contracts/index.ts": {
+          "bytes": 80,
+          "mode": "664",
+          "sha256": "49ec0fcdc26056e3b7b2d9d7b4cc1aca5c7ccaa0b375bf34b8a95452f8b44c08"
+        },
+        "src/messaging/contracts/signals.ts": {
+          "bytes": 703,
+          "mode": "664",
+          "sha256": "d60be372d6ea328ddb4be815569337af08e4e23015184e1f7c1926089d3a0d1f"
+        },
+        "src/messaging/realms.ts": {
+          "bytes": 18185,
+          "mode": "664",
+          "sha256": "1ce3022c8ee5729340325aa1f183d3dfdad7fa76bd5285a70b7cbc16924056ce"
+        },
+        "src/messaging/render-inspection.ts": {
+          "bytes": 5667,
+          "mode": "600",
+          "sha256": "f5b84b6ed7e6407192a94aa8252c82e62ff1cc512096ec94bbbafdd99f397b26"
+        },
+        "src/messaging/rewrite-signals.ts": {
+          "bytes": 1226,
+          "mode": "664",
+          "sha256": "2f6cc1750c94c358d2a20f4fb39129bea05d59cbdc1c05e9dd829271788ad1ef"
+        },
+        "src/messaging/shield-posture.ts": {
+          "bytes": 5091,
+          "mode": "600",
+          "sha256": "a9b0e042895d8230d91782af6138b4dd637fe3d00c924648bf833e4ae634cf29"
+        },
+        "src/messaging/transports/runtime.ts": {
+          "bytes": 8078,
+          "mode": "664",
+          "sha256": "d3026574cb925eec25a481045dfe90635728d6cd8ed9c18ed3332611653ad8f3"
+        },
+        "src/storage/config.ts": {
+          "bytes": 5253,
+          "mode": "664",
+          "sha256": "99243632a426c71835a222d55579cab91d140b44c296ca25a6e398475c0edb11"
+        },
+        "src/storage/repositories/key-value.ts": {
+          "bytes": 4248,
+          "mode": "664",
+          "sha256": "8b168680fc2c3f6056213c0717b336e1f17342c44e68eb83c6f87191e501da81"
+        },
+        "src/storage/settings.ts": {
+          "bytes": 3652,
+          "mode": "664",
+          "sha256": "886502b612aa82b18619881241f34d2c467304c434d941ac6a885e186bb926f4"
+        },
+        "src/ui/toast-controller.ts": {
+          "bytes": 3104,
+          "mode": "600",
+          "sha256": "928b8870196371d61dfd207bc6f225d811e28ae0ab3bf52e3a98265abb9dbb3f"
+        },
+        "src/ui/transient-surface-manager.ts": {
+          "bytes": 6674,
+          "mode": "600",
+          "sha256": "b9ceeee414a9903329e9dad1422c45910a4adcda63b66d4ef07e51ac5fb289e5"
+        }
+      },
+      "inputManifestSha256": "be0d207b0c22b22366c1a7e996e1815f17b07f91109658e17e578b514e64fd27"
+    }
+  },
+  "contract": {
+    "requiredChecks": [
+      "space-passthrough-recovers-on-every-boundary",
+      "production-lock-copy-is-curated",
+      "debug-lock-fence-and-operation-are-retained",
+      "no-browser-errors"
+    ],
+    "catalog": {
+      "pass": true,
+      "missing": [],
+      "duplicates": [],
+      "unexpected": []
+    },
+    "viewport": {
+      "width": 1280,
+      "height": 900
+    },
+    "spaceWatchdogMs": 1200,
+    "lockCases": [
+      {
+        "id": "extension-context-invalidated",
+        "banner": {
+          "visible": true,
+          "reason": "extension-context-invalidated"
+        },
+        "expected": "Extension context invalidated",
+        "status": "unavailable",
+        "role": "unknown"
+      },
+      {
+        "id": "connecting",
+        "banner": {
+          "visible": true,
+          "reason": "connecting"
+        },
+        "expected": "Property lock connecting",
+        "status": "ok",
+        "role": "passive"
+      },
+      {
+        "id": "transfer",
+        "banner": {
+          "visible": true,
+          "reason": "transfer",
+          "fromName": "Kai",
+          "toName": "Dana"
+        },
+        "expected": "Editing is being transferred from Kai to Dana",
+        "status": "ok",
+        "role": "passive"
+      },
+      {
+        "id": "disconnect-warning",
+        "banner": {
+          "visible": true,
+          "reason": "disconnect-warning"
+        },
+        "expected": "Connection lost; editor role may be released",
+        "status": "ok",
+        "role": "passive"
+      },
+      {
+        "id": "inactivity-warning",
+        "banner": {
+          "visible": true,
+          "reason": "inactivity-warning"
+        },
+        "expected": "No recent page interaction; editor role may be released",
+        "status": "ok",
+        "role": "passive"
+      },
+      {
+        "id": "off-candidate",
+        "banner": {
+          "visible": true,
+          "reason": "off-candidate"
+        },
+        "expected": "Return to a Live Page candidate to keep the editor role",
+        "status": "ok",
+        "role": "passive"
+      },
+      {
+        "id": "cross-property",
+        "banner": {
+          "visible": true,
+          "reason": "cross-property"
+        },
+        "expected": "Return to the previous property to keep the editor role",
+        "status": "ok",
+        "role": "passive"
+      },
+      {
+        "id": "takeover-suggested",
+        "banner": {
+          "visible": true,
+          "reason": "takeover-suggested",
+          "fromName": "Kai"
+        },
+        "expected": "Kai wants to take over editing",
+        "status": "ok",
+        "role": "passive"
+      },
+      {
+        "id": "editor",
+        "banner": {
+          "visible": false,
+          "reason": "editor"
+        },
+        "expected": "You hold the editor lock",
+        "status": "ok",
+        "role": "editor"
+      },
+      {
+        "id": "locked",
+        "banner": {
+          "visible": true,
+          "reason": "locked",
+          "editorName": "Dana"
+        },
+        "expected": "Locked by Dana",
+        "status": "ok",
+        "role": "passive"
+      },
+      {
+        "id": "not-configured",
+        "banner": {
+          "visible": true,
+          "reason": "not-configured"
+        },
+        "expected": "Property lock not configured",
+        "status": "not_configured",
+        "role": "unknown"
+      },
+      {
+        "id": "not-candidate",
+        "banner": {
+          "visible": true,
+          "reason": "not-candidate"
+        },
+        "expected": "Not a managed property",
+        "status": "not_candidate",
+        "role": "unknown"
+      },
+      {
+        "id": "candidate-removed",
+        "banner": {
+          "visible": true,
+          "reason": "candidate-removed"
+        },
+        "expected": "This page is no longer a candidate",
+        "status": "suspended_candidate_removed",
+        "role": "passive"
+      },
+      {
+        "id": "candidate-feed-conflict",
+        "banner": {
+          "visible": true,
+          "reason": "candidate-feed-conflict"
+        },
+        "expected": "Candidate feed assignments conflict",
+        "status": "suspended_candidate_feed_conflict",
+        "role": "passive"
+      },
+      {
+        "id": "signed-out",
+        "banner": {
+          "visible": true,
+          "reason": "signed-out"
+        },
+        "expected": "Sign in to use the property lock",
+        "status": "signed_out",
+        "role": "unknown"
+      },
+      {
+        "id": "unavailable",
+        "banner": {
+          "visible": true,
+          "reason": "unavailable"
+        },
+        "expected": "Property lock unavailable",
+        "status": "unavailable",
+        "role": "unknown"
+      }
+    ],
+    "requiredProductionSeams": [
+      "src/entrypoints/content-loader.content.ts::default.main",
+      "src/entrypoints/content-loader.content.ts::setSpacePassthrough",
+      "src/popup/App.tsx::App",
+      "src/popup/organ/machine.ts::transitionPopupState",
+      "src/popup/copy.ts::resolvePopupLockCopy"
+    ],
+    "focusedAuthorities": {
+      "keyboardRecovery": "tests/c4-content-entrypoint.test.ts",
+      "lockVocabulary": "tests/src/lock/copy.test.ts",
+      "productionStripping": "tests/build-artifact-parity.test.ts"
+    }
+  },
+  "browser": {
+    "environment": {
+      "browserType": "chromium",
+      "browserVersion": "151.0.7922.173",
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36",
+      "viewport": {
+        "width": 1280,
+        "height": 900,
+        "devicePixelRatio": 1
+      }
+    },
+    "checks": [
+      {
+        "id": "space-passthrough-recovers-on-every-boundary",
+        "pass": true,
+        "evidence": {
+          "contentReady": {
+            "state": "ready",
+            "error": "",
+            "fixture": {
+              "realm": "content",
+              "variant": "production"
+            }
+          },
+          "activation": {
+            "lock": {
+              "ok": true,
+              "data": {
+                "ok": true,
+                "state": {
+                  "baseUrl": "http://127.0.0.1:41579",
+                  "environmentKey": null,
+                  "siteId": null,
+                  "configPresent": true,
+                  "lockRole": "editor",
+                  "lockBlocked": false,
+                  "blockedReason": "editor",
+                  "banner": {
+                    "visible": false,
+                    "reason": "editor",
+                    "text": "You are editing this property"
+                  }
+                },
+                "tree": "rewrite"
+              }
+            },
+            "activation": {
+              "ok": true,
+              "data": {
+                "ok": true,
+                "initialized": true,
+                "tree": "rewrite"
+              }
+            },
+            "signal": {
+              "kind": "uf-signal/1",
+              "tabId": 18,
+              "seq": 1,
+              "name": "marking.enabled",
+              "source": "brain",
+              "cause": "p18-browser-gate",
+              "at": 1787670560651,
+              "payload": {
+                "pageUrl": "http://127.0.0.1:41579/content?variant=production"
+              }
+            },
+            "settledLock": {
+              "ok": true,
+              "data": {
+                "ok": true,
+                "state": {
+                  "baseUrl": "http://127.0.0.1:41579",
+                  "environmentKey": null,
+                  "siteId": null,
+                  "configPresent": true,
+                  "lockRole": "editor",
+                  "lockBlocked": false,
+                  "blockedReason": "editor",
+                  "banner": {
+                    "visible": false,
+                    "reason": "editor",
+                    "text": "You are editing this property"
+                  }
+                },
+                "tree": "rewrite"
+              }
+            }
+          },
+          "targetPoint": {
+            "x": 300,
+            "y": 150
+          },
+          "baseline": {
+            "url": "http://127.0.0.1:41579/content?variant=production",
+            "active": true,
+            "rootConnected": true,
+            "rootPointerEvents": "auto",
+            "cursorPassthrough": false,
+            "rootTemporarilyDisabled": false
+          },
+          "keydown": {
+            "url": "http://127.0.0.1:41579/content?variant=production",
+            "active": true,
+            "rootConnected": true,
+            "rootPointerEvents": "none",
+            "cursorPassthrough": true,
+            "rootTemporarilyDisabled": true
+          },
+          "keyup": {
+            "url": "http://127.0.0.1:41579/content?variant=production",
+            "active": true,
+            "rootConnected": true,
+            "rootPointerEvents": "auto",
+            "cursorPassthrough": false,
+            "rootTemporarilyDisabled": false
+          },
+          "blur": {
+            "url": "http://127.0.0.1:41579/content?variant=production",
+            "active": true,
+            "rootConnected": true,
+            "rootPointerEvents": "auto",
+            "cursorPassthrough": false,
+            "rootTemporarilyDisabled": false
+          },
+          "visibility": {
+            "url": "http://127.0.0.1:41579/content?variant=production",
+            "active": true,
+            "rootConnected": true,
+            "rootPointerEvents": "auto",
+            "cursorPassthrough": false,
+            "rootTemporarilyDisabled": false
+          },
+          "missedKeyupStart": {
+            "url": "http://127.0.0.1:41579/content?variant=production",
+            "active": true,
+            "rootConnected": true,
+            "rootPointerEvents": "none",
+            "cursorPassthrough": true,
+            "rootTemporarilyDisabled": true
+          },
+          "watchdog": {
+            "url": "http://127.0.0.1:41579/content?variant=production",
+            "active": true,
+            "rootConnected": true,
+            "rootPointerEvents": "auto",
+            "cursorPassthrough": false,
+            "rootTemporarilyDisabled": false
+          },
+          "watchdogElapsedMs": 1208,
+          "beforeNavigationUrl": "http://127.0.0.1:41579/content?variant=production",
+          "navigation": {
+            "url": "http://127.0.0.1:41579/content?p20-spa=1",
+            "active": false,
+            "rootConnected": false,
+            "rootPointerEvents": null,
+            "cursorPassthrough": false,
+            "rootTemporarilyDisabled": false
+          }
+        }
+      },
+      {
+        "id": "production-lock-copy-is-curated",
+        "pass": true,
+        "evidence": {
+          "productionReady": {
+            "state": "ready",
+            "error": "",
+            "debugBuild": false
+          },
+          "corpus": [
+            {
+              "debugBuild": false,
+              "reason": "extension-context-invalidated",
+              "lockText": "Extension context invalidated Refresh",
+              "statusText": "Extension context invalidated",
+              "statusOccurrences": 1,
+              "detailText": null,
+              "fence": null,
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": false
+            },
+            {
+              "debugBuild": false,
+              "reason": "connecting",
+              "lockText": "Property lock connecting Refresh",
+              "statusText": "Property lock connecting",
+              "statusOccurrences": 1,
+              "detailText": null,
+              "fence": null,
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": false
+            },
+            {
+              "debugBuild": false,
+              "reason": "transfer",
+              "lockText": "Editing is being transferred from Kai to Dana Refresh",
+              "statusText": "Editing is being transferred from Kai to Dana",
+              "statusOccurrences": 1,
+              "detailText": null,
+              "fence": null,
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": false
+            },
+            {
+              "debugBuild": false,
+              "reason": "disconnect-warning",
+              "lockText": "Connection lost; editor role may be released Refresh",
+              "statusText": "Connection lost; editor role may be released",
+              "statusOccurrences": 1,
+              "detailText": null,
+              "fence": null,
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": false
+            },
+            {
+              "debugBuild": false,
+              "reason": "inactivity-warning",
+              "lockText": "No recent page interaction; editor role may be released Refresh",
+              "statusText": "No recent page interaction; editor role may be released",
+              "statusOccurrences": 1,
+              "detailText": null,
+              "fence": null,
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": false
+            },
+            {
+              "debugBuild": false,
+              "reason": "off-candidate",
+              "lockText": "Return to a Live Page candidate to keep the editor role Refresh",
+              "statusText": "Return to a Live Page candidate to keep the editor role",
+              "statusOccurrences": 1,
+              "detailText": null,
+              "fence": null,
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": false
+            },
+            {
+              "debugBuild": false,
+              "reason": "cross-property",
+              "lockText": "Return to the previous property to keep the editor role Refresh",
+              "statusText": "Return to the previous property to keep the editor role",
+              "statusOccurrences": 1,
+              "detailText": null,
+              "fence": null,
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": false
+            },
+            {
+              "debugBuild": false,
+              "reason": "takeover-suggested",
+              "lockText": "Kai wants to take over editing Refresh",
+              "statusText": "Kai wants to take over editing",
+              "statusOccurrences": 1,
+              "detailText": null,
+              "fence": null,
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": false
+            },
+            {
+              "debugBuild": false,
+              "reason": "editor",
+              "lockText": "You hold the editor lock Refresh",
+              "statusText": "You hold the editor lock",
+              "statusOccurrences": 1,
+              "detailText": null,
+              "fence": null,
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": null,
+              "activityPresent": false
+            },
+            {
+              "debugBuild": false,
+              "reason": "locked",
+              "lockText": "Locked by Dana Refresh",
+              "statusText": "Locked by Dana",
+              "statusOccurrences": 1,
+              "detailText": null,
+              "fence": null,
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": false
+            },
+            {
+              "debugBuild": false,
+              "reason": "not-configured",
+              "lockText": "Property lock not configured Refresh",
+              "statusText": "Property lock not configured",
+              "statusOccurrences": 1,
+              "detailText": null,
+              "fence": null,
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": false
+            },
+            {
+              "debugBuild": false,
+              "reason": "not-candidate",
+              "lockText": "Not a managed property Refresh",
+              "statusText": "Not a managed property",
+              "statusOccurrences": 1,
+              "detailText": null,
+              "fence": null,
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": false
+            },
+            {
+              "debugBuild": false,
+              "reason": "candidate-removed",
+              "lockText": "This page is no longer a candidate Refresh",
+              "statusText": "This page is no longer a candidate",
+              "statusOccurrences": 1,
+              "detailText": null,
+              "fence": null,
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": false
+            },
+            {
+              "debugBuild": false,
+              "reason": "candidate-feed-conflict",
+              "lockText": "Candidate feed assignments conflict Refresh",
+              "statusText": "Candidate feed assignments conflict",
+              "statusOccurrences": 1,
+              "detailText": null,
+              "fence": null,
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": false
+            },
+            {
+              "debugBuild": false,
+              "reason": "signed-out",
+              "lockText": "Sign in to use the property lock Refresh",
+              "statusText": "Sign in to use the property lock",
+              "statusOccurrences": 1,
+              "detailText": null,
+              "fence": null,
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": false
+            },
+            {
+              "debugBuild": false,
+              "reason": "unavailable",
+              "lockText": "Property lock unavailable Refresh",
+              "statusText": "Property lock unavailable",
+              "statusOccurrences": 1,
+              "detailText": null,
+              "fence": null,
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": false
+            }
+          ],
+          "activeOperation": {
+            "debugBuild": false,
+            "reason": "editor",
+            "lockText": "You hold the editor lock Refresh",
+            "statusText": "You hold the editor lock",
+            "statusOccurrences": 1,
+            "detailText": null,
+            "fence": null,
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": null,
+            "activityPresent": false
+          }
+        }
+      },
+      {
+        "id": "debug-lock-fence-and-operation-are-retained",
+        "pass": true,
+        "evidence": {
+          "debugReady": {
+            "state": "ready",
+            "error": "",
+            "debugBuild": true
+          },
+          "corpus": [
+            {
+              "debugBuild": true,
+              "reason": "extension-context-invalidated",
+              "lockText": "Extension context invalidated status unavailable · role unknown · site 60 · property — · feed — Refresh",
+              "statusText": "Extension context invalidated",
+              "statusOccurrences": 1,
+              "detailText": "status unavailable · role unknown · site 60 · property — · feed —",
+              "fence": "property — · feed —",
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": true
+            },
+            {
+              "debugBuild": true,
+              "reason": "connecting",
+              "lockText": "Property lock connecting status ok · role passive · site 60 · property — · feed — Refresh",
+              "statusText": "Property lock connecting",
+              "statusOccurrences": 1,
+              "detailText": "status ok · role passive · site 60 · property — · feed —",
+              "fence": "property — · feed —",
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": true
+            },
+            {
+              "debugBuild": true,
+              "reason": "transfer",
+              "lockText": "Editing is being transferred from Kai to Dana status ok · role passive · site 60 · property — · feed — Refresh",
+              "statusText": "Editing is being transferred from Kai to Dana",
+              "statusOccurrences": 1,
+              "detailText": "status ok · role passive · site 60 · property — · feed —",
+              "fence": "property — · feed —",
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": true
+            },
+            {
+              "debugBuild": true,
+              "reason": "disconnect-warning",
+              "lockText": "Connection lost; editor role may be released status ok · role passive · site 60 · property — · feed — Refresh",
+              "statusText": "Connection lost; editor role may be released",
+              "statusOccurrences": 1,
+              "detailText": "status ok · role passive · site 60 · property — · feed —",
+              "fence": "property — · feed —",
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": true
+            },
+            {
+              "debugBuild": true,
+              "reason": "inactivity-warning",
+              "lockText": "No recent page interaction; editor role may be released status ok · role passive · site 60 · property — · feed — Refresh",
+              "statusText": "No recent page interaction; editor role may be released",
+              "statusOccurrences": 1,
+              "detailText": "status ok · role passive · site 60 · property — · feed —",
+              "fence": "property — · feed —",
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": true
+            },
+            {
+              "debugBuild": true,
+              "reason": "off-candidate",
+              "lockText": "Return to a Live Page candidate to keep the editor role status ok · role passive · site 60 · property — · feed — Refresh",
+              "statusText": "Return to a Live Page candidate to keep the editor role",
+              "statusOccurrences": 1,
+              "detailText": "status ok · role passive · site 60 · property — · feed —",
+              "fence": "property — · feed —",
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": true
+            },
+            {
+              "debugBuild": true,
+              "reason": "cross-property",
+              "lockText": "Return to the previous property to keep the editor role status ok · role passive · site 60 · property — · feed — Refresh",
+              "statusText": "Return to the previous property to keep the editor role",
+              "statusOccurrences": 1,
+              "detailText": "status ok · role passive · site 60 · property — · feed —",
+              "fence": "property — · feed —",
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": true
+            },
+            {
+              "debugBuild": true,
+              "reason": "takeover-suggested",
+              "lockText": "Kai wants to take over editing status ok · role passive · site 60 · property — · feed — Refresh",
+              "statusText": "Kai wants to take over editing",
+              "statusOccurrences": 1,
+              "detailText": "status ok · role passive · site 60 · property — · feed —",
+              "fence": "property — · feed —",
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": true
+            },
+            {
+              "debugBuild": true,
+              "reason": "editor",
+              "lockText": "You hold the editor lock status ok · role editor · site 60 · property 41 · feed 73 Refresh",
+              "statusText": "You hold the editor lock",
+              "statusOccurrences": 1,
+              "detailText": "status ok · role editor · site 60 · property 41 · feed 73",
+              "fence": "property 41 · feed 73",
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": null,
+              "activityPresent": true
+            },
+            {
+              "debugBuild": true,
+              "reason": "locked",
+              "lockText": "Locked by Dana status ok · role passive · site 60 · property — · feed — Refresh",
+              "statusText": "Locked by Dana",
+              "statusOccurrences": 1,
+              "detailText": "status ok · role passive · site 60 · property — · feed —",
+              "fence": "property — · feed —",
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": true
+            },
+            {
+              "debugBuild": true,
+              "reason": "not-configured",
+              "lockText": "Property lock not configured status not_configured · role unknown · site 60 · property — · feed — Refresh",
+              "statusText": "Property lock not configured",
+              "statusOccurrences": 1,
+              "detailText": "status not_configured · role unknown · site 60 · property — · feed —",
+              "fence": "property — · feed —",
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": true
+            },
+            {
+              "debugBuild": true,
+              "reason": "not-candidate",
+              "lockText": "Not a managed property status not_candidate · role unknown · site 60 · property — · feed — Refresh",
+              "statusText": "Not a managed property",
+              "statusOccurrences": 1,
+              "detailText": "status not_candidate · role unknown · site 60 · property — · feed —",
+              "fence": "property — · feed —",
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": true
+            },
+            {
+              "debugBuild": true,
+              "reason": "candidate-removed",
+              "lockText": "This page is no longer a candidate status suspended_candidate_removed · role passive · site 60 · property — · feed — Refresh",
+              "statusText": "This page is no longer a candidate",
+              "statusOccurrences": 1,
+              "detailText": "status suspended_candidate_removed · role passive · site 60 · property — · feed —",
+              "fence": "property — · feed —",
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": true
+            },
+            {
+              "debugBuild": true,
+              "reason": "candidate-feed-conflict",
+              "lockText": "Candidate feed assignments conflict status suspended_candidate_feed_conflict · role passive · site 60 · property — · feed — Refresh",
+              "statusText": "Candidate feed assignments conflict",
+              "statusOccurrences": 1,
+              "detailText": "status suspended_candidate_feed_conflict · role passive · site 60 · property — · feed —",
+              "fence": "property — · feed —",
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": true
+            },
+            {
+              "debugBuild": true,
+              "reason": "signed-out",
+              "lockText": "Sign in to use the property lock status signed_out · role unknown · site 60 · property — · feed — Refresh",
+              "statusText": "Sign in to use the property lock",
+              "statusOccurrences": 1,
+              "detailText": "status signed_out · role unknown · site 60 · property — · feed —",
+              "fence": "property — · feed —",
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": true
+            },
+            {
+              "debugBuild": true,
+              "reason": "unavailable",
+              "lockText": "Property lock unavailable status unavailable · role unknown · site 60 · property — · feed — Refresh",
+              "statusText": "Property lock unavailable",
+              "statusOccurrences": 1,
+              "detailText": "status unavailable · role unknown · site 60 · property — · feed —",
+              "fence": "property — · feed —",
+              "operationId": null,
+              "operationText": null,
+              "lockBanner": "true",
+              "activityPresent": true
+            }
+          ],
+          "activeOperation": {
+            "debugBuild": true,
+            "reason": "editor",
+            "lockText": "You hold the editor lock status ok · role editor · site 60 · property 41 · feed 73 Refresh",
+            "statusText": "You hold the editor lock",
+            "statusOccurrences": 1,
+            "detailText": "status ok · role editor · site 60 · property 41 · feed 73",
+            "fence": "property 41 · feed 73",
+            "operationId": "p20-operation-7f3a",
+            "operationText": "Operation p20-operation-7f3a",
+            "lockBanner": null,
+            "activityPresent": true
+          }
+        }
+      },
+      {
+        "id": "no-browser-errors",
+        "pass": true,
+        "evidence": {
+          "environment": {
+            "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36",
+            "viewport": {
+              "width": 1280,
+              "height": 900,
+              "devicePixelRatio": 1
+            }
+          },
+          "pageErrors": [],
+          "consoleErrors": []
+        }
+      }
+    ],
+    "pageErrors": [],
+    "consoleErrors": [],
+    "evidence": {
+      "space-passthrough-recovers-on-every-boundary": {
+        "contentReady": {
+          "state": "ready",
+          "error": "",
+          "fixture": {
+            "realm": "content",
+            "variant": "production"
+          }
+        },
+        "activation": {
+          "lock": {
+            "ok": true,
+            "data": {
+              "ok": true,
+              "state": {
+                "baseUrl": "http://127.0.0.1:41579",
+                "environmentKey": null,
+                "siteId": null,
+                "configPresent": true,
+                "lockRole": "editor",
+                "lockBlocked": false,
+                "blockedReason": "editor",
+                "banner": {
+                  "visible": false,
+                  "reason": "editor",
+                  "text": "You are editing this property"
+                }
+              },
+              "tree": "rewrite"
+            }
+          },
+          "activation": {
+            "ok": true,
+            "data": {
+              "ok": true,
+              "initialized": true,
+              "tree": "rewrite"
+            }
+          },
+          "signal": {
+            "kind": "uf-signal/1",
+            "tabId": 18,
+            "seq": 1,
+            "name": "marking.enabled",
+            "source": "brain",
+            "cause": "p18-browser-gate",
+            "at": 1787670560651,
+            "payload": {
+              "pageUrl": "http://127.0.0.1:41579/content?variant=production"
+            }
+          },
+          "settledLock": {
+            "ok": true,
+            "data": {
+              "ok": true,
+              "state": {
+                "baseUrl": "http://127.0.0.1:41579",
+                "environmentKey": null,
+                "siteId": null,
+                "configPresent": true,
+                "lockRole": "editor",
+                "lockBlocked": false,
+                "blockedReason": "editor",
+                "banner": {
+                  "visible": false,
+                  "reason": "editor",
+                  "text": "You are editing this property"
+                }
+              },
+              "tree": "rewrite"
+            }
+          }
+        },
+        "targetPoint": {
+          "x": 300,
+          "y": 150
+        },
+        "baseline": {
+          "url": "http://127.0.0.1:41579/content?variant=production",
+          "active": true,
+          "rootConnected": true,
+          "rootPointerEvents": "auto",
+          "cursorPassthrough": false,
+          "rootTemporarilyDisabled": false
+        },
+        "keydown": {
+          "url": "http://127.0.0.1:41579/content?variant=production",
+          "active": true,
+          "rootConnected": true,
+          "rootPointerEvents": "none",
+          "cursorPassthrough": true,
+          "rootTemporarilyDisabled": true
+        },
+        "keyup": {
+          "url": "http://127.0.0.1:41579/content?variant=production",
+          "active": true,
+          "rootConnected": true,
+          "rootPointerEvents": "auto",
+          "cursorPassthrough": false,
+          "rootTemporarilyDisabled": false
+        },
+        "blur": {
+          "url": "http://127.0.0.1:41579/content?variant=production",
+          "active": true,
+          "rootConnected": true,
+          "rootPointerEvents": "auto",
+          "cursorPassthrough": false,
+          "rootTemporarilyDisabled": false
+        },
+        "visibility": {
+          "url": "http://127.0.0.1:41579/content?variant=production",
+          "active": true,
+          "rootConnected": true,
+          "rootPointerEvents": "auto",
+          "cursorPassthrough": false,
+          "rootTemporarilyDisabled": false
+        },
+        "missedKeyupStart": {
+          "url": "http://127.0.0.1:41579/content?variant=production",
+          "active": true,
+          "rootConnected": true,
+          "rootPointerEvents": "none",
+          "cursorPassthrough": true,
+          "rootTemporarilyDisabled": true
+        },
+        "watchdog": {
+          "url": "http://127.0.0.1:41579/content?variant=production",
+          "active": true,
+          "rootConnected": true,
+          "rootPointerEvents": "auto",
+          "cursorPassthrough": false,
+          "rootTemporarilyDisabled": false
+        },
+        "watchdogElapsedMs": 1208,
+        "beforeNavigationUrl": "http://127.0.0.1:41579/content?variant=production",
+        "navigation": {
+          "url": "http://127.0.0.1:41579/content?p20-spa=1",
+          "active": false,
+          "rootConnected": false,
+          "rootPointerEvents": null,
+          "cursorPassthrough": false,
+          "rootTemporarilyDisabled": false
+        }
+      },
+      "production-lock-copy-is-curated": {
+        "productionReady": {
+          "state": "ready",
+          "error": "",
+          "debugBuild": false
+        },
+        "corpus": [
+          {
+            "debugBuild": false,
+            "reason": "extension-context-invalidated",
+            "lockText": "Extension context invalidated Refresh",
+            "statusText": "Extension context invalidated",
+            "statusOccurrences": 1,
+            "detailText": null,
+            "fence": null,
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": false
+          },
+          {
+            "debugBuild": false,
+            "reason": "connecting",
+            "lockText": "Property lock connecting Refresh",
+            "statusText": "Property lock connecting",
+            "statusOccurrences": 1,
+            "detailText": null,
+            "fence": null,
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": false
+          },
+          {
+            "debugBuild": false,
+            "reason": "transfer",
+            "lockText": "Editing is being transferred from Kai to Dana Refresh",
+            "statusText": "Editing is being transferred from Kai to Dana",
+            "statusOccurrences": 1,
+            "detailText": null,
+            "fence": null,
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": false
+          },
+          {
+            "debugBuild": false,
+            "reason": "disconnect-warning",
+            "lockText": "Connection lost; editor role may be released Refresh",
+            "statusText": "Connection lost; editor role may be released",
+            "statusOccurrences": 1,
+            "detailText": null,
+            "fence": null,
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": false
+          },
+          {
+            "debugBuild": false,
+            "reason": "inactivity-warning",
+            "lockText": "No recent page interaction; editor role may be released Refresh",
+            "statusText": "No recent page interaction; editor role may be released",
+            "statusOccurrences": 1,
+            "detailText": null,
+            "fence": null,
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": false
+          },
+          {
+            "debugBuild": false,
+            "reason": "off-candidate",
+            "lockText": "Return to a Live Page candidate to keep the editor role Refresh",
+            "statusText": "Return to a Live Page candidate to keep the editor role",
+            "statusOccurrences": 1,
+            "detailText": null,
+            "fence": null,
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": false
+          },
+          {
+            "debugBuild": false,
+            "reason": "cross-property",
+            "lockText": "Return to the previous property to keep the editor role Refresh",
+            "statusText": "Return to the previous property to keep the editor role",
+            "statusOccurrences": 1,
+            "detailText": null,
+            "fence": null,
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": false
+          },
+          {
+            "debugBuild": false,
+            "reason": "takeover-suggested",
+            "lockText": "Kai wants to take over editing Refresh",
+            "statusText": "Kai wants to take over editing",
+            "statusOccurrences": 1,
+            "detailText": null,
+            "fence": null,
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": false
+          },
+          {
+            "debugBuild": false,
+            "reason": "editor",
+            "lockText": "You hold the editor lock Refresh",
+            "statusText": "You hold the editor lock",
+            "statusOccurrences": 1,
+            "detailText": null,
+            "fence": null,
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": null,
+            "activityPresent": false
+          },
+          {
+            "debugBuild": false,
+            "reason": "locked",
+            "lockText": "Locked by Dana Refresh",
+            "statusText": "Locked by Dana",
+            "statusOccurrences": 1,
+            "detailText": null,
+            "fence": null,
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": false
+          },
+          {
+            "debugBuild": false,
+            "reason": "not-configured",
+            "lockText": "Property lock not configured Refresh",
+            "statusText": "Property lock not configured",
+            "statusOccurrences": 1,
+            "detailText": null,
+            "fence": null,
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": false
+          },
+          {
+            "debugBuild": false,
+            "reason": "not-candidate",
+            "lockText": "Not a managed property Refresh",
+            "statusText": "Not a managed property",
+            "statusOccurrences": 1,
+            "detailText": null,
+            "fence": null,
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": false
+          },
+          {
+            "debugBuild": false,
+            "reason": "candidate-removed",
+            "lockText": "This page is no longer a candidate Refresh",
+            "statusText": "This page is no longer a candidate",
+            "statusOccurrences": 1,
+            "detailText": null,
+            "fence": null,
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": false
+          },
+          {
+            "debugBuild": false,
+            "reason": "candidate-feed-conflict",
+            "lockText": "Candidate feed assignments conflict Refresh",
+            "statusText": "Candidate feed assignments conflict",
+            "statusOccurrences": 1,
+            "detailText": null,
+            "fence": null,
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": false
+          },
+          {
+            "debugBuild": false,
+            "reason": "signed-out",
+            "lockText": "Sign in to use the property lock Refresh",
+            "statusText": "Sign in to use the property lock",
+            "statusOccurrences": 1,
+            "detailText": null,
+            "fence": null,
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": false
+          },
+          {
+            "debugBuild": false,
+            "reason": "unavailable",
+            "lockText": "Property lock unavailable Refresh",
+            "statusText": "Property lock unavailable",
+            "statusOccurrences": 1,
+            "detailText": null,
+            "fence": null,
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": false
+          }
+        ],
+        "activeOperation": {
+          "debugBuild": false,
+          "reason": "editor",
+          "lockText": "You hold the editor lock Refresh",
+          "statusText": "You hold the editor lock",
+          "statusOccurrences": 1,
+          "detailText": null,
+          "fence": null,
+          "operationId": null,
+          "operationText": null,
+          "lockBanner": null,
+          "activityPresent": false
+        }
+      },
+      "debug-lock-fence-and-operation-are-retained": {
+        "debugReady": {
+          "state": "ready",
+          "error": "",
+          "debugBuild": true
+        },
+        "corpus": [
+          {
+            "debugBuild": true,
+            "reason": "extension-context-invalidated",
+            "lockText": "Extension context invalidated status unavailable · role unknown · site 60 · property — · feed — Refresh",
+            "statusText": "Extension context invalidated",
+            "statusOccurrences": 1,
+            "detailText": "status unavailable · role unknown · site 60 · property — · feed —",
+            "fence": "property — · feed —",
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": true
+          },
+          {
+            "debugBuild": true,
+            "reason": "connecting",
+            "lockText": "Property lock connecting status ok · role passive · site 60 · property — · feed — Refresh",
+            "statusText": "Property lock connecting",
+            "statusOccurrences": 1,
+            "detailText": "status ok · role passive · site 60 · property — · feed —",
+            "fence": "property — · feed —",
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": true
+          },
+          {
+            "debugBuild": true,
+            "reason": "transfer",
+            "lockText": "Editing is being transferred from Kai to Dana status ok · role passive · site 60 · property — · feed — Refresh",
+            "statusText": "Editing is being transferred from Kai to Dana",
+            "statusOccurrences": 1,
+            "detailText": "status ok · role passive · site 60 · property — · feed —",
+            "fence": "property — · feed —",
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": true
+          },
+          {
+            "debugBuild": true,
+            "reason": "disconnect-warning",
+            "lockText": "Connection lost; editor role may be released status ok · role passive · site 60 · property — · feed — Refresh",
+            "statusText": "Connection lost; editor role may be released",
+            "statusOccurrences": 1,
+            "detailText": "status ok · role passive · site 60 · property — · feed —",
+            "fence": "property — · feed —",
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": true
+          },
+          {
+            "debugBuild": true,
+            "reason": "inactivity-warning",
+            "lockText": "No recent page interaction; editor role may be released status ok · role passive · site 60 · property — · feed — Refresh",
+            "statusText": "No recent page interaction; editor role may be released",
+            "statusOccurrences": 1,
+            "detailText": "status ok · role passive · site 60 · property — · feed —",
+            "fence": "property — · feed —",
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": true
+          },
+          {
+            "debugBuild": true,
+            "reason": "off-candidate",
+            "lockText": "Return to a Live Page candidate to keep the editor role status ok · role passive · site 60 · property — · feed — Refresh",
+            "statusText": "Return to a Live Page candidate to keep the editor role",
+            "statusOccurrences": 1,
+            "detailText": "status ok · role passive · site 60 · property — · feed —",
+            "fence": "property — · feed —",
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": true
+          },
+          {
+            "debugBuild": true,
+            "reason": "cross-property",
+            "lockText": "Return to the previous property to keep the editor role status ok · role passive · site 60 · property — · feed — Refresh",
+            "statusText": "Return to the previous property to keep the editor role",
+            "statusOccurrences": 1,
+            "detailText": "status ok · role passive · site 60 · property — · feed —",
+            "fence": "property — · feed —",
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": true
+          },
+          {
+            "debugBuild": true,
+            "reason": "takeover-suggested",
+            "lockText": "Kai wants to take over editing status ok · role passive · site 60 · property — · feed — Refresh",
+            "statusText": "Kai wants to take over editing",
+            "statusOccurrences": 1,
+            "detailText": "status ok · role passive · site 60 · property — · feed —",
+            "fence": "property — · feed —",
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": true
+          },
+          {
+            "debugBuild": true,
+            "reason": "editor",
+            "lockText": "You hold the editor lock status ok · role editor · site 60 · property 41 · feed 73 Refresh",
+            "statusText": "You hold the editor lock",
+            "statusOccurrences": 1,
+            "detailText": "status ok · role editor · site 60 · property 41 · feed 73",
+            "fence": "property 41 · feed 73",
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": null,
+            "activityPresent": true
+          },
+          {
+            "debugBuild": true,
+            "reason": "locked",
+            "lockText": "Locked by Dana status ok · role passive · site 60 · property — · feed — Refresh",
+            "statusText": "Locked by Dana",
+            "statusOccurrences": 1,
+            "detailText": "status ok · role passive · site 60 · property — · feed —",
+            "fence": "property — · feed —",
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": true
+          },
+          {
+            "debugBuild": true,
+            "reason": "not-configured",
+            "lockText": "Property lock not configured status not_configured · role unknown · site 60 · property — · feed — Refresh",
+            "statusText": "Property lock not configured",
+            "statusOccurrences": 1,
+            "detailText": "status not_configured · role unknown · site 60 · property — · feed —",
+            "fence": "property — · feed —",
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": true
+          },
+          {
+            "debugBuild": true,
+            "reason": "not-candidate",
+            "lockText": "Not a managed property status not_candidate · role unknown · site 60 · property — · feed — Refresh",
+            "statusText": "Not a managed property",
+            "statusOccurrences": 1,
+            "detailText": "status not_candidate · role unknown · site 60 · property — · feed —",
+            "fence": "property — · feed —",
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": true
+          },
+          {
+            "debugBuild": true,
+            "reason": "candidate-removed",
+            "lockText": "This page is no longer a candidate status suspended_candidate_removed · role passive · site 60 · property — · feed — Refresh",
+            "statusText": "This page is no longer a candidate",
+            "statusOccurrences": 1,
+            "detailText": "status suspended_candidate_removed · role passive · site 60 · property — · feed —",
+            "fence": "property — · feed —",
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": true
+          },
+          {
+            "debugBuild": true,
+            "reason": "candidate-feed-conflict",
+            "lockText": "Candidate feed assignments conflict status suspended_candidate_feed_conflict · role passive · site 60 · property — · feed — Refresh",
+            "statusText": "Candidate feed assignments conflict",
+            "statusOccurrences": 1,
+            "detailText": "status suspended_candidate_feed_conflict · role passive · site 60 · property — · feed —",
+            "fence": "property — · feed —",
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": true
+          },
+          {
+            "debugBuild": true,
+            "reason": "signed-out",
+            "lockText": "Sign in to use the property lock status signed_out · role unknown · site 60 · property — · feed — Refresh",
+            "statusText": "Sign in to use the property lock",
+            "statusOccurrences": 1,
+            "detailText": "status signed_out · role unknown · site 60 · property — · feed —",
+            "fence": "property — · feed —",
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": true
+          },
+          {
+            "debugBuild": true,
+            "reason": "unavailable",
+            "lockText": "Property lock unavailable status unavailable · role unknown · site 60 · property — · feed — Refresh",
+            "statusText": "Property lock unavailable",
+            "statusOccurrences": 1,
+            "detailText": "status unavailable · role unknown · site 60 · property — · feed —",
+            "fence": "property — · feed —",
+            "operationId": null,
+            "operationText": null,
+            "lockBanner": "true",
+            "activityPresent": true
+          }
+        ],
+        "activeOperation": {
+          "debugBuild": true,
+          "reason": "editor",
+          "lockText": "You hold the editor lock status ok · role editor · site 60 · property 41 · feed 73 Refresh",
+          "statusText": "You hold the editor lock",
+          "statusOccurrences": 1,
+          "detailText": "status ok · role editor · site 60 · property 41 · feed 73",
+          "fence": "property 41 · feed 73",
+          "operationId": "p20-operation-7f3a",
+          "operationText": "Operation p20-operation-7f3a",
+          "lockBanner": null,
+          "activityPresent": true
+        }
+      },
+      "no-browser-errors": {
+        "environment": {
+          "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/151.0.0.0 Safari/537.36",
+          "viewport": {
+            "width": 1280,
+            "height": 900,
+            "devicePixelRatio": 1
+          }
+        },
+        "pageErrors": [],
+        "consoleErrors": []
+      }
+    },
+    "fatalError": null,
+    "controller": {
+      "stdout": "### Ran Playwright code\n```js\nawait (/* eslint-disable @typescript-eslint/no-unused-expressions -- playwright-cli requires a bare function expression. */\nasync (page) => {\n  const checks = [];\n  const pageErrors = [];\n  const consoleErrors = [];\n  const evidence = {};\n  const initialUrl = page.url();\n  const pathStart = initialUrl.indexOf(\"/\", initialUrl.indexOf(\"//\") + 2);\n  const origin = pathStart >= 0 ? initialUrl.slice(0, pathStart) : initialUrl;\n  const browserContract = await page.evaluate(() => window.__p20Contract);\n  const lockCases = browserContract.lockCases;\n  const watchdogMs = browserContract.spaceWatchdogMs;\n\n  const assertion = (condition, message, detail) => {\n    if (!condition) {\n      throw new Error(`${message}${detail === undefined ? \"\" : `: ${JSON.stringify(detail)}`}`);\n    }\n  };\n  const check = async (id, run) => {\n    try {\n      const result = await run();\n      checks.push({ id, pass: true, evidence: result ?? null });\n      evidence[id] = result ?? null;\n    } catch (error) {\n      const failure = String(error?.stack || error);\n      checks.push({ id, pass: false, error: failure });\n      evidence[id] = { error: failure };\n    }\n  };\n  const observe = (target, realm) => {\n    target.on(\"pageerror\", (error) => pageErrors.push(`[${realm}] ${String(error?.stack || error)}`));\n    target.on(\"console\", (message) => {\n      if (message.type() === \"error\") consoleErrors.push(`[${realm}] ${message.text()}`);\n    });\n  };\n  const contentCall = (target, method, ...args) => target.evaluate(\n    ({ methodName, methodArgs }) => window.__p18ContentRuntime[methodName](...methodArgs),\n    { methodName: method, methodArgs: args },\n  );\n  const popupCall = (target, method, ...args) => target.evaluate(\n    ({ methodName, methodArgs }) => window.__p20PopupRuntime[methodName](...methodArgs),\n    { methodName: method, methodArgs: args },\n  );\n  const waitForContent = async (target) => {\n    await target.waitForFunction(() => window.__p18ContentRuntime?.readyState() !== \"booting\", undefined, { timeout: 15_000 });\n    const ready = await target.evaluate(() => ({\n      state: window.__p18ContentRuntime?.readyState(),\n      error: window.__p18ContentRuntime?.readyError(),\n      fixture: window.__p18Fixture,\n    }));\n    assertion(ready.state === \"ready\", \"P20 content runtime failed\", ready);\n    await target.waitForFunction(async () => {\n      try {\n        return (await window.__p18ContentRuntime.snapshot()).status !== null;\n      } catch {\n        return false;\n      }\n    }, undefined, { timeout: 15_000 });\n    return ready;\n  };\n  const waitForPopup = async (target, variant) => {\n    await target.waitForFunction(() => window.__p20PopupRuntime?.readyState() !== \"booting\", undefined, { timeout: 15_000 });\n    const ready = await target.evaluate(() => ({\n      state: window.__p20PopupRuntime?.readyState(),\n      error: window.__p20PopupRuntime?.readyError(),\n      debugBuild: window.__p20PopupRuntime?.debugBuild(),\n    }));\n    assertion(ready.state === \"ready\", `P20 ${variant} popup runtime failed`, ready);\n    assertion(ready.debugBuild === (variant === \"debug\"), `P20 ${variant} build literal drifted`, ready);\n    return ready;\n  };\n  const spaceSnapshot = (target) => target.evaluate(async () => {\n    const status = await window.__p18ContentRuntime.snapshot();\n    const root = document.querySelector(\".uf-marking-layer-root\");\n    return {\n      url: location.href,\n      active: status.status?.data?.active ?? null,\n      rootConnected: Boolean(root?.isConnected),\n      rootPointerEvents: root ? getComputedStyle(root).pointerEvents : null,\n      cursorPassthrough: document.documentElement.classList.contains(\"uf-cursor-passthrough\"),\n      rootTemporarilyDisabled: root?.classList.contains(\"uf-marking-temporarily-disabled\") ?? false,\n    };\n  });\n  const waitForSpace = async (target, active) => {\n    await target.waitForFunction((expected) => {\n      const root = document.querySelector(\".uf-marking-layer-root\");\n      const cursor = document.documentElement.classList.contains(\"uf-cursor-passthrough\");\n      const transparent = root ? getComputedStyle(root).pointerEvents === \"none\" : false;\n      return expected ? cursor && transparent : !cursor && (!root || getComputedStyle(root).pointerEvents !== \"none\");\n    }, active, { timeout: 4_000, polling: 20 });\n    return spaceSnapshot(target);\n  };\n\n  let fatalError = null;\n  let contentPage = null;\n  let productionPage = null;\n  let debugPage = null;\n  observe(page, \"gate-root\");\n  try {\n    contentPage = await page.context().newPage();\n    observe(contentPage, \"content-production\");\n    await contentPage.goto(`${origin}/content?variant=production`, { waitUntil: \"load\" });\n    const contentReady = await waitForContent(contentPage);\n    const activation = await contentCall(contentPage, \"activateMarking\");\n    await contentPage.waitForFunction(() => window.__p18PageState.pageWorldCommands >= 1, undefined, { timeout: 5_000 });\n    const readinessStarted = Date.now();\n    await contentPage.waitForFunction(() => {\n      const curtain = document.querySelector('[data-uf-content-curtain-copy=\"true\"]');\n      return curtain?.textContent !== \"Inspecting page... it will be ready soon\";\n    }, undefined, { timeout: 25_000, polling: 100 });\n    const targetBox = await contentPage.locator(\"#p18-mark-target\").boundingBox();\n    assertion(targetBox, \"P20 marking target has no physical box\");\n    const targetPoint = { x: targetBox.x + targetBox.width / 2, y: targetBox.y + targetBox.height / 2 };\n    await contentPage.waitForFunction(({ x, y }) => {\n      const hit = document.elementFromPoint(x, y);\n      return Boolean(hit?.closest?.(\".uf-marking-layer-root\")) &&\n        document.elementsFromPoint(x, y).some((element) => element.id === \"p18-mark-target\");\n    }, targetPoint, { timeout: Math.max(1, 25_000 - (Date.now() - readinessStarted)), polling: 100 });\n\n    await check(\"space-passthrough-recovers-on-every-boundary\", async () => {\n      const baseline = await spaceSnapshot(contentPage);\n      assertion(baseline.active === true && baseline.rootPointerEvents === \"auto\", \"Marking was not active before Space recovery\", baseline);\n\n      await contentPage.keyboard.down(\"Space\");\n      const keydown = await waitForSpace(contentPage, true);\n      await contentPage.keyboard.up(\"Space\");\n      const keyup = await waitForSpace(contentPage, false);\n\n      await contentPage.keyboard.down(\"Space\");\n      await waitForSpace(contentPage, true);\n      await contentPage.evaluate(() => window.dispatchEvent(new Event(\"blur\")));\n      const blur = await waitForSpace(contentPage, false);\n      await contentPage.keyboard.up(\"Space\");\n\n      await contentPage.keyboard.down(\"Space\");\n      await waitForSpace(contentPage, true);\n      await contentPage.evaluate(() => document.dispatchEvent(new Event(\"visibilitychange\")));\n      const visibility = await waitForSpace(contentPage, false);\n      await contentPage.keyboard.up(\"Space\");\n\n      await contentPage.keyboard.down(\"Space\");\n      const missedKeyupStart = await waitForSpace(contentPage, true);\n      const missedKeyupStartedAt = Date.now();\n      const watchdog = await waitForSpace(contentPage, false);\n      const watchdogElapsedMs = Date.now() - missedKeyupStartedAt;\n      await contentPage.keyboard.up(\"Space\");\n      assertion(watchdogElapsedMs >= watchdogMs - 80 && watchdogElapsedMs < watchdogMs + 1_000, \"Missed-keyup watchdog drifted\", { watchdogElapsedMs, watchdogMs });\n\n      await contentPage.keyboard.down(\"Space\");\n      await waitForSpace(contentPage, true);\n      const beforeNavigationUrl = contentPage.url();\n      await contentPage.evaluate(() => {\n        history.pushState({}, \"\", `${location.pathname}?p20-spa=1`);\n        window.dispatchEvent(new PopStateEvent(\"popstate\"));\n      });\n      await contentPage.waitForFunction(async () => {\n        const snapshot = await window.__p18ContentRuntime.snapshot();\n        return snapshot.status?.data?.active === false &&\n          !document.documentElement.classList.contains(\"uf-cursor-passthrough\") &&\n          !document.querySelector(\".uf-marking-layer-root\");\n      }, undefined, { timeout: 5_000 });\n      const navigation = await spaceSnapshot(contentPage);\n      await contentPage.keyboard.up(\"Space\");\n\n      assertion(keydown.cursorPassthrough && keydown.rootPointerEvents === \"none\", \"Space keydown did not release page input\", keydown);\n      for (const [name, snapshot] of Object.entries({ keyup, blur, visibility, watchdog })) {\n        assertion(!snapshot.cursorPassthrough && snapshot.rootPointerEvents === \"auto\", `${name} did not restore marking input`, snapshot);\n      }\n      assertion(navigation.active === false && !navigation.cursorPassthrough && !navigation.rootConnected, \"Same-document navigation did not retire marking passthrough\", navigation);\n      return { contentReady, activation, targetPoint, baseline, keydown, keyup, blur, visibility, missedKeyupStart, watchdog, watchdogElapsedMs, beforeNavigationUrl, navigation };\n    });\n\n    productionPage = await page.context().newPage();\n    debugPage = await page.context().newPage();\n    observe(productionPage, \"popup-production\");\n    observe(debugPage, \"popup-debug\");\n    await productionPage.goto(`${origin}/popup?variant=production`, { waitUntil: \"load\" });\n    await debugPage.goto(`${origin}/popup?variant=debug`, { waitUntil: \"load\" });\n    const productionReady = await waitForPopup(productionPage, \"production\");\n    const debugReady = await waitForPopup(debugPage, \"debug\");\n\n    let productionSnapshots = [];\n    await check(\"production-lock-copy-is-curated\", async () => {\n      productionSnapshots = [];\n      for (const lockCase of lockCases) {\n        const snapshot = await popupCall(productionPage, \"setLockCase\", lockCase, false);\n        assertion(snapshot.statusText === lockCase.expected, \"Production lock copy drifted\", { lockCase, snapshot });\n        assertion(snapshot.statusOccurrences === 1, \"Production repeated its curated lock sentence\", { lockCase, snapshot });\n        assertion(snapshot.detailText === null && snapshot.fence === null, \"Production exposed raw lock diagnostics\", { lockCase, snapshot });\n        assertion(\n          !(snapshot.lockText || \"\").includes(\"status \") && !(snapshot.lockText || \"\").includes(\" · role \"),\n          \"Production lock copy contained raw fields\",\n          { lockCase, snapshot },\n        );\n        productionSnapshots.push(snapshot);\n      }\n      const operation = await popupCall(productionPage, \"setLockCase\", lockCases.find((entry) => entry.id === \"editor\"), true);\n      assertion(operation.operationId === null && operation.operationText === null, \"Production exposed a raw operation ID\", operation);\n      return { productionReady, corpus: productionSnapshots, activeOperation: operation };\n    });\n\n    await check(\"debug-lock-fence-and-operation-are-retained\", async () => {\n      const debugSnapshots = [];\n      for (const lockCase of lockCases) {\n        const snapshot = await popupCall(debugPage, \"setLockCase\", lockCase, false);\n        assertion(snapshot.statusText === lockCase.expected, \"Debug build changed curated lock copy\", { lockCase, snapshot });\n        assertion(snapshot.detailText?.includes(`status ${lockCase.status}`), \"Debug lock status missing\", { lockCase, snapshot });\n        assertion(snapshot.detailText?.includes(`role ${lockCase.role}`) && snapshot.detailText?.includes(\"site 60\"), \"Debug role/site missing\", { lockCase, snapshot });\n        const expectedFence = lockCase.role === \"editor\" ? \"property 41 · feed 73\" : \"property — · feed —\";\n        assertion(snapshot.fence === expectedFence && snapshot.detailText?.includes(expectedFence), \"Debug fence detail missing\", { lockCase, expectedFence, snapshot });\n        debugSnapshots.push(snapshot);\n      }\n      const operation = await popupCall(debugPage, \"setLockCase\", lockCases.find((entry) => entry.id === \"editor\"), true);\n      assertion(operation.operationId === \"p20-operation-7f3a\" && operation.operationText === \"Operation p20-operation-7f3a\", \"Debug active operation detail missing\", operation);\n      return { debugReady, corpus: debugSnapshots, activeOperation: operation };\n    });\n\n    await check(\"no-browser-errors\", async () => {\n      assertion(pageErrors.length === 0 && consoleErrors.length === 0, \"Browser errors were observed\", { pageErrors, consoleErrors });\n      const environment = await page.evaluate(() => ({\n        userAgent: navigator.userAgent,\n        viewport: { width: innerWidth, height: innerHeight, devicePixelRatio },\n      }));\n      return { environment, pageErrors: [...pageErrors], consoleErrors: [...consoleErrors] };\n    });\n  } catch (error) {\n    fatalError = String(error?.stack || error);\n  } finally {\n    await Promise.allSettled([contentPage?.close(), productionPage?.close(), debugPage?.close()]);\n  }\n\n  const browser = page.context().browser();\n  const browserEnvironment = {\n    browserType: browser?.browserType().name() ?? null,\n    browserVersion: browser?.version() ?? null,\n    ...await page.evaluate(() => ({\n    userAgent: navigator.userAgent,\n    viewport: { width: innerWidth, height: innerHeight, devicePixelRatio },\n    })),\n  };\n  const payload = { checks, pageErrors, consoleErrors, evidence, browserEnvironment, fatalError };\n  const response = await page.evaluate(async ({ endpoint, body }) => {\n    const result = await fetch(endpoint, {\n      method: \"POST\",\n      headers: { \"content-type\": \"application/json\" },\n      body: JSON.stringify(body),\n    });\n    return { ok: result.ok, status: result.status, text: await result.text() };\n  }, { endpoint: `${origin}/results`, body: payload });\n  assertion(response.ok, \"P20 result upload failed\", response);\n}\n)(page);\n```",
+      "stderr": ""
+    },
+    "controllerFailure": null
+  },
+  "cleanup": {
+    "fixtureServerClosed": true,
+    "playwrightSessionOpened": true,
+    "playwrightSessionClosed": true,
+    "activeChildProcessCount": 0,
+    "buildDirectory": "/home/rojan/Documents/Git/GitHub/Unfluffify/output/playwright/p20-integrated/build",
+    "buildDirectoryRemoved": true,
+    "pass": true
+  },
+  "fatal": null
+}
