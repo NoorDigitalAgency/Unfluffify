@@ -76,13 +76,26 @@ hide it behind the earlier successful run.
 
 ## Automated validation
 
+- Implementation commit: `2b6691918ddf` (`Repair P20 four-site workflows`).
 - `pnpm verify` passed lint, generated page-world parity, every TypeScript
   project, 125 test files / 1,131 tests, the production build, and all seven
   generated-manifest assertions.
 - `pnpm build:debug` passed with the debug-only inspection and preview surfaces
   present.
-- The clean-source P14–P20 browser gates are recorded with the execution-plan
-  evidence after the implementation commit.
+- Clean-source browser gates passed: `pnpm performance:p14` 192 scenarios;
+  `pnpm performance:p15` 36/36; `pnpm performance:p16` 13/13;
+  `pnpm performance:p17` 19/19; `pnpm performance:p18` 14/14; and
+  `pnpm performance:p20` 4/4. All semantic, budget, activation, controller,
+  fatal, and cleanup failure counts were zero.
+
+| Gate | Retained artifact | SHA-256 |
+| --- | --- | --- |
+| P14 | `output/playwright/p14-marking-performance/acceptance-2026-08-25T11-35-15-001Z.json` | `42e9536c8bd5390cad1aa03c4460cdd51ed8fed5b752d2c701bdd448e2524871` |
+| P15 | `output/playwright/p15-frozen-shield/acceptance-2026-08-25T11-44-01-421Z.json` | `1f8bf33bbf43abcd3bf11d8fffaad4609cba5fadf4f107d8491a4b96771aca2b` |
+| P16 | `output/playwright/p16-render-inspection/acceptance-2026-08-25T11-44-42-949Z.json` | `07378de60989f3cb366233ad1dbbce2488475be35affc809142fbb9b46b5d7ae` |
+| P17 | `output/playwright/p17-preview/acceptance-2026-08-25T11-45-01-990Z.json` | `143b3b43c6b605a25f2940cc0dc2a580aacb0e382dc919dd72ca01fc46b85fa1` |
+| P18 | `output/playwright/p18-transient-toast/acceptance-2026-08-25T11-45-32-961Z.json` | `b6456ee0b22ab2ea576f6653d6979a69c0b1ead48ddcb1f15c547b17f2074594` |
+| P20 | `output/playwright/p20-integrated/acceptance-2026-08-25T11-46-28-841Z.json` | `9130e18930126ebc44af2de53cfae8cefce2a8ae48bb4445c8d584a4f8bde9ec` |
 
 ## Remaining status
 

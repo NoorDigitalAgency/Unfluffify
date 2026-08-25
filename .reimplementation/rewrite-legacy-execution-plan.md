@@ -998,6 +998,16 @@ in the owning phase and rerun its focused gate plus P9–P11.
   - Follow-up validation: `pnpm verify` passed lint, generated page-world
     parity, all TypeScript projects, 125 files / 1,131 tests, the production
     build, and seven manifest assertions; `pnpm build:debug` passed.
+  - Four-site follow-up implementation commit: `2b669191` (`Repair P20
+    four-site workflows`). Evidence commits: `3584ceaa` (P14), `9941bd51`
+    (P15), `0a5caf21` (P16), `6beba1ac` (P17), `9c21fd07` (P18), and
+    `477205b6` (P20).
+  - `pnpm performance:p14` passed 192 scenarios with zero semantic, budget, or
+    activation failures; `pnpm performance:p15` passed 36/36;
+    `pnpm performance:p16` 13/13; `pnpm performance:p17` 19/19;
+    `pnpm performance:p18` 14/14; and `pnpm performance:p20` 4/4. All final
+    runs reported a clean source set. Exact artifacts and SHA-256 hashes are in
+    [`p20-four-site-live-sanity-report-2026-08-25.md`](./p20-four-site-live-sanity-report-2026-08-25.md).
 
 For each completed item, append the commit SHA(s), exact test command, result,
 and any live artifact/version directly beneath the checkbox. The first unchecked

@@ -135,3 +135,6 @@ Use `.github/skills/live-browser`, `.github/skills/live-round`, and `.github/ski
   headed-environment constraint rather than a silent popup refusal.
 - `pnpm verify` passed 125 files / 1,131 tests, the production build, and all
   seven generated-manifest assertions. `pnpm build:debug` also passed.
+- Implementation commit `2b6691918ddf` passed the full clean-source browser
+  sequence: P14 192 scenarios, P15 36/36, P16 13/13, P17 19/19, P18 14/14,
+  and P20 4/4. Exact retained paths and hashes are in the linked live report.
