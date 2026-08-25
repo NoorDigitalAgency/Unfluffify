@@ -1,6 +1,52 @@
 # P20 Assist24/Arno/Bigbag/ArkivIT headed-browser sanity report — 2026-08-25
 
-## Verdict
+## Remediation rerun and final verdict
+
+The defects found below were repaired and re-exercised in repository-managed
+headed Chromium through extension build stamp `2.0.0.114`. The final production
+source is `737346c8`, on top of the capture/Save/copy remediation (`ca332c03`) and
+the content/background emulated-viewport inspection fixes (`8646216f`,
+`bcf4d2cb`). The applicable P20 workflow is now a **clean pass**.
+
+- Assist24 passed both inspection modes as `paint-acknowledged`, including the
+  guarded JavaScript-on path that originally timed out under 412×960 emulation.
+  A physical post-AI edit projected `requires-ai-run` to Save and Content List
+  in 28 ms. The production AI body was 38,839 bytes with zero active source
+  bodies or extension artifacts. The first Save correctly surfaced an HTTP 409
+  stale-lock reason and restored interaction; Refresh plus the next single Save
+  returned HTTP 200. That successful Save produced one trailing `/context` and
+  one `/load`, with no duplicate load; 31 seconds of idle observation added one
+  context read and no load. Coverage remained safely fenced at 1/4.
+- Arno, Bigbag, and ArkivIT roots now say
+  **Managed property · this page is not a Live Page candidate** in the popup and
+  use the corresponding managed guidance in the content surface. None says
+  **Not a managed property**. Authoritative property identity is retained.
+- Production capture preserves inert `SCRIPT`, `STYLE`, and `NOSCRIPT` shells
+  for document structure while removing every raw body. Assist24 AI/Save
+  inspection found zero active source bodies; extension and suppressed-consent
+  artifacts also remained absent.
+- Content List rows remained semantic buttons with ordinal, readable label, and
+  Included/Excluded state in the accessible name. Headed keyboard input proved
+  native Enter and Space activation, trusted click delivery, target scrolling,
+  and identical pointer/focus emphasis. Production rows use human source labels.
+- The initial lazy checks below counted loaded placeholders as completed. The
+  corrected rerun checks real `currentSrc`/natural dimensions. ArkivIT loaded all
+  5 deferred Bricks footer resources, removed their lazy-hidden posture, froze,
+  and restored the original scroll. Arno loaded all 3 native-lazy footer images
+  before freeze. Bigbag remains a non-candidate, so no extraction ritual is
+  asserted there; its one still-deferred campaign image is outside any candidate
+  capture and does not create a candidate-workflow pass.
+- Consent suppression remains intentional and passed on all four roots. No
+  suppressed subtree entered marking, AI, Save, or publication artifacts. No
+  Lynx publication request was emitted; Bigbag still has zero candidates.
+
+Final automated evidence passed from the same production source: `pnpm verify`
+(125 files / 1,135 tests), `pnpm build:debug`, P14 (192 scenarios, zero semantic,
+budget, or activation failures), P15 36/36, P16 13/13, P17 19/19, P18 14/14,
+and P20 4/4. Exact artifacts and hashes are recorded in
+[`p20-release-evidence.md`](./p20-release-evidence.md).
+
+## Initial finding verdict (superseded by the remediation rerun)
 
 The available production workflows were exercised in repository-managed headed
 Chromium on extension build `2.0.0.100` from source commit `f192db66534d`.
@@ -154,7 +200,7 @@ publication request was made.
   made because website-target observers were detached during extension-owned
   inspection and emulation.
 
-## Required remediation, in priority order
+## Required remediation, in priority order (completed)
 
 1. Strip or humanize raw production `SCRIPT`, `STYLE`, and `NOSCRIPT` source in
    the sanitized AI and Save capture, while retaining the existing exclusion
@@ -168,12 +214,14 @@ publication request was made.
 4. Repeat Bigbag candidate-only gates when Hub supplies at least one candidate;
    until then, keep them N/A rather than bypassing authority.
 
-## Final sanity status
+## Initial sanity status (superseded)
 
 Consent, mobile/desktop posture, marking, highlighting, lazy loading,
 reveal/freeze, immediate AI freshness, semantic preview UX, Save serialization,
 Discard, silent interaction shielding, and publication fencing are healthy on
 the three available candidates. P20 should remain reopened because capture
 sanitization, post-Save authority coalescing, and managed-non-candidate root UI
-are not yet correct, and Bigbag has no candidate with which to execute the
-candidate-only gates.
+were not yet correct in the finding build. Those three defects and the two
+inspection viewport proofs are now repaired. Bigbag still has no candidate with
+which to execute candidate-only gates, and remains explicitly N/A rather than
+being misreported as tested.

@@ -1,6 +1,7 @@
 # P20 Assist24/Arno/Bigbag/ArkivIT remediation plan — 2026-08-25
 
-**Status:** in progress. P20 is reopened for this follow-up slice.
+**Status:** implementation and integrated validation complete; final review and
+push are in progress.
 
 **Finding evidence:**
 [`p20-assist24-arno-bigbag-arkivit-live-sanity-report-2026-08-25.md`](./p20-assist24-arno-bigbag-arkivit-live-sanity-report-2026-08-25.md)
@@ -171,3 +172,26 @@ candidate coverage.
 The executable dependency chain is stored in `.temp/run-plan-session.sqlite`:
 
 `capture-sanitization -> save-authority-coalescing -> managed-root-copy -> integrated-validation -> review-push`.
+
+## Execution outcome
+
+- Canonical source-shell sanitization, Save authority coalescing, explicit
+  emulation transitions, managed-non-candidate identity/copy, semantic preview
+  rows, and optional-message outcomes shipped in `ca332c03`.
+- Headed inspection exposed a real emulated-viewport mismatch between
+  `innerWidth/innerHeight` and the visual viewport. Content and background paint
+  proofs were aligned to `visualViewport` in `8646216f` and `bcf4d2cb`; both
+  Assist24 inspection modes then ended `paint-acknowledged`.
+- Final lazy-media validation corrected the original report's placeholder-based
+  metric. The reveal now makes a bounded live-handler bottom visit, uses instant
+  capture scrolling, promotes finite existing `data-src`/`data-srcset`/poster
+  media, and requests existing native-lazy resources before the observer fence
+  (`737346c8`). ArkivIT resolved 5/5 deferred footer resources and Arno resolved
+  3/3 native-lazy footer resources before persistent freeze.
+- `pnpm verify` passed 125 files / 1,135 tests, the production build, and seven
+  manifest assertions. `pnpm build:debug` passed. Final clean-source gates passed:
+  P14 192 scenarios, P15 36/36, P16 13/13, P17 19/19, P18 14/14, and P20 4/4.
+- Headed acceptance used only the repository `live-browser`, `live-round`, and
+  `live-watch` procedures. Consent suppression remained active and excluded;
+  no publication request was emitted. Bigbag still has no authoritative
+  candidate, so candidate-only work remains honestly N/A.

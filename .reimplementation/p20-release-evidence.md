@@ -3,7 +3,8 @@
 **Recorded:** 2026-08-25 (Europe/Stockholm)
 
 **Status:** accepted — automated gates, production/debug builds, and headed
-Bonliva, DPJ, and Aleris acceptance pass.
+Bonliva, DPJ, Aleris, Assist24, Arno, Bigbag, and ArkivIT acceptance pass for
+all authoritative/applicable workflows.
 
 **Branch:** `re-write`
 
@@ -12,14 +13,18 @@ Bonliva, DPJ, and Aleris acceptance pass.
 - `55300452` — Repair P20 DPJ and Aleris workflows
 - `7d466c36` — Harden P20 live preview and payload hygiene
 - `15f1c186` — Align P17 preview acceptance semantics
+- `ca332c03` — Repair P20 four-site sanity defects
+- `8646216f` — Fix emulated viewport inspection acknowledgement
+- `bcf4d2cb` — Align background curtain viewport proof
+- `737346c8` — Hydrate deferred media before page freeze
 
-**Manifest:** `2.0.0`; headed closure stamps reached `2.0.0.76`.
+**Manifest:** `2.0.0`; headed closure stamps reached `2.0.0.114`.
 
 ## Final release gates
 
 | Command | Result |
 |---|---|
-| `pnpm verify` | Passed: lint, generated page-world parity, all TypeScript projects, 123 files / 1,116 tests, production build, and 7 manifest assertions. |
+| `pnpm verify` | Passed: lint, generated page-world parity, all TypeScript projects, 125 files / 1,135 tests, production build, and 7 manifest assertions. |
 | `pnpm build:debug` | Passed with debug-only preview, lock, operation, trace, and Activity detail retained. |
 | `pnpm performance:p14` | Passed 192 scenarios with zero semantic, budget, or activation failures. |
 | `pnpm performance:p15` | Passed 36/36. |
@@ -28,20 +33,20 @@ Bonliva, DPJ, and Aleris acceptance pass.
 | `pnpm performance:p18` | Passed 14/14. |
 | `pnpm performance:p20` | Passed 4/4. |
 
-P14–P16 were retained from clean implementation commit `7d466c36`; P17–P20
-were retained from clean gate-alignment commit `15f1c186`. The P17-only follow-up
-changed its acceptance oracle and documentation, not the production bundle.
+All final artifacts below were regenerated after production source commit
+`737346c8`. Each gate reported a clean source set; artifact-only evidence commits
+were made between runs so the next gate also began clean.
 
 ## Retained clean-source artifacts
 
 | Gate | Retained artifact | SHA-256 |
 |---|---|---|
-| P14 | `output/playwright/p14-marking-performance/acceptance-2026-08-24T22-35-33-637Z.json` | `5e6e4619ef3f06018868ff7f07a47a89f7f97ac8ba230a85bd0989928672bdc1` |
-| P15 | `output/playwright/p15-frozen-shield/acceptance-2026-08-24T22-43-10-696Z.json` | `b7bd99eafe5c9e98516cf6f09ddf3bfad866ebf49818d13311133d3f09fc5904` |
-| P16 | `output/playwright/p16-render-inspection/acceptance-2026-08-24T22-43-42-507Z.json` | `35f2e0f9998aae749dd02839cd5c779b4a7845fee126da3f415ca9153956383e` |
-| P17 | `output/playwright/p17-preview/acceptance-2026-08-24T22-45-26-785Z.json` | `6b32af065e5db7f3c56b10062d9cd2980ef3e1b880d9392ae6d32c3bccbc7bce` |
-| P18 | `output/playwright/p18-transient-toast/acceptance-2026-08-24T22-45-51-080Z.json` | `979cd4e4115937a849631db322c33afb6f95f075d06fc1d254a570248cc769d0` |
-| P20 | `output/playwright/p20-integrated/acceptance-2026-08-24T22-46-41-143Z.json` | `115cab504f3b7e10163f5bbce112423d643318493008e5220568636df623f319` |
+| P14 | `output/playwright/p14-marking-performance/acceptance-2026-08-25T14-58-13-360Z.json` | `d53f4a2936a69e28bfd653fcfb8c6d27e52f4f9f174637132fa185e04db579bc` |
+| P15 | `output/playwright/p15-frozen-shield/acceptance-2026-08-25T15-06-17-340Z.json` | `04478f93b2dcba624308708ef2ceffd7caa3e626403c6e7da51a96bbcfce1c13` |
+| P16 | `output/playwright/p16-render-inspection/acceptance-2026-08-25T15-07-03-724Z.json` | `e5a535e0a939efdd78ce9c93dcfb320876b755978922726c312d8409cd7a4014` |
+| P17 | `output/playwright/p17-preview/acceptance-2026-08-25T15-07-30-380Z.json` | `8585249113edf042a66d50470dcab62e2a9a139d8a976a02c2300dff1a8f2243` |
+| P18 | `output/playwright/p18-transient-toast/acceptance-2026-08-25T15-08-06-449Z.json` | `3b11ad9470c16e2fa41585f60e53a2b160f578757fecca2059a03d1aae18c185` |
+| P20 | `output/playwright/p20-integrated/acceptance-2026-08-25T15-09-10-311Z.json` | `8711f775242898dead91d6730ee035af68474aaaddeb10f042f7de448877636a` |
 
 ## Headed live acceptance
 
@@ -87,6 +92,24 @@ The full measurement and workflow matrix is in
 The earlier detailed DPJ discovery round remains in
 [`p20-dpj-live-workflow-report-2026-08-24.md`](./p20-dpj-live-workflow-report-2026-08-24.md).
 
+### Assist24, Arno, Bigbag, and ArkivIT closure
+
+Assist24 passed both `paint-acknowledged` inspection modes, 412×960 marking,
+1920×1080 silent preview, 28 ms dirty projection, semantic keyboard/pointer
+preview, clean production AI/Save HTML, one successful Save request, and one
+post-Save context/load adoption. A stale-lock 409 was visibly reported and
+interaction recovered before Refresh and the successful retry.
+
+Arno, Bigbag, and ArkivIT roots now retain managed property identity and present
+managed non-candidate guidance. Arno and ArkivIT candidate pages retained mobile
+marking, consent exclusion, persistent freeze, and fenced coverage. Corrected
+real-resource checks loaded Arno's 3/3 native-lazy footer images and ArkivIT's
+5/5 deferred Bricks resources before freeze. Bigbag still has no authoritative
+candidate; candidate-only contracts are N/A and no URL was fabricated.
+
+The detailed finding and closure matrix is in
+[`p20-assist24-arno-bigbag-arkivit-live-sanity-report-2026-08-25.md`](./p20-assist24-arno-bigbag-arkivit-live-sanity-report-2026-08-25.md).
+
 ## Consent and payload decision
 
 Consent/modal suppression is a PASS, not a regression. DPJ cart, account,
@@ -97,6 +120,7 @@ suppressed subtrees and extension-owned artifacts are absent from saved HTML.
 
 ## Release conclusion
 
-No P20 defect remains. DPJ and Aleris publication remains fenced solely because
-their page-type onboarding is incomplete. The extension made no publication
-request during acceptance.
+No observed P20 product defect remains in the authoritative/applicable workflow.
+Publication remains fenced where page-type onboarding is incomplete, and Bigbag
+remains candidate-workflow N/A because Hub supplies no candidates. The extension
+made no publication request during acceptance.

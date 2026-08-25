@@ -1008,6 +1008,18 @@ in the owning phase and rerun its focused gate plus P9–P11.
     `pnpm performance:p18` 14/14; and `pnpm performance:p20` 4/4. All final
     runs reported a clean source set. Exact artifacts and SHA-256 hashes are in
     [`p20-four-site-live-sanity-report-2026-08-25.md`](./p20-four-site-live-sanity-report-2026-08-25.md).
+  - The Assist24/Arno/Bigbag/ArkivIT follow-up closed raw production-source
+    capture, duplicate post-Save authority adoption, and managed-non-candidate
+    copy in `ca332c03`; aligned both emulated-viewport inspection proofs in
+    `8646216f`/`bcf4d2cb`; and made bounded reveal hydration deterministic in
+    `737346c8`. The corrected live measurement loaded 3/3 Arno and 5/5 ArkivIT
+    deferred resources before freeze. Bigbag still has no authoritative
+    candidate and remains candidate-workflow N/A.
+  - Final validation passed `pnpm verify` (125 files / 1,135 tests),
+    `pnpm build:debug`, P14 192 scenarios, P15 36/36, P16 13/13, P17 19/19,
+    P18 14/14, and P20 4/4. Consent suppression stayed excluded and no publish
+    request was issued. See
+    [`p20-assist24-arno-bigbag-arkivit-live-sanity-report-2026-08-25.md`](./p20-assist24-arno-bigbag-arkivit-live-sanity-report-2026-08-25.md).
 
 For each completed item, append the commit SHA(s), exact test command, result,
 and any live artifact/version directly beneath the checkbox. The first unchecked
