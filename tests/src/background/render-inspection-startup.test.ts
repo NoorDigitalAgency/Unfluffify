@@ -485,6 +485,12 @@ describe("background render inspection integration", () => {
           returnByValue: true,
         }),
       }));
+      expect(browser.commands).toContainEqual(expect.objectContaining({
+        method: "Runtime.evaluate",
+        params: expect.objectContaining({
+          expression: expect.stringContaining("window.visualViewport"),
+        }),
+      }));
     } finally {
       vi.useRealTimers();
     }

@@ -74,14 +74,20 @@ function renderInspectionCurtainProofExpression(identity: Readonly<{
     const style = getComputedStyle(curtain);
     const opacity = Number.parseFloat(style.opacity || '1');
     const rect = curtain.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft ?? 0;
+    const viewportTop = viewport?.offsetTop ?? 0;
+    const viewportWidth = viewport?.width ?? innerWidth;
+    const viewportHeight = viewport?.height ?? innerHeight;
     return style.position === 'fixed' &&
       style.display !== 'none' &&
       style.visibility === 'visible' &&
       style.pointerEvents !== 'none' &&
       style.zIndex === '2147483647' &&
       Number.isFinite(opacity) && opacity === 1 &&
-      rect.left <= 0 && rect.top <= 0 &&
-      rect.right >= innerWidth && rect.bottom >= innerHeight;
+      rect.left <= viewportLeft && rect.top <= viewportTop &&
+      rect.right >= viewportLeft + viewportWidth &&
+      rect.bottom >= viewportTop + viewportHeight;
   })()`;
 }
 
