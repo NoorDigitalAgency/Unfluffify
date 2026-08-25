@@ -164,8 +164,9 @@ class FakeWindow extends FakeEventTarget {
   private frameCallbacks: FrameRequestCallback[] = [];
   private nextTimer = 1;
   private readonly timers = new Map<number, { callback: VoidFunction; delay: number }>();
-  readonly innerWidth = 412;
-  readonly innerHeight = 960;
+  innerWidth = 412;
+  innerHeight = 960;
+  visualViewport: Pick<VisualViewport, "height" | "offsetLeft" | "offsetTop" | "width"> | null = null;
 
   requestAnimationFrame(callback: FrameRequestCallback): number {
     this.frameCallbacks.push(callback);
@@ -362,6 +363,26 @@ describe("render inspection replacement-document curtain", () => {
     window.flushFrame();
     window.flushFrame();
     expect(painted).toHaveBeenCalledOnce();
+  });
+
+  it("proves visual-viewport coverage when emulation reports larger inner dimensions", () => {
+    const { controller, window, painted, failed } = harness();
+    window.innerWidth = 424;
+    window.innerHeight = 988;
+    window.visualViewport = {
+      width: 412,
+      height: 960,
+      offsetLeft: 0,
+      offsetTop: 0,
+    };
+    const adopted = { ...session("token-emulated", 4, "nonce-emulated"), javascriptEnabled: true };
+
+    controller.adopt(adopted);
+    window.flushTimer(1_000);
+
+    expect(painted).toHaveBeenCalledOnce();
+    expect(painted).toHaveBeenCalledWith(adopted);
+    expect(failed).not.toHaveBeenCalled();
   });
 
   it("can source the starvation wake-up outside the page timer realm", () => {

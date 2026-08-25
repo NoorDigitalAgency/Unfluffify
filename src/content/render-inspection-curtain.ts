@@ -384,14 +384,26 @@ export function createRenderInspectionCurtain(
       const style = view.getComputedStyle(curtain);
       const opacity = Number.parseFloat(style.opacity || "1");
       const rect = curtain.getBoundingClientRect();
+      // Device metrics can expose an outer/visual viewport that is smaller
+      // than `innerWidth`/`innerHeight` (Chrome reports this while an
+      // extension-owned mobile emulation session is active). CSS viewport
+      // units and fixed-position elements follow the visual viewport in that
+      // posture, so comparing their rect against the larger inner dimensions
+      // rejects a curtain that actually covers every visible pixel.
+      const visualViewport = view.visualViewport;
+      const viewportLeft = visualViewport?.offsetLeft ?? 0;
+      const viewportTop = visualViewport?.offsetTop ?? 0;
+      const viewportWidth = visualViewport?.width ?? view.innerWidth;
+      const viewportHeight = visualViewport?.height ?? view.innerHeight;
       return style.position === "fixed" &&
         style.display !== "none" &&
         style.visibility !== "hidden" &&
         style.pointerEvents !== "none" &&
         style.zIndex === MAXIMUM_DOCUMENT_Z_INDEX &&
         Number.isFinite(opacity) && opacity > 0 &&
-        rect.left <= 0 && rect.top <= 0 &&
-        rect.right >= view.innerWidth && rect.bottom >= view.innerHeight;
+        rect.left <= viewportLeft && rect.top <= viewportTop &&
+        rect.right >= viewportLeft + viewportWidth &&
+        rect.bottom >= viewportTop + viewportHeight;
     };
     const onPaintStarvation = (): void => {
       cancelPaintFallback = null;
