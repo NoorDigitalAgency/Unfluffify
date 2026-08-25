@@ -2271,9 +2271,15 @@ describe("rewrite popup entrypoint", () => {
         renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
       }],
     };
+    let mutationAuthorityCurrent = false;
     const tabsSendMessage = makeTabsSendMessage((_tabId, message) => {
       if (message.type === "captureSubmissionSnapshot") {
         return { ok: true, snapshot, rows: [{ xpath: "/html[1]/body[1]/main[1]", classification: "included" }] };
+      }
+      if (message.type === "pauseContentMainInteractions") {
+        // Simulate a recovery rotating the lease while the popup is preparing
+        // Save. The singular mutation must use the late authoritative fence.
+        mutationAuthorityCurrent = true;
       }
       return { ok: true, initialized: true, tree: "rewrite" };
     });
@@ -2353,6 +2359,23 @@ describe("rewrite popup entrypoint", () => {
         renderMode: "rendered",
         renderModeSource: "local",
       }),
+      lockDirective: (frame) => replyFrame(frame, {
+        status: "ok",
+        baseUrl: "https://example.com",
+        siteId: 1,
+        lockRole: "editor",
+        configPresent: true,
+        canEdit: true,
+        blockedReason: "editor",
+        authority: {
+          environmentKey: "example.com",
+          editorSessionId: "editor-1",
+          lockToken: mutationAuthorityCurrent ? "lock-current" : "lock-before-save",
+          propertyRevision: mutationAuthorityCurrent ? 5 : 4,
+          feedRevision: mutationAuthorityCurrent ? 3 : 2,
+        },
+        lockBanner: { visible: false, reason: "editor" },
+      }),
     });
     globalThis.chrome = {
       runtime: { ...runtime },
@@ -2390,6 +2413,10 @@ describe("rewrite popup entrypoint", () => {
       payload: {
         environmentKey: "example.com",
         siteId: 1,
+        editorSessionId: "editor-1",
+        lockToken: "lock-current",
+        expectedPropertyRevision: 5,
+        expectedFeedRevision: 3,
         page: expect.objectContaining({ pageKey: "/page", pageType: "detail" }),
         selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
       },

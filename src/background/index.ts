@@ -1923,6 +1923,12 @@ export function startRewriteBackground(): void {
       : {
           status: result.status,
           httpStatus: result.httpStatus,
+          ...("propertyRevision" in result
+            ? { propertyRevision: result.propertyRevision, feedRevision: result.feedRevision }
+            : {}),
+          ...("duplicateOperation" in result && result.duplicateOperation !== undefined
+            ? { duplicateOperation: result.duplicateOperation }
+            : {}),
           ...("reason" in result && result.reason ? { reason: result.reason } : {}),
         };
   });

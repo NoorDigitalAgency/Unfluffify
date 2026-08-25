@@ -284,7 +284,12 @@ function injectBypassStyle(document: ConsentDocument): boolean {
     `[${CONSENT_HIDDEN_ATTR}], [${CONSENT_HIDDEN_ATTR}] * `
     + "{ opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }\n"
     + `[aria-hidden='true']:not([${CONSENT_HIDDEN_ATTR}]):not([${CONSENT_HIDDEN_ATTR}] *) `
-    + "{ pointer-events: auto !important; }";
+    + "{ pointer-events: auto !important; }\n"
+    + "html.noScroll, html.no-scroll, html.modal-open, "
+    + "body.noScroll, body.no-scroll, body.modal-open "
+    + "{ overflow: auto !important; }\n"
+    + "html.noScroll body, html.no-scroll body, html.modal-open body "
+    + "{ overflow: visible !important; }";
   document.head.appendChild(style);
   return true;
 }

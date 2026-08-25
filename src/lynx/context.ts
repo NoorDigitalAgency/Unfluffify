@@ -17,6 +17,13 @@ function unavailable(environmentKey: string): PropertyContextResponse {
   };
 }
 
+function propertyNotFound(environmentKey: string): PropertyContextResponse {
+  return {
+    ...unavailable(environmentKey),
+    status: "property_not_found",
+  };
+}
+
 /** Resolve through Hub, not GraphQL. A typed Hub body wins over the HTTP status:
  * Hub has already classified misleading upstream statuses and forwarded token
  * rotation before this parser sees the response. */
@@ -32,7 +39,12 @@ export async function resolvePropertyContext(
       body: { environmentKey, url },
     });
     const parsed = PropertyContextResponseSchema.safeParse(response.body);
-    return parsed.success ? parsed.data : unavailable(environmentKey);
+    if (parsed.success) {
+      return parsed.data;
+    }
+    return response.status === 404
+      ? propertyNotFound(environmentKey)
+      : unavailable(environmentKey);
   } catch {
     return unavailable(environmentKey);
   }

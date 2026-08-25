@@ -104,6 +104,7 @@ const NO_LOCK_STATE_REASON: Readonly<Record<LockStatus, LockReason>> = {
 function lockStateFromState(input: Readonly<{
   pageUrl: string;
   baseUrl: string;
+  environmentKey?: string | null;
   siteId: number | null;
   state: PropertyLockState | null;
   status: LockStatus;
@@ -143,6 +144,7 @@ function lockStateFromState(input: Readonly<{
   return {
     status: input.status,
     baseUrl: input.baseUrl,
+    environmentKey: input.environmentKey ?? input.state?.environmentKey ?? null,
     siteId: input.siteId,
     lockRole,
     configPresent: (
@@ -265,6 +267,8 @@ export function createPropertyLockRuntime(input: Readonly<{
         tabId,
         payload: {
           baseUrl: state.baseUrl,
+          environmentKey: state.environmentKey,
+          siteId: state.siteId,
           configPresent: state.configPresent,
           lockRole: state.lockRole,
           canEdit: state.canEdit,
@@ -290,11 +294,13 @@ export function createPropertyLockRuntime(input: Readonly<{
   const projectClientState = (
     key: string,
     tabId: number,
+    environmentKey: string,
     siteId: number,
     state: PropertyLockState,
   ): ReturnType<typeof lockStateFromState> => lockStateFromState({
     pageUrl: pageUrls.get(key) ?? "",
     baseUrl: baseUrls.get(key) ?? baseUrlFor(pageUrls.get(key) ?? ""),
+    environmentKey,
     siteId,
     state,
     status: "ok",
@@ -306,6 +312,7 @@ export function createPropertyLockRuntime(input: Readonly<{
   const observeAndPublishClientState = (
     key: string,
     tabId: number,
+    environmentKey: string,
     siteId: number,
     state: PropertyLockState,
   ): void => {
@@ -316,7 +323,7 @@ export function createPropertyLockRuntime(input: Readonly<{
     const observationSequence = (observationSequenceByTab.get(tabId) ?? 0) + 1;
     observationSequenceByTab.set(tabId, observationSequence);
     const pageUrl = pageUrls.get(key) ?? "";
-    const response = projectClientState(key, tabId, siteId, state);
+    const response = projectClientState(key, tabId, environmentKey, siteId, state);
     const remainsCurrent = (): boolean =>
       activeKeyByTab.get(tabId) === key &&
       (generationByTab.get(tabId) ?? 0) === generation &&
@@ -379,7 +386,8 @@ export function createPropertyLockRuntime(input: Readonly<{
     if (!key || !client) {
       return;
     }
-    observeAndPublishClientState(key, tabId, client.editorSession().siteId, client.state());
+    const session = client.editorSession();
+    observeAndPublishClientState(key, tabId, session.environmentKey, session.siteId, client.state());
   };
 
   const expireLocalWarning = async (tabId: number, warning: LocalLockWarning): Promise<void> => {
@@ -576,7 +584,7 @@ export function createPropertyLockRuntime(input: Readonly<{
       },
       onStateChange: (state) => {
         mirrorSuspendedDeadline(request.tabId, state);
-        observeAndPublishClientState(key, request.tabId, siteId, state);
+        observeAndPublishClientState(key, request.tabId, environmentKey, siteId, state);
       },
     })
       .then(async (client) => {

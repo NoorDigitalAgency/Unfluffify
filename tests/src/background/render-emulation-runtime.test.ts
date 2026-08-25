@@ -7,6 +7,7 @@ const REAL_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like
 function fakeDebugger() {
   const sent: Array<{ method: string; params?: Record<string, unknown> }> = [];
   const attaches: number[] = [];
+  const detaches: number[] = [];
   let onDetach: ((source: { tabId?: number }, reason?: string) => void) | null = null;
   let deferredCommand: Readonly<{
     method: string;
@@ -16,6 +17,7 @@ function fakeDebugger() {
   return {
     sent,
     attaches,
+    detaches,
     detach(tabId: number, reason?: string) {
       onDetach?.({ tabId }, reason);
     },
@@ -46,7 +48,8 @@ function fakeDebugger() {
         attaches.push(target.tabId ?? -1);
         callback?.();
       },
-      detach(_target: { tabId?: number }, callback?: () => void) {
+      detach(target: { tabId?: number }, callback?: () => void) {
+        detaches.push(target.tabId ?? -1);
         callback?.();
       },
       sendCommand(_target: { tabId?: number }, method: string, params?: Record<string, unknown>, callback?: (result?: unknown) => void) {
@@ -249,6 +252,116 @@ describe("render emulation runtime", () => {
       params: { value: true },
     });
     expect(reload).toHaveBeenCalledWith(7, { bypassCache: true }, expect.any(Function));
+  });
+
+  it("times out a wedged debugger command, releases the posture, and admits a later operation", async () => {
+    vi.useFakeTimers();
+    try {
+      const debuggerApi = fakeDebugger();
+      const runtime = createRenderEmulationRuntime({
+        debuggerApi: debuggerApi.api,
+        tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+        apiTimeoutMs: 50,
+      });
+      const deferred = debuggerApi.deferNextCommand("Emulation.setDeviceMetricsOverride");
+      const applying = runtime.apply(7, "mobile", 1, true);
+      const rejection = expect(applying).rejects.toThrow(
+        "Debugger command Emulation.setDeviceMetricsOverride timed out",
+      );
+      await deferred.started;
+      await vi.advanceTimersByTimeAsync(50);
+
+      await rejection;
+      expect(runtime.heldMode(7)).toBeNull();
+
+      await expect(runtime.apply(7, "desktop", 1, false)).resolves.toMatchObject({
+        mode: "desktop",
+        active: true,
+      });
+      expect(runtime.heldMode(7)).toBe("desktop");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("continues after a missing touch-emulation acknowledgement", async () => {
+    vi.useFakeTimers();
+    try {
+      const debuggerApi = fakeDebugger();
+      const runtime = createRenderEmulationRuntime({
+        debuggerApi: debuggerApi.api,
+        tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+        apiTimeoutMs: 50,
+      });
+      const deferred = debuggerApi.deferNextCommand("Emulation.setTouchEmulationEnabled");
+      const applying = runtime.apply(7, "mobile", 1, false);
+      const result = expect(applying).resolves.toMatchObject({
+        mode: "mobile",
+        width: 412,
+        height: 960,
+        active: true,
+      });
+      await deferred.started;
+      await vi.advanceTimersByTimeAsync(50);
+
+      await result;
+      expect(debuggerApi.sent.map((call) => call.method)).toContain("Emulation.setEmulatedMedia");
+      expect(debuggerApi.sent.map((call) => call.method)).toContain("Emulation.setUserAgentOverride");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses promise-only debugger APIs without supplying legacy callbacks", async () => {
+    const sent: string[] = [];
+    const debuggerApi = {
+      attach: vi.fn(async (_target: { tabId?: number }, _version: string, callback?: () => void) => {
+        expect(callback).toBeUndefined();
+      }),
+      detach: vi.fn(async (_target: { tabId?: number }, callback?: () => void) => {
+        expect(callback).toBeUndefined();
+      }),
+      sendCommand: vi.fn(async (
+        _target: { tabId?: number },
+        method: string,
+        _params?: Record<string, unknown>,
+        callback?: (result?: unknown) => void,
+      ) => {
+        expect(callback).toBeUndefined();
+        sent.push(method);
+        return method === "Runtime.evaluate"
+          ? { result: { value: REAL_UA } }
+          : {};
+      }),
+    };
+    const reload = vi.fn(async (_tabId: number, _options?: Record<string, unknown>, callback?: () => void) => {
+      expect(callback).toBeUndefined();
+    });
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi,
+      tabs: { reload, sendMessage: vi.fn() },
+      apiMode: "promise",
+    });
+
+    await expect(runtime.apply(7, "mobile", 1, true)).resolves.toMatchObject({ active: true });
+    expect(sent).toContain("Emulation.setDeviceMetricsOverride");
+    expect(reload).toHaveBeenCalledOnce();
+    await expect(runtime.clear(7)).resolves.toMatchObject({ active: false });
+    expect(debuggerApi.detach).toHaveBeenCalledOnce();
+  });
+
+  it("attempts physical detach even when the local attachment cache was already cleared", async () => {
+    const debuggerApi = fakeDebugger();
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+    });
+
+    await runtime.clear(7);
+    expect(debuggerApi.detaches).toEqual([7]);
+    debuggerApi.detach(7, "canceled_by_user");
+    await flush();
+    expect(runtime.heldMode(7)).toBeNull();
   });
 
 });

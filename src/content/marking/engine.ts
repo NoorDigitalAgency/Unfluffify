@@ -26,6 +26,7 @@ import { isToggleableDefaultTag } from "../../domain/taxonomy";
 import type { VisibilityGeometry } from "../../domain/visibility";
 import { isToggleableBoundary } from "../../domain/boundary";
 import { createGeometryStabilizer } from "./stabilizer";
+import { readElementId } from "./element-identity";
 
 function evaluationNodeFingerprint(node: EvaluationNode): string {
   return [
@@ -50,14 +51,15 @@ function previewTextElementExcluded(element: Element, root: Element): boolean {
   if (PREVIEW_TEXT_BLOCKED_TAGS.has(element.tagName.toUpperCase())) {
     return true;
   }
+  const elementId = readElementId(element);
   if (element !== root && (
     element.hasAttribute("data-uf-consent-hidden") ||
     Boolean(element.closest?.("[data-uf-consent-hidden]")) ||
     element.hasAttribute("data-wxt-shadow-root") ||
     element.getAttribute("data-uf-extension-ui") === "true" ||
     element.tagName.toLowerCase() === "browser-mcp-container" ||
-    element.id === "browser-mcp-container" ||
-    element.id.startsWith("unfluffify-")
+    elementId === "browser-mcp-container" ||
+    elementId.startsWith("unfluffify-")
   )) {
     return true;
   }

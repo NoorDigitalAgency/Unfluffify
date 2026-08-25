@@ -985,6 +985,19 @@ in the owning phase and rerun its focused gate plus P9–P11.
     [`p20-dpj-aleris-live-sanity-report-2026-08-25.md`](./p20-dpj-aleris-live-sanity-report-2026-08-25.md).
   - DPJ remains correctly fenced at 1/7 coverage and Aleris at 1/2; no publish
     request was issued. Consent suppression is accepted extraction hygiene.
+  - The 2026-08-25 four-site follow-up repaired Acapedia scroll/DOM-ID hygiene,
+    typed 404 authority, refresh coalescing, reload-safe property identity,
+    late Save fencing, payload root-class hygiene, and bounded debugger cleanup.
+    Acne Specialisten, Acapedia, the unmanaged 3D Prima root, and the managed
+    `/se` candidate results are in
+    [`p20-four-site-live-sanity-report-2026-08-25.md`](./p20-four-site-live-sanity-report-2026-08-25.md).
+    No publish request was issued. A final source-fresh 3D activation recheck is
+    explicitly environment-limited because managed Chromium did not resolve a
+    direct service-worker CDP device-metrics command; it is not misreported as a
+    clean headed pass.
+  - Follow-up validation: `pnpm verify` passed lint, generated page-world
+    parity, all TypeScript projects, 125 files / 1,131 tests, the production
+    build, and seven manifest assertions; `pnpm build:debug` passed.
 
 For each completed item, append the commit SHA(s), exact test command, result,
 and any live artifact/version directly beneath the checkbox. The first unchecked

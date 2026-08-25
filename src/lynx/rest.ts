@@ -41,6 +41,7 @@ export type SaveConfigResult =
       httpStatus: number;
       propertyRevision: number;
       feedRevision: number;
+      duplicateOperation?: boolean;
       reason?: string;
     }>
   | Readonly<{ status: "empty" | "auth_error" | "invalid" | "error"; httpStatus: number }>;
@@ -129,6 +130,9 @@ export async function saveConfigSnapshot(
         httpStatus: response.status,
         propertyRevision: failure.data.propertyRevision,
         feedRevision: failure.data.feedRevision,
+        ...(failure.data.duplicateOperation === undefined
+          ? {}
+          : { duplicateOperation: failure.data.duplicateOperation }),
         ...(failure.data.reason ? { reason: failure.data.reason } : {}),
       };
     }

@@ -918,6 +918,20 @@ describe("P6 DOM bridge", () => {
     expect(bounded).toBe(`${"😀".repeat(77)}...`);
   });
 
+  it("treats non-string DOM id properties as ordinary content", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const svg = new FakeElement("SVG", rect(0, 0, 100, 100), "Chart label");
+    root.ownerDocument = doc;
+    svg.ownerDocument = doc;
+    (svg as unknown as { id: unknown }).id = { baseVal: "chart" };
+    root.appendChild(svg);
+
+    expect(() => createDomBridgeView(root as unknown as Element)).not.toThrow();
+    expect(() => previewTextForElement(root as unknown as Element)).not.toThrow();
+    expect(captureFlattenedHtml(root as unknown as Element)).toContain("Chart label");
+  });
+
   it("keeps a collapsed wrapper XPath while drawing its visible descendant geometry", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
@@ -2168,6 +2182,30 @@ describe("P6 DOM bridge", () => {
     expect(stripUncapturableHtml(
       "<html class='uf-cursor-exclude'><body>Content</body></html>",
     )).toBe("<html><body>Content</body></html>");
+  });
+
+  it("removes root blocker posture classes without changing nested authored classes", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("HTML", rect(0, 0, 300, 300));
+    const body = new FakeElement("BODY", rect(0, 0, 300, 300));
+    const content = new FakeElement("MAIN", rect(0, 0, 300, 300), "Content");
+    root.ownerDocument = doc;
+    body.ownerDocument = doc;
+    content.ownerDocument = doc;
+    root.setAttribute("class", "theme noScroll modal-open");
+    body.setAttribute("class", "page detect-customer-type-country--active");
+    content.setAttribute("class", "modal-open");
+    root.appendChild(body);
+    body.appendChild(content);
+
+    expect(captureFlattenedHtml(root as unknown as Element)).toBe(
+      '<html class="theme"><body class="page"><main class="modal-open">Content</main></body></html>',
+    );
+    expect(stripUncapturableHtml(
+      '<html class="theme no-scroll"><body class="page detect-customer-type-country--active"><main class="modal-open">Content</main></body></html>',
+    )).toBe(
+      '<html class="theme"><body class="page"><main class="modal-open">Content</main></body></html>',
+    );
   });
 
   it("removes legacy consent-hidden subtrees without touching adjacent content", () => {

@@ -798,6 +798,8 @@ describe("rewrite background services", () => {
         payload: expect.objectContaining({
           name: "lock.state.changed",
           payload: expect.objectContaining({
+            environmentKey: "stage.example.com",
+            siteId: 5542,
             canEdit: true,
             lockRole: "editor",
           }),

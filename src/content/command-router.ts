@@ -14,6 +14,8 @@ import type { ContentPresentation } from "./organ";
 
 export const ContentLockStateSchema = z.object({
   baseUrl: z.string().url(),
+  environmentKey: z.string().min(1).nullable().optional(),
+  siteId: z.number().int().positive().nullable().optional(),
   configPresent: z.boolean(),
   lockRole: LockRoleSchema,
   canEdit: z.boolean(),
@@ -25,6 +27,8 @@ export type ContentLockState = z.infer<typeof ContentLockStateSchema>;
 export type ContentLockBanner = Readonly<LockBannerVocabulary & { text: string }>;
 export type ContentAuthorityState = Readonly<{
   baseUrl: string;
+  environmentKey: string | null;
+  siteId: number | null;
   configPresent: boolean;
   lockRole: LockRole;
   lockBlocked: boolean;
@@ -142,6 +146,8 @@ function gateCommand(command: CommandEnvelope, context: ContentCommandContext): 
 export function createDefaultContentAuthority(pageUrl: string): ContentAuthorityState {
   return {
     baseUrl: baseUrlFor(pageUrl),
+    environmentKey: null,
+    siteId: null,
     configPresent: false,
     lockRole: "unknown",
     lockBlocked: false,
@@ -153,6 +159,8 @@ export function createDefaultContentAuthority(pageUrl: string): ContentAuthority
 export function authorityFromLockState(state: ContentLockState): ContentAuthorityState {
   return {
     baseUrl: state.baseUrl,
+    environmentKey: state.environmentKey ?? null,
+    siteId: state.siteId ?? null,
     configPresent: state.configPresent,
     lockRole: state.lockRole,
     lockBlocked: !state.canEdit,

@@ -88,6 +88,7 @@ export type LockStatus = z.infer<typeof LockStatusSchema>;
 const LockStateResponseSchema = z.object({
   status: LockStatusSchema,
   baseUrl: z.string().url(),
+  environmentKey: z.string().min(1).nullable().optional(),
   siteId: z.number().int().positive().nullable(),
   lockRole: LockRoleSchema,
   configPresent: z.boolean(),
@@ -319,6 +320,9 @@ export const applicationContract = defineContract({
           ]),
           httpStatus: z.number().optional(),
           config: ConfigSnapshotSchema.optional(),
+          propertyRevision: z.number().int().nonnegative().optional(),
+          feedRevision: z.number().int().nonnegative().optional(),
+          duplicateOperation: z.boolean().optional(),
           reason: z.string().optional(),
         }),
       ]),

@@ -10,6 +10,7 @@ import {
   consentStyleForCapture,
 } from "../consent";
 import { sanitizeCaptureClassValue } from "./capture-hygiene";
+import { readElementId } from "./element-identity";
 import { isActuallyPaintReachable } from "./paint-reachability";
 
 export type DomBridgeNode = Readonly<{
@@ -323,13 +324,14 @@ function hasStyleHiddenAncestor(element: Element, pass: DomBridgePass): boolean 
 }
 
 function isExtensionUi(element: Element): boolean {
+  const elementId = readElementId(element);
   return element.hasAttribute(CONSENT_HIDDEN_ATTR) ||
     element.hasAttribute("data-wxt-shadow-root") ||
     element.getAttribute("data-uf-extension-ui") === "true" ||
     element.tagName.toLowerCase() === "browser-mcp-container" ||
-    element.id === "browser-mcp-container" ||
-    element.id === LEGACY_CONSENT_BYPASS_STYLE_ID ||
-    element.id.startsWith("unfluffify-");
+    elementId === "browser-mcp-container" ||
+    elementId === LEGACY_CONSENT_BYPASS_STYLE_ID ||
+    elementId.startsWith("unfluffify-");
 }
 
 function elementChildren(element: Element, pass?: DomBridgePass): Element[] {
@@ -548,7 +550,7 @@ function serializeAttributes(element: Element): string {
         ? safeConsentStyle ?? ""
         : element.getAttribute(name) ?? "";
       if (name === "class") {
-        value = sanitizeCaptureClassValue(value);
+        value = sanitizeCaptureClassValue(value, element.tagName);
         if (!value) {
           return [];
         }

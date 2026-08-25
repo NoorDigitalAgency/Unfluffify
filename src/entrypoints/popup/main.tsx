@@ -51,6 +51,12 @@ import type { LockAction, LockBannerVocabulary, LockReason } from "../../domain/
 import { resolvePopupLockCopy } from "../../popup/copy";
 import { pageTypeForCandidate } from "../../domain/todo";
 import { createTodoController } from "../../popup/todo-controller";
+import { createAuthorityRefreshQueue } from "../../popup/authority-refresh-queue";
+import {
+  replacementContentStatusReady,
+  waitForReloadTransition,
+  type ReloadPropertyIdentity,
+} from "../../popup/emulation-reload-transition";
 import {
   createPopupPreviewController,
   type PopupPreviewOwner,
@@ -149,10 +155,12 @@ type SignalsAvailableWaiter = Readonly<{
 const signalsAvailableWaitersByTab = new Map<number, Set<SignalsAvailableWaiter>>();
 let fastSignalPollInFlight: Promise<void> | null = null;
 let fastSignalPollQueued = false;
-let authorityRefreshInFlight: Promise<void> | null = null;
-let authorityRefreshQueued = false;
-let authorityRefreshLastStartedAt = Number.NEGATIVE_INFINITY;
 let saveInFlight: Promise<void> | null = null;
+const authorityRefreshQueue = createAuthorityRefreshQueue({
+  intervalMs: AUTHORITY_REFRESH_INTERVAL_MS,
+  isPaused: () => saveInFlight !== null,
+  run: refreshAuthorityOnce,
+});
 /** Which decided signals have already been consumed, and the queue that keeps
  *  concurrent arrivals from consuming the same ones twice. */
 const brainSignals = createSignalCursor();
@@ -1257,9 +1265,9 @@ async function pollFastSignalsOnce(): Promise<void> {
   render();
 }
 
-async function refreshAuthorityOnce(): Promise<void> {
+async function refreshAuthorityOnce(force: boolean): Promise<void> {
   if (saveInFlight) {
-    authorityRefreshQueued = true;
+    void authorityRefreshQueue.queue(force);
     return;
   }
   const context = await resolveTargetTabContext();
@@ -1274,7 +1282,7 @@ async function refreshAuthorityOnce(): Promise<void> {
     await configurationController.adoptAuthStatus();
   }
   const requestKey = await handleBoundContext(context);
-  await refreshTodoContext(context, requestKey);
+  await refreshTodoContext(context, requestKey, { force });
   const inspectionProperty = managedRenderInspectionPropertyFor(context, requestKey);
   if (!isConfigurationComplete()) {
     await observeCurrentRenderInspection(context, requestKey, inspectionProperty);
@@ -1311,31 +1319,7 @@ function queueFastSignalPoll(): Promise<void> {
 }
 
 function queueAuthorityRefresh(force = false): Promise<void> {
-  if (saveInFlight) {
-    authorityRefreshQueued = true;
-    return Promise.resolve();
-  }
-  if (!force && Date.now() - authorityRefreshLastStartedAt < AUTHORITY_REFRESH_INTERVAL_MS) {
-    return Promise.resolve();
-  }
-  if (authorityRefreshInFlight) {
-    // Reaching this branch means the refresh was either forced or its 15 s
-    // deadline elapsed. Collapse any number of such arrivals into one trailing
-    // authority pass.
-    authorityRefreshQueued = true;
-    return authorityRefreshInFlight;
-  }
-  const operation = (async () => {
-    do {
-      authorityRefreshQueued = false;
-      authorityRefreshLastStartedAt = Date.now();
-      await refreshAuthorityOnce();
-    } while (authorityRefreshQueued && !saveInFlight);
-  })();
-  authorityRefreshInFlight = operation.finally(() => {
-    authorityRefreshInFlight = null;
-  });
-  return authorityRefreshInFlight;
+  return authorityRefreshQueue.queue(force);
 }
 
 async function pollCurrentTabSignals(): Promise<void> {
@@ -1481,6 +1465,10 @@ type ContentMessageDelivery =
   | Readonly<{ status: "no_receiver"; failure: unknown }>
   | Readonly<{ status: "failed"; failure: unknown }>;
 
+type ContentMessageDeliveryOptions = Readonly<{
+  quietNoReceiver?: boolean;
+}>;
+
 function contentDeliveryFailureText(failure: unknown): string {
   if (failure instanceof Error) {
     return failure.message;
@@ -1500,6 +1488,7 @@ function contentReceiverMissing(failure: unknown): boolean {
 async function requestContentDelivery(
   tabId: number,
   message: Record<string, unknown>,
+  options: ContentMessageDeliveryOptions = {},
 ): Promise<ContentMessageDelivery> {
   const commandName = typeof message.type === "string" ? message.type : "";
   const terminalCommand = TERMINAL_CONTENT_COMMANDS.has(commandName);
@@ -1525,7 +1514,7 @@ async function requestContentDelivery(
     if (!response.ok) {
       if (contentReceiverMissing(response.failure)) {
         contentReachable = false;
-        if (!contentUnreachableReported) {
+        if (!options.quietNoReceiver && !contentUnreachableReported) {
           contentUnreachableReported = true;
           console.warn("[Unfluffify][rewrite] No content script answered on this tab; reload the page");
           logEvent("Content script unreachable", "reload the page to inject it", "warn");
@@ -1547,7 +1536,7 @@ async function requestContentDelivery(
   } catch (error) {
     if (contentReceiverMissing(error)) {
       contentReachable = false;
-      if (!contentUnreachableReported) {
+      if (!options.quietNoReceiver && !contentUnreachableReported) {
         contentUnreachableReported = true;
         console.warn("[Unfluffify][rewrite] No content script answered on this tab; reload the page");
         logEvent("Content script unreachable", "reload the page to inject it", "warn");
@@ -1557,6 +1546,38 @@ async function requestContentDelivery(
     console.error("[Unfluffify][rewrite] Unable to request content command", error);
     return { status: "failed", failure: error };
   }
+}
+
+type ContentActivationOutcome =
+  | Readonly<{ activated: true }>
+  | Readonly<{ activated: false; reason: string }>;
+
+async function requestContentActivation(
+  tabId: number,
+  message: Record<string, unknown>,
+): Promise<ContentActivationOutcome> {
+  const delivery = await requestContentDelivery(tabId, message);
+  if (delivery.status === "no_receiver") {
+    return { activated: false, reason: "no content script answered after the device transition" };
+  }
+  if (delivery.status === "failed") {
+    return {
+      activated: false,
+      reason: contentDeliveryFailureText(delivery.failure) || "the content command failed",
+    };
+  }
+  const data = delivery.data;
+  if (data && typeof data === "object" && "ok" in data && data.ok === true) {
+    return { activated: true };
+  }
+  if (data && typeof data === "object") {
+    const refusal = data as { reason?: unknown; failure?: unknown };
+    const reason = typeof refusal.reason === "string"
+      ? refusal.reason
+      : contentDeliveryFailureText(refusal.failure);
+    return { activated: false, reason: reason || "the content script refused activation" };
+  }
+  return { activated: false, reason: "the content script returned no activation acknowledgement" };
 }
 
 async function requestContentMessage(tabId: number, message: Record<string, unknown>): Promise<unknown> {
@@ -1660,6 +1681,11 @@ type SessionEmulationTarget = Readonly<{
   allowReload: boolean;
 }>;
 
+type SessionEmulationResult = Readonly<{
+  active: boolean;
+  reloadExpected: boolean;
+}>;
+
 async function runSessionTransition<T>(operation: () => Promise<T>): Promise<T> {
   let resolveResult!: (value: T | PromiseLike<T>) => void;
   let rejectResult!: (reason?: unknown) => void;
@@ -1680,11 +1706,12 @@ async function runSessionTransition<T>(operation: () => Promise<T>): Promise<T> 
   return result;
 }
 
-async function applySessionEmulation(
+async function applySessionEmulationResult(
   context: TargetTabContext,
   target: SessionEmulationTarget,
-): Promise<boolean> {
+): Promise<SessionEmulationResult> {
   let active = false;
+  let reloadExpected = false;
   const operation = emulationApplyQueue.then(async () => {
     const response = await getPopupBus().request("emulation.apply", {
       tabId: context.tabId,
@@ -1693,8 +1720,12 @@ async function applySessionEmulation(
       allowReload: target.allowReload,
     }, { target: "background" });
     active = response.ok && response.data.active === true;
+    reloadExpected = response.ok &&
+      response.data.active === true &&
+      target.allowReload &&
+      response.data.identityStale === true;
     appliedEmulationMode = active ? target.mode : null;
-    if (active) {
+    if (active && !reloadExpected) {
       // The CDP override can settle without a resize event in the content
       // isolated world. Complete the serialized posture only after the active
       // interaction shield has explicitly remeasured the confirmed viewport.
@@ -1705,7 +1736,44 @@ async function applySessionEmulation(
   });
   emulationApplyQueue = operation.catch(() => undefined);
   await operation;
-  return active;
+  return { active, reloadExpected };
+}
+
+async function applySessionEmulation(
+  context: TargetTabContext,
+  target: SessionEmulationTarget,
+): Promise<boolean> {
+  return (await applySessionEmulationResult(context, target)).active;
+}
+
+async function waitForEmulationReload(
+  context: TargetTabContext,
+  expectedProperty?: ReloadPropertyIdentity,
+) {
+  const transition = await waitForReloadTransition({
+    original: context,
+    resolveContext: resolveTargetTabContext,
+    contentReady: async (current) => {
+      const delivery = await requestContentDelivery(
+        current.tabId,
+        { type: "getContentMainStatus" },
+        { quietNoReceiver: true },
+      );
+      if (delivery.status !== "delivered") {
+        return false;
+      }
+      return replacementContentStatusReady(delivery.data, current.url, expectedProperty);
+    },
+    wait: async (delayMs) => await new Promise<void>((resolve) => {
+      globalThis.setTimeout(resolve, delayMs);
+    }),
+  });
+  if (transition.status === "ready") {
+    await requestContentMessage(transition.context.tabId, {
+      type: "refreshInteractionShieldViewport",
+    });
+  }
+  return transition;
 }
 
 /** Re-asserts the standing posture, and says nothing to the debugger when it is
@@ -1779,6 +1847,7 @@ type LockDirectiveResponse = Readonly<{
     "suspended_candidate_removed" | "suspended_candidate_feed_conflict" |
     "signed_out" | "unavailable";
   baseUrl: string;
+  environmentKey?: string | null;
   siteId: number | null;
   lockRole: "unknown" | "editor" | "passive";
   configPresent: boolean;
@@ -1997,42 +2066,69 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
   }
   if (enabled && directModeActive) {
     ensureSignalPolling();
-    const activated = await runSessionTransition(async () => {
-      const emulationApplied = await applySessionEmulation(context, {
+    const transition = await runSessionTransition(async () => {
+      const priorMode = desiredEmulationMode();
+      const emulation = await applySessionEmulationResult(context, {
         mode: "mobile",
         allowReload: true,
       });
-      if (!emulationApplied || !bindingOccurrenceIsCurrent(binding)) {
-        return false;
+      if (!emulation.active) {
+        return { activated: false, reason: "device emulation could not be applied", context };
       }
-      const contentActivated = await sendContentMessage(context.tabId, {
+      let activeContext = context;
+      if (emulation.reloadExpected) {
+        const reload = await waitForEmulationReload(context);
+        if (reload.status !== "ready") {
+          await applySessionEmulation(context, { mode: priorMode, allowReload: true });
+          return {
+            activated: false,
+            reason: reload.status === "identity_changed"
+              ? "the page identity changed during device emulation"
+              : "the replacement page did not become ready after device emulation",
+            context,
+          };
+        }
+        activeContext = reload.context;
+      }
+      if (!bindingOccurrenceIsCurrent(binding)) {
+        await applySessionEmulation(activeContext, { mode: priorMode, allowReload: true });
+        return { activated: false, reason: "the popup binding changed during activation", context: activeContext };
+      }
+      const activation = await requestContentActivation(activeContext.tabId, {
         type: "activateContentMain",
-        baseUrl: safeOrigin(context.url),
-        pageUrl: context.url,
+        baseUrl: safeOrigin(activeContext.url),
+        pageUrl: activeContext.url,
         realEditorActivation: true,
       });
       if (!bindingOccurrenceIsCurrent(binding)) {
-        return false;
+        if (activation.activated) {
+          await requestContentDelivery(
+            activeContext.tabId,
+            { type: "enterSilentContentMain", pageUrl: activeContext.url },
+            { quietNoReceiver: true },
+          );
+        }
+        await applySessionEmulation(activeContext, { mode: priorMode, allowReload: true });
+        return { activated: false, reason: "the popup binding changed during activation", context: activeContext };
       }
-      contentActive = contentActivated;
-      if (!contentActivated) {
-        const mode = desiredEmulationMode();
-        await applySessionEmulation(context, { mode, allowReload: true });
+      contentActive = activation.activated;
+      if (!activation.activated) {
+        await applySessionEmulation(activeContext, { mode: priorMode, allowReload: true });
       }
-      return contentActivated;
+      return { ...activation, context: activeContext };
     });
     if (!bindingOccurrenceIsCurrent(binding)) {
       return;
     }
-    if (activated) {
-      await adoptMarkingRows(context.tabId, requestKey);
-      await reportPopupFact(context, "debug-direct-marking-activated", { markingEnabled: true }, requestKey);
+    if (transition.activated) {
+      await adoptMarkingRows(transition.context.tabId, requestKey);
+      await reportPopupFact(transition.context, "debug-direct-marking-activated", { markingEnabled: true }, requestKey);
     }
     notifyBoundEvent(
       binding,
-      activated ? "Direct marking enabled" : "Direct marking failed",
-      context.url,
-      activated ? "success" : "danger",
+      transition.activated ? "Direct marking enabled" : "Direct marking failed",
+      transition.activated ? transition.context.url : transition.reason,
+      transition.activated ? "success" : "danger",
     );
     render();
     return;
@@ -2057,18 +2153,98 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
       render();
       return;
     }
+    const lockEnvironmentKey = lock.environmentKey ?? lock.authority?.environmentKey ?? null;
+    const expectedProperty: ReloadPropertyIdentity | null =
+      lockEnvironmentKey && lock.siteId !== null
+        ? {
+            environmentKey: lockEnvironmentKey,
+            siteId: lock.siteId,
+          }
+        : null;
     const transition = await runSessionTransition(async () => {
-      const emulationApplied = await applySessionEmulation(context, {
+      const priorMode = desiredEmulationMode();
+      const emulation = await applySessionEmulationResult(context, {
         mode: "mobile",
         allowReload: true,
       });
-      if (!emulationApplied || !bindingOccurrenceIsCurrent(binding)) {
-        return { emulationApplied, activated: false };
+      if (!emulation.active) {
+        return {
+          emulationApplied: false,
+          activated: false,
+          reason: "device emulation could not be applied",
+          context,
+          requestKey,
+          binding,
+        };
       }
-      const activated = await sendContentMessage(context.tabId, {
+      let activeContext = context;
+      let activeRequestKey = requestKey;
+      let activeBinding = binding;
+      let activeLock = lock;
+      if (emulation.reloadExpected) {
+        if (!expectedProperty) {
+          await applySessionEmulation(context, { mode: priorMode, allowReload: true });
+          return {
+            emulationApplied: true,
+            activated: false,
+            reason: "stable property authority is unavailable after device emulation",
+            context,
+            requestKey,
+            binding,
+          };
+        }
+        const reload = await waitForEmulationReload(context, expectedProperty);
+        if (reload.status !== "ready") {
+          await applySessionEmulation(context, { mode: priorMode, allowReload: true });
+          return {
+            emulationApplied: true,
+            activated: false,
+            reason: reload.status === "identity_changed"
+              ? "the page identity changed during device emulation"
+              : "the replacement page did not become ready after device emulation",
+            context,
+            requestKey,
+            binding,
+          };
+        }
+        activeContext = reload.context;
+        activeRequestKey = await handleBoundContext(activeContext);
+        activeBinding = captureBindingOccurrence(activeRequestKey);
+        await refreshTodoContext(activeContext, activeRequestKey);
+        const revalidatedLock = await refreshLockDirective(activeContext, activeRequestKey);
+        if (
+          !revalidatedLock ||
+          !lockAllowsEditing(revalidatedLock) ||
+          revalidatedLock.siteId !== expectedProperty.siteId ||
+          revalidatedLock.environmentKey !== expectedProperty.environmentKey
+        ) {
+          await applySessionEmulation(activeContext, { mode: priorMode, allowReload: true });
+          return {
+            emulationApplied: true,
+            activated: false,
+            reason: "candidate or lock authority changed after device emulation",
+            context: activeContext,
+            requestKey: activeRequestKey,
+            binding: activeBinding,
+          };
+        }
+        activeLock = revalidatedLock;
+      }
+      if (!bindingOccurrenceIsCurrent(activeBinding)) {
+        await applySessionEmulation(activeContext, { mode: priorMode, allowReload: true });
+        return {
+          emulationApplied: true,
+          activated: false,
+          reason: "the popup binding changed during activation",
+          context: activeContext,
+          requestKey: activeRequestKey,
+          binding: activeBinding,
+        };
+      }
+      const activation = await requestContentActivation(activeContext.tabId, {
         type: "activateContentMain",
-        baseUrl: lock.baseUrl,
-        pageUrl: context.url,
+        baseUrl: activeLock.baseUrl,
+        pageUrl: activeContext.url,
         realEditorActivation: true,
         // Seeds a clean session: the defaults first, then these laid over them.
         // The content script applies them once and then ignores them.
@@ -2076,17 +2252,37 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
           ? { selectors: currentPropertyConfiguration().selectors }
           : {}),
       });
-      if (!bindingOccurrenceIsCurrent(binding)) {
-        return { emulationApplied, activated: false };
+      if (!bindingOccurrenceIsCurrent(activeBinding)) {
+        if (activation.activated) {
+          await requestContentDelivery(
+            activeContext.tabId,
+            { type: "enterSilentContentMain", pageUrl: activeContext.url },
+            { quietNoReceiver: true },
+          );
+        }
+        await applySessionEmulation(activeContext, { mode: priorMode, allowReload: true });
+        return {
+          emulationApplied: true,
+          activated: false,
+          reason: "the popup binding changed during activation",
+          context: activeContext,
+          requestKey: activeRequestKey,
+          binding: activeBinding,
+        };
       }
-      contentActive = activated;
-      if (!activated) {
-        const mode = desiredEmulationMode();
-        await applySessionEmulation(context, { mode, allowReload: true });
+      contentActive = activation.activated;
+      if (!activation.activated) {
+        await applySessionEmulation(activeContext, { mode: priorMode, allowReload: true });
       }
-      return { emulationApplied, activated };
+      return {
+        emulationApplied: true,
+        ...activation,
+        context: activeContext,
+        requestKey: activeRequestKey,
+        binding: activeBinding,
+      };
     });
-    if (!bindingOccurrenceIsCurrent(binding)) {
+    if (!bindingOccurrenceIsCurrent(transition.binding)) {
       return;
     }
     if (!transition.emulationApplied) {
@@ -2098,22 +2294,20 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     if (activated) {
       // The seeded marks are the session's starting point, so show them without
       // pretending the operator has edited anything.
-      await adoptMarkingRows(context.tabId, requestKey);
+      await adoptMarkingRows(transition.context.tabId, transition.requestKey);
     }
     notifyBoundEvent(
-      binding,
+      transition.binding,
       activated ? "Marking enabled" : "Marking activation failed",
       activated
-        ? context.url
-        : contentReachable
-          ? "the content script refused activation"
-          : "no content script on this tab — reload the page",
+        ? transition.context.url
+        : transition.reason,
       activated ? "success" : "danger",
     );
-    await reportPopupFact(context, activated ? "marking-activated" : "marking-activation-refused", {
+    await reportPopupFact(transition.context, activated ? "marking-activated" : "marking-activation-refused", {
       markingEnabled: activated,
-    }, requestKey);
-    await pullSignals(context.tabId, requestKey);
+    }, transition.requestKey);
+    await pullSignals(transition.context.tabId, transition.requestKey);
   } else {
     const transition = await runSessionTransition(async () => {
       const contentDeactivated = await sendContentMessage(context.tabId, {
@@ -2456,7 +2650,6 @@ async function refreshPopup(): Promise<void> {
   if (!bindingOccurrenceIsCurrent(binding)) {
     return;
   }
-  await refreshTodoContext(context, requestKey, { force: true });
   await reconcileContentStatus(context, requestKey);
   logEvent(
     "Refreshed",
@@ -2849,7 +3042,7 @@ async function saveSession(): Promise<void> {
     await saveInFlight;
     return;
   }
-  const pendingPolls = [fastSignalPollInFlight, authorityRefreshInFlight]
+  const pendingPolls = [fastSignalPollInFlight, authorityRefreshQueue.current()]
     .filter((operation): operation is Promise<void> => operation !== null);
   const operation = (async () => {
     await Promise.allSettled(pendingPolls);
@@ -2863,7 +3056,7 @@ async function saveSession(): Promise<void> {
     if (fastSignalPollQueued) {
       void queueFastSignalPoll();
     }
-    if (authorityRefreshQueued) {
+    if (authorityRefreshQueue.hasQueued()) {
       void queueAuthorityRefresh(true);
     }
   }
@@ -2970,7 +3163,34 @@ async function performSaveSession(): Promise<void> {
       notifyBoundEvent(binding, "Save blocked", "the page changed during reconciliation; run AI again", "warn");
       return;
     }
-    const saveRequest = configFromSubmission(snapshot, selectors, lock, context.url);
+    // Snapshot capture, interaction pause, and reconciliation can take long
+    // enough for a lease transfer or recovery to rotate the mutation fence.
+    // Re-read authority at the last safe point and build the one Hub mutation
+    // from that exact grant. A lost grant aborts locally; Save never retries a
+    // different fence behind the operator's back.
+    const mutationLock = await refreshLockDirective(context, requestKey);
+    if (!mutationLock || !lockAllowsEditing(mutationLock)) {
+      reconciliationReason = "save-authority-changed";
+      notifyBoundEvent(
+        binding,
+        "Save blocked",
+        mutationLock
+          ? resolvePopupLockCopy(mutationLock.lockBanner) || "the editor authority changed during Save"
+          : "the editor authority could not be revalidated",
+        "danger",
+      );
+      return;
+    }
+    const stateAfterAuthorityRefresh = store.getState();
+    if (
+      stateAfterAuthorityRefresh.name !== "reconciling" ||
+      stateAfterAuthorityRefresh.reconciliationDirty
+    ) {
+      reconciliationReason = "dirty-before-save";
+      notifyBoundEvent(binding, "Save blocked", "the page changed while authority was refreshed; run AI again", "warn");
+      return;
+    }
+    const saveRequest = configFromSubmission(snapshot, selectors, mutationLock, context.url);
     if (!saveRequest) {
       reconciliationReason = "save-authority-unavailable";
       notifyBoundEvent(binding, "Save blocked", "authoritative lock or candidate page type is unavailable", "danger");
@@ -2993,7 +3213,14 @@ async function performSaveSession(): Promise<void> {
         configurationController.adoptAuthoritativeConfig(response.data.config, "integrity_shrink");
         silentSelectorsAppliedKey = null;
       }
-      notifyBoundEvent(binding, "Save failed", reconciliationReason, "danger");
+      const detail = response.ok && response.data.status === "stale_fence"
+        ? response.data.duplicateOperation === true
+          ? "Hub recognized the operation, but its recorded lock fence is stale; Refresh before retrying"
+          : "the editor lock changed before Hub accepted the page; Refresh before retrying"
+        : response.ok && "reason" in response.data && response.data.reason
+          ? response.data.reason
+          : reconciliationReason;
+      notifyBoundEvent(binding, "Save failed", detail, "danger");
       return;
     }
     if (response.data.config) {

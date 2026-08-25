@@ -21,14 +21,22 @@ function isPromiseLike<T>(value: unknown): value is PromiseLike<T> {
   return Boolean(value) && typeof (value as PromiseLike<T>).then === "function";
 }
 
-function callbackToPromise<T>(invoke: (callback: (value?: T) => void) => Promise<T> | void): Promise<T | undefined> {
+function callbackToPromise<T>(
+  invoke: (callback: (value?: T) => void) => Promise<T> | void,
+  timeoutMs: number,
+  operation: string,
+): Promise<T | undefined> {
   return new Promise<T | undefined>((resolve, reject) => {
     let settled = false;
     const finish = (callback: () => void): void => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       callback();
     };
+    const timer = setTimeout(() => {
+      finish(() => reject(new Error(`${operation} timed out after ${timeoutMs} ms`)));
+    }, timeoutMs);
     try {
       const maybePromise = invoke((value) => {
         const lastError = getBrowserRuntimeLastError();
@@ -47,11 +55,46 @@ function callbackToPromise<T>(invoke: (callback: (value?: T) => void) => Promise
   });
 }
 
+function promiseWithTimeout<T>(promise: Promise<T>, timeoutMs: number, operation: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${operation} timed out after ${timeoutMs} ms`));
+    }, timeoutMs);
+    void promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 export function createRenderEmulationRuntime(input: Readonly<{
   debuggerApi?: DebuggerApi;
   tabs?: TabsApi;
   onDebuggerDetached?: (tabId: number, reason?: string) => void;
+  apiTimeoutMs?: number;
+  apiMode?: "callback" | "promise";
 }>) {
+  const apiTimeoutMs = input.apiTimeoutMs ?? 5_000;
+  const apiMode = input.apiMode ?? (
+    input.debuggerApi?.sendCommand.length === 0 ? "promise" : "callback"
+  );
+  const invokeBrowserApi = <T>(
+    invokePromise: () => Promise<T> | void,
+    invokeCallback: (callback: (value?: T) => void) => Promise<T> | void,
+    operation: string,
+  ): Promise<T | undefined> => apiMode === "promise"
+    ? promiseWithTimeout(
+        Promise.resolve(invokePromise()).then((value) => value as T),
+        apiTimeoutMs,
+        operation,
+      )
+    : callbackToPromise(invokeCallback, apiTimeoutMs, operation);
   type HeldPosture = Readonly<{ mode: EmulationMode; scale: number; epoch: number }>;
   const attachedTabs = new Set<number>();
   const emulationOperations = new Map<number, Promise<void>>();
@@ -117,7 +160,11 @@ export function createRenderEmulationRuntime(input: Readonly<{
     }
     const target = targetFor(tabId);
     if (!attachedTabs.has(tabId)) {
-      await callbackToPromise<void>((callback) => debuggerApi.attach(target, "1.3", callback));
+      await invokeBrowserApi<void>(
+        () => debuggerApi.attach(target, "1.3"),
+        (callback) => debuggerApi.attach(target, "1.3", callback),
+        "Debugger attach",
+      );
       attachedTabs.add(tabId);
     }
   };
@@ -129,21 +176,56 @@ export function createRenderEmulationRuntime(input: Readonly<{
     const target = targetFor(tabId);
     await attach(tabId);
     try {
-      return await callbackToPromise<unknown>((callback) => debuggerApi.sendCommand(target, method, params, callback));
+      return await invokeBrowserApi<unknown>(
+        () => debuggerApi.sendCommand(target, method, params) as Promise<unknown> | void,
+        (callback) => debuggerApi.sendCommand(target, method, params, callback),
+        `Debugger command ${method}`,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "";
-      if (!/attach|debugger|detached/i.test(message)) {
+      if (!/not attached|detached|target closed|debugger is not attached|cannot access.*debugger/i.test(message)) {
         throw error;
       }
       attachedTabs.delete(tabId);
       await attach(tabId);
-      return await callbackToPromise<unknown>((callback) => debuggerApi.sendCommand(target, method, params, callback));
+      return await invokeBrowserApi<unknown>(
+        () => debuggerApi.sendCommand(target, method, params) as Promise<unknown> | void,
+        (callback) => debuggerApi.sendCommand(target, method, params, callback),
+        `Debugger command ${method}`,
+      );
+    }
+  };
+  const sendEmulationCommand = async (
+    tabId: number,
+    method: string,
+    params?: Record<string, unknown>,
+  ): Promise<unknown> => {
+    try {
+      return await send(tabId, method, params);
+    } catch (error) {
+      // Some Chromium builds apply touch emulation but never acknowledge this
+      // particular command. Device metrics and the coarse-pointer media posture
+      // are independently authoritative, so a bounded missing acknowledgement
+      // must not wedge or abort the whole transition. Every other CDP command
+      // remains terminal on timeout.
+      if (
+        method === "Emulation.setTouchEmulationEnabled" &&
+        error instanceof Error &&
+        /timed out/i.test(error.message)
+      ) {
+        return undefined;
+      }
+      throw error;
     }
   };
   const detach = async (tabId: number): Promise<void> => {
-    if (!input.debuggerApi || !attachedTabs.has(tabId)) return;
+    if (!input.debuggerApi) return;
     try {
-      await callbackToPromise<void>((callback) => input.debuggerApi?.detach(targetFor(tabId), callback));
+      await invokeBrowserApi<void>(
+        () => input.debuggerApi?.detach(targetFor(tabId)),
+        (callback) => input.debuggerApi?.detach(targetFor(tabId), callback),
+        "Debugger detach",
+      );
     } finally {
       attachedTabs.delete(tabId);
     }
@@ -170,7 +252,19 @@ export function createRenderEmulationRuntime(input: Readonly<{
       }
       return userAgent;
     } catch {
-      return "";
+      // Runtime.evaluate depends on the renderer's main thread. A page can
+      // starve it while the browser-level CDP target remains healthy, so use
+      // Chrome's own version response before giving up on identity emulation.
+      try {
+        const version = await send(tabId, "Browser.getVersion") as { userAgent?: unknown } | undefined;
+        const userAgent = typeof version?.userAgent === "string" ? version.userAgent : "";
+        if (userAgent) {
+          realUserAgents.set(tabId, userAgent);
+        }
+        return userAgent;
+      } catch {
+        return "";
+      }
     }
   };
   /** What the CURRENT document believes its user agent is. Chrome fixes
@@ -206,7 +300,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
             if (!postureIsCurrent(tabId, held)) {
               throw new Error("Emulation posture was released");
             }
-            const result = await send(tabId, method, params);
+            const result = await sendEmulationCommand(tabId, method, params);
             if (!postureIsCurrent(tabId, held)) {
               throw new Error("Emulation posture was released");
             }
@@ -249,26 +343,38 @@ export function createRenderEmulationRuntime(input: Readonly<{
     async apply(tabId: number, mode: EmulationMode, scale: number, allowReload = false) {
       const held: HeldPosture = { mode, scale, epoch: nextPostureEpoch(tabId) };
       heldPostures.set(tabId, held);
-      return withEmulationOperation(tabId, async () => {
-        const realUserAgent = await realUserAgentFor(tabId);
-        const state = await applyEmulationViaCdp(
-          { send: (method, params) => send(tabId, method, params) },
-          mode,
-          scale,
-          { realUserAgent },
-        );
-        // The override is in place for the NEXT load, so the document the operator
-        // is looking at was still fetched under the old identity — and a site that
-        // serves by user agent gave it the desktop page. Forcing the posture means
-        // reloading once so the document itself is the mobile one. Self-terminating:
-        // after the reload the document's own UA matches, so nothing asks again.
-        const intended = mode === "mobile" ? deriveGooglebotSmartphoneUserAgent(realUserAgent) : realUserAgent;
-        const identityStale = Boolean(intended) && await documentUserAgent(tabId) !== intended;
-        if (identityStale && allowReload && input.tabs) {
-          await callbackToPromise<void>((callback) => input.tabs?.reload(tabId, {}, callback)).catch(() => undefined);
+      try {
+        return await withEmulationOperation(tabId, async () => {
+          const realUserAgent = await realUserAgentFor(tabId);
+          const state = await applyEmulationViaCdp(
+            { send: (method, params) => sendEmulationCommand(tabId, method, params) },
+            mode,
+            scale,
+            { realUserAgent },
+          );
+          // The override is in place for the NEXT load, so the document the operator
+          // is looking at was still fetched under the old identity — and a site that
+          // serves by user agent gave it the desktop page. Forcing the posture means
+          // reloading once so the document itself is the mobile one. Self-terminating:
+          // after the reload the document's own UA matches, so nothing asks again.
+          const intended = mode === "mobile" ? deriveGooglebotSmartphoneUserAgent(realUserAgent) : realUserAgent;
+          const identityStale = Boolean(intended) && await documentUserAgent(tabId) !== intended;
+          if (identityStale && allowReload && input.tabs) {
+            await invokeBrowserApi<void>(
+              () => input.tabs?.reload(tabId, {}),
+              (callback) => input.tabs?.reload(tabId, {}, callback),
+              "Tab reload",
+            ).catch(() => undefined);
+          }
+          return { ...state, identityStale };
+        });
+      } catch (error) {
+        if (postureIsCurrent(tabId, held)) {
+          releasePosture(tabId);
         }
-        return { ...state, identityStale };
-      });
+        await detach(tabId).catch(() => undefined);
+        throw error;
+      }
     },
     async clear(tabId: number) {
       // Invalidate the desired posture before the first CDP await. An onDetach
@@ -276,18 +382,25 @@ export function createRenderEmulationRuntime(input: Readonly<{
       // object and attach/set overrides after this clear has completed.
       releasePosture(tabId);
       return withEmulationOperation(tabId, async () => {
-        const cleared = await clearEmulationViaCdp({ send: (method, params) => send(tabId, method, params) }, {
-          mode: "mobile",
-          width: 412,
-          height: 960,
-          scale: 1,
-          active: true,
-        });
-        // Detaching drops every override with it, including the user agent, so the
-        // next attach must read the browser's own identity again.
-        await detach(tabId);
-        realUserAgents.delete(tabId);
-        return cleared;
+        try {
+          return await clearEmulationViaCdp(
+            { send: (method, params) => sendEmulationCommand(tabId, method, params) },
+            {
+              mode: "mobile",
+              width: 412,
+              height: 960,
+              scale: 1,
+              active: true,
+            },
+          );
+        } finally {
+          // Detaching drops every override with it, including the user agent, so
+          // the next attach must read the browser's own identity again. Cleanup
+          // is unconditional: a failed intermediate restore may not retain the
+          // debugger or block the next transition.
+          await detach(tabId).catch(() => undefined);
+          realUserAgents.delete(tabId);
+        }
       });
     },
     /** Render inspection owns the durable session; this runtime only performs
@@ -324,7 +437,11 @@ export function createRenderEmulationRuntime(input: Readonly<{
       if (!input.tabs) {
         throw new Error("Tabs API unavailable");
       }
-      await callbackToPromise<void>((callback) => input.tabs?.reload(tabId, { bypassCache: true }, callback));
+      await invokeBrowserApi<void>(
+        () => input.tabs?.reload(tabId, { bypassCache: true }),
+        (callback) => input.tabs?.reload(tabId, { bypassCache: true }, callback),
+        "Tab reload",
+      );
     },
   };
 }

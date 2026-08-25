@@ -11,6 +11,8 @@ describe("content command authority", () => {
         baseUrl: "https://example.com",
         authority: {
           baseUrl: "https://example.com",
+          environmentKey: "stage.example",
+          siteId: 1,
           configPresent: true,
           lockRole: "editor",
           lockBlocked: false,
@@ -56,6 +58,8 @@ describe("content command authority", () => {
         baseUrl: "https://www.example.com",
         authority: {
           baseUrl: "https://example.com",
+          environmentKey: "stage.example",
+          siteId: 1,
           configPresent: true,
           lockRole: "editor",
           lockBlocked: false,
@@ -123,6 +127,8 @@ describe("content command authority", () => {
         baseUrl: "https://example.com",
         authority: {
           baseUrl: "https://example.com",
+          environmentKey: "stage.example",
+          siteId: 1,
           configPresent: true,
           lockRole: "editor",
           lockBlocked: false,

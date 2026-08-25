@@ -106,6 +106,7 @@ describe("P4 REST config client", () => {
       httpStatus: 409,
       propertyRevision: 5,
       feedRevision: 3,
+      duplicateOperation: false,
       reason: "lock token is no longer current",
     });
   });

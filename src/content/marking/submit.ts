@@ -57,7 +57,10 @@ export function stripUncapturableHtml(html: string): string {
         .replace(
           /\sclass=(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi,
           (_classAttribute, doubleQuoted: string | undefined, singleQuoted: string | undefined, unquoted: string | undefined) => {
-            const value = sanitizeCaptureClassValue(doubleQuoted ?? singleQuoted ?? unquoted ?? "");
+            const value = sanitizeCaptureClassValue(
+              doubleQuoted ?? singleQuoted ?? unquoted ?? "",
+              tagName,
+            );
             if (!value) {
               return "";
             }

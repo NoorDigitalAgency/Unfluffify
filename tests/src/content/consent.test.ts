@@ -186,6 +186,19 @@ describe("consent overlay hiding", () => {
     expect(fake.appended[0].textContent).toContain("pointer-events: auto !important");
   });
 
+  it("temporarily releases known consent root scroll locks", () => {
+    const banner = new FakeElement("DIV", [COOKIE_BANNER]);
+    const fake = fakeDocument([banner]);
+
+    hideConsentOverlays(fake.document);
+
+    expect(fake.appended[0].textContent).toContain("html.noScroll");
+    expect(fake.appended[0].textContent).toContain("body.noScroll");
+    expect(fake.appended[0].textContent).toContain("overflow: auto !important");
+    expect(fake.appended[0].textContent).toContain("html.noScroll body");
+    expect(fake.appended[0].textContent).toContain("overflow: visible !important");
+  });
+
   it("installs the bypass style once, however often it sweeps", () => {
     const banner = new FakeElement("DIV", [COOKIE_BANNER]);
     const fake = fakeDocument([banner]);

@@ -54,4 +54,30 @@ describe("Hub property context client", () => {
       siteId: null,
     });
   });
+
+  it("treats only an untyped HTTP 404 as a definitive unmanaged property", async () => {
+    await expect(resolvePropertyContext(async () => ({
+      status: 404,
+      body: { error: "property_not_found" },
+    }), "stage.example.com", "https://unmanaged.example.com/")).resolves.toEqual({
+      status: "property_not_found",
+      environmentKey: "stage.example.com",
+      siteId: null,
+      baseUrl: null,
+      pageKey: null,
+      pageTypes: [],
+      membershipFingerprint: null,
+      assignmentFingerprint: null,
+      conflicts: [],
+      upstreamCode: null,
+    });
+
+    await expect(resolvePropertyContext(async () => ({
+      status: 503,
+      body: { error: "offline" },
+    }), "stage.example.com", "https://unmanaged.example.com/")).resolves.toMatchObject({
+      status: "upstream_unavailable",
+      siteId: null,
+    });
+  });
 });
