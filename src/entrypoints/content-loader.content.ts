@@ -41,6 +41,7 @@ import {
   createFreezeController,
   createRevealVisitController,
   createSpaGuard,
+  hydrateExistingLazyMedia,
   runReveal,
   waitForWindowScrollEnd,
 } from "../content/stabilization";
@@ -930,7 +931,13 @@ async function runActivationStabilization(pageUrl: string): Promise<{ skipped: b
                 : position === "bottom"
                   ? bottomY
                   : initialScrollY;
-            window.scrollTo({ top: targetY, behavior: "smooth" });
+            // The reveal walk is a deterministic capture preparation step, not
+            // an operator-facing transition. Smooth scrolling can be throttled
+            // while a headed tab is backgrounded by its side panel and can also
+            // be intercepted by site motion code. An instant boundary visit
+            // guarantees that native and script-driven lazy observers see the
+            // midpoint and bottom before their handlers are suppressed.
+            window.scrollTo({ top: targetY, behavior: "instant" });
             await waitForWindowScrollEnd(targetY, isStale);
           },
           waitForSettle,
@@ -938,6 +945,10 @@ async function runActivationStabilization(pageUrl: string): Promise<{ skipped: b
             if (isStale()) {
               return;
             }
+            // The reveal walk has now exposed every existing document boundary.
+            // Materialize declared lazy media before suppressing observers so a
+            // late site initializer cannot strand already-present resources.
+            hydrateExistingLazyMedia(document);
             await requestStabilizationPageCommand(
               "SET_LAZY_LOADING_SUPPRESSED",
               { suppressed: true },

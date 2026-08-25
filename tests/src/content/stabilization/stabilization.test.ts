@@ -11,6 +11,7 @@ import {
   createFreezeController,
   createRevealVisitController,
   createSpaGuard,
+  hydrateExistingLazyMedia,
   loadPageWithJavascript,
   reloadWithoutJavascriptViaCdp,
   restoreJavascriptViaCdp,
@@ -19,6 +20,47 @@ import {
 } from "../../../../src/content/stabilization";
 
 describe("P5 page stabilization", () => {
+  it("hydrates finite lazy media before the observer fence", () => {
+    const element = (attributes: Record<string, string>, classes: string[] = []) => {
+      const stored = new Map(Object.entries(attributes));
+      const classNames = new Set(classes);
+      return {
+        getAttribute: (name: string) => stored.get(name) ?? null,
+        hasAttribute: (name: string) => stored.has(name),
+        setAttribute: (name: string, value: string) => stored.set(name, value),
+        classList: {
+          contains: (name: string) => classNames.has(name),
+          remove: (name: string) => classNames.delete(name),
+        },
+      } as unknown as HTMLElement;
+    };
+    const lazyImage = element({
+      src: "data:image/svg+xml,%3Csvg%3E%3C/svg%3E",
+      "data-src": "https://example.com/a.svg",
+      loading: "lazy",
+    }, ["bricks-lazy-hidden"]);
+    const existingImage = element({
+      src: "https://example.com/existing.png",
+      "data-src": "https://example.com/replacement.png",
+      loading: "lazy",
+    });
+    const source = element({ "data-srcset": "a.webp 1x, b.webp 2x", "data-sizes": "100vw" });
+    const video = element({ "data-poster": "https://example.com/poster.jpg" });
+    const root = {
+      querySelectorAll: () => [lazyImage, existingImage, source, video],
+    } as unknown as ParentNode;
+
+    expect(hydrateExistingLazyMedia(root)).toBe(4);
+    expect(lazyImage.getAttribute("src")).toBe("https://example.com/a.svg");
+    expect(lazyImage.classList.contains("bricks-lazy-hidden")).toBe(false);
+    expect(lazyImage.getAttribute("loading")).toBe("eager");
+    expect(existingImage.getAttribute("src")).toBe("https://example.com/existing.png");
+    expect(existingImage.getAttribute("loading")).toBe("eager");
+    expect(source.getAttribute("srcset")).toBe("a.webp 1x, b.webp 2x");
+    expect(source.getAttribute("sizes")).toBe("100vw");
+    expect(video.getAttribute("poster")).toBe("https://example.com/poster.jpg");
+  });
+
   it("settles on the wall-clock deadline when a motion freeze starves animation frames", async () => {
     vi.useFakeTimers();
     const requestAnimationFrame = vi.fn(() => 73);
@@ -76,7 +118,16 @@ describe("P5 page stabilization", () => {
       suppressLazyLoading: () => steps.push("suppress"),
       freezeAtBottom: () => steps.push("freeze"),
     })).resolves.toEqual({ skipped: false, lazyExpansions: 1, frozenAtBottom: true });
-    expect(steps).toEqual(["top", "lazy-threshold", "suppress", "bottom", "bottom", "freeze", "restore"]);
+    expect(steps).toEqual([
+      "top",
+      "lazy-threshold",
+      "bottom",
+      "suppress",
+      "bottom",
+      "bottom",
+      "freeze",
+      "restore",
+    ]);
 
     const noScrollSteps: string[] = [];
     await expect(runReveal({
@@ -131,20 +182,22 @@ describe("P5 page stabilization", () => {
       "paint:1",
       "scroll:lazy-threshold:1000",
       "paint:2",
-      "suppress",
+      "scroll:bottom:1000",
       "paint:3",
-      "measure:1500",
-      "scroll:bottom:1500",
+      "suppress",
       "paint:4",
       "measure:1500",
       "scroll:bottom:1500",
       "paint:5",
       "measure:1500",
-      "freeze",
+      "scroll:bottom:1500",
       "paint:6",
       "measure:1500",
-      "scroll:restore:1500",
+      "freeze",
       "paint:7",
+      "measure:1500",
+      "scroll:restore:1500",
+      "paint:8",
     ]);
     expect(result).toEqual({ skipped: false, lazyExpansions: 1, frozenAtBottom: true });
   });
@@ -167,7 +220,7 @@ describe("P5 page stabilization", () => {
     await expect(controller.run(input)).resolves.toMatchObject({ skipped: true });
     controller.resetForNavigation();
     await expect(controller.run(input)).resolves.toMatchObject({ skipped: false });
-    expect(runs).toBe(10);
+    expect(runs).toBe(12);
   });
 
   it("releases only its lazy-loading lock when activation becomes stale before freeze", async () => {
@@ -189,7 +242,7 @@ describe("P5 page stabilization", () => {
     });
 
     expect(result).toEqual({ skipped: true, lazyExpansions: 0, frozenAtBottom: false });
-    expect(steps).toEqual(["top", "lazy-threshold", "suppress", "restore-lazy"]);
+    expect(steps).toEqual(["top", "lazy-threshold", "bottom", "suppress", "restore-lazy"]);
   });
 
   it("joins concurrent reveal attempts to the one authoritative ritual", async () => {
@@ -493,11 +546,11 @@ describe("P5 page stabilization", () => {
 });
 
 describe("page-visit reveal ritual", () => {
-  it("walks top, suppression threshold, confirmed bottom then back, freezing at the bottom", async () => {
-    // The legacy contract: one full ritual per page visit — top, half (which is
-    // where the lazyloader is capped), the true bottom, freeze, then return under
-    // the freeze. The order is the point: freezing before the bottom would lock the
-    // page down before the scroll-linked content had been triggered.
+  it("walks top, live-lazy bottom, suppressed confirmed bottom then back, freezing at the bottom", async () => {
+    // One full ritual per page visit — top, half, one bounded bottom while lazy
+    // handlers are live, cap the loader, confirm the true bottom, freeze, then
+    // return under the freeze. The order is the point: freezing or suppression
+    // before the first bottom would strand strict IntersectionObserver content.
     // One ordered log, not one per kind: two lists cannot show that the freeze
     // happened after the bottom was reached, which is the whole claim.
     const log: string[] = [];
@@ -515,6 +568,7 @@ describe("page-visit reveal ritual", () => {
     expect(log).toEqual([
       "scroll:top",
       "scroll:lazy-threshold",
+      "scroll:bottom",
       "suppress-lazy",
       "scroll:bottom",
       "scroll:bottom",
@@ -522,6 +576,29 @@ describe("page-visit reveal ritual", () => {
       "scroll:restore",
     ]);
     expect(result).toEqual({ skipped: false, lazyExpansions: 1, frozenAtBottom: true });
+  });
+
+  it("lets strict bottom-only lazy handlers run once before suppression", async () => {
+    let lazyHandlersOpen = true;
+    let footerLoaded = false;
+
+    await runReveal({
+      hasVerticalScrollRoom: true,
+      activationStale: false,
+      initialScrollHeight: 6_000,
+      scrollTo(position) {
+        if (position === "bottom" && lazyHandlersOpen) {
+          footerLoaded = true;
+        }
+      },
+      suppressLazyLoading() {
+        lazyHandlersOpen = false;
+      },
+      freezeAtBottom: () => undefined,
+    });
+
+    expect(footerLoaded).toBe(true);
+    expect(lazyHandlersOpen).toBe(false);
   });
 
   it("runs once per visit, however often it is asked", async () => {
