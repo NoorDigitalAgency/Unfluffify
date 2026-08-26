@@ -961,18 +961,7 @@ export function createMarkingEngine(
         if (relevantRecords.length === 0) {
           return;
         }
-        const structural = relevantRecords.some((record) =>
-          record.type !== "attributes"
-          || record.attributeName === "hidden"
-          || record.attributeName === "open"
-          || record.attributeName === "role"
-          || record.attributeName === "aria-hidden"
-        );
-        if (structural) {
-          scheduleStructuralRefresh();
-        } else {
-          stabilizeGeometry(silentHighlightsArmed ? "silent-geometry" : "geometry");
-        }
+        scheduleStructuralRefresh();
       });
       observer.observe(rootElement, {
         childList: true,

@@ -1545,53 +1545,60 @@ describe("P6 DOM bridge", () => {
     vi.useRealTimers();
   });
 
-  it("treats presentation-only attribute churn as geometry work", () => {
-    const doc = new FakeDocument();
-    const callbacks: Array<(records: MutationRecord[]) => void> = [];
-    const animationFrames: Array<() => void> = [];
-    Object.assign(doc.defaultView, {
-      MutationObserver: class {
-        constructor(callback: (records: MutationRecord[]) => void) {
-          callbacks.push(callback);
-        }
-        observe() {}
-        disconnect() {}
-      },
-      requestAnimationFrame(callback: () => void) {
-        animationFrames.push(callback);
-        return animationFrames.length;
-      },
-    });
-    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
-    const paragraph = new FakeElement("P", rect(0, 0, 120, 20), "First");
-    root.ownerDocument = doc;
-    paragraph.ownerDocument = doc;
-    doc.documentElement.ownerDocument = doc;
-    doc.documentElement.appendChild(root);
-    root.appendChild(paragraph);
-    const createBridge = vi.fn((element: Element) => createDomBridgeView(element));
-    const engine = createMarkingEngine(root as unknown as Element, {
-      instrumentation: { createBridge },
-    });
+  it("coalesces presentation attribute churn into one quiet structural refresh", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const callbacks: Array<(records: MutationRecord[]) => void> = [];
+      const animationFrames: Array<() => void> = [];
+      Object.assign(doc.defaultView, {
+        MutationObserver: class {
+          constructor(callback: (records: MutationRecord[]) => void) {
+            callbacks.push(callback);
+          }
+          observe() {}
+          disconnect() {}
+        },
+        requestAnimationFrame(callback: () => void) {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+      const paragraph = new FakeElement("P", rect(0, 0, 120, 20), "First");
+      root.ownerDocument = doc;
+      paragraph.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      root.appendChild(paragraph);
+      const createBridge = vi.fn((element: Element) => createDomBridgeView(element));
+      const engine = createMarkingEngine(root as unknown as Element, {
+        instrumentation: { createBridge },
+      });
 
-    callbacks[0]?.([{
-      type: "attributes",
-      target: paragraph,
-      attributeName: "class",
-      oldValue: "slide active",
-    } as unknown as MutationRecord]);
-    callbacks[0]?.([{
-      type: "attributes",
-      target: paragraph,
-      attributeName: "style",
-      oldValue: "transform: translateX(0)",
-    } as unknown as MutationRecord]);
-    while (animationFrames.length > 0) {
+      callbacks[0]?.([{
+        type: "attributes",
+        target: paragraph,
+        attributeName: "class",
+        oldValue: "slide active",
+      } as unknown as MutationRecord]);
+      callbacks[0]?.([{
+        type: "attributes",
+        target: paragraph,
+        attributeName: "style",
+        oldValue: "transform: translateX(0)",
+      } as unknown as MutationRecord]);
+      vi.advanceTimersByTime(149);
+      expect(animationFrames).toHaveLength(0);
+      vi.advanceTimersByTime(1);
+      expect(animationFrames).toHaveLength(1);
       animationFrames.shift()?.();
-    }
 
-    expect(createBridge).toHaveBeenCalledOnce();
-    engine.dispose();
+      expect(createBridge).toHaveBeenCalledTimes(2);
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("coalesces a scroll storm into geometry-only work", () => {
