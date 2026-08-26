@@ -17,7 +17,7 @@ export type AiStatusResult =
   | Readonly<{ status: "not_found" | "error"; httpStatus: number }>;
 export type AiResultResult =
   | Readonly<{ status: "ok"; selectors: SelectorSet }>
-  | Readonly<{ status: "not_found" | "error"; httpStatus: number }>;
+  | Readonly<{ status: "not_found" | "invalid" | "error"; httpStatus: number }>;
 
 export function parseAiRunStartResponse(payload: unknown): string {
   const parsed = z.object({ session_id: z.string().min(1) }).safeParse(payload);
@@ -97,5 +97,9 @@ export async function getAiRunResult(
   if (response.status !== 200) {
     return { status: "error", httpStatus: response.status };
   }
-  return { status: "ok", selectors: parseAiRunResultResponse(response.body) };
+  try {
+    return { status: "ok", selectors: parseAiRunResultResponse(response.body) };
+  } catch {
+    return { status: "invalid", httpStatus: response.status };
+  }
 }

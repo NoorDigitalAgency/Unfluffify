@@ -9,6 +9,7 @@ import React from "react";
 import {
   App,
   EMPTY_LYNX_CHECKLIST_STATE,
+  overlayOperatorActionPresentation,
   resolvePopupActionButtons,
   type PopupDiagnostics,
   type PopupLogEntry,
@@ -47,6 +48,11 @@ import { resolvePopupView, type PopupView, type PopupViewRequest } from "../../p
 import { createSignalCursor } from "../../popup/signal-cursor";
 import { createEventLog } from "../../popup/event-log";
 import { createToastController, type ToastTone } from "../../ui/toast-controller";
+import {
+  createOperatorActionController,
+  type OperatorActionOccurrence,
+  type OperatorActionStage,
+} from "../../popup/operator-action-controller";
 import type { LockAction, LockBannerVocabulary, LockReason } from "../../domain/schema/facts";
 import { resolvePopupLockCopy } from "../../popup/copy";
 import { pageTypeForCandidate } from "../../domain/todo";
@@ -69,6 +75,7 @@ import {
 } from "../../popup/render-inspection-controller";
 import type { RenderInspectionPropertyScope } from "../../messaging/render-inspection";
 import { AI_RUN_TIMEOUT_MS } from "../../lynx/ai";
+import type { AiFailureStage } from "../../lynx/ai-job";
 import {
   evaluatePublicationChecklist,
   savedSelectorsFingerprint,
@@ -115,6 +122,31 @@ type PopupBindingOccurrence = Readonly<{
   key: string | null;
   occurrence: number;
 }>;
+const operatorActionController = createOperatorActionController({ onChange: render });
+
+function operatorActionPresentation() {
+  return overlayOperatorActionPresentation(
+    store.getPresentation(),
+    operatorActionController.current(),
+    DEBUG_BUILD,
+  );
+}
+
+function advanceOperatorAction(
+  occurrence: OperatorActionOccurrence | null,
+  stage: OperatorActionStage,
+): void {
+  if (!occurrence || !operatorActionController.advance(occurrence, stage)) {
+    return;
+  }
+  if (DEBUG_BUILD) {
+    logEvent(
+      `Operator action ${stage}`,
+      `${occurrence.kind} · ${Date.now() - occurrence.startedAt}ms`,
+    );
+  }
+}
+
 /** Unregister/config removal is a terminal boundary for this popup realm. Any
  *  async work that began before it must not send a fresh content command into a
  *  replacement document and thereby re-register the tab. A newly opened popup
@@ -317,6 +349,74 @@ function notifyBoundEvent(
     return false;
   }
   notifyEvent(label, detail, tone);
+  return true;
+}
+
+type PopupAiFailureStage = AiFailureStage | "capture" | "generation";
+type PopupAiFailure = Readonly<{
+  stage: PopupAiFailureStage;
+  reason: string;
+  status?: string;
+  httpStatus?: number;
+  localRunId?: string | null;
+  backendRunId?: string | null;
+}>;
+
+function formatAiFailure(failure: PopupAiFailure): Readonly<{ copy: string; activity: string }> {
+  const reasonCopy: Readonly<Record<string, string>> = {
+    start_auth_error: "The AI service rejected the current authentication.",
+    start_http_error: "The AI service refused to start the run.",
+    start_transport_error: "The AI service could not be reached to start the run.",
+    status_not_found: "The AI service no longer recognizes this run.",
+    status_http_error: "The AI run status could not be read.",
+    status_transport_error: "The AI run status request could not reach the service.",
+    backend_run_error: "The AI service reported that the run failed.",
+    result_not_found: "The AI result was not available after the run completed.",
+    result_http_error: "The AI result could not be retrieved.",
+    result_transport_error: "The AI result request could not reach the service.",
+    result_invalid: "The AI service returned an invalid selector result.",
+    result_missing: "The AI result contained no selectors.",
+    deadline_exceeded: "The AI run did not finish before its deadline.",
+    capture_failed: "The current page could not be captured for the AI run.",
+    content_start_timed_out: "The page did not acknowledge the AI start in time.",
+    content_generation_mismatch: "The page did not adopt the current AI generation.",
+    site_missing: "Property authority has no active site for this run.",
+    environment_unconfigured: "The AI service environment is not configured.",
+    invalid_page_scope: "The captured page no longer matches the current AI run scope.",
+  };
+  const stageCopy: Readonly<Record<PopupAiFailureStage, string>> = {
+    start: "The AI run could not start.",
+    status: "The AI run status failed.",
+    result: "The AI result failed.",
+    timeout: "The AI run timed out.",
+    transport: "The AI request could not be completed.",
+    capture: "The page capture failed.",
+    generation: "The page and popup lost AI run synchronization.",
+  };
+  const http = failure.httpStatus ? ` (HTTP ${failure.httpStatus})` : "";
+  const copy = `${reasonCopy[failure.reason] ?? stageCopy[failure.stage]}${http}`;
+  const activity = [
+    `stage=${failure.stage}`,
+    `reason=${failure.reason}`,
+    failure.status ? `status=${failure.status}` : "",
+    failure.httpStatus ? `http=${failure.httpStatus}` : "",
+    failure.localRunId ? `local=${failure.localRunId}` : "",
+    failure.backendRunId ? `backend=${failure.backendRunId}` : "",
+  ].filter(Boolean).join(" · ");
+  return { copy, activity };
+}
+
+function notifyAiFailure(binding: PopupBindingOccurrence, failure: PopupAiFailure): boolean {
+  if (!bindingOccurrenceIsCurrent(binding)) {
+    return false;
+  }
+  const formatted = formatAiFailure(failure);
+  logEvent("Run AI failed", formatted.activity, "danger");
+  toastController.show({
+    message: `Run AI failed: ${formatted.copy}`,
+    tone: "danger",
+    persistent: true,
+  });
   return true;
 }
 
@@ -1390,10 +1490,19 @@ async function maybeResumeAiRun(context: TargetTabContext, requestKey = boundTab
       return;
     }
     if (response.data.status === "failed" || response.data.status === "stale") {
+      if (response.data.status === "failed") {
+        notifyAiFailure(captureBindingOccurrence(requestKey), {
+          stage: response.data.failureStage ?? "transport",
+          reason: response.data.reason ?? response.data.error ?? "restored_run_failed",
+          status: response.data.status,
+          localRunId: response.data.clientRunId,
+          backendRunId: response.data.sessionId,
+        });
+      }
       await reportPopupFactAndPull(context, "ai-run-resume-failed", {
         runPhase: "failed",
         runSessionId: response.data.clientRunId,
-        runFailureReason: response.data.error ?? response.data.status,
+        runFailureReason: response.data.reason ?? response.data.error ?? response.data.status,
       }, requestKey);
     }
   } finally {
@@ -1569,6 +1678,18 @@ async function requestContentActivation(
   }
   const data = delivery.data;
   if (data && typeof data === "object" && "ok" in data && data.ok === true) {
+    const acknowledgement = data as {
+      interactionsReady?: unknown;
+      interactionsReason?: unknown;
+    };
+    if (acknowledgement.interactionsReady === false) {
+      return {
+        activated: false,
+        reason: typeof acknowledgement.interactionsReason === "string" && acknowledgement.interactionsReason
+          ? acknowledgement.interactionsReason
+          : "the marking layer did not become interaction-ready",
+      };
+    }
     return { activated: true };
   }
   if (data && typeof data === "object") {
@@ -1584,6 +1705,58 @@ async function requestContentActivation(
 async function requestContentMessage(tabId: number, message: Record<string, unknown>): Promise<unknown> {
   const delivery = await requestContentDelivery(tabId, message);
   return delivery.status === "delivered" ? delivery.data : null;
+}
+
+type ContentSignalSyncOutcome =
+  | "acknowledged"
+  | "unreachable"
+  | "unsupported"
+  | "timed_out"
+  | "generation_mismatch";
+
+async function syncContentRunGeneration(
+  context: TargetTabContext,
+  minimumSeq: number,
+  runSessionId: string,
+  phase: "started" | "terminal",
+): Promise<ContentSignalSyncOutcome> {
+  const delivery = requestContentDelivery(context.tabId, {
+    type: "syncContentSignals",
+    pageUrl: context.url,
+  }, { quietNoReceiver: true });
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<ContentMessageDelivery>((resolve) => {
+    timeoutHandle = setTimeout(() => resolve({ status: "failed", failure: "content-signal-sync-timeout" }), 3_000);
+  });
+  const result = await Promise.race([delivery, timeout]);
+  if (timeoutHandle !== null) {
+    clearTimeout(timeoutHandle);
+  }
+  if (result.status === "no_receiver") {
+    return "unreachable";
+  }
+  if (result.status === "failed") {
+    return result.failure === "content-signal-sync-timeout" ? "timed_out" : "generation_mismatch";
+  }
+  if (!result.data || typeof result.data !== "object") {
+    return "unsupported";
+  }
+  const data = result.data as {
+    lastConsumedSeq?: unknown;
+    organName?: unknown;
+    runSessionId?: unknown;
+  };
+  if (typeof data.lastConsumedSeq !== "number" || typeof data.organName !== "string") {
+    // Rolling extension updates can leave an older content realm alive until
+    // the next page load. It remains on the 500 ms correctness backstop.
+    return "unsupported";
+  }
+  const generationMatches = data.lastConsumedSeq >= minimumSeq && (
+    phase === "started"
+      ? data.organName === "running" && data.runSessionId === runSessionId
+      : data.organName !== "running" || data.runSessionId !== runSessionId
+  );
+  return generationMatches ? "acknowledged" : "generation_mismatch";
 }
 
 async function requestTypedPreviewContent<T>(
@@ -1788,6 +1961,19 @@ async function ensureSessionEmulation(context: TargetTabContext): Promise<boolea
   return await applySessionEmulation(context, { mode, allowReload: !contentActive });
 }
 
+async function ensureSessionEmulationTarget(
+  context: TargetTabContext,
+  target: SessionEmulationTarget,
+): Promise<boolean> {
+  if (sessionTransitionActive) {
+    await sessionTransitionQueue;
+  }
+  if (appliedEmulationMode === target.mode) {
+    return true;
+  }
+  return await applySessionEmulation(context, target);
+}
+
 async function clearSessionEmulation(context: TargetTabContext): Promise<void> {
   await getPopupBus().request("emulation.clear", { tabId: context.tabId }, { target: "background" });
   appliedEmulationMode = null;
@@ -1920,6 +2106,7 @@ async function refreshLockDirective(context: TargetTabContext, requestKey = boun
 async function captureSubmission(
   context: TargetTabContext,
   canonicalBaseUrl: string,
+  onXpathRefinement?: () => void,
 ): Promise<AiRunPayloadSnapshot | null> {
   const renderMode = currentRenderMode();
   if (renderMode === null) {
@@ -1927,7 +2114,7 @@ async function captureSubmission(
     logEvent("Capture refused", "choose a render mode first", "warn");
     return null;
   }
-  if (!await applySessionEmulation(context, { mode: "mobile", allowReload: !contentActive })) {
+  if (!await ensureSessionEmulationTarget(context, { mode: "mobile", allowReload: !contentActive })) {
     return null;
   }
   let rawHtml: string | undefined;
@@ -1957,6 +2144,7 @@ async function captureSubmission(
   if (!response || typeof response !== "object" || !("ok" in response) || response.ok !== true || !("snapshot" in response)) {
     return null;
   }
+  onXpathRefinement?.();
   return await refineSubmissionXpaths(response.snapshot as AiRunPayloadSnapshot);
 }
 
@@ -2051,7 +2239,11 @@ async function reconcileContentStatus(context: TargetTabContext, requestKey = bo
   }
 }
 
-async function setMarkingEnabled(enabled: boolean): Promise<void> {
+async function setMarkingEnabledOperation(
+  enabled: boolean,
+  action: OperatorActionOccurrence | null = null,
+): Promise<void> {
+  advanceOperatorAction(action, "context");
   const context = await resolveTargetTabContext();
   if (context === null) {
     console.error("[Unfluffify][rewrite] Unable to resolve an active tab for the popup");
@@ -2068,6 +2260,7 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
   if (enabled && directModeActive) {
     ensureSignalPolling();
     const transition = await runSessionTransition(async () => {
+      advanceOperatorAction(action, "emulation");
       const priorMode = desiredEmulationMode();
       const emulation = await applySessionEmulationResult(context, {
         mode: "mobile",
@@ -2078,6 +2271,7 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
       }
       let activeContext = context;
       if (emulation.reloadExpected) {
+        advanceOperatorAction(action, "reload");
         const reload = await waitForEmulationReload(context);
         if (reload.status !== "ready") {
           await applySessionEmulation(context, { mode: priorMode, allowReload: true });
@@ -2101,6 +2295,7 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
         pageUrl: activeContext.url,
         realEditorActivation: true,
       });
+      advanceOperatorAction(action, "activation");
       if (!bindingOccurrenceIsCurrent(binding)) {
         if (activation.activated) {
           await requestContentDelivery(
@@ -2114,6 +2309,11 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
       }
       contentActive = activation.activated;
       if (!activation.activated) {
+        await requestContentDelivery(
+          activeContext.tabId,
+          { type: "enterSilentContentMain", pageUrl: activeContext.url },
+          { quietNoReceiver: true },
+        );
         await applySessionEmulation(activeContext, { mode: priorMode, allowReload: true });
       }
       return { ...activation, context: activeContext };
@@ -2122,6 +2322,7 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
       return;
     }
     if (transition.activated) {
+      advanceOperatorAction(action, "rows");
       await adoptMarkingRows(transition.context.tabId, requestKey);
       await reportPopupFact(transition.context, "debug-direct-marking-activated", { markingEnabled: true }, requestKey);
     }
@@ -2139,7 +2340,9 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
   // the prompt without ever crossing into deactivation or discard authority.
   if (enabled) {
     ensureSignalPolling();
+    advanceOperatorAction(action, "signals");
     await pullSignals(context.tabId, requestKey);
+    advanceOperatorAction(action, "lock");
     const lock = await refreshLockDirective(context, requestKey);
     if (!bindingOccurrenceIsCurrent(binding)) {
       return;
@@ -2163,6 +2366,7 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
           }
         : null;
     const transition = await runSessionTransition(async () => {
+      advanceOperatorAction(action, "emulation");
       const priorMode = desiredEmulationMode();
       const emulation = await applySessionEmulationResult(context, {
         mode: "mobile",
@@ -2183,6 +2387,7 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
       let activeBinding = binding;
       let activeLock = lock;
       if (emulation.reloadExpected) {
+        advanceOperatorAction(action, "reload");
         if (!expectedProperty) {
           await applySessionEmulation(context, { mode: priorMode, allowReload: true });
           return {
@@ -2253,6 +2458,7 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
           ? { selectors: currentPropertyConfiguration().selectors }
           : {}),
       });
+      advanceOperatorAction(action, "activation");
       if (!bindingOccurrenceIsCurrent(activeBinding)) {
         if (activation.activated) {
           await requestContentDelivery(
@@ -2273,6 +2479,11 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
       }
       contentActive = activation.activated;
       if (!activation.activated) {
+        await requestContentDelivery(
+          activeContext.tabId,
+          { type: "enterSilentContentMain", pageUrl: activeContext.url },
+          { quietNoReceiver: true },
+        );
         await applySessionEmulation(activeContext, { mode: priorMode, allowReload: true });
       }
       return {
@@ -2295,6 +2506,7 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     if (activated) {
       // The seeded marks are the session's starting point, so show them without
       // pretending the operator has edited anything.
+      advanceOperatorAction(action, "rows");
       await adoptMarkingRows(transition.context.tabId, transition.requestKey);
     }
     notifyBoundEvent(
@@ -2345,6 +2557,34 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     }
   }
   render();
+}
+
+async function setMarkingEnabled(enabled: boolean): Promise<void> {
+  if (!enabled) {
+    await setMarkingEnabledOperation(false);
+    return;
+  }
+  const action = operatorActionController.begin("marking-preflight", {
+    bindingKey: boundTabKey,
+    bindingOccurrence: boundTabOccurrence,
+  });
+  if (!action) {
+    return;
+  }
+  render();
+  try {
+    await setMarkingEnabledOperation(true, action);
+  } catch (error: unknown) {
+    notifyEvent(
+      "Enable marking failed",
+      error instanceof Error ? error.message : "an unexpected activation failure occurred",
+      "danger",
+    );
+  } finally {
+    advanceOperatorAction(action, "terminal");
+    operatorActionController.clear(action);
+    render();
+  }
 }
 
 /** Relays a fact the popup observed to the brain. A relay, not a decision: the
@@ -2922,9 +3162,12 @@ const maintenanceController = createMaintenanceController({
   onChange: render,
 });
 
-async function runAi(): Promise<void> {
+async function runAiOperation(action: OperatorActionOccurrence): Promise<void> {
+  advanceOperatorAction(action, "context");
   const context = await resolveTargetTabContext();
   if (context === null) {
+    notifyEvent("Run AI refused", "the active page could not be resolved", "danger");
+    render();
     return;
   }
   const requestKey = await handleBoundContext(context);
@@ -2936,6 +3179,8 @@ async function runAi(): Promise<void> {
     return;
   }
   if (store.getState().name === "running") {
+    notifyBoundEvent(binding, "Run AI refused", "an AI run is already active", "warn");
+    render();
     return;
   }
   if (!renderModeSet()) {
@@ -2943,31 +3188,87 @@ async function runAi(): Promise<void> {
     render();
     return;
   }
+  advanceOperatorAction(action, "lock");
   const lock = await refreshLockDirective(context, requestKey);
   if (!lock || !lockAllowsEditing(lock) || !lock.authority) {
+    notifyBoundEvent(
+      binding,
+      "Run AI refused",
+      lock ? resolvePopupLockCopy(lock.lockBanner) || lock.status : "lock authority is unavailable",
+      "danger",
+    );
     render();
     return;
   }
   const editorSessionId = lock.authority.editorSessionId;
+  advanceOperatorAction(action, "signals");
   await pullSignals(context.tabId, requestKey);
   const localRunId = `local-run-${globalThis.crypto.randomUUID()}`;
   activeRunSessionId = localRunId;
   const startedAt = Date.now();
   logEvent("Run AI started", localRunId);
-  await reportPopupFactAndPull(context, "ai-run-started", {
+  advanceOperatorAction(action, "ai-start");
+  const startProjected = await reportPopupFactAndPull(context, "ai-run-started", {
     runPhase: "running",
     runSessionId: localRunId,
     runDeadlineAt: startedAt + AI_RUN_TIMEOUT_MS,
   }, requestKey);
-  const snapshot = await captureSubmission(context, lock.baseUrl);
+  const startSync = startProjected
+    ? await syncContentRunGeneration(
+      context,
+      brainSignals.consumedThrough(),
+      localRunId,
+      "started",
+    )
+    : "generation_mismatch";
+  if (startSync === "timed_out" || startSync === "generation_mismatch") {
+    notifyAiFailure(binding, {
+      stage: "generation",
+      reason: startSync === "timed_out" ? "content_start_timed_out" : "content_generation_mismatch",
+      status: startSync,
+      localRunId,
+    });
+    await reportPopupFactAndPull(context, "ai-run-content-start-failed", {
+      runPhase: "failed",
+      runSessionId: localRunId,
+      runFailureReason: startSync,
+    }, requestKey);
+    await syncContentRunGeneration(
+      context,
+      brainSignals.consumedThrough(),
+      localRunId,
+      "terminal",
+    );
+    if (activeRunSessionId === localRunId) {
+      activeRunSessionId = null;
+    }
+    render();
+    return;
+  }
+  advanceOperatorAction(action, "snapshot");
+  const snapshot = await captureSubmission(
+    context,
+    lock.baseUrl,
+    () => advanceOperatorAction(action, "xpaths"),
+  );
   if (!snapshot) {
     if (activeRunSessionId === localRunId && bindingOccurrenceIsCurrent(binding)) {
-      notifyBoundEvent(binding, "Run AI failed", "page snapshot capture failed", "danger");
+      notifyAiFailure(binding, {
+        stage: "capture",
+        reason: "capture_failed",
+        localRunId,
+      });
       await reportPopupFactAndPull(context, "ai-run-capture-failed", {
         runPhase: "failed",
         runSessionId: localRunId,
         runFailureReason: "capture-failed",
       }, requestKey);
+      await syncContentRunGeneration(
+        context,
+        brainSignals.consumedThrough(),
+        localRunId,
+        "terminal",
+      );
       if (activeRunSessionId === localRunId) {
         activeRunSessionId = null;
       }
@@ -2981,8 +3282,28 @@ async function runAi(): Promise<void> {
   lastSubmissionSnapshot = snapshot;
   lastSubmissionKey = requestKey;
   if (activeSiteId === null) {
+    notifyAiFailure(binding, {
+      stage: "start",
+      reason: "site_missing",
+      localRunId,
+    });
+    await reportPopupFactAndPull(context, "ai-run-site-missing", {
+      runPhase: "failed",
+      runSessionId: localRunId,
+      runFailureReason: "site-missing",
+    }, requestKey);
+    await syncContentRunGeneration(
+      context,
+      brainSignals.consumedThrough(),
+      localRunId,
+      "terminal",
+    );
+    if (activeRunSessionId === localRunId) {
+      activeRunSessionId = null;
+    }
     return;
   }
+  advanceOperatorAction(action, "ai-poll");
   const response = await getPopupBus().request("ai.run", {
     tabId: context.tabId,
     siteId: activeSiteId,
@@ -2996,12 +3317,25 @@ async function runAi(): Promise<void> {
   }
   if (!response.ok || response.data.status !== "ok") {
     if (activeRunSessionId === localRunId) {
-      notifyBoundEvent(binding, "Run AI failed", response.ok ? response.data.status : response.failure.code, "danger");
+      notifyAiFailure(binding, {
+        stage: response.ok ? response.data.failureStage ?? "transport" : "transport",
+        reason: response.ok ? response.data.reason ?? response.data.status : response.failure.code,
+        status: response.ok ? response.data.status : response.failure.code,
+        httpStatus: response.ok ? response.data.httpStatus : undefined,
+        localRunId,
+        backendRunId: response.ok ? response.data.sessionId : undefined,
+      });
       await reportPopupFactAndPull(context, "ai-run-request-failed", {
         runPhase: "failed",
         runSessionId: localRunId,
-        runFailureReason: response.ok ? response.data.status : response.failure.code,
+        runFailureReason: response.ok ? response.data.reason ?? response.data.status : response.failure.code,
       }, requestKey);
+      await syncContentRunGeneration(
+        context,
+        brainSignals.consumedThrough(),
+        localRunId,
+        "terminal",
+      );
       if (activeRunSessionId === localRunId) {
         activeRunSessionId = null;
       }
@@ -3031,11 +3365,91 @@ async function runAi(): Promise<void> {
       runAiSessionId: response.data.sessionId ?? "",
       runSelectors: response.data.selectors,
     }, requestKey);
+    await syncContentRunGeneration(
+      context,
+      brainSignals.consumedThrough(),
+      localRunId,
+      "terminal",
+    );
+  } else {
+    notifyAiFailure(binding, {
+      stage: "result",
+      reason: "result_missing",
+      status: response.data.status,
+      localRunId,
+      backendRunId: response.data.sessionId,
+    });
+    await reportPopupFactAndPull(context, "ai-run-result-missing", {
+      runPhase: "failed",
+      runSessionId: localRunId,
+      runFailureReason: "result-missing",
+    }, requestKey);
+    await syncContentRunGeneration(
+      context,
+      brainSignals.consumedThrough(),
+      localRunId,
+      "terminal",
+    );
   }
+  advanceOperatorAction(action, "terminal");
   if (activeRunSessionId === localRunId) {
     activeRunSessionId = null;
   }
   render();
+}
+
+async function runAi(): Promise<void> {
+  const action = operatorActionController.begin("ai-preflight", {
+    bindingKey: boundTabKey,
+    bindingOccurrence: boundTabOccurrence,
+  });
+  if (!action) {
+    return;
+  }
+  render();
+  try {
+    await runAiOperation(action);
+  } catch (error: unknown) {
+    const binding = {
+      key: action.bindingKey,
+      occurrence: action.bindingOccurrence,
+    };
+    const failedRunId = activeRunSessionId;
+    notifyAiFailure(binding, {
+      stage: "transport",
+      reason: "unexpected_transport_error",
+      status: error instanceof Error ? error.name : "unknown",
+      localRunId: failedRunId,
+    });
+    try {
+      const context = failedRunId && bindingOccurrenceIsCurrent(binding)
+        ? await resolveTargetTabContext()
+        : null;
+      if (context && failedRunId && binding.key && bindingOccurrenceIsCurrent(binding)) {
+        await reportPopupFactAndPull(context, "ai-run-unexpected-failure", {
+          runPhase: "failed",
+          runSessionId: failedRunId,
+          runFailureReason: "unexpected_transport_error",
+        }, binding.key);
+        await syncContentRunGeneration(
+          context,
+          brainSignals.consumedThrough(),
+          failedRunId,
+          "terminal",
+        );
+      }
+    } catch {
+      logEvent("AI terminal projection failed", "unexpected_transport_error", "danger");
+    } finally {
+      if (activeRunSessionId === failedRunId) {
+        activeRunSessionId = null;
+      }
+    }
+  } finally {
+    advanceOperatorAction(action, "terminal");
+    operatorActionController.clear(action);
+    render();
+  }
 }
 
 async function saveSession(): Promise<void> {
@@ -3477,7 +3891,7 @@ async function discardMarkings(): Promise<void> {
 
 function getDebugViewState(): Record<string, unknown> {
   const state = store.getState();
-  const presentation = store.getPresentation();
+  const presentation = operatorActionPresentation();
   const actionButtons = resolvePopupActionButtons(presentation, {
     runAi: true,
     save: true,
@@ -3515,7 +3929,7 @@ function getDebugBusDiagnostics(): Record<string, unknown> {
 }
 
 function getDebugSpinnerState(): Record<string, unknown> {
-  const presentation = store.getPresentation();
+  const presentation = operatorActionPresentation();
   return {
     visible: presentation.curtainVisible,
     title: presentation.curtainText,
@@ -3543,7 +3957,7 @@ function render(): void {
   const configuration = configurationController.snapshot();
   rootRecovery.render(
     <App
-      presentation={store.getPresentation()}
+      presentation={operatorActionPresentation()}
       view={currentView()}
       diagnostics={buildDiagnostics()}
       settings={configuration.settings}

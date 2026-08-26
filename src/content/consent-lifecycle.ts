@@ -1,6 +1,8 @@
 import {
   hideConsentOverlays,
+  hideConsentOverlaysInRoots,
   restoreConsentOverlays,
+  type ConsentElement,
   type ConsentDocument,
   type ConsentSweepResult,
 } from "./consent";
@@ -65,8 +67,9 @@ export type ConsentLifecycle = Readonly<{
 export type ConsentLifecycleOptions = Readonly<{
   registerSuppression(tabId: number): Promise<ConsentRegistrationStatus>;
   getDocument?: () => ConsentDocument | null;
-  createObserver?: (callback: () => void) => ConsentObserver | null;
+  createObserver?: (callback: (records?: readonly MutationRecord[]) => void) => ConsentObserver | null;
   hide?: (document: ConsentDocument) => ConsentSweepResult;
+  hideRoots?: (document: ConsentDocument, roots: readonly ConsentElement[]) => ConsentSweepResult;
   restore?: (document: ConsentDocument) => number;
   onHidden?: (count: number) => void;
 }>;
@@ -91,7 +94,7 @@ function defaultDocument(): ConsentDocument | null {
   return typeof document === "undefined" ? null : document;
 }
 
-function defaultObserver(callback: () => void): ConsentObserver | null {
+function defaultObserver(callback: (records?: readonly MutationRecord[]) => void): ConsentObserver | null {
   if (typeof MutationObserver === "undefined") {
     return null;
   }
@@ -114,12 +117,17 @@ export function createConsentLifecycle(options: ConsentLifecycleOptions): Consen
   const getDocument = options.getDocument ?? defaultDocument;
   const createObserver = options.createObserver ?? defaultObserver;
   const hide = options.hide ?? hideConsentOverlays;
+  const hideRoots = options.hideRoots ?? hideConsentOverlaysInRoots;
   const restore = options.restore ?? restoreConsentOverlays;
   let authority: ConsentPropertyAuthority | null = null;
   let observer: ConsentObserver | null = null;
   let terminal = false;
   let terminalGeneration = 0;
   let resumeAttempt: ResumeAttempt | null = null;
+  let pendingRoots = new Set<ConsentElement>();
+  let pendingFullSweep = false;
+  let sweepScheduled = false;
+  let sweepGeneration = 0;
 
   const snapshot = (): ConsentLifecycleSnapshot => ({
     status: terminal ? "terminal" : authority ? "active" : "unbound",
@@ -128,6 +136,10 @@ export function createConsentLifecycle(options: ConsentLifecycleOptions): Consen
   });
 
   const stopObserver = (): void => {
+    sweepGeneration += 1;
+    pendingRoots = new Set();
+    pendingFullSweep = false;
+    sweepScheduled = false;
     observer?.disconnect();
     observer = null;
   };
@@ -140,14 +152,60 @@ export function createConsentLifecycle(options: ConsentLifecycleOptions): Consen
     if (!target) {
       return;
     }
-    const candidate = createObserver(() => {
+    const candidate = createObserver((records) => {
       if (terminal || !authority) {
         return;
       }
-      const current = getDocument();
-      if (current) {
-        hide(current);
+      if (!records || records.length === 0) {
+        pendingFullSweep = true;
       }
+      for (const record of records ?? []) {
+        if (record.type === "attributes") {
+          if ((record.target as Node).nodeType === 1) {
+            pendingRoots.add(record.target as unknown as ConsentElement);
+          } else {
+            pendingFullSweep = true;
+          }
+          continue;
+        }
+        if (record.type === "childList") {
+          for (const node of record.addedNodes) {
+            if (node.nodeType === 1) {
+              pendingRoots.add(node as unknown as ConsentElement);
+            }
+          }
+          const document = getDocument();
+          const mutationTarget: unknown = record.target;
+          if (mutationTarget === document || mutationTarget === (document as unknown as Document)?.documentElement) {
+            pendingFullSweep = true;
+          }
+        }
+      }
+      if (sweepScheduled) {
+        return;
+      }
+      sweepScheduled = true;
+      const generation = sweepGeneration;
+      queueMicrotask(() => {
+        if (generation !== sweepGeneration || terminal || !authority) {
+          return;
+        }
+        sweepScheduled = false;
+        const current = getDocument();
+        if (!current) {
+          pendingRoots = new Set();
+          pendingFullSweep = false;
+          return;
+        }
+        const roots = [...pendingRoots];
+        const full = pendingFullSweep;
+        pendingRoots = new Set();
+        pendingFullSweep = false;
+        const result = full || roots.length === 0 ? hide(current) : hideRoots(current, roots);
+        if (result.hidden > 0) {
+          options.onHidden?.(result.hidden);
+        }
+      });
     });
     if (!candidate) {
       return;

@@ -79,9 +79,15 @@ export type ConsentStyle = Readonly<{
 }>;
 
 export type ConsentElement = Readonly<{
+  nodeType?: number;
   tagName?: string;
   style?: ConsentStyle;
   open?: boolean;
+  parentElement?: ConsentElement | null;
+  isConnected?: boolean;
+  matches?(selector: string): boolean;
+  querySelectorAll?(selector: string): Iterable<ConsentElement> | ArrayLike<ConsentElement>;
+  contains?(other: ConsentElement): boolean;
   hasAttribute(name: string): boolean;
   getAttribute(name: string): string | null;
   setAttribute(name: string, value: string): void;
@@ -326,6 +332,69 @@ export type ConsentSweepResult = Readonly<{
   /** Whether this pass installed the bypass style. */
   bypassInstalled: boolean;
 }>;
+
+function consentRootContains(ancestor: ConsentElement, descendant: ConsentElement): boolean {
+  if (ancestor === descendant) {
+    return true;
+  }
+  if (ancestor.contains) {
+    return ancestor.contains(descendant);
+  }
+  let current = descendant.parentElement;
+  while (current) {
+    if (current === ancestor) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+  return false;
+}
+
+export function collapseConsentSweepRoots(roots: readonly ConsentElement[]): ConsentElement[] {
+  const connected = roots.filter((root, index) =>
+    root.isConnected !== false && roots.indexOf(root) === index);
+  return connected.filter((root) =>
+    !connected.some((candidate) => candidate !== root && consentRootContains(candidate, root)));
+}
+
+/** Subtree companion for mutation-driven passes. Selector taxonomy and hiding
+ * behavior are identical to the initial full-document sweep; only the query
+ * roots are narrowed to the nodes that actually changed. */
+export function hideConsentOverlaysInRoots(
+  document: ConsentDocument,
+  roots: readonly ConsentElement[],
+): ConsentSweepResult {
+  let hidden = 0;
+  let matched = false;
+  const visited = new Set<ConsentElement>();
+  for (const root of collapseConsentSweepRoots(roots)) {
+    for (const selector of CONSENT_OVERLAY_SELECTORS) {
+      let matches: ConsentElement[] = [];
+      try {
+        if (root.matches?.(selector)) {
+          matches.push(root);
+        }
+        if (root.querySelectorAll) {
+          matches = matches.concat(toArray(root.querySelectorAll(selector)));
+        }
+      } catch {
+        continue;
+      }
+      for (const element of matches) {
+        if (visited.has(element)) {
+          continue;
+        }
+        visited.add(element);
+        matched = true;
+        if (hideElement(element)) {
+          hidden += 1;
+        }
+      }
+    }
+  }
+  const bypassInstalled = matched ? injectBypassStyle(document) : false;
+  return { hidden, bypassInstalled };
+}
 
 /** Hides every consent overlay currently in the document. Safe to call repeatedly:
  *  already-hidden elements are skipped, so a MutationObserver can drive it. */

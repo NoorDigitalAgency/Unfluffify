@@ -238,17 +238,26 @@ export function createRewriteBackgroundServices(input: Readonly<{
         ...scope,
         phase: "failed",
         updatedAt: Date.now(),
-        error: polled.status,
+        error: polled.reason,
+        failureStage: polled.failureStage,
+        reason: polled.reason,
       });
       return polled;
-    }).catch(async (error: unknown) => {
+    }).catch(async (_error: unknown) => {
       await runRecordRepo.save({
         ...scope,
         phase: "failed",
         updatedAt: Date.now(),
-        error: error instanceof Error ? error.message : "continuation-error",
+        error: "continuation_transport_error",
+        failureStage: "transport",
+        reason: "continuation_transport_error",
       });
-      return { status: "error" as const, polls: 0 };
+      return {
+        status: "error" as const,
+        polls: 0,
+        failureStage: "transport" as const,
+        reason: "continuation_transport_error",
+      };
     }).finally(() => {
       if (aiContinuations.get(scope.sessionId) === continuation) {
         aiContinuations.delete(scope.sessionId);
@@ -426,9 +435,22 @@ export function createRewriteBackgroundServices(input: Readonly<{
       resolvePropertyContext: (environmentKey: string, url: string) =>
         resolvePropertyContext(transport, environmentKey, url),
       async runAiJob(snapshot: Parameters<typeof startAiRun>[1], context: AiRunContext) {
-        const started = await startAiRun(transport, snapshot);
+        let started: Awaited<ReturnType<typeof startAiRun>>;
+        try {
+          started = await startAiRun(transport, snapshot);
+        } catch {
+          return {
+            status: "error" as const,
+            failureStage: "transport" as const,
+            reason: "start_transport_error",
+          };
+        }
         if (started.status !== "ok") {
-          return started;
+          return {
+            ...started,
+            failureStage: "start" as const,
+            reason: started.status === "auth_error" ? "start_auth_error" : "start_http_error",
+          };
         }
         const startedAt = Date.now();
         const recordScope = {
@@ -455,7 +477,13 @@ export function createRewriteBackgroundServices(input: Readonly<{
             selectors: SelectorSetSchema.parse(polled.selectors),
           };
         }
-        return { status: polled.status, sessionId: started.sessionId };
+        return {
+          status: polled.status,
+          sessionId: started.sessionId,
+          failureStage: polled.failureStage,
+          reason: polled.reason,
+          httpStatus: "httpStatus" in polled ? polled.httpStatus : undefined,
+        };
       },
       /** Returns only the newest run for the exact property/page scope. The
        * environment and site id are authoritative; the URL origin never
@@ -508,6 +536,8 @@ export function createRewriteBackgroundServices(input: Readonly<{
           status: record.phase === "failed" ? "failed" as const : "stale" as const,
           ...common,
           error: record.error,
+          failureStage: record.failureStage,
+          reason: record.reason,
         };
       },
     },

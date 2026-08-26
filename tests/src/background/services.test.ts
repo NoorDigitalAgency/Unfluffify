@@ -560,6 +560,50 @@ describe("rewrite background services", () => {
     });
   });
 
+  it("persists and restores the exact sanitized AI failure stage", async () => {
+    const services = createRewriteBackgroundServices({
+      transport: async (request) => {
+        if (request.path === "/get_selectors") {
+          return { status: 200, body: { session_id: "session-failed" } };
+        }
+        if (request.path.includes("/status/")) {
+          return { status: 200, body: { session_id: "session-failed", status: "done" } };
+        }
+        return { status: 404, body: null };
+      },
+    });
+    const scope = {
+      tabId: 78,
+      clientRunId: "popup-run-failed",
+      editorSessionId: "editor-failed",
+      environmentKey: "stage.example.com",
+      siteId: 42,
+      pageKey: "/page",
+    };
+
+    await expect(services.lynx.runAiJob(snapshot, scope)).resolves.toMatchObject({
+      status: "not_found",
+      sessionId: "session-failed",
+      failureStage: "result",
+      reason: "result_not_found",
+      httpStatus: 404,
+    });
+    await expect(services.repos.runRecordRepo.loadLatestForTab(78)).resolves.toEqual({
+      ok: true,
+      value: expect.objectContaining({
+        phase: "failed",
+        failureStage: "result",
+        reason: "result_not_found",
+        error: "result_not_found",
+      }),
+    });
+    await expect(services.lynx.resumeAiJob(scope)).resolves.toMatchObject({
+      status: "failed",
+      failureStage: "result",
+      reason: "result_not_found",
+    });
+  });
+
   it("exposes Hub publication without exposing direct cssInfo or GraphQL mutation calls", async () => {
     const requests: JsonRequest[] = [];
     const services = createRewriteBackgroundServices({

@@ -484,7 +484,17 @@ describe("C4 rewrite content entrypoints", () => {
     ) => unknown;
     await applyLockState(listener);
     const response = await dispatchContentCommand(listener, "activateContentMain");
-    expect(response).toEqual({ ok: true, data: { ok: true, initialized: true, tree: "rewrite" } });
+    expect(response).toEqual({
+      ok: true,
+      data: {
+        ok: false,
+        initialized: false,
+        interactionsReady: false,
+        interactionsReason: "no-document",
+        reason: "no-document",
+        tree: "rewrite",
+      },
+    });
   });
 
   it("registers typed preview rows and retires their hover and bridge across exit and A-to-B navigation", async () => {
@@ -1953,6 +1963,7 @@ describe("C4 rewrite content entrypoints", () => {
     });
 
     onMutation?.([], {} as MutationObserver);
+    await Promise.resolve();
 
     expect(hideConsentOverlays).toHaveBeenCalledTimes(2);
 
@@ -2878,6 +2889,85 @@ describe("C4 rewrite content entrypoints", () => {
     await dispatchContentCommand(listener, "resumeContentMainInteractions");
     expect(documentListeners.has("click")).toBe(true);
     expect((document.documentElement as HTMLElement).className).toContain("uf-cursor-exclude");
+  });
+
+  it("reconciles listeners after a transient lock without requiring a prior explicit pause", async () => {
+    const addListener = vi.fn();
+    const pageUrl = installTestLocation();
+    const documentListeners = new Map<string, EventListener>();
+    const addDocumentListener = vi.fn((type: string, listener: EventListener) => {
+      documentListeners.set(type, listener);
+    });
+    const engine = {
+      refresh: vi.fn(),
+      dispose: vi.fn(),
+      rows: vi.fn(() => []),
+      setSuspended: vi.fn(),
+      resolveAtPoint: vi.fn(),
+    };
+    globalThis.chrome = {
+      runtime: {
+        onMessage: { addListener },
+        sendMessage: vi.fn(async (message: BusFrame) => message.name === "page.context"
+          ? managedPageContextReply(message, pageUrl.href)
+          : message.name === "signals.pull" ? replyFrame(message, []) : { ok: true }),
+      },
+    } as unknown as typeof chrome;
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        documentElement: { nodeType: 1, tagName: "HTML", scrollHeight: 1000, className: "" },
+        addEventListener: addDocumentListener,
+        removeEventListener: vi.fn((type: string) => documentListeners.delete(type)),
+      },
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        innerHeight: 500,
+        scrollY: 0,
+        scrollTo: vi.fn(),
+        postMessage: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+    vi.doMock("wxt/utils/define-content-script", () => ({ defineContentScript: (config: unknown) => config }));
+    vi.doMock("../src/content/marking", () => ({
+      createMarkingEngine: vi.fn(() => engine),
+      installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()),
+    }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as { main: () => void }).main();
+    const listener = addListener.mock.calls[0]?.[0] as (
+      message: unknown,
+      sender: unknown,
+      sendResponse: (value: unknown) => void,
+    ) => unknown;
+
+    await applyLockState(listener);
+    await expect(dispatchContentCommand(listener, "activateContentMain")).resolves.toMatchObject({
+      ok: true,
+      data: { ok: true, interactionsReady: true, interactionsReason: "" },
+    });
+    expect(documentListeners.has("click")).toBe(true);
+    const initialClickInstallCount = addDocumentListener.mock.calls.filter(([type]) => type === "click").length;
+
+    await applyLockState(listener, {
+      canEdit: false,
+      blockedReason: "locked",
+      banner: { visible: true, reason: "locked" },
+    });
+    expect(documentListeners.has("click")).toBe(false);
+    expect(engine.setSuspended).toHaveBeenLastCalledWith(true);
+
+    await applyLockState(listener);
+    expect(documentListeners.has("click")).toBe(true);
+    expect(engine.setSuspended).toHaveBeenLastCalledWith(false);
+    await applyLockState(listener);
+    expect(addDocumentListener.mock.calls.filter(([type]) => type === "click").length)
+      .toBe(initialClickInstallCount + 1);
   });
 
   it("rejects stale activation requests whose pageUrl no longer matches the page", async () => {

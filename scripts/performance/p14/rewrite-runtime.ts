@@ -12,6 +12,7 @@ import {
   normalizedFixtureRows,
   normalizedFixtureClasses,
   rectTop,
+  startStorefrontMutationPressure,
   targetPoint,
   waitFor,
   type SemanticSignature,
@@ -30,6 +31,25 @@ let capturedBridge: DomBridgeView | null = null;
 let latestEvaluation: EvaluationResult | null = null;
 let userToggleCount = 0;
 let reportPayloadCount = 0;
+let stopMutationPressure: ReturnType<typeof startStorefrontMutationPressure> | null = null;
+let pressureWorkSampleStart = 0;
+const workSamples: Array<Readonly<{ stage: string; durationMs: number; nodeCount: number }>> = [];
+let workStageStartedAt = 0;
+
+function bridgeNodeCount(view: DomBridgeView | null): number {
+  if (!view) {
+    return 0;
+  }
+  let count = 0;
+  const visit = (node: DomBridgeView["root"]): void => {
+    count += 1;
+    for (const child of node.children ?? []) {
+      visit(child);
+    }
+  };
+  visit(view.root);
+  return count;
+}
 
 function overlayBox(xpath: string): HTMLElement | null {
   return Array.from(document.querySelectorAll<HTMLElement>("[data-uf-overlay-xpath]"))
@@ -190,6 +210,8 @@ const runtime = {
     mode = nextMode;
     userToggleCount = 0;
     reportPayloadCount = 0;
+    workSamples.splice(0);
+    workStageStartedAt = performance.now();
     const stages: string[] = [];
     const startedAt = performance.now();
     engine = createMarkingEngine(document.documentElement, {
@@ -198,6 +220,13 @@ const runtime = {
       instrumentation: {
         onWorkStage: (stage) => {
           stages.push(stage);
+          const now = performance.now();
+          workSamples.push({
+            stage,
+            durationMs: now - workStageStartedAt,
+            nodeCount: bridgeNodeCount(capturedBridge),
+          });
+          workStageStartedAt = now;
         },
         createBridge: (root) => {
           capturedBridge = createDomBridgeView(root);
@@ -239,7 +268,27 @@ const runtime = {
     return {
       durationMs: activationFinishedAt - startedAt,
       stages,
+      workSamples: [...workSamples],
       seededSelectors: engine.lastInitializationSeededSelectors(),
+    };
+  },
+  startMutationPressure(): void {
+    stopMutationPressure?.();
+    pressureWorkSampleStart = workSamples.length;
+    stopMutationPressure = startStorefrontMutationPressure();
+  },
+  stopMutationPressure() {
+    const pressure = stopMutationPressure?.() ?? {
+      ticks: 0,
+      lateConsentInsertions: 0,
+      consentRootHidden: false,
+    };
+    stopMutationPressure = null;
+    const samples = workSamples.slice(pressureWorkSampleStart);
+    return {
+      ...pressure,
+      structuralRefreshCount: samples.filter((sample) => sample.stage === "bridge").length,
+      workSamples: samples,
     };
   },
   point(id: string) {
@@ -332,6 +381,8 @@ const runtime = {
     return clock.elapsed();
   },
   dispose(): void {
+    stopMutationPressure?.();
+    stopMutationPressure = null;
     removeInputs?.();
     removeInputs = null;
     engine?.dispose();

@@ -67,6 +67,52 @@ export function targetPoint(id: string): Readonly<{ x: number; y: number }> {
   return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
 }
 
+export type StorefrontMutationPressureResult = Readonly<{
+  ticks: number;
+  lateConsentInsertions: number;
+  consentRootHidden: boolean;
+}>;
+
+/**
+ * Exercise the same extraction-irrelevant churn produced by a dynamic consent
+ * surface without adding benchmark-owned nodes to the canonical fixture rows.
+ */
+export function startStorefrontMutationPressure(): () => StorefrontMutationPressureResult {
+  const consentRoot = document.createElement("aside");
+  consentRoot.setAttribute("data-uf-consent-hidden", "");
+  consentRoot.setAttribute("aria-hidden", "true");
+  consentRoot.style.display = "none";
+  consentRoot.append(document.createElement("span"));
+  document.body.append(consentRoot);
+  let ticks = 0;
+  let lateConsentInsertions = 1;
+  const interval = window.setInterval(() => {
+    ticks += 1;
+    consentRoot.dataset.pressureTick = String(ticks);
+    consentRoot.firstElementChild!.textContent = `Consent mutation ${ticks}`;
+    if (ticks % 4 === 0) {
+      const late = document.createElement("button");
+      late.textContent = `Late consent control ${ticks}`;
+      consentRoot.append(late);
+      lateConsentInsertions += 1;
+      if (consentRoot.children.length > 5) {
+        consentRoot.children[1]?.remove();
+      }
+    }
+  }, 16);
+  return () => {
+    window.clearInterval(interval);
+    const result = {
+      ticks,
+      lateConsentInsertions,
+      consentRootHidden: consentRoot.hasAttribute("data-uf-consent-hidden")
+        && consentRoot.style.display === "none",
+    };
+    consentRoot.remove();
+    return result;
+  };
+}
+
 export function normalizedFixtureRows(rows: readonly NormalizedRow[]): SemanticSignature["rows"] {
   const elementByXpath = new Map(
     Array.from(document.querySelectorAll<HTMLElement>("*"))

@@ -69,6 +69,7 @@ describe("P4 locked AI and GraphQL shapes", () => {
     })).resolves.toEqual({ status: "auth_error", httpStatus: 401 });
     await expect(getAiRunStatus(async () => okJson({}, 404), "abc")).resolves.toEqual({ status: "not_found", httpStatus: 404 });
     await expect(getAiRunResult(async () => okJson({}, 404), "abc")).resolves.toEqual({ status: "not_found", httpStatus: 404 });
+    await expect(getAiRunResult(async () => okJson({}, 200), "abc")).resolves.toEqual({ status: "invalid", httpStatus: 200 });
   });
 
   it("builds locked GraphQL requests without deriving baseUrl from urlSearchInfo", () => {

@@ -23,6 +23,7 @@ import {
   normalizedFixtureRows,
   normalizedFixtureClasses,
   rectTop,
+  startStorefrontMutationPressure,
   targetPoint,
   waitFor,
   type NormalizedRow,
@@ -30,6 +31,7 @@ import {
 } from "./p14-runtime-common";
 
 type Mode = "silent" | "marking";
+let stopMutationPressure: ReturnType<typeof startStorefrontMutationPressure> | null = null;
 type SelectorSet = Readonly<{
   exclusionSelectors: readonly string[];
   inclusionSelectors: readonly string[];
@@ -240,6 +242,19 @@ const runtime = {
       seededSelectors: selectors.exclusionSelectors.length > 0 || selectors.inclusionSelectors.length > 0,
     };
   },
+  startMutationPressure(): void {
+    stopMutationPressure?.();
+    stopMutationPressure = startStorefrontMutationPressure();
+  },
+  stopMutationPressure() {
+    const pressure = stopMutationPressure?.() ?? {
+      ticks: 0,
+      lateConsentInsertions: 0,
+      consentRootHidden: false,
+    };
+    stopMutationPressure = null;
+    return { ...pressure, structuralRefreshCount: null, workSamples: [] };
+  },
   point(id: string) {
     return targetPoint(id);
   },
@@ -337,6 +352,8 @@ const runtime = {
     return clock.elapsed();
   },
   dispose(): void {
+    stopMutationPressure?.();
+    stopMutationPressure = null;
     if (mode === "silent") {
       __p14DeactivateSilentHighlightings();
       __p14SetContentDirective(null);

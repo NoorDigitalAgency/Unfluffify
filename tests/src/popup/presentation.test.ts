@@ -16,6 +16,7 @@ import type {
 } from "../../../src/popup/App";
 import { memoryFor, type PopupPresentation } from "../../../src/popup/organ/memory";
 import * as presentationExports from "../../../src/popup/presentation";
+import type { OperatorActionState } from "../../../src/popup/operator-action-controller";
 import type {
   LynxChecklistState,
   PopupActionAvailability,
@@ -79,6 +80,7 @@ describe("popup presentation contract", () => {
       "EMPTY_POPUP_SETTINGS_FORM",
       "RENDER_MODE_NOT_SET_REASON",
       "markingDisableNeedsConfirmation",
+      "overlayOperatorActionPresentation",
       "resolvePopupActionButtons",
       "resolvePopupCurtainKind",
       "resolvePopupPanelBlocking",
@@ -203,6 +205,36 @@ describe("popup presentation contract", () => {
       discard: { disabled: false, blockedReason: "" },
       preview: { disabled: false, blockedReason: "" },
     });
+  });
+
+  it("overlays local preflight without replacing a brain-owned curtain", () => {
+    const action: OperatorActionState = {
+      id: 1,
+      kind: "marking-preflight",
+      stage: "emulation",
+      bindingKey: "tab:1",
+      bindingOccurrence: 2,
+      startedAt: 10,
+    };
+    const base = memoryFor({ name: "pre_ai_clean", lastConsumedSeq: 1, reconciliationReason: "" });
+
+    expect(presentationExports.overlayOperatorActionPresentation(base, action, false)).toMatchObject({
+      curtainVisible: true,
+      curtainText: "Preparing marking",
+      blockedReason: "",
+      runAiDisabled: true,
+      saveDisabled: true,
+    });
+    expect(presentationExports.overlayOperatorActionPresentation(base, action, true).blockedReason)
+      .toBe("emulation");
+
+    const running = memoryFor({
+      name: "running",
+      lastConsumedSeq: 2,
+      reconciliationReason: "post_ai",
+      runSessionId: "run-1",
+    });
+    expect(presentationExports.overlayOperatorActionPresentation(running, action, true)).toBe(running);
   });
 
   it("preserves curtain, dirty-disable, and panel blocking truth tables", () => {

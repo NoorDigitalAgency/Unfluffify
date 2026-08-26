@@ -619,6 +619,48 @@ describe("rewrite popup entrypoint", () => {
     );
   });
 
+  it("restores silent content when activation builds a blocked marking layer", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const tabsSendMessage = makeTabsSendMessage((_tabId, message) => {
+      if (message.type === "activateContentMain") {
+        return {
+          ok: false,
+          initialized: true,
+          interactionsReady: false,
+          interactionsReason: "property-lock",
+          reason: "property-lock",
+          tree: "rewrite",
+        };
+      }
+      return { ok: true, initialized: true, tree: "rewrite" };
+    });
+    const runtime = makeRuntime(async (message) => replyFrame(message, []));
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await waitFor(() => render.mock.calls.length > 0, "popup render");
+    globalThis.window.__UNFLUFFIFY_POPUP_DEBUG__.activateDirectMode();
+    render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
+    await flushEntrypointWork();
+
+    const commandNames = tabsSendMessage.mock.calls.map(([, frame]) =>
+      ((frame as BusFrame).payload as { name?: string } | undefined)?.name);
+    expect(commandNames.indexOf("activateContentMain")).toBeGreaterThanOrEqual(0);
+    expect(commandNames.lastIndexOf("enterSilentContentMain"))
+      .toBeGreaterThan(commandNames.indexOf("activateContentMain"));
+    expect(render.mock.calls.at(-1)?.[0].props.diagnostics.contentActive).toBe(false);
+    expect(render.mock.calls.at(-1)?.[0].props.toast).toMatchObject({
+      tone: "danger",
+      message: expect.stringContaining("property-lock"),
+    });
+  });
+
   it("routes lock banner actions through the background-owned transfer path", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     const render = createReactRenderProbe();
@@ -2018,6 +2060,8 @@ describe("rewrite popup entrypoint", () => {
       createRoot: vi.fn(() => ({ render })),
     }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    let projectedRunSessionId = "";
+    let projectedRunPhase: "idle" | "running" | "terminal" = "idle";
     const snapshot = {
       baseUrl: "https://example.com",
       renderMode: "static",
@@ -2030,6 +2074,15 @@ describe("rewrite popup entrypoint", () => {
       }],
     };
     const tabsSendMessage = makeTabsSendMessage(async (_tabId: number, message) => {
+      if (message.type === "syncContentSignals") {
+        return {
+          ok: true,
+          organName: projectedRunPhase === "running" ? "running" : "post_ai_clean",
+          runSessionId: projectedRunPhase === "running" ? projectedRunSessionId : "",
+          lastConsumedSeq: Number.MAX_SAFE_INTEGER,
+          tree: "rewrite",
+        };
+      }
       if (message.type === "captureSubmissionSnapshot") {
         return { ok: true, snapshot, rows: [{ xpath: "/html[1]/body[1]/main[1]", classification: "included" }] };
       }
@@ -2055,6 +2108,15 @@ describe("rewrite popup entrypoint", () => {
     });
     let signalSeq = 0;
     const runtime = makeRuntime(async (message) => {
+      if (message.name === "fact.reported") {
+        const facts = (message.payload as { sensation?: { facts?: Record<string, unknown> } }).sensation?.facts;
+        if (facts?.runPhase === "running" && typeof facts.runSessionId === "string") {
+          projectedRunSessionId = facts.runSessionId;
+          projectedRunPhase = "running";
+        } else if (facts?.runPhase === "completed" || facts?.runPhase === "failed") {
+          projectedRunPhase = "terminal";
+        }
+      }
       if (
         message.name === "fact.reported" &&
         (message.payload as { sensation?: { reason?: string } }).sensation?.reason === "preview-exit-requested"
@@ -2130,8 +2192,13 @@ describe("rewrite popup entrypoint", () => {
     confirmRenderMode(render, "static");
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
+    const emulationApplyCountBeforeAi = runtime.sendMessage.mock.calls
+      .filter(([message]) => message.name === "emulation.apply").length;
     render.mock.calls.at(-1)?.[0].props.onRunAi();
     await flushEntrypointWork();
+
+    expect(runtime.sendMessage.mock.calls.filter(([message]) => message.name === "emulation.apply"))
+      .toHaveLength(emulationApplyCountBeforeAi);
 
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("captureSubmissionSnapshot", {
       baseUrl: "https://example.com",
@@ -2175,6 +2242,12 @@ describe("rewrite popup entrypoint", () => {
       exclusionSelectors: [".ad"],
     });
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("markContentMainClean", {}));
+    const aiCommandNames = tabsSendMessage.mock.calls.map(([, frame]) =>
+      ((frame as BusFrame).payload as { name?: string } | undefined)?.name);
+    const syncIndexes = aiCommandNames.flatMap((name, index) => name === "syncContentSignals" ? [index] : []);
+    expect(syncIndexes).toHaveLength(2);
+    expect(syncIndexes[0]).toBeLessThan(aiCommandNames.indexOf("captureSubmissionSnapshot"));
+    expect(syncIndexes[1]).toBeGreaterThan(aiCommandNames.indexOf("markContentMainClean"));
 
     render.mock.calls.at(-1)?.[0].props.onPreview();
     await flushEntrypointWork();

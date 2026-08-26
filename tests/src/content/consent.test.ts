@@ -4,7 +4,9 @@ import {
   CONSENT_BYPASS_STYLE_ID,
   CONSENT_HIDDEN_ATTR,
   CONSENT_OVERLAY_SELECTORS,
+  collapseConsentSweepRoots,
   hideConsentOverlays,
+  hideConsentOverlaysInRoots,
   restoreConsentOverlays,
 } from "../../../src/content/consent";
 
@@ -31,12 +33,32 @@ class FakeStyle {
 }
 
 class FakeElement {
+  readonly nodeType = 1;
+  isConnected = true;
+  parentElement: FakeElement | null = null;
+  readonly children: FakeElement[] = [];
   readonly style = new FakeStyle();
   readonly attributes = new Map<string, string>();
   open?: boolean;
   closeCalls = 0;
   closeThrows = false;
   constructor(readonly tagName = "DIV", readonly selectors: readonly string[] = []) {}
+  append(child: FakeElement): void {
+    child.parentElement = this;
+    this.children.push(child);
+  }
+  matches(selector: string): boolean {
+    return this.selectors.includes(selector);
+  }
+  querySelectorAll(selector: string): FakeElement[] {
+    return this.children.flatMap((child) => [
+      ...(child.matches(selector) ? [child] : []),
+      ...child.querySelectorAll(selector),
+    ]);
+  }
+  contains(other: FakeElement): boolean {
+    return other === this || this.children.some((child) => child.contains(other));
+  }
   hasAttribute(name: string): boolean {
     return this.attributes.has(name);
   }
@@ -234,6 +256,24 @@ describe("consent overlay hiding", () => {
     expect(hideConsentOverlays(document).hidden).toBe(0);
     expect(hideConsentOverlays(document).hidden).toBe(0);
     expect(banner.style.set.size).toBe(3);
+  });
+
+  it("sweeps the changed root itself and collapses descendant roots", () => {
+    const wrapper = new FakeElement();
+    const banner = new FakeElement("DIV", [COOKIE_BANNER]);
+    const nestedDialog = new FakeElement("DIALOG", [DIALOG]);
+    nestedDialog.open = true;
+    wrapper.append(banner);
+    banner.append(nestedDialog);
+    const fake = fakeDocument([wrapper, banner, nestedDialog]);
+
+    expect(collapseConsentSweepRoots([wrapper, banner, nestedDialog])).toEqual([wrapper]);
+    expect(hideConsentOverlaysInRoots(fake.document, [banner, nestedDialog])).toEqual({
+      hidden: 2,
+      bypassInstalled: true,
+    });
+    expect(banner.hasAttribute(CONSENT_HIDDEN_ATTR)).toBe(true);
+    expect(nestedDialog.closeCalls).toBe(1);
   });
 
   it("keeps sweeping when one selector is unsupported", () => {

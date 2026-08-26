@@ -21,7 +21,7 @@ export type ToastClock = Readonly<{
 
 export type ToastController = Readonly<{
   current(): ToastOccurrence | null;
-  show(input: Readonly<{ message: string; tone: ToastTone }>): ToastOccurrence | null;
+  show(input: Readonly<{ message: string; tone: ToastTone; persistent?: boolean }>): ToastOccurrence | null;
   dismiss(id: number): boolean;
   clear(): void;
   subscribe(listener: (toast: ToastOccurrence | null) => void): () => void;
@@ -34,9 +34,9 @@ const defaultClock: ToastClock = {
 };
 
 /**
- * Owns one transient notification occurrence. The timer belongs to the
- * occurrence rather than its DOM projection, so rebuilding a surface cannot
- * extend the deadline and a cancelled occurrence can never clear its successor.
+ * Owns one notification occurrence. Ordinary outcomes retain their fixed
+ * deadline; an explicitly persistent operator failure has no deadline and is
+ * replaced or dismissed through the same occurrence fence.
  */
 export function createToastController(
   options: Readonly<{ clock?: ToastClock }> = {},
@@ -85,14 +85,16 @@ export function createToastController(
       };
       nextId += 1;
       toast = occurrence;
-      clearHandle = clock.setTimeout(() => {
-        if (toast?.id !== occurrence.id) {
-          return;
-        }
-        clearHandle = null;
-        toast = null;
-        publish();
-      }, TOAST_DURATION_MS[input.tone]);
+      if (input.persistent !== true) {
+        clearHandle = clock.setTimeout(() => {
+          if (toast?.id !== occurrence.id) {
+            return;
+          }
+          clearHandle = null;
+          toast = null;
+          publish();
+        }, TOAST_DURATION_MS[input.tone]);
+      }
       publish();
       return occurrence;
     },

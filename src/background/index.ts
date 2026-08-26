@@ -17,6 +17,7 @@ import { connectionSettingsOf, replaceConnectionProfile } from "../storage/setti
 import { getBrowserRuntimeLastError, getInstalledBrowserApi } from "../common/browser";
 import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
+import { createTabTransport } from "../messaging/transports/tabs";
 import {
   parseSenderDocumentId,
   parseSenderFrameId,
@@ -578,6 +579,25 @@ export function startRewriteBackground(): void {
     realm: "background",
     transport: createRuntimeTransport(api.runtime),
   });
+  const emitSignalsAvailableToContent = async (tabId: number): Promise<void> => {
+    if (!api.tabs?.sendMessage || tabId <= 0) {
+      return;
+    }
+    const contentBus = createRealmBus({
+      realm: "background",
+      transport: createTabTransport(api.tabs, tabId),
+    });
+    try {
+      await contentBus.emit("signals.available", { tabId }, { target: "content" });
+    } catch (error: unknown) {
+      const detail = error instanceof Error ? error.message : String(error);
+      if (!/receiving end does not exist|no receiver|message port closed|could not establish connection/i.test(detail)) {
+        console.warn("[Unfluffify][rewrite] Unable to notify content about signals", error);
+      }
+    } finally {
+      contentBus.dispose();
+    }
+  };
   let renderInspectionDetachHandler: ((tabId: number) => void) | null = null;
   const renderEmulation = createRenderEmulationRuntime({
     debuggerApi: api.debugger,
@@ -982,6 +1002,7 @@ export function startRewriteBackground(): void {
         }
       }
       await bus.emit("signals.available", { tabId }, { target: "popup" });
+      await emitSignalsAvailableToContent(tabId);
     };
     if (meta.source === "content") {
       const documentId = parseSenderDocumentId(meta.sourceInstance);
@@ -1752,10 +1773,18 @@ export function startRewriteBackground(): void {
     try {
       const environmentKey = await services.lynx.currentEnvironmentKey();
       if (!environmentKey) {
-        return { status: "environment_unconfigured" };
+        return {
+          status: "environment_unconfigured",
+          failureStage: "start" as const,
+          reason: "environment_unconfigured",
+        };
       }
       if (!request.snapshot.pages.some((page) => canonicalPageKey(page.url) === request.pageKey)) {
-        return { status: "invalid_page_scope" };
+        return {
+          status: "invalid_page_scope",
+          failureStage: "start" as const,
+          reason: "invalid_page_scope",
+        };
       }
       const snapshot = await services.property.overlayAiCorpus(
         environmentKey,
@@ -1772,7 +1801,13 @@ export function startRewriteBackground(): void {
       });
       return result.status === "ok"
         ? { status: result.status, sessionId: result.sessionId, selectors: result.selectors }
-        : { status: result.status, httpStatus: "httpStatus" in result ? result.httpStatus : undefined };
+        : {
+          status: result.status,
+          sessionId: "sessionId" in result ? result.sessionId : undefined,
+          httpStatus: "httpStatus" in result ? result.httpStatus : undefined,
+          failureStage: result.failureStage,
+          reason: result.reason,
+        };
     } finally {
       releaseKeepAlive();
     }

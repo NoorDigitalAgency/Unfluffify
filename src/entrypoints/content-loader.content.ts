@@ -30,6 +30,7 @@ import {
 import { createMarkingEngine } from "../content/marking";
 import { createPhysicalActionDeduper, openMarkingContextMenu } from "../content/marking/interaction";
 import { createPreviewController } from "../content/preview-controller";
+import { createSignalScheduler } from "../content/signal-scheduler";
 import {
   INITIAL_CONTENT_STATE,
   memoryForContent,
@@ -96,6 +97,10 @@ let userToggleCount = 0;
  * the next operator edit still has to advance past the last observed fact. */
 let markingToggleSeq = 0;
 let markingInteractionsPaused = false;
+/** Explicit transport pause (Save/capture) is distinct from a derived lock or
+ * organ block. Derived availability must be able to recover even when no prior
+ * pause command set the legacy flag. */
+let markingInteractionPauseRequested = false;
 let spacePassthroughActive = false;
 /** Key repeat refreshes this while Space is physically held. If a platform or
  * focus transition drops keyup without delivering blur/visibilitychange, the
@@ -113,8 +118,8 @@ let pageWorldSessionNonce = "";
 let contentState: ContentState = INITIAL_CONTENT_STATE;
 let contentPresentation: ContentPresentation = memoryForContent(contentState);
 let contentAuthority: ContentAuthorityState = createDefaultContentAuthority(lastKnownPageUrl);
-let contentSignalQueue: Promise<unknown> = Promise.resolve();
 let contentSignalPollHandle: ReturnType<Window["setInterval"]> | null = null;
+let signalsAvailableUnsubscribe: (() => void) | null = null;
 const CONTENT_SIGNAL_POLL_MS = 500;
 const MARKING_CURSOR_STYLE_ID = "unfluffify-marking-cursor-style";
 const MARKING_CURSOR_CLASSES = [
@@ -650,7 +655,6 @@ function applyContentSignal(signal: BrainSignal): boolean {
   }
   const previousStateName = contentState.name;
   const completesPreviewExit = signal.name === "preview.exit.requested" && nextState.name === "exit_restoring";
-  const previousPresentation = contentPresentation;
   const leavesPreviewInteraction = (
     contentState.name === "preview_open" || contentState.name === "silent_preview"
   ) && nextState.name !== "preview_open" && nextState.name !== "silent_preview";
@@ -676,11 +680,7 @@ function applyContentSignal(signal: BrainSignal): boolean {
   }
   contentPresentation = memoryForContent(nextState);
   syncContentTransientPreviewContext();
-  if (contentPresentation.markingEditsBlocked) {
-    pauseMarkingInteractions();
-  } else if (previousPresentation.markingEditsBlocked && markingInteractionsPaused) {
-    resumeMarkingInteractions();
-  }
+  reconcileMarkingInteractionAvailability();
   renderContentSurface();
   persistDocumentShieldPosture(signal, previousStateName);
   if (completesPreviewExit) {
@@ -698,8 +698,7 @@ function applyContentSignal(signal: BrainSignal): boolean {
   return true;
 }
 
-async function pullContentSignals(): Promise<number> {
-  const run = async (): Promise<number> => {
+async function runContentSignalPull(): Promise<void> {
     const routeGeneration = documentLifecycleGeneration;
     const pageUrl = currentPageUrl();
     const response = await pullRewriteSignals(getContentBus(), {
@@ -709,7 +708,7 @@ async function pullContentSignals(): Promise<number> {
       afterSeq: contentState.lastConsumedSeq,
     });
     if (!response.ok) {
-      return 0;
+      return;
     }
     if (
       routeGeneration !== documentLifecycleGeneration ||
@@ -718,7 +717,7 @@ async function pullContentSignals(): Promise<number> {
     ) {
       // This slice belongs to an older route. Leave the cursor untouched so a
       // fresh pull can consume it together with the navigation boundary.
-      return 0;
+      return;
     }
     // fact.reported is an event: a fresh pull can reach the background before
     // that event has been folded into session.navigated. Until the matching
@@ -738,7 +737,7 @@ async function pullContentSignals(): Promise<number> {
         }
       }
       if (requiredNavigationIndex < 0) {
-        return 0;
+        return;
       }
       if (pendingNavigationBoundary === pendingBoundary) {
         pendingNavigationBoundary = null;
@@ -764,17 +763,15 @@ async function pullContentSignals(): Promise<number> {
     const applicableSignals = boundaryIndex >= 0
       ? response.data.slice(boundaryIndex)
       : response.data;
-    let applied = 0;
     for (const signal of applicableSignals) {
-      if (applyContentSignal(signal)) {
-        applied += 1;
-      }
+      applyContentSignal(signal);
     }
-    return applied;
-  };
-  const queued = contentSignalQueue.then(run, run);
-  contentSignalQueue = queued.catch(() => undefined);
-  return await queued;
+}
+
+const contentSignalScheduler = createSignalScheduler(runContentSignalPull);
+
+function pullContentSignals(): Promise<void> {
+  return contentSignalScheduler.request();
 }
 
 function ensureContentSignalPolling(): void {
@@ -2331,11 +2328,7 @@ function applyContentLockState(payload: unknown): Record<string, unknown> {
   if (!interactionShieldAuthorityActive) {
     return { ok: true, state: contentAuthority, tree: "rewrite" };
   }
-  if (contentAuthority.lockBlocked || contentPresentation.markingEditsBlocked) {
-    pauseMarkingInteractions();
-  } else if (markingInteractionsPaused) {
-    resumeMarkingInteractions();
-  }
+  reconcileMarkingInteractionAvailability();
   renderContentSurface();
   void pullContentSignals().catch(() => undefined);
   return { ok: true, state: contentAuthority, tree: "rewrite" };
@@ -2618,6 +2611,55 @@ function ensureMarkingListeners(): void {
   };
 }
 
+type MarkingInteractionAvailability = Readonly<{
+  ready: boolean;
+  reason: string;
+}>;
+
+function currentMarkingInteractionAvailability(): MarkingInteractionAvailability {
+  if (!markingActive) {
+    return { ready: false, reason: "marking-inactive" };
+  }
+  if (!markingEngine) {
+    return { ready: false, reason: "marking-engine-unavailable" };
+  }
+  if (contentAuthority.lockBlocked) {
+    return { ready: false, reason: contentAuthority.blockedReason || "property-lock" };
+  }
+  if (contentPresentation.markingEditsBlocked) {
+    return { ready: false, reason: contentPresentation.blockedReason || "session-blocked" };
+  }
+  if (markingInteractionPauseRequested) {
+    return { ready: false, reason: "interaction-pause-requested" };
+  }
+  return { ready: true, reason: "" };
+}
+
+/** Single owner for the physical marking posture. Lock, organ and explicit
+ * transport pauses only provide inputs; this reconciler installs/removes the
+ * one listener set and makes the engine suspension match those inputs. */
+function reconcileMarkingInteractionAvailability(): MarkingInteractionAvailability {
+  const availability = currentMarkingInteractionAvailability();
+  if (!availability.ready) {
+    markingInteractionsPaused = markingActive;
+    const previewVisible = contentState.name === "preview_open" || contentState.name === "silent_preview";
+    markingEngine?.setSuspended?.(markingActive && !previewVisible);
+    removeMarkingListeners?.();
+    syncMarkingCursor();
+    lastContentSurfaceSignature = "";
+    return availability;
+  }
+  markingInteractionsPaused = false;
+  markingEngine?.setSuspended?.(false);
+  ensureMarkingListeners();
+  syncMarkingCursor();
+  lastContentSurfaceSignature = "";
+  return {
+    ready: removeMarkingListeners !== null,
+    reason: removeMarkingListeners === null ? "marking-listeners-unavailable" : "",
+  };
+}
+
 type MarkingDeactivationMode = "terminal" | "silent";
 
 function deactivateMarking(mode: MarkingDeactivationMode = "terminal"): void {
@@ -2626,6 +2668,7 @@ function deactivateMarking(mode: MarkingDeactivationMode = "terminal"): void {
   selectorsSeeded = false;
   removeNavigationGate?.();
   markingInteractionsPaused = false;
+  markingInteractionPauseRequested = false;
   if (mode === "terminal") {
     silentInteractionShieldActive = false;
     spaGuard.disarm();
@@ -2650,35 +2693,18 @@ function deactivateMarking(mode: MarkingDeactivationMode = "terminal"): void {
 }
 
 function pauseMarkingInteractions(): boolean {
-  markingInteractionsPaused = true;
-  const previewVisible = contentState.name === "preview_open" || contentState.name === "silent_preview";
-  // Preview is read-only, but it is not a disabled/error state: retain the
-  // canonical classification colors while removing every marking listener.
-  markingEngine?.setSuspended?.(!previewVisible);
-  if (!markingActive) {
-    syncMarkingCursor();
-    return false;
-  }
-  removeMarkingListeners?.();
-  syncMarkingCursor();
-  lastContentSurfaceSignature = "";
+  markingInteractionPauseRequested = true;
+  const wasActive = markingActive;
+  reconcileMarkingInteractionAvailability();
   renderContentSurface();
-  return true;
+  return wasActive;
 }
 
 function resumeMarkingInteractions(): boolean {
-  if (contentAuthority.lockBlocked || contentPresentation.markingEditsBlocked) {
-    return false;
-  }
-  markingInteractionsPaused = false;
-  markingEngine?.setSuspended?.(false);
-  if (!markingActive) {
-    return false;
-  }
-  ensureMarkingListeners();
-  lastContentSurfaceSignature = "";
+  markingInteractionPauseRequested = false;
+  const availability = reconcileMarkingInteractionAvailability();
   renderContentSurface();
-  return true;
+  return availability.ready;
 }
 
 function handleUrlChanged(nextUrl?: string): void {
@@ -2795,7 +2821,8 @@ function resetMarking(): boolean {
   silentInteractionShieldActive = false;
   releaseDurablePostureLocally();
   markingActive = true;
-  ensureMarkingListeners();
+  markingInteractionPauseRequested = false;
+  reconcileMarkingInteractionAvailability();
   lastContentSurfaceSignature = "";
   renderContentSurface();
   clearPersistedShieldPosture("silent-cleared");
@@ -2853,13 +2880,29 @@ function activateContentMain(payload: unknown): Record<string, unknown> {
     silentInteractionShieldActive = false;
     releaseDurablePostureLocally();
     markingActive = true;
-    ensureMarkingListeners();
+    markingInteractionPauseRequested = false;
+    const interactions = reconcileMarkingInteractionAvailability();
     lastContentSurfaceSignature = "";
     renderContentSurface();
     clearPersistedShieldPosture("silent-cleared");
     armNavigationGate();
+    return {
+      ok: interactions.ready,
+      initialized: true,
+      interactionsReady: interactions.ready,
+      interactionsReason: interactions.reason,
+      tree: "rewrite",
+      ...(interactions.ready ? {} : { reason: interactions.reason }),
+    };
   }
-  return { ok: true, initialized: true, tree: "rewrite" };
+  return {
+    ok: false,
+    initialized: false,
+    interactionsReady: false,
+    interactionsReason: "no-document",
+    tree: "rewrite",
+    reason: "no-document",
+  };
 }
 
 function installSilentDebugCopy(): void {
@@ -2989,6 +3032,7 @@ function activatePreviewRow(payload: unknown): Record<string, unknown> {
 }
 
 function contentStatus(): Record<string, unknown> {
+  const interactions = currentMarkingInteractionAvailability();
   return {
     ok: true,
     active: markingActive,
@@ -3000,6 +3044,8 @@ function contentStatus(): Record<string, unknown> {
     sessionState: contentState,
     authority: contentAuthority,
     presentation: contentPresentation,
+    interactionsReady: interactions.ready && !markingInteractionsPaused && removeMarkingListeners !== null,
+    interactionsReason: interactions.reason || (markingInteractionsPaused ? "interactions-paused" : ""),
     tree: "rewrite",
   };
 }
@@ -3053,6 +3099,16 @@ function createContentRouter() {
         return activateContentMain(payload);
       },
       getContentMainStatus: () => contentStatus(),
+      syncContentSignals: async () => {
+        await contentSignalScheduler.drain();
+        return {
+          ok: true,
+          organName: contentState.name,
+          runSessionId: contentState.runSessionId ?? "",
+          lastConsumedSeq: contentState.lastConsumedSeq,
+          tree: "rewrite",
+        };
+      },
       refreshInteractionShieldViewport: () => {
         // DevTools device metrics do not consistently dispatch a viewport event
         // into an already-running isolated world. Emulation therefore asks the
@@ -3222,8 +3278,17 @@ export default defineContentScript({
         window.clearInterval(contentSignalPollHandle);
         contentSignalPollHandle = null;
       }
+      signalsAvailableUnsubscribe?.();
+      signalsAvailableUnsubscribe = null;
+      contentSignalScheduler.dispose();
     });
     const bus = getContentBus();
+    signalsAvailableUnsubscribe?.();
+    signalsAvailableUnsubscribe = bus.on("signals.available", () => {
+      void contentSignalScheduler.request().catch((error: unknown) => {
+        console.error("[Unfluffify][rewrite] Unable to pull available content signals", error);
+      });
+    });
     bus.onCommand("command.dispatch", (command) => createContentRouter().dispatch(command));
     bus.onCommand("preview.project", (request) => previewController.project(request));
     bus.onCommand("preview.emphasize", (request) => previewController.emphasize(request));

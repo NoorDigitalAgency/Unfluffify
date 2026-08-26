@@ -89,8 +89,12 @@ async (page) => {
         [scenario.mode === "silent" ? "silentActivation" : "markingActivation"]: activation.durationMs,
       };
       let afterClick = null;
+      let mutationPressure = null;
 
       if (scenario.mode === "marking") {
+        if (scenario.fixture === "large" && scenario.runtime === "rewrite") {
+          await page.evaluate(() => window.__p14Runtime.startMutationPressure());
+        }
         const point = await page.evaluate(() => window.__p14Runtime.point("click-target"));
         await page.mouse.move(4, 4);
         await page.evaluate(() => window.__p14Runtime.armHover());
@@ -102,6 +106,9 @@ async (page) => {
         const clickResult = await page.evaluate(() => window.__p14Runtime.finishClick());
         timings.markingClickCommitPaint = clickResult.durationMs;
         afterClick = await page.evaluate(() => window.__p14Runtime.semantics());
+        if (scenario.fixture === "large" && scenario.runtime === "rewrite") {
+          mutationPressure = await page.evaluate(() => window.__p14Runtime.stopMutationPressure());
+        }
       }
 
       await page.evaluate(() => window.__p14Runtime.prepareScroll());
@@ -121,6 +128,7 @@ async (page) => {
       runs.push({
         ...scenario,
         activation,
+        mutationPressure,
         timings,
         semanticRefs: {
           before: retainSemantics(scenario, "before", before),

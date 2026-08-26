@@ -1,6 +1,7 @@
 import { AI_RUN_POLL_INTERVAL_MS, AI_RUN_TIMEOUT_MS } from "./ai";
 
 export type AiJobPhase = "idle" | "running" | "fresh" | "stale-on-edit" | "failed";
+export type AiFailureStage = "start" | "status" | "result" | "timeout" | "transport";
 
 export type AiJobState = Readonly<{
   phase: AiJobPhase;
@@ -10,6 +11,8 @@ export type AiJobState = Readonly<{
   pageControlsVisible: boolean;
   reconciliationPending: boolean;
   error?: string;
+  failureStage?: AiFailureStage;
+  reason?: string;
 }>;
 
 export type AiJobGates = Readonly<{
@@ -31,7 +34,7 @@ export function createAiJobState(): AiJobState {
 }
 
 export function startAiJob(state: AiJobState): AiJobState {
-  return { ...state, phase: "running", error: undefined };
+  return { ...state, phase: "running", error: undefined, failureStage: undefined, reason: undefined };
 }
 
 export function completeAiJob(state: AiJobState, fingerprint: string): AiJobState {
@@ -42,11 +45,23 @@ export function completeAiJob(state: AiJobState, fingerprint: string): AiJobStat
     freshMarkingFingerprint: fingerprint,
     pendingChanges: false,
     error: undefined,
+    failureStage: undefined,
+    reason: undefined,
   };
 }
 
-export function failAiJob(state: AiJobState, error: string): AiJobState {
-  return { ...state, phase: "failed", error };
+export function failAiJob(
+  state: AiJobState,
+  error: string,
+  failure?: Readonly<{ stage: AiFailureStage; reason: string }>,
+): AiJobState {
+  return {
+    ...state,
+    phase: "failed",
+    error,
+    failureStage: failure?.stage,
+    reason: failure?.reason,
+  };
 }
 
 export function markMarkingEdit(state: AiJobState, fingerprint: string): AiJobState {
@@ -89,15 +104,27 @@ export function deriveAiJobGates(state: AiJobState): AiJobGates {
 export type AiJobPollDeps = Readonly<{
   now: () => number;
   sleep: (ms: number) => Promise<void>;
-  getStatus: (sessionId: string) => Promise<{ status: "ok"; runStatus: string } | { status: "not_found" | "error" }>;
-  getResult: (sessionId: string) => Promise<{ status: "ok"; selectors: unknown } | { status: "not_found" | "error" }>;
+  getStatus: (sessionId: string) => Promise<
+    { status: "ok"; runStatus: string }
+    | { status: "not_found" | "error"; httpStatus?: number }
+  >;
+  getResult: (sessionId: string) => Promise<
+    { status: "ok"; selectors: unknown }
+    | { status: "not_found" | "invalid" | "error"; httpStatus?: number }
+  >;
   heartbeat: (state: Readonly<{ sessionId: string; phase: AiJobPhase; deadlineAt: number; updatedAt: number }>) => Promise<void> | void;
   acquireComputeLock: () => Promise<() => void> | (() => void);
 }>;
 
 export type AiJobPollResult =
   | Readonly<{ status: "fresh"; selectors: unknown; polls: number }>
-  | Readonly<{ status: "timeout" | "not_found" | "error"; polls: number }>;
+  | Readonly<{
+    status: "timeout" | "not_found" | "error";
+    polls: number;
+    failureStage: AiFailureStage;
+    reason: string;
+    httpStatus?: number;
+  }>;
 
 export async function pollAiJob(
   sessionId: string,
@@ -113,17 +140,56 @@ export async function pollAiJob(
     while (deps.now() < deadlineAt) {
       polls += 1;
       await deps.heartbeat({ sessionId, phase: "running", deadlineAt, updatedAt: deps.now() });
-      const status = await deps.getStatus(sessionId);
-      if (status.status === "not_found") return { status: "not_found", polls };
-      if (status.status !== "ok" || status.runStatus === "error") return { status: "error", polls };
+      let status: Awaited<ReturnType<AiJobPollDeps["getStatus"]>>;
+      try {
+        status = await deps.getStatus(sessionId);
+      } catch {
+        return { status: "error", polls, failureStage: "transport", reason: "status_transport_error" };
+      }
+      if (status.status === "not_found") {
+        return {
+          status: "not_found",
+          polls,
+          failureStage: "status",
+          reason: "status_not_found",
+          httpStatus: status.httpStatus,
+        };
+      }
+      if (status.status !== "ok") {
+        return {
+          status: "error",
+          polls,
+          failureStage: "status",
+          reason: "status_http_error",
+          httpStatus: status.httpStatus,
+        };
+      }
+      if (status.runStatus === "error") {
+        return { status: "error", polls, failureStage: "status", reason: "backend_run_error" };
+      }
       if (status.runStatus !== "running") {
-        const result = await deps.getResult(sessionId);
+        let result: Awaited<ReturnType<AiJobPollDeps["getResult"]>>;
+        try {
+          result = await deps.getResult(sessionId);
+        } catch {
+          return { status: "error", polls, failureStage: "transport", reason: "result_transport_error" };
+        }
         if (result.status === "ok") return { status: "fresh", selectors: result.selectors, polls };
-        return { status: result.status, polls };
+        return {
+          status: result.status === "invalid" ? "error" : result.status,
+          polls,
+          failureStage: "result",
+          reason: result.status === "not_found"
+            ? "result_not_found"
+            : result.status === "invalid"
+              ? "result_invalid"
+              : "result_http_error",
+          httpStatus: result.httpStatus,
+        };
       }
       await deps.sleep(Math.min(pollIntervalMs, Math.max(0, deadlineAt - deps.now())));
     }
-    return { status: "timeout", polls };
+    return { status: "timeout", polls, failureStage: "timeout", reason: "deadline_exceeded" };
   } finally {
     release();
   }

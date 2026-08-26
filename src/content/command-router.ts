@@ -62,6 +62,7 @@ const DATA_AFFECTING_COMMANDS = new Set([
 const PAGE_URL_FENCED_COMMANDS = new Set([
   ...DATA_AFFECTING_COMMANDS,
   "clearSilentSelectors",
+  "syncContentSignals",
 ]);
 const LOCK_BLOCKED_COMMANDS = new Set([
   "activateContentMain",

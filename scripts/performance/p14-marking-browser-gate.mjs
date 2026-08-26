@@ -863,6 +863,33 @@ function validateRewriteActivation(runs) {
     });
 }
 
+function validateMutationPressure(runs) {
+  return runs
+    .filter((runItem) => runItem.runtime === "rewrite"
+      && runItem.fixture === "large"
+      && runItem.mode === "marking")
+    .map((runItem) => {
+      const pressure = runItem.mutationPressure;
+      const bridgeSample = runItem.activation.workSamples
+        ?.find((sample) => sample.stage === "bridge");
+      const pass = pressure?.ticks > 0
+        && pressure?.lateConsentInsertions > 0
+        && pressure?.consentRootHidden === true
+        && pressure?.structuralRefreshCount === 0
+        && bridgeSample?.nodeCount > 1_600;
+      return {
+        sequence: runItem.sequence,
+        pass,
+        ticks: pressure?.ticks ?? null,
+        lateConsentInsertions: pressure?.lateConsentInsertions ?? null,
+        consentRootHidden: pressure?.consentRootHidden ?? null,
+        structuralRefreshCount: pressure?.structuralRefreshCount ?? null,
+        activationNodeCount: bridgeSample?.nodeCount ?? null,
+        workSamples: pressure?.workSamples ?? null,
+      };
+    });
+}
+
 async function main() {
   let server = null;
   try {
@@ -922,6 +949,7 @@ async function main() {
     const semanticIdentityPass = semantics.every((check) => check.pass);
     const budgetChecks = evaluateBudgets(summaries, semantics);
     const activationChecks = validateRewriteActivation(browser.runs);
+    const mutationPressureChecks = validateMutationPressure(browser.runs);
     const expectedScenarioCount = Object.keys(FIXTURES).length
       * (counts.warmups + counts.samples)
       * 2
@@ -939,7 +967,8 @@ async function main() {
       && pageErrorsPass
       && semanticIdentityPass
       && budgetChecks.every((check) => check.pass)
-      && activationChecks.every((check) => check.pass);
+      && activationChecks.every((check) => check.pass)
+      && mutationPressureChecks.every((check) => check.pass);
 
     const artifact = {
       schemaVersion: ARTIFACT_SCHEMA_VERSION,
@@ -973,6 +1002,7 @@ async function main() {
         paintedCompletion: "persistent semantic/target-overlay condition followed by two requestAnimationFrame callbacks",
         physicalInput: ["mousemove", "click", "wheel"],
         mutation: "childList append at scrollY=0 after the real settle/throttle paths quiesce",
+        mutationPressure: "Large marking scenarios continuously mutate a late consent-suppressed subtree during physical hover/click; rewrite structural work must remain zero while the later included mutation still refreshes.",
         semanticClassification: "Every canonical row is projected against each runtime's internal classification map; an absent entry is the literal undetected state. Extra evaluator-only wrapper entries are counted but are outside the canonical row domain.",
         legacyIncrementalClassification: "Legacy marking retains its exact activation cachedCollections classifications for unchanged nodes, overlays later live reconciled collections, and overlays exact explicit Element collections produced by collectExplicitMarkingElements + splitExplicitMarkingCollectionsBySavedState. No normalized row boolean is converted into a class.",
         rewriteInteractionAdapter: "Mirrors the production pointerdown/click physical-action dedupe, extension-target guard, mode resolution, synchronous cursor install, toggle counter, and report payload construction. Only the external asynchronous realm transport is a no-op because it does not gate committed overlay paint.",
@@ -1005,6 +1035,7 @@ async function main() {
         pageErrors: { pass: pageErrorsPass, values: browser.pageErrors ?? null },
         semantics: semanticEvidence.checks,
         rewriteActivationTransactions: activationChecks,
+        mutationPressure: mutationPressureChecks,
         budgets: budgetChecks,
       },
       summaries,
@@ -1036,6 +1067,7 @@ async function main() {
       failedSemanticChecks: semantics.filter((check) => !check.pass).length,
       failedBudgetChecks: budgetChecks.filter((check) => !check.pass).length,
       failedActivationChecks: activationChecks.filter((check) => !check.pass).length,
+      failedMutationPressureChecks: mutationPressureChecks.filter((check) => !check.pass).length,
       sampleCardinalityPass: sampleCardinality.pass,
       environmentPass: environmentCheck.pass,
     }, null, 2)}\n`);

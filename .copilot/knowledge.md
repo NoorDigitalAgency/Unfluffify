@@ -498,6 +498,15 @@ ritual is in flight; the freeze rides the reveal's pauseAtBottom hook.
   subscription with no pull, so a freshly (re)loaded content script that reports
   identical facts must still get the current directive; its listeners already
   no-op on unchanged values.
+- Content signal pulls are single-flight with at most one coalesced trailing
+  generation. `signals.available` is delivered to both popup and the exact tab's
+  content realm; the 500ms content poll is only a correctness backstop. AI start
+  and terminal transitions must drain `syncContentSignals` and prove the same
+  `runSessionId` generation before capture or popup release, respectively.
+- Popup-local operator preflight (`marking-preflight` / `ai-preflight`) is only an
+  immediate occurrence-fenced acknowledgement. It may disable controls and show
+  a preparing curtain, but never becomes organ authority; the brain remains the
+  sole source for running, terminal, dirty, lock, Save, and Preview state.
 - The brain `silentHighlightActive` directive
   (`view-projector.ts shouldActivateSilentHighlighting`) is the STABLE intent
   ("silent highlighting should be active for this page") and must not be gated on
@@ -527,6 +536,11 @@ ritual is in flight; the freeze rides the reveal's pauseAtBottom hook.
 ## AI Submission Rules
 
 - Starting AI content detection must show compute-busy feedback and apply the page-side compute lock before raw HTML backfills, XPath refinement, or payload construction; the async status poll interval is 5 seconds.
+- AI failures retain a sanitized `start`/`status`/`result`/`timeout`/`transport`
+  stage and stable reason code in the durable run record and internal realm
+  response. The popup Activity row keeps those codes plus local/backend run ids;
+  the operator-facing Run AI error is persistent until dismissal or replacement.
+  Do not put raw transport exceptions or backend response bodies into that record.
 - Heavy `renderedHtml`, `rawHtml`, AI request payloads, AI responses, and server config payloads should not be routed through multiple runtime-message hops. Prefer storage/cache keys or a context-owned fetch when payload size could approach Chrome messaging limits.
 - Saved `submissionXpaths` are shallow boundary rows for CSS-selector calculation: exclusion roots are submitted once and their descendants are suppressed unless a descendant is an explicit include.
 - Submission XPath indexes must be computed after marking sync against the same sanitized DOM view as saved `renderedHtml`; extension UI, browser-automation roots, and save-time stripped nodes do not count as siblings.
@@ -593,7 +607,14 @@ ritual is in flight; the freeze rides the reveal's pauseAtBottom hook.
 - Preview Contents is intentionally available in marking mode again, gated on AI-run freshness and page-save reconciliation. Silent Preview Contents (the silent-mode "Show Content List") is enabled whenever stored selectors exist in silent mode — it reads the latest stored selector set and does NOT require a fresh in-session AI run (#14); exiting it returns to the origin mode (silent→silent, marking→marking). Send to Lynx remains silent-highlighting-only with handler-level guards outside silent mode.
 - Shift parent selection may climb wrapper chains to cohesive content boundaries, but must reject shallow generic body-level page shells with broad viewport footprint or multiple page landmarks.
 - Marking overlays watch style mutations so dynamic opacity, visibility, and movement changes trigger repositioning.
-- The marking mutation observer re-runs `hideConsentElements()` on any non-overlay `childList` batch so late-injected consent widgets are hidden during active marking. This is idempotent and loop-safe (the consent bypass `<style>` is appended to `document.head`, which the body-scoped observer does not watch). It is currently un-debounced (unlike the adjacent `scheduleRender`); fold it into a throttled path if a highly mutating page shows cost during marking.
+- Consent suppression performs one initial full selector sweep, then batches
+  mutation records into minimal ancestor-collapsed subtree sweeps (root-self plus
+  descendants). Pending work is generation-cancelled on property switch, release,
+  or terminalization. The marking observer treats both extension-owned UI and
+  `[data-uf-consent-hidden]` subtrees as extraction-irrelevant; real content
+  mutations use an idle-aware single-flight bridge refresh with a 1.2s starvation
+  fallback. Never weaken the selector set or admit suppressed nodes to rows,
+  capture, AI HTML, or payloads to optimize this path.
 - `REMOVABLE_ELEMENT_SELECTORS` (the consent/overlay matcher) is a HIGH-PRECISION allowlist, not an exhaustive one. It covers cookie/consent/gdpr, modal/popup/dialog/alertdialog/`aria-modal`, native `dialog[open]`, overlay/backdrop, interstitial, and newsletter/subscribe signals across class/id/role/aria-label. Do NOT add generic content words (`banner`, `notice`, `toast`, `lightbox`, `paywall`, the `cmp` substring, `role=banner`) — they match real headers/promos/galleries/AEM components and would hide actual page content. Every non-element entry keeps the `:not(body):not(html)` guard. Any future addition must be validated against the live AI-submission smoke (bonliva 117 / prowork 76 / vitec-pyramid 57 included-visible) so included-content counts do not drop. `tests/consent-selector-precision.test.ts` locks the safe-include / forbidden-broad contract.
 - Extension-owned UI injected into the page (toasts, banners, notices, AI popover, motion-pause indicator) uses the shared `EXTENSION_UI_FONT_STACK` constant (mirrors the popup brand `--font-sans` = Inter) rather than ad-hoc per-element families. The Material Design Icons glyph font is intentionally separate.
 - Page motion pause is a shared marking/silent-highlighting lifecycle source. Marking/reveal warmup first hides consent chrome before inspection styling or any scroll, then shows a page-inspection spinner, blocks page/content-overlay input, performs the historical max-scroll reveal walk for lazy content, returns to the reserved scroll position, freezes, and renders overlays. Matching base-URL pages stay frozen even before selector overlays exist; the pause uses broad CSS/Web Animations/SVG/media/style-lock coverage plus a page-world timer/rAF gate, normalizes layout-present scroll/viewport/attribute-driven reveal candidates such as Webflow `data-w-id` blocks to visible posture, shows an Unfluffify-scoped Material Design Icons snowflake/code indicator without injecting global `.mdi` page styles, excludes extension-owned UI, keeps internal marking scheduling on extension-owned timers/rAF, and strips all freeze mechanics from snapshots.

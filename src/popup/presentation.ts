@@ -4,6 +4,11 @@ import type { TodoCoverage } from "../domain/schema/todo";
 import type { PublicationChecklistGate } from "../domain/publication";
 import type { PopupPresentation } from "./organ/memory";
 
+type OperatorActionPresentationState = Readonly<{
+  kind: "marking-preflight" | "ai-preflight";
+  stage: string;
+}>;
+
 export type PopupActionAvailability = Readonly<{
   runAi?: boolean;
   save?: boolean;
@@ -177,6 +182,32 @@ export const EMPTY_POPUP_CREDENTIALS_FORM: PopupCredentialsForm = {
 };
 
 export const RENDER_MODE_NOT_SET_REASON = "render-mode-not-set";
+
+export function overlayOperatorActionPresentation(
+  presentation: PopupPresentation,
+  action: OperatorActionPresentationState | null,
+  debug = false,
+): PopupPresentation {
+  if (action === null || presentation.curtainVisible) {
+    return presentation;
+  }
+  const title = action.kind === "marking-preflight" ? "Preparing marking" : "Preparing AI run";
+  return {
+    ...presentation,
+    runAiDisabled: true,
+    saveDisabled: true,
+    discardDisabled: true,
+    showPreviewDisabled: true,
+    curtainVisible: true,
+    curtainText: title,
+    temporarilyDisabledOverlay: true,
+    blockedReason: debug ? action.stage : "",
+    runAiBlockedReason: "operator-action-pending",
+    saveBlockedReason: "operator-action-pending",
+    discardBlockedReason: "operator-action-pending",
+    showPreviewBlockedReason: "operator-action-pending",
+  };
+}
 
 export function resolvePopupActionButtons(presentation: PopupPresentation, availability: PopupActionAvailability) {
   // A submission carries the render mode, so guessing one would ship ground

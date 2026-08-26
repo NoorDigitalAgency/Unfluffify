@@ -493,6 +493,7 @@ export function createMarkingEngine(
   let renderScheduled = false;
   type RenderWork = "geometry" | "silent-geometry" | "structural";
   let scheduledWork: RenderWork | null = null;
+  let structuralRenderSettled: (() => void) | null = null;
   let silentHighlightsArmed = false;
   // Silent borders can also be armed on top of the interactive marking UI, so
   // they cannot identify which scroll debounce the engine should use.
@@ -721,7 +722,13 @@ export function createMarkingEngine(
       const nextWork = scheduledWork;
       scheduledWork = null;
       if (nextWork === "structural") {
-        refreshBridge({ render: true });
+        try {
+          refreshBridge({ render: true });
+        } finally {
+          const settle = structuralRenderSettled;
+          structuralRenderSettled = null;
+          settle?.();
+        }
         return;
       }
       const byXpath = byXpathElements();
@@ -774,28 +781,61 @@ export function createMarkingEngine(
       geometryStabilizer.request();
     };
     cleanups.push(() => geometryStabilizer.cancel());
-    let structuralRefreshHandle: ReturnType<typeof setTimeout> | null = null;
-    let lastStructuralRefreshAt = 0;
+    type IdleCapableView = Window & Readonly<{
+      requestIdleCallback?: (callback: () => void, options?: Readonly<{ timeout: number }>) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    }>;
+    const idleView = view as IdleCapableView | null;
+    let structuralIdleHandle: number | null = null;
+    let structuralFallbackHandle: ReturnType<typeof setTimeout> | null = null;
+    let structuralRenderInFlight = false;
+    let structuralTrailing = false;
+    const cancelStructuralDispatch = (): void => {
+      if (structuralIdleHandle !== null) {
+        idleView?.cancelIdleCallback?.(structuralIdleHandle);
+        structuralIdleHandle = null;
+      }
+      if (structuralFallbackHandle !== null) {
+        clearTimeout(structuralFallbackHandle);
+        structuralFallbackHandle = null;
+      }
+    };
+    const dispatchStructuralRefresh = (): void => {
+      cancelStructuralDispatch();
+      structuralRenderInFlight = true;
+      structuralRenderSettled = () => {
+        structuralRenderInFlight = false;
+        if (structuralTrailing) {
+          structuralTrailing = false;
+          scheduleStructuralRefresh();
+        }
+      };
+      scheduleRender("structural");
+    };
     const scheduleStructuralRefresh = (): void => {
-      if (structuralRefreshHandle !== null) {
+      if (structuralRenderInFlight) {
+        structuralTrailing = true;
         return;
       }
-      const sinceLastRefresh = Date.now() - lastStructuralRefreshAt;
-      const delay = Math.max(300, 1_200 - sinceLastRefresh);
-      structuralRefreshHandle = setTimeout(() => {
-        structuralRefreshHandle = null;
-        lastStructuralRefreshAt = Date.now();
-        scheduleRender("structural");
-      }, delay);
+      if (structuralIdleHandle !== null || structuralFallbackHandle !== null) {
+        return;
+      }
+      if (idleView?.requestIdleCallback) {
+        structuralIdleHandle = idleView.requestIdleCallback(dispatchStructuralRefresh, { timeout: 1_200 });
+      }
+      structuralFallbackHandle = setTimeout(dispatchStructuralRefresh, 1_200);
     };
-    const isExtensionNode = (node: Node): boolean => {
+    const isExtractionIrrelevantNode = (node: Node): boolean => {
       const element = node.nodeType === 1 ? node as Element : node.parentElement;
-      return Boolean(element?.closest?.('[data-uf-extension-ui="true"]'));
+      return Boolean(
+        element?.closest?.('[data-uf-extension-ui="true"]')
+        || element?.closest?.("[data-uf-consent-hidden]"),
+      );
     };
-    const isExtensionOnlyMutation = (record: MutationRecord): boolean => {
-      // Mutations inside an extension root are ours even when a removed child is
-      // already detached and can no longer find that root through `closest`.
-      if (isExtensionNode(record.target)) {
+    const isExtractionIrrelevantMutation = (record: MutationRecord): boolean => {
+      // Mutations inside extension or consent-suppressed roots cannot affect
+      // extraction, even when a removed child is already detached.
+      if (isExtractionIrrelevantNode(record.target)) {
         return true;
       }
       if (record.type !== "childList") {
@@ -804,11 +844,29 @@ export function createMarkingEngine(
       // Mounting or removing the root itself targets the page parent, so inspect
       // the changed nodes in that one boundary case.
       const changedNodes = [...record.addedNodes, ...record.removedNodes];
-      return changedNodes.length > 0 && changedNodes.every((node) => isExtensionNode(node));
+      return changedNodes.length > 0 && changedNodes.every((node) => isExtractionIrrelevantNode(node));
+    };
+    const isExtensionCursorClassMutation = (record: MutationRecord): boolean => {
+      if (
+        record.type !== "attributes"
+        || record.attributeName !== "class"
+        || record.target !== rootElement.ownerDocument.documentElement
+      ) {
+        return false;
+      }
+      const withoutCursorClasses = (value: string | null): string => (value ?? "")
+        .split(/\s+/u)
+        .filter((className) => className && !className.startsWith("uf-cursor-"))
+        .sort()
+        .join(" ");
+      const current = (record.target as Element).getAttribute("class");
+      return withoutCursorClasses(record.oldValue) === withoutCursorClasses(current);
     };
     if (view?.MutationObserver) {
       const observer = new view.MutationObserver((records) => {
-        if (records.every(isExtensionOnlyMutation)) {
+        if (records.every((record) =>
+          isExtractionIrrelevantMutation(record) || isExtensionCursorClassMutation(record)
+        )) {
           return;
         }
         scheduleStructuralRefresh();
@@ -818,6 +876,7 @@ export function createMarkingEngine(
         subtree: true,
         attributes: true,
         characterData: true,
+        attributeOldValue: true,
         attributeFilter: ["class", "style", "hidden", "open", "role", "aria-hidden", "aria-expanded"],
       });
       cleanups.push(() => observer.disconnect());
@@ -870,10 +929,10 @@ export function createMarkingEngine(
     visualViewport?.addEventListener?.("scroll", scheduleResizeRender);
     visualViewport?.addEventListener?.("resize", scheduleResizeRender);
     cleanups.push(() => {
-      if (structuralRefreshHandle !== null) {
-        clearTimeout(structuralRefreshHandle);
-        structuralRefreshHandle = null;
-      }
+      cancelStructuralDispatch();
+      structuralTrailing = false;
+      structuralRenderInFlight = false;
+      structuralRenderSettled = null;
       if (viewportScrollHandle !== null) {
         clearTimeout(viewportScrollHandle);
         viewportScrollHandle = null;

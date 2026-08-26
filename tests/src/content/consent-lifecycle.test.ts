@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { ConsentDocument } from "../../../src/content/consent";
+import type { ConsentDocument, ConsentElement } from "../../../src/content/consent";
 import {
   CONSENT_OBSERVER_OPTIONS,
   consentPropertyIdentity,
@@ -22,7 +22,7 @@ function createHarness(overrides: Partial<ConsentLifecycleOptions> = {}) {
   const order: string[] = [];
   const document = {} as ConsentDocument;
   const observers: Array<{
-    callback: () => void;
+    callback: (records?: readonly MutationRecord[]) => void;
     observe: ReturnType<typeof vi.fn>;
     disconnect: ReturnType<typeof vi.fn>;
   }> = [];
@@ -35,7 +35,7 @@ function createHarness(overrides: Partial<ConsentLifecycleOptions> = {}) {
     order.push("restore");
     return 1;
   });
-  const createObserver = vi.fn((callback: () => void): ConsentObserver => {
+  const createObserver = vi.fn((callback: (records?: readonly MutationRecord[]) => void): ConsentObserver => {
     order.push("create-observer");
     const entry = {
       callback,
@@ -124,17 +124,44 @@ describe("content consent lifecycle", () => {
     expect(harness.onHidden).toHaveBeenCalledWith(1);
   });
 
-  it("re-sweeps one same-property observer and handles late mutations", () => {
+  it("re-sweeps one same-property observer and handles late mutations", async () => {
     const harness = createHarness();
     harness.lifecycle.adoptProperty(PROPERTY_A);
     harness.order.length = 0;
 
     harness.lifecycle.adoptProperty({ ...PROPERTY_A, baseUrl: "https://example.com/new-base" });
     harness.observers[0]?.callback();
+    await Promise.resolve();
 
     expect(harness.order).toEqual(["hide", "hide"]);
     expect(harness.createObserver).toHaveBeenCalledOnce();
     expect(harness.lifecycle.snapshot().authority?.baseUrl).toBe("https://example.com/new-base");
+  });
+
+  it("coalesces mutation bursts into one subtree sweep", async () => {
+    const root = {
+      nodeType: 1,
+      isConnected: true,
+    } as unknown as ConsentElement;
+    const hideRoots = vi.fn(() => ({ hidden: 1, bypassInstalled: true }));
+    const harness = createHarness({ hideRoots });
+    harness.lifecycle.adoptProperty(PROPERTY_A);
+    const record = {
+      type: "childList",
+      target: {},
+      addedNodes: [root],
+      removedNodes: [],
+    } as unknown as MutationRecord;
+
+    for (let index = 0; index < 100; index += 1) {
+      harness.observers[0]?.callback([record]);
+    }
+    expect(hideRoots).not.toHaveBeenCalled();
+    await Promise.resolve();
+
+    expect(hideRoots).toHaveBeenCalledOnce();
+    expect(hideRoots).toHaveBeenCalledWith(harness.document, [root]);
+    expect(harness.onHidden).toHaveBeenLastCalledWith(1);
   });
 
   it("switches properties by disconnecting and restoring before the new sweep", () => {

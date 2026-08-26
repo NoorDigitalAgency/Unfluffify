@@ -144,6 +144,24 @@ describe("toast controller", () => {
     expect(listener).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps an explicitly persistent occurrence until dismissal or replacement", () => {
+    const fake = createFakeClock();
+    const controller = createToastController({ clock: fake.clock });
+    const persistent = controller.show({
+      message: "AI result request failed",
+      tone: "danger",
+      persistent: true,
+    });
+
+    expect(fake.pending()).toBe(0);
+    fake.advanceBy(60_000);
+    expect(controller.current()).toEqual(persistent);
+
+    const replacement = controller.show({ message: "AI completed", tone: "success" });
+    expect(controller.current()).toEqual(replacement);
+    expect(fake.pending()).toBe(1);
+  });
+
   it("clears on demand and permanently fences late work after disposal", () => {
     const fake = createFakeClock();
     const controller = createToastController({ clock: fake.clock });

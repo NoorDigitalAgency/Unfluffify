@@ -110,6 +110,9 @@ class FakeElement {
     if (selector === '[data-uf-extension-ui="true"]' && this.getAttribute("data-uf-extension-ui") === "true") {
       return this;
     }
+    if (selector === "[data-uf-consent-hidden]" && this.hasAttribute("data-uf-consent-hidden")) {
+      return this;
+    }
     return this.parentElement?.closest(selector) ?? null;
   }
 
@@ -1393,7 +1396,7 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
-  it("rebuilds for page mutations but not extension chrome mutations", () => {
+  it("rebuilds for page mutations but not extension or consent-suppressed mutations", () => {
     vi.useFakeTimers();
     const doc = new FakeDocument();
     const callbacks: Array<(records: MutationRecord[]) => void> = [];
@@ -1441,6 +1444,28 @@ describe("P6 DOM bridge", () => {
       target: extensionRoot,
       addedNodes: [],
       removedNodes: [transientChrome],
+    } as unknown as MutationRecord]);
+
+    expect(animationFrames).toHaveLength(0);
+
+    const suppressedRoot = new FakeElement("DIALOG", rect(0, 0, 300, 20));
+    suppressedRoot.ownerDocument = doc;
+    suppressedRoot.setAttribute("data-uf-consent-hidden", "");
+    root.appendChild(suppressedRoot);
+    mutation?.([{
+      type: "childList",
+      target: root,
+      addedNodes: [suppressedRoot],
+      removedNodes: [],
+    } as unknown as MutationRecord]);
+    const suppressedChild = new FakeElement("BUTTON", rect(0, 0, 80, 20), "Accept");
+    suppressedChild.ownerDocument = doc;
+    suppressedRoot.appendChild(suppressedChild);
+    mutation?.([{
+      type: "childList",
+      target: suppressedRoot,
+      addedNodes: [suppressedChild],
+      removedNodes: [],
     } as unknown as MutationRecord]);
 
     expect(animationFrames).toHaveLength(0);

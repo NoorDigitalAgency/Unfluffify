@@ -53,6 +53,7 @@ export {
   EMPTY_POPUP_SETTINGS_FORM,
   RENDER_MODE_NOT_SET_REASON,
   markingDisableNeedsConfirmation,
+  overlayOperatorActionPresentation,
   resolvePopupActionButtons,
   resolvePopupCurtainKind,
   resolvePopupPanelBlocking,

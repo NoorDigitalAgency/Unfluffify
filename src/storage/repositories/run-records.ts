@@ -16,6 +16,8 @@ export const RunRecordSchema = z.object({
   updatedAt: z.number().int().nonnegative(),
   deadlineAt: z.number().int().nonnegative().optional(),
   error: z.string().optional(),
+  failureStage: z.enum(["start", "status", "result", "timeout", "transport"]).optional(),
+  reason: z.string().optional(),
   /** Scope fields were added after the first rewrite prototype. They remain
    * optional so an installed extension can read (and safely ignore) its older
    * records instead of corrupting the whole repository on upgrade. */
