@@ -17,6 +17,8 @@ export type InteractionShieldOptions = Readonly<{
   window?: Window;
   /** Additional top-level extension roots whose controls must remain above the shield. */
   extensionSurfaces?: () => Iterable<HTMLElement>;
+  /** Receives shield-targeted input before the firewall consumes it. */
+  onShieldInput?: (event: Event) => void;
   /** Dependency seam for non-browser runtimes and exact lifecycle tests. */
   createMutationObserver?: (callback: MutationCallback) => MutationObserverLike;
 }>;
@@ -422,7 +424,11 @@ export function createInteractionShield(
   };
 
   const filterInput = (event: Event): void => {
-    filterContentInput(event, classifyInputTarget(event));
+    const target = classifyInputTarget(event);
+    if (target === "shield") {
+      options.onShieldInput?.(event);
+    }
+    filterContentInput(event, target);
   };
 
   const addInputListeners = (): void => {

@@ -1535,13 +1535,38 @@ async function maybeResumeAiRun(context: TargetTabContext, requestKey = boundTab
 }
 
 /** The latest loaded selectors show as silent highlights with no AI run needed.
- *  Keyed on the page and the selector set, so a repaint only happens when one of
- *  them actually changes rather than on every poll tick. */
+ *  Keyed on the tab, page, document realm, and selector set, so a repaint happens
+ *  after a real reload but not on every poll tick of the same document. */
 async function refreshSilentSelectorPreview(context: TargetTabContext, requestKey = boundTabKey): Promise<void> {
   const inSilentMode = store.getState().name === "silent";
   const selectors = currentPropertyConfiguration().selectors;
+  let documentNonce = "";
+  if (inSilentMode && selectors) {
+    const status = await requestContentDelivery(
+      context.tabId,
+      { type: "getContentMainStatus" },
+      { quietNoReceiver: true },
+    );
+    if (boundTabKey !== requestKey) {
+      return;
+    }
+    if (
+      status.status === "delivered" &&
+      status.data &&
+      typeof status.data === "object" &&
+      typeof (status.data as { documentNonce?: unknown }).documentNonce === "string"
+    ) {
+      documentNonce = (status.data as { documentNonce: string }).documentNonce;
+    }
+  }
   const key = inSilentMode && selectors
-    ? [context.url, selectors.inclusionSelectors.join(","), selectors.exclusionSelectors.join(",")].join("|")
+    ? [
+      context.tabId,
+      context.url,
+      documentNonce,
+      selectors.inclusionSelectors.join(","),
+      selectors.exclusionSelectors.join(","),
+    ].join("|")
     : "";
   if (silentSelectorsAppliedKey !== null && key === silentSelectorsAppliedKey) {
     return;

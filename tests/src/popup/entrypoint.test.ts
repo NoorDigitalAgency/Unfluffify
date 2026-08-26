@@ -527,6 +527,55 @@ describe("rewrite popup entrypoint", () => {
     ].map((expected) => expect.objectContaining(expected)));
   });
 
+  it("reprojects silent selectors when the same tab and URL receive a new document", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    let clock = 1_000;
+    const dateNow = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    let documentNonce = "document-a";
+    const tabsSendMessage = makeTabsSendMessage((_tabId, message) => message.type === "getContentMainStatus"
+      ? {
+        ok: true,
+        active: false,
+        dirty: false,
+        pageUrl: "https://example.com/page",
+        documentNonce,
+        contentRows: [],
+      }
+      : { ok: true, initialized: true, tree: "rewrite" });
+    const runtime = makeRuntime(async (message) => replyFrame(message, []));
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    const silentProjectionCount = () => tabsSendMessage.mock.calls.filter(([, frame]) =>
+      (frame as BusFrame).name === "command.dispatch" &&
+      ((frame as BusFrame).payload as { name?: string }).name === "applySilentSelectors"
+    ).length;
+    await waitFor(() => render.mock.calls.length > 0, "the initial popup render");
+    props().onRefresh();
+    await waitFor(() => silentProjectionCount() === 1, "the first silent selector projection");
+
+    const poll = globalThis.window.setInterval.mock.calls
+      .find(([, delay]) => delay === 500)?.[0] as (() => void) | undefined;
+    expect(poll).toEqual(expect.any(Function));
+    clock += 15_000;
+    poll?.();
+    await flushEntrypointWork();
+    expect(silentProjectionCount()).toBe(1);
+
+    documentNonce = "document-b";
+    clock += 15_000;
+    poll?.();
+    await waitFor(() => silentProjectionCount() === 2, "the replacement document projection");
+    dateNow.mockRestore();
+  });
+
   it("projects only explicit operator outcomes as replaceable toast occurrences", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     const render = createReactRenderProbe();

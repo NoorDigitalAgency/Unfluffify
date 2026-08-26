@@ -442,10 +442,12 @@ describe("interaction shield controller", () => {
     extension.appendChild(extensionControl);
     context.document.documentElement.appendChild(page);
     context.document.documentElement.appendChild(extension);
+    const onShieldInput = vi.fn();
     const controller = createInteractionShield({
       document: asDocument(context.document),
       window: asWindow(context.window),
       extensionSurfaces: () => [asElement(extension)],
+      onShieldInput,
     });
     controller.activate("silent-highlighting");
     const shield = controller.element() as unknown as FakeElement;
@@ -457,6 +459,8 @@ describe("interaction shield controller", () => {
       expect(click.stopPropagation).toHaveBeenCalledOnce();
       expect(click.stopImmediatePropagation).toHaveBeenCalledOnce();
     }
+    expect(onShieldInput).toHaveBeenCalledOnce();
+    expect(onShieldInput).toHaveBeenCalledWith(expect.objectContaining({ type: "click" }));
 
     const wheel = inputEvent("wheel", [shield, context.document.documentElement, context.window]);
     context.window.dispatch("wheel", wheel as unknown as Event);

@@ -14,6 +14,7 @@ const shieldHarness = vi.hoisted(() => ({
     refresh: ReturnType<typeof vi.fn>;
     dispose: ReturnType<typeof vi.fn>;
     extensionSurfaces: () => HTMLElement[];
+    onShieldInput?: (event: Event) => void;
   }>,
   create: vi.fn(),
 }));
@@ -34,7 +35,10 @@ const inspectionCurtainHarness = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/content/interaction-shield", () => {
-  shieldHarness.create.mockImplementation((options: { extensionSurfaces?: () => HTMLElement[] }) => {
+  shieldHarness.create.mockImplementation((options: {
+    extensionSurfaces?: () => HTMLElement[];
+    onShieldInput?: (event: Event) => void;
+  }) => {
     const reasons = new Set<string>();
     const instance = {
       activate: vi.fn((reason: string) => {
@@ -58,6 +62,7 @@ vi.mock("../src/content/interaction-shield", () => {
       refresh: vi.fn(),
       dispose: vi.fn(() => reasons.clear()),
       extensionSurfaces: options.extensionSurfaces ?? (() => []),
+      onShieldInput: options.onShieldInput,
     };
     shieldHarness.instances.push(instance);
     return instance;
@@ -580,6 +585,10 @@ describe("C4 rewrite content entrypoints", () => {
       }),
       emphasizePreviewRow: vi.fn((projectionId: string, rowId: string) => targetExists(projectionId, rowId)),
       activatePreviewRow: vi.fn((projectionId: string, rowId: string) => targetExists(projectionId, rowId)),
+      previewRowAtPoint: vi.fn(() => ({
+        projectionId: projection.projectionId,
+        rowId: "row-excluded",
+      })),
       rows: vi.fn(() => []),
       clearHover,
       setSuspended: vi.fn(),
@@ -678,6 +687,9 @@ describe("C4 rewrite content entrypoints", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
     expect(stateName).toBe("silent_preview");
+    const documentStatus = await dispatchContentCommand(listener, "getContentMainStatus");
+    expect(documentStatus.data).toMatchObject({ documentNonce: expect.any(String) });
+    expect((documentStatus.data as { documentNonce: string }).documentNonce).not.toBe("");
 
     const selectors = {
       inclusionSelectors: [".p17-explicit"],
@@ -695,6 +707,37 @@ describe("C4 rewrite content entrypoints", () => {
       "closed-shadow",
     ]);
     expect(engine.projectPreview).toHaveBeenCalledWith(pageUrl, selectors);
+
+    const shieldTarget = {
+      closest: vi.fn((selector: string) => selector === '[data-uf-extension-ui="true"]'
+        || selector === '[data-uf-interaction-shield="true"]'
+        ? shieldTarget
+        : null),
+    };
+    const shieldClick = {
+      type: "click",
+      target: shieldTarget,
+      clientX: 35,
+      clientY: 45,
+      preventDefault: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    };
+    shieldHarness.instances.at(-1)?.onShieldInput?.(shieldClick as unknown as Event);
+    await Promise.resolve();
+    expect(engine.previewRowAtPoint).toHaveBeenCalledWith(35, 45);
+    expect(shieldClick.preventDefault).toHaveBeenCalledOnce();
+    expect(shieldClick.stopImmediatePropagation).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "uf-bus/1",
+      name: "preview.focused",
+      target: "popup",
+      source: "content",
+      payload: {
+        pageUrl,
+        projectionId: projection.projectionId,
+        rowId: "row-excluded",
+      },
+    }));
 
     const emphasis = await dispatchTypedContentCommand(listener, "preview.emphasize", {
       pageUrl,

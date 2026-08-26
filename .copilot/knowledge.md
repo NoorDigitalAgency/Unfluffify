@@ -307,7 +307,11 @@ Marking overlays never draw raw fallback rectangles for invisible exclusions.
 Shift alone creates widened exclusions; plain interaction removes the exact
 widened owner. Alt can make an eligible implicit inclusion explicit. Content
 List opens from the local projection and supports occurrence-fenced row-to-page
-and page-to-row focus.
+and page-to-row focus. Its page-click edge is handled before the interaction
+shield consumes input, while the shield still prevents the click from reaching
+page behavior. Silent projection caching includes the content realm's document
+nonce, so a same-tab, same-URL hard reload cannot inherit a stale "already
+painted" decision from the replaced document.
 
 ## Content script lifecycle
 

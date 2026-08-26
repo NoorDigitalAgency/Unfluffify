@@ -1399,6 +1399,11 @@ function ensureInteractionShield(): InteractionShieldController | null {
     document,
     window,
     extensionSurfaces: extensionSurfacesForShield,
+    onShieldInput: (event) => {
+      if (event.type === "click") {
+        handlePreviewPageClick(event as MouseEvent);
+      }
+    },
   });
   return interactionShield;
 }
@@ -3007,6 +3012,30 @@ function previewInteractionActive(): boolean {
   return contentState.name === "preview_open" || contentState.name === "silent_preview";
 }
 
+function handlePreviewPageClick(event: MouseEvent): void {
+  if (!previewInteractionActive() || !markingEngine) {
+    return;
+  }
+  const eventTarget = event.target as Element | null;
+  const extensionSurface = eventTarget?.closest?.('[data-uf-extension-ui="true"]');
+  const interactionShield = eventTarget?.closest?.('[data-uf-interaction-shield="true"]');
+  if (extensionSurface && !interactionShield) {
+    return;
+  }
+  const target = markingEngine.previewRowAtPoint?.(event.clientX, event.clientY);
+  if (!target) {
+    return;
+  }
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  markingEngine.emphasizePreviewRow?.(target.projectionId, target.rowId, true);
+  void getContentBus().emit("preview.focused", {
+    pageUrl: currentPageUrl(),
+    projectionId: target.projectionId,
+    rowId: target.rowId,
+  }, { target: "popup" });
+}
+
 function ensurePreviewPageListener(): void {
   if (
     removePreviewPageListener ||
@@ -3015,30 +3044,9 @@ function ensurePreviewPageListener(): void {
   ) {
     return;
   }
-  const handlePreviewClick = (event: MouseEvent): void => {
-    if (!previewInteractionActive() || !markingEngine) {
-      return;
-    }
-    const eventTarget = event.target as Element | null;
-    if (eventTarget?.closest?.('[data-uf-extension-ui="true"]')) {
-      return;
-    }
-    const target = markingEngine.previewRowAtPoint?.(event.clientX, event.clientY);
-    if (!target) {
-      return;
-    }
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    markingEngine.emphasizePreviewRow?.(target.projectionId, target.rowId, true);
-    void getContentBus().emit("preview.focused", {
-      pageUrl: currentPageUrl(),
-      projectionId: target.projectionId,
-      rowId: target.rowId,
-    }, { target: "popup" });
-  };
-  document.addEventListener("click", handlePreviewClick, true);
+  document.addEventListener("click", handlePreviewPageClick, true);
   removePreviewPageListener = () => {
-    document.removeEventListener("click", handlePreviewClick, true);
+    document.removeEventListener("click", handlePreviewPageClick, true);
     removePreviewPageListener = null;
   };
 }
@@ -3070,6 +3078,11 @@ function contentStatus(): Record<string, unknown> {
   const interactions = currentMarkingInteractionAvailability();
   return {
     ok: true,
+    // This realm-scoped nonce changes on every real document replacement even
+    // when Chrome keeps the same tab and URL. Popup-side silent-projection
+    // caching uses it to distinguish a still-painted document from a freshly
+    // loaded document whose local overlay layer no longer exists.
+    documentNonce: RENDER_INSPECTION_DOCUMENT_NONCE,
     active: markingActive,
     dirty: isUserMarkingDirty(),
     pageUrl: currentPageUrl(),
