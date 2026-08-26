@@ -1,5 +1,9 @@
 # Humanova marking, preview, and stabilization remediation
 
+**Status:** Complete — all six phases and the headed acceptance passed on
+2026-08-26. Evidence is recorded in
+`.reimplementation/p21-humanova-live-sanity-report-2026-08-26.md`.
+
 ## Goal
 
 Restore the latest legacy interaction contract for explicit/implicit markings, make Content List and silent preview immediate and genuinely two-way, and restore the legacy smooth reveal/freeze sequence without regressing P14–P20 lifecycle, payload, lock, or consent guarantees.
@@ -35,37 +39,37 @@ Restore the latest legacy interaction contract for explicit/implicit markings, m
 
 ## Execution phases
 
-### H1 — Contract characterization and regression harnesses
+### H1 — Contract characterization and regression harnesses — Complete
 
 - Update the durable marking/highlighting and execution-plan contracts with the Humanova findings and the decisions above.
 - Add failing regression coverage for invisible exclusion rendering, Shift-only widening, nearest/exact unmarking, Alt inclusion of implicit content, widened-owner clear, immediate preview opening, both focus directions, retained silent geometry, and smooth midpoint-first lazy suppression.
 
-### H2 — Marking resolution and rendering
+### H2 — Marking resolution and rendering — Complete
 
 - Remove raw-geometry fallback for invisible exclusion classifications.
 - Separate target resolution for new nearest exclusion, widened exclusion, and removal of an existing explicit owning boundary.
 - Expand include resolution to eligible implicit/default content and expose the same result in the context menu.
 - Make Clear remove one resolved explicit owner, with branch repair and signal emission identical to other marking changes.
 
-### H3 — Content List projection and two-way focus
+### H3 — Content List projection and two-way focus — Complete
 
 - Open from a locally requested projection before authority reconciliation; use occurrence/generation fencing when the asynchronous authority lane catches up.
 - Stop projecting every 500 ms. Refresh only on typed selector/marking/structural revision signals and explicit Refresh.
 - Add the content-to-popup typed focus event and active-row state/scroll behavior; keep popup-to-content hover, keyboard focus, and activation intact.
 
-### H4 — Silent overlay lifecycle and latency
+### H4 — Silent overlay lifecycle and latency — Complete
 
 - Keep retained silent boxes mounted during scroll and resize; update their transforms/rects in the next animation frame without opacity/removal gaps.
 - Reuse the current projection and bridge indexes when opening silent Content List; structural mutations alone may advance the projection revision.
 - Ensure scroll, visual viewport, and resize coalescing cannot retire preview occurrence identity.
 
-### H5 — Legacy reveal/freeze parity
+### H5 — Legacy reveal/freeze parity — Complete
 
 - Use smooth scroll with scroll/scrollend plus rAF dwell/timeout settlement.
 - Sequence start -> midpoint -> lazy suppression acknowledgement -> growth-aware bottom -> persistent freeze -> smooth restore.
 - Preserve hidden deferral, single-flight/generation ownership, consent suppression, motion freeze, and fail-open cleanup.
 
-### H6 — Integration, performance, and headed acceptance
+### H6 — Integration, performance, and headed acceptance — Complete
 
 - Run focused tests after each phase, then `pnpm verify`, production/debug builds, and the P14–P20 performance/browser gates affected by marking, preview, and stabilization.
 - Run a headed Humanova workflow with repository live-browser tooling and observer discipline. Verify no invisible exclusion overlay, Shift/Alt/unmark behavior, immediate Content List, both focus directions, persistent responsive silent highlights, smooth reveal/freeze, payload hygiene, consent exclusion, and console cleanliness.

@@ -1021,7 +1021,7 @@ in the owning phase and rerun its focused gate plus P9–P11.
     request was issued. See
     [`p20-assist24-arno-bigbag-arkivit-live-sanity-report-2026-08-25.md`](./p20-assist24-arno-bigbag-arkivit-live-sanity-report-2026-08-25.md).
 
-- [ ] P21 — Humanova marking, preview, and stabilization parity
+- [x] P21 — Humanova marking, preview, and stabilization parity
   - Remove invisible exclusion paint while retaining extraction state.
   - Restore Shift-only widening, exact widened-owner removal, and Alt explicit
     inclusion for eligible implicit content.
@@ -1031,6 +1031,14 @@ in the owning phase and rerun its focused gate plus P9–P11.
     and restore-under-freeze ordering from latest legacy.
   - Acceptance requires focused regressions, `pnpm verify`, debug build, affected
     P14–P20 gates, and a clean headed Humanova workflow.
+  - Implementation commits: `954adf16` (marking, projection, silent overlay,
+    and reveal parity) and `714e2c4b` (document-identity projection fence and
+    interaction-shield page-to-list routing).
+  - Validation passed `pnpm verify` (127 files / 1,160 tests), debug build,
+    P14 192 scenarios, P15 36/36, P16 13/13, final clean-source P17 19/19,
+    P18 14/14, and P20 4/4. The headed production run passed all ten findings;
+    no Save or publication request was issued. See
+    [`p21-humanova-live-sanity-report-2026-08-26.md`](./p21-humanova-live-sanity-report-2026-08-26.md).
 
 For each completed item, append the commit SHA(s), exact test command, result,
 and any live artifact/version directly beneath the checkbox. The first unchecked
