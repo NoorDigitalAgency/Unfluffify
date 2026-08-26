@@ -647,6 +647,13 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         endGeometryBatch();
       }
     },
+    clearSilentHighlights(): void {
+      silentPresentationByXpath.clear();
+      for (const record of silentBoxes.values()) {
+        record.overlay.remove();
+      }
+      silentBoxes.clear();
+    },
     acknowledge(element: Element, xpath: string, mode: "include" | "exclude"): void {
       clearAcknowledgement();
       const layer = layers.get("interaction");

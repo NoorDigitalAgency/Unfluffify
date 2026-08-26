@@ -302,6 +302,10 @@ export type MarkingEngineRefreshOptions = Readonly<{
   render?: boolean;
 }>;
 
+const DEFERRED_BRANCH_RENDER_TARGET_THRESHOLD = 200;
+const STRUCTURAL_MUTATION_QUIET_MS = 150;
+const STRUCTURAL_MUTATION_IDLE_TIMEOUT_MS = 1_200;
+
 /**
  * Resolve both selector groups against the already captured composed DOM. This is
  * deliberately bridge-first: document.querySelectorAll cannot enter shadow roots,
@@ -458,6 +462,30 @@ export function createMarkingEngine(
   options: MarkingEngineInitializationOptions = {},
 ) {
   const instrumentation = options.instrumentation;
+  const debugWorkTiming = typeof __UF_DEBUG_BUILD__ !== "undefined" && __UF_DEBUG_BUILD__;
+  let workStageStartedAt = globalThis.performance?.now?.() ?? Date.now();
+  const beginWorkCycle = (): void => {
+    workStageStartedAt = globalThis.performance?.now?.() ?? Date.now();
+  };
+  const reportWorkStage = (stage: MarkingEngineWorkStage): void => {
+    instrumentation?.onWorkStage?.(stage);
+    if (!debugWorkTiming) {
+      return;
+    }
+    const now = globalThis.performance?.now?.() ?? Date.now();
+    const debugGlobal = globalThis as typeof globalThis & {
+      __UF_MARKING_WORK_STAGES__?: Array<Readonly<{ stage: MarkingEngineWorkStage; durationMs: number }>>;
+    };
+    const durationMs = Math.round((now - workStageStartedAt) * 10) / 10;
+    const stages = debugGlobal.__UF_MARKING_WORK_STAGES__ ?? [];
+    stages.push({ stage, durationMs });
+    debugGlobal.__UF_MARKING_WORK_STAGES__ = stages.slice(-40);
+    console.debug("[Unfluffify][marking-work]", {
+      stage,
+      durationMs,
+    });
+    workStageStartedAt = now;
+  };
   const previewIdentityNamespace = createPreviewProjectionId();
   let previewOccurrence = 0;
   let activePreviewProjectionId: string | null = null;
@@ -478,14 +506,15 @@ export function createMarkingEngine(
     const nextBridge = instrumentation?.createBridge
       ? instrumentation.createBridge(rootElement, bridgeOptions)
       : createDomBridgeView(rootElement, bridgeOptions);
-    instrumentation?.onWorkStage?.("bridge");
+    reportWorkStage("bridge");
     return nextBridge;
   };
+  beginWorkCycle();
   let bridge: DomBridgeView = buildBridge();
   const initial = initialMarksForBridge(bridge, { rows: [] }, options.selectors);
   let lastInitializationSeededSelectors = initial.selectorsSeeded;
   let store = createMarkingStore({ root: bridge.root }, initial.marks);
-  instrumentation?.onWorkStage?.("store-evaluate");
+  reportWorkStage("store-evaluate");
   const renderer = (instrumentation?.createRenderer ?? createOverlayRenderer)({
     document: rootElement.ownerDocument,
   });
@@ -509,6 +538,9 @@ export function createMarkingEngine(
   let overlayTargets = new Map<string, OverlayRenderTarget>();
   let widenByKey = new Map<string, WidenNode>();
   let bridgeGeneration = 0;
+  let deferredBranchRenderHandle: ReturnType<typeof setTimeout> | null = null;
+  let deferredBranchRenderGeneration = 0;
+  let deferredBranchTargets = new Map<string, OverlayRenderTarget>();
   let previewRevision = 0;
   let toggleInProgress = false;
   let previewEmphasizedRowId: string | null = null;
@@ -531,7 +563,7 @@ export function createMarkingEngine(
     }
     const evaluation = store.currentEvaluation();
     candidateByXpath = buildCandidateIndex(bridge.root, evaluation.overlay, store.canonicalSet().rows);
-    instrumentation?.onWorkStage?.("candidate-index");
+    reportWorkStage("candidate-index");
   };
 
   const currentCandidateIndex = (): Map<string, MarkingCandidate> => {
@@ -604,13 +636,19 @@ export function createMarkingEngine(
   };
 
   const refreshBridge = (refreshOptions: MarkingEngineRefreshOptions = {}): boolean => {
+    if (deferredBranchRenderHandle !== null) {
+      clearTimeout(deferredBranchRenderHandle);
+      deferredBranchRenderHandle = null;
+      deferredBranchTargets.clear();
+    }
+    beginWorkCycle();
     hoverResolution = null;
     const previousMarks = store.canonicalSet();
     bridge = buildBridge();
     const next = initialMarksForBridge(bridge, previousMarks, refreshOptions.selectors);
     lastInitializationSeededSelectors = next.selectorsSeeded;
     store = createMarkingStore({ root: bridge.root }, next.marks);
-    instrumentation?.onWorkStage?.("store-evaluate");
+    reportWorkStage("store-evaluate");
     rebuildBridgeIndexes();
     refreshCurrentPreviewProjection();
     reconcilePreviewEmphasis();
@@ -658,7 +696,7 @@ export function createMarkingEngine(
       }
     }
     renderer.renderSilentHighlights(xpaths, byXpath, { immutableXpaths, excludedXpaths });
-    instrumentation?.onWorkStage?.("silent-render");
+    reportWorkStage("silent-render");
     return xpaths;
   };
   const renderSilentBranch = (
@@ -692,15 +730,52 @@ export function createMarkingEngine(
       }
     }
     renderer.renderSilentHighlightsBranch(xpaths, byXpath, { immutableXpaths, excludedXpaths });
-    instrumentation?.onWorkStage?.("silent-render");
+    reportWorkStage("silent-render");
     return xpaths;
   };
   const renderCurrent = (): void => {
     renderer.render(store.currentEvaluation(), byXpathElements());
-    instrumentation?.onWorkStage?.("marking-render");
+    reportWorkStage("marking-render");
     if (silentHighlightsArmed) {
       renderSilent();
     }
+  };
+  const renderChangedBranch = (
+    evaluation: ReturnType<typeof store.currentEvaluation>,
+    branchRoot: EvaluationNode,
+  ): void => {
+    const branchTargets = byXpathElementsForBranch(branchRoot);
+    if (branchTargets.size <= DEFERRED_BRANCH_RENDER_TARGET_THRESHOLD) {
+      renderer.renderBranch(evaluation, branchTargets);
+      if (silentHighlightsArmed) {
+        renderSilentBranch(evaluation, branchTargets);
+      }
+      return;
+    }
+    for (const [xpath, target] of branchTargets) {
+      deferredBranchTargets.set(xpath, target);
+    }
+    deferredBranchRenderGeneration = bridgeGeneration;
+    if (deferredBranchRenderHandle !== null) {
+      return;
+    }
+    // The interaction acknowledgement is already mounted and the canonical
+    // marking state is already committed. Yield once so the browser can paint
+    // that acknowledgement and the signal path can invalidate popup controls
+    // before a very large branch performs its geometry-heavy overlay repaint.
+    deferredBranchRenderHandle = setTimeout(() => {
+      deferredBranchRenderHandle = null;
+      const targets = deferredBranchTargets;
+      deferredBranchTargets = new Map<string, OverlayRenderTarget>();
+      if (deferredBranchRenderGeneration !== bridgeGeneration) {
+        return;
+      }
+      const current = store.currentEvaluation();
+      renderer.renderBranch(current, targets);
+      if (silentHighlightsArmed) {
+        renderSilentBranch(current, targets);
+      }
+    }, 0);
   };
   const scheduleRender = (work: RenderWork): void => {
     hoverResolution = null;
@@ -787,6 +862,7 @@ export function createMarkingEngine(
     }>;
     const idleView = view as IdleCapableView | null;
     let structuralIdleHandle: number | null = null;
+    let structuralQuietHandle: ReturnType<typeof setTimeout> | null = null;
     let structuralFallbackHandle: ReturnType<typeof setTimeout> | null = null;
     let structuralRenderInFlight = false;
     let structuralTrailing = false;
@@ -794,6 +870,10 @@ export function createMarkingEngine(
       if (structuralIdleHandle !== null) {
         idleView?.cancelIdleCallback?.(structuralIdleHandle);
         structuralIdleHandle = null;
+      }
+      if (structuralQuietHandle !== null) {
+        clearTimeout(structuralQuietHandle);
+        structuralQuietHandle = null;
       }
       if (structuralFallbackHandle !== null) {
         clearTimeout(structuralFallbackHandle);
@@ -817,13 +897,24 @@ export function createMarkingEngine(
         structuralTrailing = true;
         return;
       }
-      if (structuralIdleHandle !== null || structuralFallbackHandle !== null) {
-        return;
-      }
-      if (idleView?.requestIdleCallback) {
-        structuralIdleHandle = idleView.requestIdleCallback(dispatchStructuralRefresh, { timeout: 1_200 });
-      }
-      structuralFallbackHandle = setTimeout(dispatchStructuralRefresh, 1_200);
+      // A carousel or reactive shell can emit a long train of attribute and DOM
+      // records. Restart the quiet window from the latest structural mutation so
+      // a full bridge walk never races the page's own burst or a queued click.
+      cancelStructuralDispatch();
+      structuralQuietHandle = setTimeout(() => {
+        structuralQuietHandle = null;
+        if (idleView?.requestIdleCallback) {
+          structuralIdleHandle = idleView.requestIdleCallback(dispatchStructuralRefresh, {
+            timeout: STRUCTURAL_MUTATION_IDLE_TIMEOUT_MS,
+          });
+          structuralFallbackHandle = setTimeout(
+            dispatchStructuralRefresh,
+            STRUCTURAL_MUTATION_IDLE_TIMEOUT_MS,
+          );
+          return;
+        }
+        dispatchStructuralRefresh();
+      }, STRUCTURAL_MUTATION_QUIET_MS);
     };
     const isExtractionIrrelevantNode = (node: Node): boolean => {
       const element = node.nodeType === 1 ? node as Element : node.parentElement;
@@ -864,12 +955,24 @@ export function createMarkingEngine(
     };
     if (view?.MutationObserver) {
       const observer = new view.MutationObserver((records) => {
-        if (records.every((record) =>
-          isExtractionIrrelevantMutation(record) || isExtensionCursorClassMutation(record)
-        )) {
+        const relevantRecords = records.filter((record) =>
+          !isExtractionIrrelevantMutation(record) && !isExtensionCursorClassMutation(record)
+        );
+        if (relevantRecords.length === 0) {
           return;
         }
-        scheduleStructuralRefresh();
+        const structural = relevantRecords.some((record) =>
+          record.type !== "attributes"
+          || record.attributeName === "hidden"
+          || record.attributeName === "open"
+          || record.attributeName === "role"
+          || record.attributeName === "aria-hidden"
+        );
+        if (structural) {
+          scheduleStructuralRefresh();
+        } else {
+          stabilizeGeometry(silentHighlightsArmed ? "silent-geometry" : "geometry");
+        }
       });
       observer.observe(rootElement, {
         childList: true,
@@ -961,6 +1064,13 @@ export function createMarkingEngine(
     lastInitializationSeededSelectors(): boolean {
       return lastInitializationSeededSelectors;
     },
+    renderMarking(): void {
+      beginWorkCycle();
+      silentHighlightsArmed = false;
+      interactiveMarkingRendered = true;
+      renderer.clearSilentHighlights();
+      renderCurrent();
+    },
     resolveAtPoint(x: number, y: number, mode: MarkMode, shiftActive = false): EvaluationNode | null {
       const pointHits = getComposedHitElements(rootElement.ownerDocument, x, y);
       const hits = pointHits
@@ -1005,11 +1115,7 @@ export function createMarkingEngine(
         const toggled = store.toggle(node, mode);
         candidateByXpath = null;
         interactiveMarkingRendered = true;
-        const branchTargets = byXpathElementsForBranch(toggled.branchRoot);
-        renderer.renderBranch(toggled, branchTargets);
-        if (silentHighlightsArmed) {
-          renderSilentBranch(toggled, branchTargets);
-        }
+        renderChangedBranch(toggled, toggled.branchRoot);
         return true;
       } finally {
         toggleInProgress = false;
@@ -1043,11 +1149,7 @@ export function createMarkingEngine(
         }
         candidateByXpath = null;
         interactiveMarkingRendered = true;
-        const branchTargets = byXpathElementsForBranch(cleared.branchRoot);
-        renderer.renderBranch(cleared, branchTargets);
-        if (silentHighlightsArmed) {
-          renderSilentBranch(cleared, branchTargets);
-        }
+        renderChangedBranch(cleared, cleared.branchRoot);
         return true;
       } finally {
         toggleInProgress = false;
@@ -1189,12 +1291,22 @@ export function createMarkingEngine(
       return renderSilent();
     },
     clearOverlays(): void {
+      if (deferredBranchRenderHandle !== null) {
+        clearTimeout(deferredBranchRenderHandle);
+        deferredBranchRenderHandle = null;
+        deferredBranchTargets.clear();
+      }
       hoverResolution = null;
       silentHighlightsArmed = false;
       interactiveMarkingRendered = false;
       renderer.clear();
     },
     dispose(): void {
+      if (deferredBranchRenderHandle !== null) {
+        clearTimeout(deferredBranchRenderHandle);
+        deferredBranchRenderHandle = null;
+        deferredBranchTargets.clear();
+      }
       hoverResolution = null;
       previewEmphasizedRowId = null;
       lastPreviewRequest = null;

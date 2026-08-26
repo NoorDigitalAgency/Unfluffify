@@ -1521,7 +1521,7 @@ async function refreshSilentSelectorPreview(context: TargetTabContext, requestKe
   const key = inSilentMode && selectors
     ? [context.url, selectors.inclusionSelectors.join(","), selectors.exclusionSelectors.join(",")].join("|")
     : "";
-  if (key === (silentSelectorsAppliedKey ?? "")) {
+  if (silentSelectorsAppliedKey !== null && key === silentSelectorsAppliedKey) {
     return;
   }
   silentSelectorsAppliedKey = key;

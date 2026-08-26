@@ -2487,6 +2487,10 @@ describe("rewrite popup entrypoint", () => {
       renderMode: "rendered",
       renderModeSource: "local",
     });
+    expect(tabsSendMessage.mock.calls.filter(([, frame]) =>
+      (frame as BusFrame).name === "command.dispatch"
+      && ((frame as BusFrame).payload as { name?: string }).name === "clearSilentSelectors"
+    )).toHaveLength(1);
 
     props().onDesktopPreviewChange(true);
     await waitFor(

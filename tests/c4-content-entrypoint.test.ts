@@ -2020,6 +2020,7 @@ describe("C4 rewrite content entrypoints", () => {
     } as unknown as HTMLElement;
     const engine = {
       refresh: vi.fn(),
+      renderMarking: vi.fn(),
       renderReadOnly: vi.fn(),
       dispose: vi.fn(),
       resolveAtPoint: vi.fn(() => ({ xpath: "/html[1]/body[1]/p[1]" })),
@@ -2237,8 +2238,8 @@ describe("C4 rewrite content entrypoints", () => {
       selectors: initialSelectors,
     });
     expect(engine.lastInitializationSeededSelectors).toHaveBeenCalledTimes(1);
-    expect(engine.refresh).toHaveBeenCalledTimes(1);
-    expect(engine.refresh).toHaveBeenCalledWith({ render: true, selectors: undefined });
+    expect(engine.refresh).not.toHaveBeenCalled();
+    expect(engine.renderMarking).toHaveBeenCalledOnce();
     expect(engine.renderReadOnly).not.toHaveBeenCalled();
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
     expect(getURL).toHaveBeenCalledWith("cursors/exclude.svg");
@@ -2318,7 +2319,8 @@ describe("C4 rewrite content entrypoints", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
     vi.useRealTimers();
-    expect(engine.refresh).toHaveBeenCalledTimes(1);
+    expect(engine.refresh).not.toHaveBeenCalled();
+    expect(engine.renderMarking).toHaveBeenCalledOnce();
     expect(engine.renderReadOnly).not.toHaveBeenCalled();
     expect(engine.setPassthrough).toHaveBeenNthCalledWith(1, true);
     expect(engine.setPassthrough).toHaveBeenNthCalledWith(2, false);
@@ -2466,7 +2468,7 @@ describe("C4 rewrite content entrypoints", () => {
     });
     expect(engine.lastInitializationSeededSelectors).toHaveBeenCalledTimes(2);
     expect(engine.renderSilentHighlights).toHaveBeenCalledTimes(1);
-    expect(engine.refresh).toHaveBeenCalledTimes(1);
+    expect(engine.refresh).not.toHaveBeenCalled();
     expect(engine.renderReadOnly).not.toHaveBeenCalled();
     expect(applySilent).toEqual({
       ok: true,
@@ -2569,7 +2571,7 @@ describe("C4 rewrite content entrypoints", () => {
     resolveInvalidatedCopy?.();
     await Promise.resolve();
     await Promise.resolve();
-    expect(engine.dispose).toHaveBeenCalledTimes(4);
+    expect(engine.dispose).toHaveBeenCalledTimes(5);
     expect(contentRoot?.isConnected).toBe(false);
     expect(currentToast()).toBeUndefined();
     expect(shield?.dispose).toHaveBeenCalledOnce();

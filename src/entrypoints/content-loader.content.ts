@@ -2815,9 +2815,6 @@ function resetMarking(): boolean {
   userToggleCount = 0;
   selectorsSeeded = false;
   lastKnownPageUrl = typeof location !== "undefined" ? location.href : lastKnownPageUrl;
-  if (activation.state().silentHighlightArmed) {
-    markingEngine.renderSilentHighlights?.();
-  }
   silentInteractionShieldActive = false;
   releaseDurablePostureLocally();
   markingActive = true;
@@ -2865,17 +2862,16 @@ function activateContentMain(payload: unknown): Record<string, unknown> {
       if (selectorsForInitialization) {
         selectorsSeeded = markingEngine.lastInitializationSeededSelectors();
       }
-    } else {
+    } else if (selectorsForInitialization) {
       const seeded = markingEngine.refresh({
         render: true,
         selectors: selectorsForInitialization,
       });
-      if (selectorsForInitialization) {
-        selectorsSeeded = seeded;
-      }
-    }
-    if (activation.state().silentHighlightArmed) {
-      markingEngine.renderSilentHighlights?.();
+      selectorsSeeded = seeded;
+    } else {
+      // Silent preview already keeps this bridge current through its observers.
+      // Switching presentation must not synchronously rebuild the entire page.
+      markingEngine.renderMarking();
     }
     silentInteractionShieldActive = false;
     releaseDurablePostureLocally();
@@ -2967,6 +2963,7 @@ function applySilentSelectors(
   markingEngine?.dispose();
   markingEngine = createMarkingEngine(document.documentElement, { selectors });
   const seeded = markingEngine.lastInitializationSeededSelectors();
+  selectorsSeeded = seeded;
   const highlighted = markingEngine.renderSilentHighlights();
   silentInteractionShieldActive = true;
   lastContentSurfaceSignature = "";
@@ -2990,8 +2987,13 @@ function clearSilentSelectors(
   markingEngine?.clearOverlays();
   removeSilentDebugCopyListener?.();
   markingEngine?.setInputTransparent?.(false);
-  markingEngine?.dispose();
-  markingEngine = null;
+  if (!markingEngine && typeof document !== "undefined" && document.documentElement) {
+    // The initial not_found baseline is awaited by the popup authority refresh.
+    // Prepare the expensive DOM bridge here so the operator's first toggle only
+    // has to paint the already-current marking presentation.
+    markingEngine = createMarkingEngine(document.documentElement);
+  }
+  selectorsSeeded = false;
   silentInteractionShieldActive = false;
   if (currentShieldPosture.status === "active" && currentShieldPosture.directive.organ.state === "silent") {
     releaseDurablePostureLocally();

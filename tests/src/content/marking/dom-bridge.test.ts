@@ -195,6 +195,7 @@ function rect(left: number, top: number, width: number, height: number): Rect {
 
 function createRendererTestSeam() {
   const markingRender = vi.fn();
+  const branchRender = vi.fn();
   const silentRender = vi.fn();
   const silentBranchRender = vi.fn();
   const hoverRender = vi.fn();
@@ -205,6 +206,10 @@ function createRendererTestSeam() {
       render(...args: Parameters<typeof renderer.render>): void {
         markingRender();
         renderer.render(...args);
+      },
+      renderBranch(...args: Parameters<typeof renderer.renderBranch>): void {
+        branchRender();
+        renderer.renderBranch(...args);
       },
       renderSilentHighlights(...args: Parameters<typeof renderer.renderSilentHighlights>): void {
         silentRender();
@@ -220,7 +225,7 @@ function createRendererTestSeam() {
       },
     };
   });
-  return { createRenderer, markingRender, silentRender, silentBranchRender, hoverRender };
+  return { createRenderer, markingRender, branchRender, silentRender, silentBranchRender, hoverRender };
 }
 
 describe("P6 DOM bridge", () => {
@@ -1142,6 +1147,41 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
+  it("switches a warm silent engine to marking without rebuilding its DOM bridge", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 200));
+    const paragraph = new FakeElement("P", rect(10, 10, 120, 20), "Warm content");
+    root.ownerDocument = doc;
+    paragraph.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(paragraph);
+    doc.hits = [paragraph, root];
+    const createBridge = vi.fn((element: Element) => createDomBridgeView(element));
+    const renderer = createRendererTestSeam();
+    const engine = createMarkingEngine(root as unknown as Element, {
+      instrumentation: {
+        createBridge,
+        createRenderer: renderer.createRenderer,
+      },
+    });
+
+    engine.renderSilentHighlights();
+    expect(renderer.silentRender).toHaveBeenCalledOnce();
+    expect(engine.overlayRoot().children.flatMap((layer) => layer.children).some((overlay) =>
+      overlay.getAttribute("data-uf-silent-highlight") !== null
+    )).toBe(true);
+
+    engine.renderMarking();
+
+    expect(createBridge).toHaveBeenCalledOnce();
+    expect(renderer.markingRender).toHaveBeenCalledOnce();
+    expect(engine.overlayRoot().children.flatMap((layer) => layer.children).some((overlay) =>
+      overlay.getAttribute("data-uf-silent-highlight") !== null
+    )).toBe(false);
+    engine.dispose();
+  });
+
   it("initializes selector marks in the same single transaction with inclusion winning", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 200));
@@ -1481,12 +1521,74 @@ describe("P6 DOM bridge", () => {
     } as unknown as MutationRecord]);
 
     expect(animationFrames).toHaveLength(0);
-    vi.advanceTimersByTime(1_200);
+    vi.advanceTimersByTime(75);
+    const third = new FakeElement("P", rect(0, 60, 120, 20), "Third");
+    third.ownerDocument = doc;
+    root.appendChild(third);
+    mutation?.([{
+      type: "childList",
+      target: root,
+      addedNodes: [third],
+      removedNodes: [],
+    } as unknown as MutationRecord]);
+    vi.advanceTimersByTime(75);
+    expect(animationFrames).toHaveLength(0);
+    vi.advanceTimersByTime(75);
     expect(animationFrames).toHaveLength(1);
     animationFrames[0]?.();
     expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[2]", excluded: false });
+    expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[3]", excluded: false });
     engine.dispose();
     vi.useRealTimers();
+  });
+
+  it("treats presentation-only attribute churn as geometry work", () => {
+    const doc = new FakeDocument();
+    const callbacks: Array<(records: MutationRecord[]) => void> = [];
+    const animationFrames: Array<() => void> = [];
+    Object.assign(doc.defaultView, {
+      MutationObserver: class {
+        constructor(callback: (records: MutationRecord[]) => void) {
+          callbacks.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+      requestAnimationFrame(callback: () => void) {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      },
+    });
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const paragraph = new FakeElement("P", rect(0, 0, 120, 20), "First");
+    root.ownerDocument = doc;
+    paragraph.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(paragraph);
+    const createBridge = vi.fn((element: Element) => createDomBridgeView(element));
+    const engine = createMarkingEngine(root as unknown as Element, {
+      instrumentation: { createBridge },
+    });
+
+    callbacks[0]?.([{
+      type: "attributes",
+      target: paragraph,
+      attributeName: "class",
+      oldValue: "slide active",
+    } as unknown as MutationRecord]);
+    callbacks[0]?.([{
+      type: "attributes",
+      target: paragraph,
+      attributeName: "style",
+      oldValue: "transform: translateX(0)",
+    } as unknown as MutationRecord]);
+    while (animationFrames.length > 0) {
+      animationFrames.shift()?.();
+    }
+
+    expect(createBridge).toHaveBeenCalledOnce();
+    engine.dispose();
   });
 
   it("coalesces a scroll storm into geometry-only work", () => {
@@ -1713,6 +1815,46 @@ describe("P6 DOM bridge", () => {
     expect(rightOverlaysBefore.length).toBeGreaterThan(20);
     // One interaction acknowledgement plus one new branch classification box.
     expect(doc.createElementCount - createdBefore).toBe(2);
+  });
+
+  it("yields oversized branch paint after committing and acknowledging the toggle", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const root = new FakeElement("MAIN", rect(0, 0, 600, 5_000));
+      root.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      for (let index = 0; index < 205; index += 1) {
+        const paragraph = new FakeElement("P", rect(10, index * 22, 300, 20), `Row ${index}`);
+        paragraph.ownerDocument = doc;
+        root.appendChild(paragraph);
+      }
+      doc.hits = [root];
+      let bridge: ReturnType<typeof createDomBridgeView> | null = null;
+      const renderer = createRendererTestSeam();
+      const engine = createMarkingEngine(root as unknown as Element, {
+        instrumentation: {
+          createBridge(element, options) {
+            bridge = createDomBridgeView(element, options);
+            return bridge;
+          },
+          createRenderer: renderer.createRenderer,
+        },
+      });
+
+      expect(engine.toggle(bridge!.root, "exclude")).toBe(true);
+      expect(renderer.branchRender).not.toHaveBeenCalled();
+      expect(engine.overlayRoot().children.flatMap((layer) => layer.children).some((overlay) =>
+        overlay.getAttribute("data-uf-interaction-ack") === bridge!.root.xpath
+      )).toBe(true);
+
+      vi.runOnlyPendingTimers();
+      expect(renderer.branchRender).toHaveBeenCalledOnce();
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("updates armed silent highlights only inside the toggled branch", () => {
