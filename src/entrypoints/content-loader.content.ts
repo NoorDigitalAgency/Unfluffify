@@ -2986,13 +2986,16 @@ function clearSilentSelectors(
   }
   markingEngine?.clearOverlays();
   removeSilentDebugCopyListener?.();
-  markingEngine?.setInputTransparent?.(false);
   if (!markingEngine && typeof document !== "undefined" && document.documentElement) {
     // The initial not_found baseline is awaited by the popup authority refresh.
     // Prepare the expensive DOM bridge here so the operator's first toggle only
     // has to paint the already-current marking presentation.
     markingEngine = createMarkingEngine(document.documentElement);
   }
+  // Keep the warm bridge, but make its empty overlay root physically inert.
+  // Activation releases this posture through the normal shield reconciliation
+  // before installing marking interactions.
+  markingEngine?.setInputTransparent?.(true);
   selectorsSeeded = false;
   silentInteractionShieldActive = false;
   if (currentShieldPosture.status === "active" && currentShieldPosture.directive.organ.state === "silent") {
