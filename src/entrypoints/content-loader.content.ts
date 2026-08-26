@@ -2984,7 +2984,6 @@ function clearSilentSelectors(
   if (markingActive) {
     return { ok: false, reason: "marking-active", tree: "rewrite" };
   }
-  markingEngine?.clearOverlays();
   removeSilentDebugCopyListener?.();
   if (!markingEngine && typeof document !== "undefined" && document.documentElement) {
     // The initial not_found baseline is awaited by the popup authority refresh.
@@ -2992,15 +2991,12 @@ function clearSilentSelectors(
     // has to paint the already-current marking presentation.
     markingEngine = createMarkingEngine(document.documentElement);
   }
+  markingEngine?.parkPresentation();
   selectorsSeeded = false;
   silentInteractionShieldActive = false;
   if (currentShieldPosture.status === "active" && currentShieldPosture.directive.organ.state === "silent") {
     releaseDurablePostureLocally();
   }
-  // Durable-posture release reconciles the physical shield and temporarily
-  // restores ordinary overlay input. The retained empty root must become inert
-  // after that reconciliation; activation performs its own reconciliation.
-  markingEngine?.setInputTransparent?.(true);
   lastContentSurfaceSignature = "";
   renderContentSurface();
   if (options.persist !== false) {

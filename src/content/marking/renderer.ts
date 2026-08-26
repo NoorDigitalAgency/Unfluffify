@@ -291,9 +291,12 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     root.style.pointerEvents = passthroughActive || inputTransparent ? "none" : "auto";
   };
   updateClientArea();
-  if (!root.parentElement) {
-    options.document.documentElement.appendChild(root);
-  }
+  const attach = (): void => {
+    if (!root.parentElement) {
+      options.document.documentElement.appendChild(root);
+    }
+  };
+  attach();
 
   const layers = new Map<LayerKey, HTMLElement>();
   for (const key of LAYER_KEYS) {
@@ -522,6 +525,10 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   mountLayers();
   return {
     root,
+    attach,
+    detach(): void {
+      root.remove();
+    },
     render(evaluation: EvaluationResult, byXpath: ReadonlyMap<string, OverlayRenderTarget>): void {
       beginRetainedGeometryBatch();
       const submittedXpaths = new Set(evaluation.rows.map((row) => row.xpath));

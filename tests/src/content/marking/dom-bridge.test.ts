@@ -1147,7 +1147,7 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
-  it("switches a warm silent engine to marking without rebuilding its DOM bridge", () => {
+  it("parks and remounts a warm silent engine without rebuilding its DOM bridge", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 200));
     const paragraph = new FakeElement("P", rect(10, 10, 120, 20), "Warm content");
@@ -1172,10 +1172,13 @@ describe("P6 DOM bridge", () => {
       overlay.getAttribute("data-uf-silent-highlight") !== null
     )).toBe(true);
 
+    engine.parkPresentation();
+    expect(engine.overlayRoot().parentElement).toBeNull();
     engine.renderMarking();
 
     expect(createBridge).toHaveBeenCalledOnce();
     expect(renderer.markingRender).toHaveBeenCalledOnce();
+    expect(engine.overlayRoot().parentElement).toBe(doc.documentElement);
     expect(engine.overlayRoot().children.flatMap((layer) => layer.children).some((overlay) =>
       overlay.getAttribute("data-uf-silent-highlight") !== null
     )).toBe(false);

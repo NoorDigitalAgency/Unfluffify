@@ -1068,6 +1068,7 @@ export function createMarkingEngine(
       beginWorkCycle();
       silentHighlightsArmed = false;
       interactiveMarkingRendered = true;
+      renderer.attach();
       renderer.clearSilentHighlights();
       renderCurrent();
     },
@@ -1300,6 +1301,18 @@ export function createMarkingEngine(
       silentHighlightsArmed = false;
       interactiveMarkingRendered = false;
       renderer.clear();
+    },
+    parkPresentation(): void {
+      if (deferredBranchRenderHandle !== null) {
+        clearTimeout(deferredBranchRenderHandle);
+        deferredBranchRenderHandle = null;
+        deferredBranchTargets.clear();
+      }
+      hoverResolution = null;
+      silentHighlightsArmed = false;
+      interactiveMarkingRendered = false;
+      renderer.clear();
+      renderer.detach();
     },
     dispose(): void {
       if (deferredBranchRenderHandle !== null) {
