@@ -64,7 +64,8 @@ export const MARKING_OVERLAY_STYLES = `
 .uf-marking-layer-root .uf-layer[data-layer="focus"] { z-index: 9; }
 .uf-marking-layer-root .uf-layer[data-layer="hover"] { z-index: 10; }
 .uf-marking-layer-root .uf-layer[data-layer="interaction"] { z-index: 11; }
-.uf-marking-layer-root.uf-scrolling .uf-layer,
+.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="hover"],
+.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="interaction"],
 .uf-marking-layer-root.uf-page-inspection-active .uf-layer {
   opacity: 0;
 }

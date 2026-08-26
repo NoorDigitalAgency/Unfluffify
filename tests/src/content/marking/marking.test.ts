@@ -61,12 +61,29 @@ describe("P6 content marking engine", () => {
     expect(resolveTarget([child, mixed], "include")).toBe(mixed);
   });
 
-  it("does not create explicit includes for ordinary already-included content", () => {
+  it("allows Alt to create an explicit include for ordinary implicitly-included content", () => {
     expect(resolveTarget([{
       key: "content",
       xpath: "/html[1]/body[1]/main[1]/p[1]",
       selfMarkable: true,
-    }], "include")).toBeNull();
+    }], "include")).toMatchObject({ key: "content" });
+  });
+
+  it("resolves a widened explicit exclusion owner before a descendant", () => {
+    const widened: MarkingCandidate = {
+      key: "section",
+      xpath: "/html[1]/body[1]/main[1]/section[1]",
+      selfMarkable: true,
+      excluded: true,
+      explicitExclude: true,
+    };
+    const child: MarkingCandidate = {
+      key: "paragraph",
+      xpath: "/html[1]/body[1]/main[1]/section[1]/p[1]",
+      selfMarkable: true,
+      parent: widened,
+    };
+    expect(resolveTarget([child, widened], "exclude")).toBe(widened);
   });
 
   it("keeps explicit include boundaries closed until the boundary itself is removed", () => {

@@ -1021,6 +1021,17 @@ in the owning phase and rerun its focused gate plus P9–P11.
     request was issued. See
     [`p20-assist24-arno-bigbag-arkivit-live-sanity-report-2026-08-25.md`](./p20-assist24-arno-bigbag-arkivit-live-sanity-report-2026-08-25.md).
 
+- [ ] P21 — Humanova marking, preview, and stabilization parity
+  - Remove invisible exclusion paint while retaining extraction state.
+  - Restore Shift-only widening, exact widened-owner removal, and Alt explicit
+    inclusion for eligible implicit content.
+  - Make Content List local-first and occurrence-fenced in both focus
+    directions; retain silent overlay geometry through scroll and resize.
+  - Restore smooth midpoint-suppression, growth-aware bottom, persistent freeze,
+    and restore-under-freeze ordering from latest legacy.
+  - Acceptance requires focused regressions, `pnpm verify`, debug build, affected
+    P14–P20 gates, and a clean headed Humanova workflow.
+
 For each completed item, append the commit SHA(s), exact test command, result,
 and any live artifact/version directly beneath the checkbox. The first unchecked
 phase whose dependencies are complete is the sole resume pointer.

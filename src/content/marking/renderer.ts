@@ -327,7 +327,10 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     if (!target) {
       return;
     }
-    let layerKey = LAYER_BY_CLASSIFICATION[classification];
+    if (classification === "exception" && !target.visible) {
+      return;
+    }
+    const layerKey = LAYER_BY_CLASSIFICATION[classification];
     let presentation = overlayClassFor(classification);
     let rects = measuredClientRectsFor(target.element);
     if (rects.length === 0 && classification === "explicit-include") {
@@ -335,12 +338,6 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       if (!target.visible) {
         presentation = "uf-explicit-include-ghost";
       }
-    } else if (rects.length === 0 && !target.visible && classification === "exception") {
-      // Legacy defines an exclude-ghost class but never emits it. Hidden stored
-      // excludes are immutable interaction surfaces instead.
-      rects = rawClientRectsFor(target.element);
-      layerKey = "hard";
-      presentation = "uf-hard-locked";
     } else if (rects.length === 0 && (classification === "immutable" || classification === "closed-shadow")) {
       rects = rawClientRectsFor(target.element);
     }

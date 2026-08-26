@@ -164,6 +164,7 @@ function buildCandidateIndex(
     selfMarkable: isToggleableBoundary(node, { hasOwnMark: () => Boolean(ownRow) }),
     excluded: classification === "exception",
     explicitInclude: ownRow?.excluded === false && ownRow.explicit === true,
+    explicitExclude: ownRow?.excluded === true && ownRow.explicit === true,
     closedShadow: node.closedShadow,
       ownsDirectText: node.ownsDirectText,
       parent,
@@ -1002,6 +1003,13 @@ export function createMarkingEngine(
         || target === document.documentElement
         || target === document.body;
       if (viewportScroll) {
+        if (!interactiveMarkingRendered) {
+          // Silent preview is read-only and its retained rectangles are cheap to
+          // reposition. Paint on the next frame instead of hiding the whole
+          // layer until a scroll debounce expires.
+          scheduleRender("geometry");
+          return;
+        }
         renderer.setScrolling(true);
         if (viewportScrollHandle !== null) {
           clearTimeout(viewportScrollHandle);
@@ -1014,7 +1022,9 @@ export function createMarkingEngine(
       }
       stabilizeGeometry("geometry");
     };
-    const scheduleResizeRender = (): void => stabilizeGeometry("silent-geometry");
+    const scheduleResizeRender = (): void => silentHighlightsArmed
+      ? scheduleRender("geometry")
+      : stabilizeGeometry("geometry");
     const visualViewport = view?.visualViewport;
     view?.addEventListener?.("scroll", scheduleGeometryRender, true);
     view?.addEventListener?.("resize", scheduleResizeRender);
@@ -1199,6 +1209,16 @@ export function createMarkingEngine(
       renderer.setHover(null);
     },
     projectPreview(pageUrl: string, selectors: SelectorSet): PreviewProjection {
+      if (
+        currentPreviewProjection &&
+        lastPreviewRequest?.pageUrl === pageUrl &&
+        lastPreviewRequest.selectors.inclusionSelectors.length === selectors.inclusionSelectors.length &&
+        lastPreviewRequest.selectors.exclusionSelectors.length === selectors.exclusionSelectors.length &&
+        lastPreviewRequest.selectors.inclusionSelectors.every((value, index) => value === selectors.inclusionSelectors[index]) &&
+        lastPreviewRequest.selectors.exclusionSelectors.every((value, index) => value === selectors.exclusionSelectors[index])
+      ) {
+        return currentPreviewProjection;
+      }
       lastPreviewRequest = {
         pageUrl,
         selectors: {
@@ -1257,6 +1277,20 @@ export function createMarkingEngine(
       renderer.setHover(target.element, target.evaluationNode.xpath);
       scrollPreviewTargetIntoView(target.element);
       return true;
+    },
+    previewRowAtPoint(x: number, y: number): Readonly<{ projectionId: string; rowId: string }> | null {
+      const projection = currentPreviewProjection;
+      if (!projection) {
+        return null;
+      }
+      const projectedIds = new Set(projection.rows.map((row) => row.id));
+      for (const element of getComposedHitElements(rootElement.ownerDocument, x, y)) {
+        const rowId = bridge.byElement.get(element)?.evaluationNode.key;
+        if (rowId && projectedIds.has(rowId)) {
+          return { projectionId: projection.projectionId, rowId };
+        }
+      }
+      return null;
     },
     emphasizeXpath(xpath: string): boolean {
       const target = byXpathElements().get(xpath);

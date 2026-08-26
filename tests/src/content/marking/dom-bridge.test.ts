@@ -618,8 +618,18 @@ describe("P6 DOM bridge", () => {
 
     const engine = createMarkingEngine(root as unknown as Element);
     const xpath = "/main[1]/p[1]";
+    doc.hits = [paragraph, root];
+    const projection = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: ["p"],
+      exclusionSelectors: [],
+    });
+    const row = projection.rows.find((candidate) => candidate.xpath === xpath);
 
     expect(engine.emphasizeXpath(xpath)).toBe(true);
+    expect(engine.previewRowAtPoint(10, 10)).toEqual({
+      projectionId: projection.projectionId,
+      rowId: row?.id,
+    });
     expect(engine.scrollXpathIntoView(xpath)).toBe(true);
     expect(scrollIntoView).toHaveBeenCalledWith({
       behavior: "smooth",
@@ -628,6 +638,7 @@ describe("P6 DOM bridge", () => {
     });
     expect(engine.emphasizeXpath("/main[1]/missing[1]")).toBe(false);
     expect(engine.scrollXpathIntoView("/main[1]/missing[1]")).toBe(false);
+    engine.dispose();
   });
 
   it("keeps preview row identity and exact targeting when a same-tag sibling shifts XPath", () => {
@@ -1439,6 +1450,30 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
+  it("retains an invisible explicit exclusion without drawing raw fallback geometry", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const paragraph = new FakeElement("P", rect(10, 10, 120, 20), "Hidden exclusion");
+    root.ownerDocument = doc;
+    paragraph.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(paragraph);
+    doc.hits = [paragraph, root];
+    const engine = createMarkingEngine(root as unknown as Element);
+    const target = engine.resolveAtPoint(20, 15, "exclude");
+    engine.toggle(target!, "exclude");
+    paragraph.style.visibility = "hidden";
+    engine.refresh();
+    engine.renderReadOnly();
+
+    expect(engine.rows().some((row) => row.xpath === "/main[1]/p[1]" && row.excluded)).toBe(true);
+    expect(engine.overlayRoot().children.flatMap((layer) => layer.children).some((overlay) =>
+      overlay.getAttribute("data-uf-overlay-xpath") === "/main[1]/p[1]"
+    )).toBe(false);
+    engine.dispose();
+  });
+
   it("rebuilds for page mutations but not extension or consent-suppressed mutations", () => {
     vi.useFakeTimers();
     const doc = new FakeDocument();
@@ -1733,7 +1768,7 @@ describe("P6 DOM bridge", () => {
     }
   });
 
-  it("repositions a silent-only engine in one render frame after its 120 ms debounce", () => {
+  it("retains and repositions a silent-only engine on the next scroll frame", () => {
     vi.useFakeTimers();
     try {
       const doc = new FakeDocument();
@@ -1763,10 +1798,6 @@ describe("P6 DOM bridge", () => {
       engine.renderSilentHighlights();
 
       listeners.get("scroll")?.({ target: doc } as unknown as Event);
-      expect(engine.overlayRoot().className).toContain("uf-scrolling");
-      vi.advanceTimersByTime(119);
-      expect(animationFrames).toHaveLength(0);
-      vi.advanceTimersByTime(1);
       expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
       expect(animationFrames).toHaveLength(1);
 

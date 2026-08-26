@@ -204,7 +204,7 @@ pnpm exec vitest run tests/core-visibility.test.ts tests/core-motion-pause.test.
 ## How to Use
 
 1. **Enable on a Page**: Click the Unfluffify icon → Set a **Base URL** → Click **Enable on this tab**
-2. **Mark Content**: Hover over page elements to see highlights, click to toggle exclusion. Hold **Shift** to target a broader 052c-style content boundary; shallow generic page wrappers are intentionally skipped. Hold **Alt** to explicitly include eligible content, including mixed direct-text ancestors.
+2. **Mark Content**: Hover over page elements to see highlights, click to toggle the nearest exclusion. Hold **Shift** to create a broader 052c-style exclusion boundary; a plain click can remove that exact widened mark. Shallow generic page wrappers are intentionally skipped. Hold **Alt** to explicitly include eligible content—including already implicit content and mixed direct-text ancestors.
 3. **Interact With Page UI**: Hold **Space** to let clicks reach accordions, tabs, menus, and other page controls, then release to keep marking
 4. **View Markings**: Use the popup to see lists of excluded/included elements
 5. **Use Selector List**: Manage exclusion selectors directly from the popup

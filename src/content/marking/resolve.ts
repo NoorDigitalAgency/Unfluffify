@@ -6,6 +6,7 @@ export type MarkingCandidate = Readonly<{
   selfMarkable: boolean;
   excluded?: boolean;
   explicitInclude?: boolean;
+  explicitExclude?: boolean;
   closedShadow?: boolean;
   ownsDirectText?: boolean;
   children?: readonly MarkingCandidate[];
@@ -27,10 +28,6 @@ export function resolveTarget(
     if (includeBoundary) {
       return includeBoundary;
     }
-    const excludedContext = hitPath.some((hit) => hit.excluded);
-    if (!excludedContext) {
-      return null;
-    }
     const directTargetIndex = hitPath.findIndex((hit) => hit.selfMarkable);
     if (directTargetIndex < 0) {
       return null;
@@ -46,6 +43,13 @@ export function resolveTarget(
   const includeBoundary = hitPath.find((hit) => hit.explicitInclude);
   if (includeBoundary) {
     return hitPath[0] === includeBoundary ? includeBoundary : null;
+  }
+  // A widened exclusion owns the visible interaction surface for everything
+  // below it. Resolve that exact explicit boundary first so a plain click (or
+  // Clear mark) removes only the widened mark instead of creating a nested row.
+  const explicitExcludeBoundary = hitPath.find((hit) => hit.explicitExclude);
+  if (explicitExcludeBoundary) {
+    return explicitExcludeBoundary;
   }
   for (const hit of hitPath) {
     if (hit.selfMarkable && hit.excluded && hitPath[0] === hit) {

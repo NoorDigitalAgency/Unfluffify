@@ -68,17 +68,9 @@ export async function runReveal(input: RevealRunInput): Promise<RevealRunResult>
       return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
     }
 
-    // Give strict IntersectionObserver/data-src loaders one bounded visit to
-    // the actual bottom while their page handlers are still live. A midpoint
-    // is enough for Chrome's native lazy margin on many pages, but not for
-    // site loaders with a small rootMargin (for example Bricks footer media).
-    // Suppression immediately after this pass still fences infinite feeds.
-    await input.scrollTo("bottom", input.initialScrollHeight);
-    await waitForSettle();
-    if (activationStale()) {
-      return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
-    }
-
+    // Latest legacy engages the lazy-loading lock at the midpoint. This lets
+    // existing observers/materialization run during the visible first half,
+    // then prevents an infinite feed from racing the growth-aware bottom walk.
     await input.suppressLazyLoading();
     lazyLoadingSuppressed = true;
     await waitForSettle();

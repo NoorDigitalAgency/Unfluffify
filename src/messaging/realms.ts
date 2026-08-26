@@ -507,6 +507,11 @@ export const applicationContract = defineContract({
   },
   events: {
     "fact.reported": FactEnvelopeSchema,
+    "preview.focused": z.object({
+      pageUrl: z.string().min(1),
+      projectionId: z.string().min(1),
+      rowId: z.string().min(1),
+    }),
     "signals.available": z.object({
       tabId: z.number().int().positive(),
     }),

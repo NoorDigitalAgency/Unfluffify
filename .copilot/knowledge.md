@@ -299,6 +299,16 @@ walk that ENGAGED the lock may release it; unpaused subsystem resumes
 (resumePageMotion with no pauseState) do not restore suppression while a
 ritual is in flight; the freeze rides the reveal's pauseAtBottom hook.
 
+Humanova parity clarification (2026-08-26): the headed reveal is
+operator-visible and therefore uses smooth scroll plus bounded scroll-end proof.
+The order is top -> midpoint -> lazy-suppression acknowledgement ->
+growth-aware true bottom -> persistent motion freeze -> restore under freeze.
+Marking overlays never draw raw fallback rectangles for invisible exclusions.
+Shift alone creates widened exclusions; plain interaction removes the exact
+widened owner. Alt can make an eligible implicit inclusion explicit. Content
+List opens from the local projection and supports occurrence-fenced row-to-page
+and page-to-row focus.
+
 ## Content script lifecycle
 
 - In content scripts, `Extension context invalidated` means the old extension instance was reloaded/disabled/replaced. Treat it as a terminal lifecycle signal for that script: stop property-lock reconnect loops and wait for the new content script instead of retrying Chrome extension APIs.

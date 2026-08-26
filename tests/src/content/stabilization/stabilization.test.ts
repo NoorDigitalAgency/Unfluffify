@@ -121,7 +121,6 @@ describe("P5 page stabilization", () => {
     expect(steps).toEqual([
       "top",
       "lazy-threshold",
-      "bottom",
       "suppress",
       "bottom",
       "bottom",
@@ -182,22 +181,20 @@ describe("P5 page stabilization", () => {
       "paint:1",
       "scroll:lazy-threshold:1000",
       "paint:2",
-      "scroll:bottom:1000",
-      "paint:3",
       "suppress",
+      "paint:3",
+      "measure:1500",
+      "scroll:bottom:1500",
       "paint:4",
       "measure:1500",
       "scroll:bottom:1500",
       "paint:5",
       "measure:1500",
-      "scroll:bottom:1500",
+      "freeze",
       "paint:6",
       "measure:1500",
-      "freeze",
-      "paint:7",
-      "measure:1500",
       "scroll:restore:1500",
-      "paint:8",
+      "paint:7",
     ]);
     expect(result).toEqual({ skipped: false, lazyExpansions: 1, frozenAtBottom: true });
   });
@@ -220,7 +217,7 @@ describe("P5 page stabilization", () => {
     await expect(controller.run(input)).resolves.toMatchObject({ skipped: true });
     controller.resetForNavigation();
     await expect(controller.run(input)).resolves.toMatchObject({ skipped: false });
-    expect(runs).toBe(12);
+    expect(runs).toBe(10);
   });
 
   it("releases only its lazy-loading lock when activation becomes stale before freeze", async () => {
@@ -242,7 +239,7 @@ describe("P5 page stabilization", () => {
     });
 
     expect(result).toEqual({ skipped: true, lazyExpansions: 0, frozenAtBottom: false });
-    expect(steps).toEqual(["top", "lazy-threshold", "bottom", "suppress", "restore-lazy"]);
+    expect(steps).toEqual(["top", "lazy-threshold", "suppress", "restore-lazy"]);
   });
 
   it("joins concurrent reveal attempts to the one authoritative ritual", async () => {
@@ -546,11 +543,9 @@ describe("P5 page stabilization", () => {
 });
 
 describe("page-visit reveal ritual", () => {
-  it("walks top, live-lazy bottom, suppressed confirmed bottom then back, freezing at the bottom", async () => {
-    // One full ritual per page visit — top, half, one bounded bottom while lazy
-    // handlers are live, cap the loader, confirm the true bottom, freeze, then
-    // return under the freeze. The order is the point: freezing or suppression
-    // before the first bottom would strand strict IntersectionObserver content.
+  it("walks top and midpoint, suppresses lazy growth, confirms bottom, then restores under freeze", async () => {
+    // One full ritual per page visit — top, half, cap the loader, confirm the
+    // growth-aware true bottom, freeze, then return under the freeze.
     // One ordered log, not one per kind: two lists cannot show that the freeze
     // happened after the bottom was reached, which is the whole claim.
     const log: string[] = [];
@@ -568,7 +563,6 @@ describe("page-visit reveal ritual", () => {
     expect(log).toEqual([
       "scroll:top",
       "scroll:lazy-threshold",
-      "scroll:bottom",
       "suppress-lazy",
       "scroll:bottom",
       "scroll:bottom",
@@ -578,7 +572,7 @@ describe("page-visit reveal ritual", () => {
     expect(result).toEqual({ skipped: false, lazyExpansions: 1, frozenAtBottom: true });
   });
 
-  it("lets strict bottom-only lazy handlers run once before suppression", async () => {
+  it("suppresses strict bottom-only lazy handlers before the bounded bottom walk", async () => {
     let lazyHandlersOpen = true;
     let footerLoaded = false;
 
@@ -597,7 +591,7 @@ describe("page-visit reveal ritual", () => {
       freezeAtBottom: () => undefined,
     });
 
-    expect(footerLoaded).toBe(true);
+    expect(footerLoaded).toBe(false);
     expect(lazyHandlersOpen).toBe(false);
   });
 

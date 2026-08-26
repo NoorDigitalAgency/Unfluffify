@@ -215,7 +215,9 @@ Toggleable defaults are not promoted to explicit includes by a plain exclude
 click. Exclude mode keeps drilling to the nearest markable content target unless
 the user holds `Shift` to select a broader boundary. Include mode is explicit:
 the user holds `Alt` and the selected target is written to the local
-`includeXpaths` list, then synced as an explicit include row in `xpaths`.
+`includeXpaths` list, then synced as an explicit include row in `xpaths`. This
+also applies to eligible content that is currently included implicitly; Alt is
+the operator's way to turn that implicit decision into an explicit one.
 Shift-parent expansion is bounded to content-shaped regions. It may climb
 through wrapper chains to a cohesive section, article, card group, list, table,
 or toggleable default boundary, but it must not select shallow generic page
@@ -511,8 +513,9 @@ Hit targets must have renderable marking geometry. A live element whose own box
 is hidden, transparent, or otherwise not visible cannot be selected just
 because `elementsFromPoint` returned it. Collapsed textual wrappers may fall
 back to visible descendant geometry, and hidden explicit includes may remain as
-ghost include markings when measurable, but completely invisible explicit
-targets are ignored.
+ghost include markings when measurable. Explicit exclusions remain stored for
+extraction when hidden, but never use raw geometry and never draw an overlay
+until the target becomes user-visible again.
 
 Renderable marking geometry also has to be paint-reachable in the current
 viewport. Responsive alternates that keep measurable boxes but are fully covered
@@ -535,6 +538,10 @@ descendant inside a default-excluded footer, header, form, label, nav, dialog,
 or aside records that boundary as `excluded: false` and records the descendant
 as the explicit exclusion. Clicking the default boundary itself, where no
 descendant wins target resolution, still unmarks that default boundary directly.
+
+An existing widened explicit exclusion owns its visible interaction surface: a
+plain click or **Clear mark** inside it removes that one explicit row. Creating
+a widened/ancestor exclusion always requires `Shift`.
 
 `Shift+Click` enables parent selection. Under the restored 052c behavior, target
 resolution first prefers the clicked element when it is a structured group or
@@ -576,7 +583,8 @@ Two restraints bound how wide a parent selection can reach:
 ### Include Mode
 
 `Alt` switches to include mode. Include mode can inspect descendants inside
-excluded parents, prefers explicit targets first, and restores 052c mixed
+excluded parents and eligible implicitly-included content, prefers explicit
+targets first, and restores 052c mixed
 direct-text ancestor promotion so an eligible textual ancestor can be included
 instead of only the deepest child. The selected element is stored locally in
 `includeXpaths` when it is eligible and synced through the single `xpaths` field
@@ -710,7 +718,11 @@ AI excluded content is still collected for selector-matched elements, but it is 
 The matched selector-excluded element itself suppresses the default layer, but unmatched markable descendants can still fall through to the default layer.
 
 The AI preview is read-only. Opening and closing preview must not create or dirty
-a page draft by itself.
+a page draft by itself. Content List is a local content projection: opening it
+must not wait for a fresh authority poll, and the 500 ms signal backstop must not
+rebuild it. Row hover/focus emphasizes the page, row activation scrolls the
+page, and clicking a projected page highlight focuses and scrolls the exact
+occurrence-fenced row.
 
 Starting an AI content-detection run must first enter the popup compute-busy
 state, render the spinner/countdown, and apply the page-side compute lock that
@@ -846,8 +858,9 @@ can remain as ghost include sources. Excluded sources remain collectable while
 temporarily hidden; current renderability only controls whether a rect is drawn
 at that moment.
 
-Silent highlight redraws wait for tracked positions to settle after movement and
-force a repaint on full active refreshes even when the render key is unchanged.
+Silent highlight rectangles remain mounted during scrolling and resize and are
+repositioned on the next coalesced animation frame. Movement must not hide the
+layer, retire its projection occurrence, or wait for a remote refresh.
 
 ## Regression Coverage
 

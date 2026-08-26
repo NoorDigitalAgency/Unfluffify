@@ -179,6 +179,7 @@ const FAST_SIGNAL_POLL_MS = 500;
 const AUTHORITY_REFRESH_INTERVAL_MS = 15_000;
 let signalPollHandle: ReturnType<Window["setInterval"]> | null = null;
 let signalsAvailableUnsubscribe: (() => void) | null = null;
+let previewFocusedUnsubscribe: (() => void) | null = null;
 const signalsAvailableRevisionByTab = new Map<number, number>();
 type SignalsAvailableWaiter = Readonly<{
   afterRevision: number;
@@ -879,6 +880,27 @@ async function handleBoundContext(context: TargetTabContext): Promise<string> {
 }
 
 function ensureSignalPolling(): void {
+  if (previewFocusedUnsubscribe === null) {
+    previewFocusedUnsubscribe = getPopupBus().on("preview.focused", ({ pageUrl, projectionId, rowId }) => {
+      const projection = store.getPresentation().previewProjection;
+      if (
+        !previewStateIsOpen() ||
+        projection?.pageUrl !== pageUrl ||
+        projection.projectionId !== projectionId ||
+        !projection.rows.some((row) => row.id === rowId)
+      ) {
+        return;
+      }
+      render();
+      window.setTimeout(() => {
+        const rowIndex = projection.rows.findIndex((row) => row.id === rowId);
+        const buttons = document.querySelectorAll<HTMLElement>(".preview-sidebar__item-button");
+        const target = buttons.item(rowIndex);
+        target?.focus({ preventScroll: true });
+        target?.scrollIntoView({ block: "nearest" });
+      }, 0);
+    });
+  }
   if (signalsAvailableUnsubscribe === null) {
     signalsAvailableUnsubscribe = getPopupBus().on("signals.available", ({ tabId }) => {
       const revision = (signalsAvailableRevisionByTab.get(tabId) ?? 0) + 1;
@@ -1358,9 +1380,9 @@ async function pollFastSignalsOnce(): Promise<void> {
   }
   await pullSignals(context.tabId, requestKey);
   if (previewStateIsOpen()) {
-    // Preview rows are a live content projection rather than a brain fact. Poll
-    // the cheap current bridge so structural mutations advance its revision even
-    // when no marking signal was emitted.
+    // This is an extension-local structural-revision backstop. Content returns
+    // the retained projection when its bridge has not changed, so the tick does
+    // not rebuild geometry or touch remote authority.
     await ensurePreviewProjection(context, requestKey);
   }
   render();
@@ -3746,12 +3768,9 @@ async function showPreview(): Promise<void> {
   }
   const requestKey = await handleBoundContext(context);
   const binding = captureBindingOccurrence(requestKey);
-  await pullSignals(context.tabId, requestKey);
-  const lock = await refreshLockDirective(context, requestKey);
-  if (!lock || !lockAllowsEditing(lock)) {
-    render();
-    return;
-  }
+  // The visible action is already derived from a lock-gated presentation. Do
+  // not repeat signal and authority round-trips before reading the local page
+  // projection; later authority signals still fence or close a stale view.
   const previewButton = resolvePopupActionButtons(store.getPresentation(), {
     runAi: true,
     save: true,

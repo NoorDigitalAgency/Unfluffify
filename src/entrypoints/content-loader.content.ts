@@ -110,6 +110,7 @@ const SPACE_PASSTHROUGH_WATCHDOG_MS = 1_200;
 let spacePassthroughWatchdog: ReturnType<typeof setTimeout> | null = null;
 let altIncludeActive = false;
 let removeMarkingListeners: (() => void) | null = null;
+let removePreviewPageListener: (() => void) | null = null;
 let removeSilentDebugCopyListener: (() => void) | null = null;
 let navigationWatcherInstalled = false;
 let lastKnownPageUrl = typeof location !== "undefined" ? location.href : "";
@@ -901,7 +902,7 @@ async function runActivationStabilization(pageUrl: string): Promise<{ skipped: b
         lifecycleGeneration !== contentLifecycleGeneration ||
         routeGeneration !== documentLifecycleGeneration ||
         pageUrl !== (typeof location !== "undefined" ? location.href : pageUrl);
-      const waitForSettle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 1_000));
+      const waitForSettle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 250));
       try {
         const armed = await requestStabilizationPageCommand("ARM", {});
         if (isStale()) {
@@ -928,13 +929,10 @@ async function runActivationStabilization(pageUrl: string): Promise<{ skipped: b
                 : position === "bottom"
                   ? bottomY
                   : initialScrollY;
-            // The reveal walk is a deterministic capture preparation step, not
-            // an operator-facing transition. Smooth scrolling can be throttled
-            // while a headed tab is backgrounded by its side panel and can also
-            // be intercepted by site motion code. An instant boundary visit
-            // guarantees that native and script-driven lazy observers see the
-            // midpoint and bottom before their handlers are suppressed.
-            window.scrollTo({ top: targetY, behavior: "instant" });
+            // This is intentionally visible operator feedback. The bounded
+            // scroll-end proof below keeps hostile or throttled pages from
+            // hanging while retaining the latest legacy's smooth visit.
+            window.scrollTo({ top: targetY, behavior: "smooth" });
             await waitForWindowScrollEnd(targetY, isStale);
           },
           waitForSettle,
@@ -3009,6 +3007,42 @@ function previewInteractionActive(): boolean {
   return contentState.name === "preview_open" || contentState.name === "silent_preview";
 }
 
+function ensurePreviewPageListener(): void {
+  if (
+    removePreviewPageListener ||
+    typeof document === "undefined" ||
+    typeof document.addEventListener !== "function"
+  ) {
+    return;
+  }
+  const handlePreviewClick = (event: MouseEvent): void => {
+    if (!previewInteractionActive() || !markingEngine) {
+      return;
+    }
+    const eventTarget = event.target as Element | null;
+    if (eventTarget?.closest?.('[data-uf-extension-ui="true"]')) {
+      return;
+    }
+    const target = markingEngine.previewRowAtPoint?.(event.clientX, event.clientY);
+    if (!target) {
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    markingEngine.emphasizePreviewRow?.(target.projectionId, target.rowId, true);
+    void getContentBus().emit("preview.focused", {
+      pageUrl: currentPageUrl(),
+      projectionId: target.projectionId,
+      rowId: target.rowId,
+    }, { target: "popup" });
+  };
+  document.addEventListener("click", handlePreviewClick, true);
+  removePreviewPageListener = () => {
+    document.removeEventListener("click", handlePreviewClick, true);
+    removePreviewPageListener = null;
+  };
+}
+
 function emphasizePreviewRow(payload: unknown): Record<string, unknown> {
   if (!previewInteractionActive()) {
     return { ok: false, reason: "preview-not-open", tree: "rewrite" };
@@ -3281,6 +3315,7 @@ export default defineContentScript({
       }
       signalsAvailableUnsubscribe?.();
       signalsAvailableUnsubscribe = null;
+      removePreviewPageListener?.();
       contentSignalScheduler.dispose();
     });
     const bus = getContentBus();
@@ -3294,6 +3329,7 @@ export default defineContentScript({
     bus.onCommand("preview.project", (request) => previewController.project(request));
     bus.onCommand("preview.emphasize", (request) => previewController.emphasize(request));
     bus.onCommand("preview.activate", (request) => previewController.activate(request));
+    ensurePreviewPageListener();
     // Ask for the durable render-inspection session before page.context, signal
     // polling, or any other ordinary remote work. A replacement document can
     // then paint its independently fenced curtain at document_start.
