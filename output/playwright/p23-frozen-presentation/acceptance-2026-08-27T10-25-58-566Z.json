@@ -1,0 +1,668 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-27T10:25:58.566Z",
+  "pass": true,
+  "protocol": {
+    "browser": "Chromium through pinned @playwright/cli@0.1.17",
+    "viewport": {
+      "width": 1000,
+      "height": 900
+    },
+    "pageRequestAnimationFrame": "permanently starved before runtime bundle evaluation",
+    "hoverBudgetMs": 40,
+    "silentBudgetMs": 50,
+    "physicalInputs": [
+      "mousemove",
+      "wheel"
+    ]
+  },
+  "source": {
+    "headCommit": "f71f5dabca97a4435a19343677a36171b66ad09c",
+    "status": [],
+    "compiler": {
+      "name": "esbuild",
+      "version": "0.28.1",
+      "inputs": [
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/index.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/checks.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/coerce.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/compat.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/errors.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/external.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/from-json-schema.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/iso.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/parse.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/classic/schemas.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/api.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/checks.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/core.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/doc.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/errors.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/index.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema-generator.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema-processors.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/json-schema.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/parse.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/regexes.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/registries.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/schemas.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/to-json-schema.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/util.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/core/versions.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ar.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/az.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/be.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/bg.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ca.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/cs.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/da.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/de.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/el.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/en.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/eo.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/es.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fa.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fi.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fr-CA.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/fr.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/he.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hr.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hu.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/hy.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/id.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/index.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/is.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/it.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ja.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ka.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/kh.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/km.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ko.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/lt.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/mk.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ms.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/nl.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/no.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ota.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/pl.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ps.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/pt.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ro.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ru.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/sl.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/sv.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ta.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/th.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/tr.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ua.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/uk.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/ur.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/uz.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/vi.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/yo.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/zh-CN.js",
+        "node_modules/.pnpm/zod@4.4.3/node_modules/zod/v4/locales/zh-TW.js",
+        "scripts/performance/p23/runtime.ts",
+        "src/content/consent.ts",
+        "src/content/marking/capture-hygiene.ts",
+        "src/content/marking/dom-view.ts",
+        "src/content/marking/element-identity.ts",
+        "src/content/marking/engine.ts",
+        "src/content/marking/hit-testing.ts",
+        "src/content/marking/overlay.ts",
+        "src/content/marking/paint-reachability.ts",
+        "src/content/marking/renderer.ts",
+        "src/content/marking/resolve.ts",
+        "src/content/marking/silent-highlight.ts",
+        "src/content/marking/stabilizer.ts",
+        "src/content/marking/store.ts",
+        "src/content/marking/submit.ts",
+        "src/content/presentation-clock.ts",
+        "src/domain/boundary.ts",
+        "src/domain/constants.ts",
+        "src/domain/evaluate.ts",
+        "src/domain/schema/marking.ts",
+        "src/domain/schema/property.ts",
+        "src/domain/schema/submission.ts",
+        "src/domain/selector-seed.ts",
+        "src/domain/taxonomy.ts",
+        "src/domain/visibility.ts",
+        "src/domain/widening.ts",
+        "src/domain/xpath.ts"
+      ]
+    }
+  },
+  "checks": [
+    {
+      "id": "starved-raf-exercised",
+      "pass": true,
+      "detail": {
+        "pendingClockWork": 0,
+        "starvedRafRequests": 13
+      }
+    },
+    {
+      "id": "eight-physical-targets",
+      "pass": true,
+      "detail": {
+        "targets": 8,
+        "hovers": 8
+      }
+    },
+    {
+      "id": "hover-1-identity",
+      "pass": true,
+      "detail": {
+        "target": {
+          "id": "1",
+          "xpath": "/html[1]/body[1]/main[1]/p[1]",
+          "x": 384,
+          "y": 56
+        },
+        "state": {
+          "xpath": "/html[1]/body[1]/main[1]/p[1]",
+          "latencyMs": 21.799999997019768,
+          "pending": false,
+          "currentXpath": "/html[1]/body[1]/main[1]/p[1]"
+        }
+      }
+    },
+    {
+      "id": "hover-1-latency",
+      "pass": true,
+      "detail": 21.799999997019768
+    },
+    {
+      "id": "hover-2-identity",
+      "pass": true,
+      "detail": {
+        "target": {
+          "id": "2",
+          "xpath": "/html[1]/body[1]/main[1]/p[2]",
+          "x": 384,
+          "y": 132
+        },
+        "state": {
+          "xpath": "/html[1]/body[1]/main[1]/p[2]",
+          "latencyMs": 21.399999991059303,
+          "pending": false,
+          "currentXpath": "/html[1]/body[1]/main[1]/p[2]"
+        }
+      }
+    },
+    {
+      "id": "hover-2-latency",
+      "pass": true,
+      "detail": 21.399999991059303
+    },
+    {
+      "id": "hover-3-identity",
+      "pass": true,
+      "detail": {
+        "target": {
+          "id": "3",
+          "xpath": "/html[1]/body[1]/main[1]/p[3]",
+          "x": 384,
+          "y": 208
+        },
+        "state": {
+          "xpath": "/html[1]/body[1]/main[1]/p[3]",
+          "latencyMs": 21,
+          "pending": false,
+          "currentXpath": "/html[1]/body[1]/main[1]/p[3]"
+        }
+      }
+    },
+    {
+      "id": "hover-3-latency",
+      "pass": true,
+      "detail": 21
+    },
+    {
+      "id": "hover-4-identity",
+      "pass": true,
+      "detail": {
+        "target": {
+          "id": "4",
+          "xpath": "/html[1]/body[1]/main[1]/p[4]",
+          "x": 384,
+          "y": 284
+        },
+        "state": {
+          "xpath": "/html[1]/body[1]/main[1]/p[4]",
+          "latencyMs": 22.399999991059303,
+          "pending": false,
+          "currentXpath": "/html[1]/body[1]/main[1]/p[4]"
+        }
+      }
+    },
+    {
+      "id": "hover-4-latency",
+      "pass": true,
+      "detail": 22.399999991059303
+    },
+    {
+      "id": "hover-5-identity",
+      "pass": true,
+      "detail": {
+        "target": {
+          "id": "5",
+          "xpath": "/html[1]/body[1]/main[1]/p[5]",
+          "x": 384,
+          "y": 360
+        },
+        "state": {
+          "xpath": "/html[1]/body[1]/main[1]/p[5]",
+          "latencyMs": 22.400000005960464,
+          "pending": false,
+          "currentXpath": "/html[1]/body[1]/main[1]/p[5]"
+        }
+      }
+    },
+    {
+      "id": "hover-5-latency",
+      "pass": true,
+      "detail": 22.400000005960464
+    },
+    {
+      "id": "hover-6-identity",
+      "pass": true,
+      "detail": {
+        "target": {
+          "id": "6",
+          "xpath": "/html[1]/body[1]/main[1]/p[6]",
+          "x": 384,
+          "y": 436
+        },
+        "state": {
+          "xpath": "/html[1]/body[1]/main[1]/p[6]",
+          "latencyMs": 21.100000008940697,
+          "pending": false,
+          "currentXpath": "/html[1]/body[1]/main[1]/p[6]"
+        }
+      }
+    },
+    {
+      "id": "hover-6-latency",
+      "pass": true,
+      "detail": 21.100000008940697
+    },
+    {
+      "id": "hover-7-identity",
+      "pass": true,
+      "detail": {
+        "target": {
+          "id": "7",
+          "xpath": "/html[1]/body[1]/main[1]/p[7]",
+          "x": 384,
+          "y": 512
+        },
+        "state": {
+          "xpath": "/html[1]/body[1]/main[1]/p[7]",
+          "latencyMs": 21.299999997019768,
+          "pending": false,
+          "currentXpath": "/html[1]/body[1]/main[1]/p[7]"
+        }
+      }
+    },
+    {
+      "id": "hover-7-latency",
+      "pass": true,
+      "detail": 21.299999997019768
+    },
+    {
+      "id": "hover-8-identity",
+      "pass": true,
+      "detail": {
+        "target": {
+          "id": "8",
+          "xpath": "/html[1]/body[1]/main[1]/p[8]",
+          "x": 384,
+          "y": 588
+        },
+        "state": {
+          "xpath": "/html[1]/body[1]/main[1]/p[8]",
+          "latencyMs": 22.400000005960464,
+          "pending": false,
+          "currentXpath": "/html[1]/body[1]/main[1]/p[8]"
+        }
+      }
+    },
+    {
+      "id": "hover-8-latency",
+      "pass": true,
+      "detail": 22.400000005960464
+    },
+    {
+      "id": "silent-overlay-retained",
+      "pass": true,
+      "detail": {
+        "before": {
+          "xpath": "/html[1]/body[1]/main[1]/p[8]",
+          "initialTop": "556px",
+          "currentTop": "556px",
+          "retained": true,
+          "latencyMs": null,
+          "count": 8
+        },
+        "after": {
+          "xpath": "/html[1]/body[1]/main[1]/p[8]",
+          "initialTop": "556px",
+          "currentTop": "316px",
+          "retained": true,
+          "latencyMs": 22.600000008940697,
+          "count": 8
+        }
+      }
+    },
+    {
+      "id": "silent-scroll-latency",
+      "pass": true,
+      "detail": 22.600000008940697
+    },
+    {
+      "id": "canonical-rows-unchanged",
+      "pass": true,
+      "detail": [
+        {
+          "xpath": "/html[1]/body[1]/main[1]/div[1]",
+          "excluded": true,
+          "explicit": true
+        },
+        {
+          "xpath": "/html[1]/body[1]/main[1]/p[1]",
+          "excluded": false
+        },
+        {
+          "xpath": "/html[1]/body[1]/main[1]/p[2]",
+          "excluded": false
+        },
+        {
+          "xpath": "/html[1]/body[1]/main[1]/p[3]",
+          "excluded": false
+        },
+        {
+          "xpath": "/html[1]/body[1]/main[1]/p[4]",
+          "excluded": false
+        },
+        {
+          "xpath": "/html[1]/body[1]/main[1]/p[5]",
+          "excluded": false
+        },
+        {
+          "xpath": "/html[1]/body[1]/main[1]/p[6]",
+          "excluded": false
+        },
+        {
+          "xpath": "/html[1]/body[1]/main[1]/p[7]",
+          "excluded": false
+        },
+        {
+          "xpath": "/html[1]/body[1]/main[1]/p[8]",
+          "excluded": false
+        }
+      ]
+    },
+    {
+      "id": "scheduler-drained",
+      "pass": true,
+      "detail": {
+        "pendingClockWork": 0,
+        "starvedRafRequests": 13
+      }
+    },
+    {
+      "id": "page-errors-empty",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "id": "console-errors-empty",
+      "pass": true,
+      "detail": []
+    }
+  ],
+  "browser": {
+    "environment": {
+      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/152.0.0.0 Safari/537.36",
+      "viewport": {
+        "width": 1000,
+        "height": 900
+      },
+      "devicePixelRatio": 1,
+      "browserVersion": "152.0.7977.64"
+    },
+    "targets": [
+      {
+        "id": "1",
+        "xpath": "/html[1]/body[1]/main[1]/p[1]",
+        "x": 384,
+        "y": 56
+      },
+      {
+        "id": "2",
+        "xpath": "/html[1]/body[1]/main[1]/p[2]",
+        "x": 384,
+        "y": 132
+      },
+      {
+        "id": "3",
+        "xpath": "/html[1]/body[1]/main[1]/p[3]",
+        "x": 384,
+        "y": 208
+      },
+      {
+        "id": "4",
+        "xpath": "/html[1]/body[1]/main[1]/p[4]",
+        "x": 384,
+        "y": 284
+      },
+      {
+        "id": "5",
+        "xpath": "/html[1]/body[1]/main[1]/p[5]",
+        "x": 384,
+        "y": 360
+      },
+      {
+        "id": "6",
+        "xpath": "/html[1]/body[1]/main[1]/p[6]",
+        "x": 384,
+        "y": 436
+      },
+      {
+        "id": "7",
+        "xpath": "/html[1]/body[1]/main[1]/p[7]",
+        "x": 384,
+        "y": 512
+      },
+      {
+        "id": "8",
+        "xpath": "/html[1]/body[1]/main[1]/p[8]",
+        "x": 384,
+        "y": 588
+      }
+    ],
+    "hovers": [
+      {
+        "target": {
+          "id": "1",
+          "xpath": "/html[1]/body[1]/main[1]/p[1]",
+          "x": 384,
+          "y": 56
+        },
+        "state": {
+          "xpath": "/html[1]/body[1]/main[1]/p[1]",
+          "latencyMs": 21.799999997019768,
+          "pending": false,
+          "currentXpath": "/html[1]/body[1]/main[1]/p[1]"
+        }
+      },
+      {
+        "target": {
+          "id": "2",
+          "xpath": "/html[1]/body[1]/main[1]/p[2]",
+          "x": 384,
+          "y": 132
+        },
+        "state": {
+          "xpath": "/html[1]/body[1]/main[1]/p[2]",
+          "latencyMs": 21.399999991059303,
+          "pending": false,
+          "currentXpath": "/html[1]/body[1]/main[1]/p[2]"
+        }
+      },
+      {
+        "target": {
+          "id": "3",
+          "xpath": "/html[1]/body[1]/main[1]/p[3]",
+          "x": 384,
+          "y": 208
+        },
+        "state": {
+          "xpath": "/html[1]/body[1]/main[1]/p[3]",
+          "latencyMs": 21,
+          "pending": false,
+          "currentXpath": "/html[1]/body[1]/main[1]/p[3]"
+        }
+      },
+      {
+        "target": {
+          "id": "4",
+          "xpath": "/html[1]/body[1]/main[1]/p[4]",
+          "x": 384,
+          "y": 284
+        },
+        "state": {
+          "xpath": "/html[1]/body[1]/main[1]/p[4]",
+          "latencyMs": 22.399999991059303,
+          "pending": false,
+          "currentXpath": "/html[1]/body[1]/main[1]/p[4]"
+        }
+      },
+      {
+        "target": {
+          "id": "5",
+          "xpath": "/html[1]/body[1]/main[1]/p[5]",
+          "x": 384,
+          "y": 360
+        },
+        "state": {
+          "xpath": "/html[1]/body[1]/main[1]/p[5]",
+          "latencyMs": 22.400000005960464,
+          "pending": false,
+          "currentXpath": "/html[1]/body[1]/main[1]/p[5]"
+        }
+      },
+      {
+        "target": {
+          "id": "6",
+          "xpath": "/html[1]/body[1]/main[1]/p[6]",
+          "x": 384,
+          "y": 436
+        },
+        "state": {
+          "xpath": "/html[1]/body[1]/main[1]/p[6]",
+          "latencyMs": 21.100000008940697,
+          "pending": false,
+          "currentXpath": "/html[1]/body[1]/main[1]/p[6]"
+        }
+      },
+      {
+        "target": {
+          "id": "7",
+          "xpath": "/html[1]/body[1]/main[1]/p[7]",
+          "x": 384,
+          "y": 512
+        },
+        "state": {
+          "xpath": "/html[1]/body[1]/main[1]/p[7]",
+          "latencyMs": 21.299999997019768,
+          "pending": false,
+          "currentXpath": "/html[1]/body[1]/main[1]/p[7]"
+        }
+      },
+      {
+        "target": {
+          "id": "8",
+          "xpath": "/html[1]/body[1]/main[1]/p[8]",
+          "x": 384,
+          "y": 588
+        },
+        "state": {
+          "xpath": "/html[1]/body[1]/main[1]/p[8]",
+          "latencyMs": 22.400000005960464,
+          "pending": false,
+          "currentXpath": "/html[1]/body[1]/main[1]/p[8]"
+        }
+      }
+    ],
+    "silentBefore": {
+      "xpath": "/html[1]/body[1]/main[1]/p[8]",
+      "initialTop": "556px",
+      "currentTop": "556px",
+      "retained": true,
+      "latencyMs": null,
+      "count": 8
+    },
+    "silentAfter": {
+      "xpath": "/html[1]/body[1]/main[1]/p[8]",
+      "initialTop": "556px",
+      "currentTop": "316px",
+      "retained": true,
+      "latencyMs": 22.600000008940697,
+      "count": 8
+    },
+    "semantic": {
+      "unchanged": true,
+      "rows": [
+        {
+          "xpath": "/html[1]/body[1]/main[1]/div[1]",
+          "excluded": true,
+          "explicit": true
+        },
+        {
+          "xpath": "/html[1]/body[1]/main[1]/p[1]",
+          "excluded": false
+        },
+        {
+          "xpath": "/html[1]/body[1]/main[1]/p[2]",
+          "excluded": false
+        },
+        {
+          "xpath": "/html[1]/body[1]/main[1]/p[3]",
+          "excluded": false
+        },
+        {
+          "xpath": "/html[1]/body[1]/main[1]/p[4]",
+          "excluded": false
+        },
+        {
+          "xpath": "/html[1]/body[1]/main[1]/p[5]",
+          "excluded": false
+        },
+        {
+          "xpath": "/html[1]/body[1]/main[1]/p[6]",
+          "excluded": false
+        },
+        {
+          "xpath": "/html[1]/body[1]/main[1]/p[7]",
+          "excluded": false
+        },
+        {
+          "xpath": "/html[1]/body[1]/main[1]/p[8]",
+          "excluded": false
+        }
+      ]
+    },
+    "scheduling": {
+      "pendingClockWork": 0,
+      "starvedRafRequests": 13
+    },
+    "pageErrors": [],
+    "consoleErrors": []
+  },
+  "cli": {
+    "stdout": "### Result\n{\"targets\":8,\"maxHoverLatencyMs\":22.400000005960464}\n### Ran Playwright code\n```js\nawait (/* eslint-disable @typescript-eslint/no-unused-expressions -- playwright-cli requires a bare function expression. */\nasync (page) => {\n  const pageErrors = [];\n  const consoleErrors = [];\n  page.on(\"pageerror\", (error) => pageErrors.push(String(error?.stack || error)));\n  page.on(\"console\", (message) => {\n    if (message.type() === \"error\") {\n      consoleErrors.push(message.text());\n    }\n  });\n  await page.goto(page.url().replace(/\\/$/, \"\") + \"/fixture\", { waitUntil: \"load\" });\n  await page.waitForFunction(\n    () => Boolean(window.__p23Runtime),\n    undefined,\n    { polling: 10, timeout: 5_000 },\n  );\n  const environment = await page.evaluate(() => ({\n    userAgent: navigator.userAgent,\n    viewport: { width: innerWidth, height: innerHeight },\n    devicePixelRatio,\n  }));\n  environment.browserVersion = page.context().browser()?.version() ?? null;\n  const targets = await page.evaluate(() => window.__p23Runtime.targetPoints());\n  const hovers = [];\n  for (const target of targets) {\n    await page.mouse.move(target.x, target.y);\n    try {\n      await page.waitForFunction(\n        (xpath) => window.__p23Runtime.hoverState().currentXpath === xpath,\n        target.xpath,\n        { polling: 5, timeout: 500 },\n      );\n    } catch (error) {\n      const state = await page.evaluate(() => window.__p23Runtime.hoverState());\n      throw new Error(\n        \"P23 hover did not settle for \" + target.xpath + \": \" +\n        JSON.stringify(state),\n        { cause: error },\n      );\n    }\n    hovers.push({\n      target,\n      state: await page.evaluate(() => window.__p23Runtime.hoverState()),\n    });\n  }\n\n  await page.evaluate(() => window.__p23Runtime.enterSilent());\n  const silentBefore = await page.evaluate(() => window.__p23Runtime.silentState());\n  await page.mouse.wheel(0, 240);\n  try {\n    await page.waitForFunction(\n      (initialTop) => {\n        const state = window.__p23Runtime.silentState();\n        return state.retained && state.currentTop !== initialTop && state.latencyMs !== null;\n      },\n      silentBefore.initialTop,\n      { polling: 5, timeout: 500 },\n    );\n  } catch (error) {\n    const state = await page.evaluate(() => window.__p23Runtime.silentState());\n    throw new Error(\n      \"P23 silent geometry did not settle: \" + JSON.stringify(state),\n      { cause: error },\n    );\n  }\n  const silentAfter = await page.evaluate(() => window.__p23Runtime.silentState());\n  await page.waitForTimeout(50);\n  const semantic = await page.evaluate(() => window.__p23Runtime.semanticState());\n  const scheduling = await page.evaluate(() => window.__p23Runtime.schedulingState());\n  const response = await page.evaluate(async (payload) => {\n    const result = await fetch(\"/results\", {\n      method: \"POST\",\n      headers: { \"content-type\": \"application/json\" },\n      body: JSON.stringify(payload),\n    });\n    return { ok: result.ok, status: result.status };\n  }, {\n    environment,\n    targets,\n    hovers,\n    silentBefore,\n    silentAfter,\n    semantic,\n    scheduling,\n    pageErrors,\n    consoleErrors,\n  });\n  if (!response.ok) {\n    throw new Error(\"Unable to retain P23 results (HTTP \" + response.status + \")\");\n  }\n  await page.evaluate(() => window.__p23Runtime.dispose());\n  return {\n    targets: targets.length,\n    maxHoverLatencyMs: Math.max(...hovers.map((entry) => entry.state.latencyMs)),\n  };\n}\n)(page);\n```\n### Page\n- Page URL: http://127.0.0.1:42045/fixture\n- Page Title: P23 frozen presentation gate",
+    "stderr": ""
+  }
+}

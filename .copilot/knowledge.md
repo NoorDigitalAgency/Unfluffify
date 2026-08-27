@@ -672,3 +672,20 @@ painted" decision from the replaced document.
 - FRESH-INSTALL CONFIG GOTCHA (2026-07-03): the AI endpoint (`globalEndpoint`) must include the `:8443` port — `https://unfluffify.dnscdn.se` bare returns Cloudflare 525 on `/get_selectors`; `https://unfluffify.dnscdn.se:8443` returns 401 then authorizes. configEndpoint is `https://unfluffify.lynxdev.se`, stageBase `a.lynxdev.se` (GraphQL resolves to `https://api.a.lynxdev.se/graphql`). Clearing the `/load` config DB does NOT clear GraphQL Live Pages (permanent) or cssInfo selector history.
 - LIVE-QA HARNESS RECIPE (2026-07-03, the working setup after the MCP/repo-launcher paths wedged on this Wayland host): a persistent playwright DRIVER process (scratchpad `pw` install at `playwright@next` to match the cached Chromium; `chromium.launchPersistentContext` with `--load-extension` + `--remote-debugging-port=9222`) owning the browser, reading newline commands from a `driver.cmd` file and streaming state deltas. Headed works under pw@next on Wayland; older pw pinned to an incompatible Chromium hung the pipe handshake (headless-new + `channel:"chromium"` was the earlier workaround). CRITICAL: the persistent profile CACHES the MV3 service worker — after any `pnpm build` the running SW is STALE (a new handler is in the bundle but returns undefined live); `chrome.runtime.reload()` + rebind sw/popup handles before testing a rebuild. Auto-accept `page`/`popup` dialogs or the discard/navigate flows hang. `pkill -f <driver>` self-matches the agent's own compound command (exit 144) and kills the launch — target PIDs from `pgrep` in a loop instead.
 - P20 FOUR-SITE FOLLOW-UP (2026-08-25): property identity across an emulation reload is `{environmentKey, siteId}`, never canonical/observed `baseUrl` string equality (apex vs `www` is a normal alias). Carry that identity in `lock.state.changed` independently of the optional Save mutation fence; replacement content must adopt it before activation. Consent suppression keeps provider DOM/classes live but capture hygiene removes suppressed subtrees and root-only blocker posture classes (`noScroll`, `no-scroll`, `modal-open`, country/customer active posture). Save must refresh its mutation fence at the last safe point and emit exactly one request. Chrome debugger calls are a fallible boundary: support both callback and promise-only API modes, bound every attach/command/reload/detach, release held posture on apply failure, and physically detach in cleanup even if the local attachment cache disagrees. A missing browser acknowledgement must never permanently wedge the per-tab emulation queue.
+- P23 PRESENTATION CLOCK (2026-08-27): extension overlay work must never be
+  scheduled solely on a page primitive that reveal/freeze replaces or starves.
+  Capture and bind rAF plus timers before freeze, keep rAF primary, race it with
+  one bounded exactly-once fallback, and cancel the losing branch. Coalescing
+  handles must represent this logical clock and be cleared/cancelled on every
+  teardown; otherwise one starved callback permanently drops all trailing input.
+- P23 MOTION MAINTENANCE: page freeze performs one full discovery at engage,
+  then processes minimal ancestor-collapsed page-authored roots. Do not use a
+  document-root default when flushing an already-collected mutation batch.
+  Ignore extension subtrees, cursor-only class mutations, and tracked own style
+  writes, and enumerate document animations once per batch rather than per root.
+- P23 SILENT GEOMETRY: a geometry-only redraw may retain a keyed silent overlay
+  when a still-canonical source temporarily has no paint-reachable rect, but the
+  retained node must be hidden immediately so invisible or off-surface content
+  never leaves stale paint. Authoritative structural/silent renders still remove
+  hidden, deleted, and no-longer-canonical nodes; measurable geometry reveals and
+  reuses the same node.

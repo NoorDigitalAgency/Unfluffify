@@ -1,9 +1,8 @@
 # P23 frozen-surface presentation performance remediation
 
-**Status:** Implementation complete; clean-source browser qualification,
-durable evidence, review, and publication are in progress. P22's remaining
-Hub/candidate acceptance blockers are external and do not block this
-independent code repair.
+**Status:** Complete. Implementation `f71f5dab` and all clean-source automated
+acceptance gates passed. P22's remaining Hub/candidate acceptance blockers are
+external and do not block this independent code repair.
 
 ## Goal
 
@@ -220,6 +219,13 @@ mutations into repeated full-document scans.
   `origin/re-write`, verify 0/0 equality, and re-index the pushed HEAD.
 
 ## Test matrix
+
+Execution result: focused 133/133; `pnpm verify` 129 files / 1,177 tests;
+production and debug builds; P14 192 scenarios; P15 36/36; P16 13/13; P17
+19/19; P18 14/14; P20 4/4; P23 24/24. Under permanently starved page rAF,
+physical hover latency was 21.0–22.4 ms and silent scroll latency was 22.6 ms,
+with unchanged canonical rows and no console/page errors. See
+`.reimplementation/p23-frozen-surface-performance-report-2026-08-27.md`.
 
 | Contract | Focused evidence | Browser/live evidence |
 | --- | --- | --- |

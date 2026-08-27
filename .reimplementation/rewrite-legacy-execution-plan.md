@@ -1068,7 +1068,7 @@ in the owning phase and rerun its focused gate plus P9–P11.
     Keep P22 unchecked until those authority/candidate blockers clear. See
     [`p22-cross-property-workflow-remediation-report-2026-08-27.md`](./p22-cross-property-workflow-remediation-report-2026-08-27.md).
 
-- [ ] P23 — Frozen-surface presentation performance
+- [x] P23 — Frozen-surface presentation performance
   - Decouple marking hover, marking/silent geometry, and bounded stabilization
     from the page animation clock through one captured, exactly-once content
     presentation scheduler with a 20 ms starvation fallback.
@@ -1086,6 +1086,18 @@ in the owning phase and rerun its focused gate plus P9–P11.
     requires focused regressions, verify/debug, P14-P20 plus a frozen-surface
     browser gate, copied-profile DPJ legacy/rewrite frame evidence, review,
     commit, graph refresh, and non-force push. See [`../plan.md`](../plan.md).
+  - Implementation commit: `f71f5dab`. Clean validation passed `pnpm verify`
+    (129 files / 1,177 tests), debug build, P14 192 scenarios, P15 36/36, P16
+    13/13, P17 19/19, P18 14/14, P20 4/4, and P23 24/24.
+  - With page rAF permanently starved, eight physical hovers settled in
+    21.0–22.4 ms and silent wheel geometry in 22.6 ms. Canonical rows were
+    unchanged, the keyed silent node was retained without invisible stale paint,
+    the scheduler drained, and page/console errors were empty.
+  - The clean P14 pinned legacy/rewrite matrix and P23 headed gate are the durable
+    performance authorities. The host's unavailable Orca desktop sampler
+    prevented a retained post-fix DPJ frame-by-frame p95; no comparative number
+    was fabricated. See
+    [`p23-frozen-surface-performance-report-2026-08-27.md`](./p23-frozen-surface-performance-report-2026-08-27.md).
 
 For each completed item, append the commit SHA(s), exact test command, result,
 and any live artifact/version directly beneath the checkbox. The first unchecked
