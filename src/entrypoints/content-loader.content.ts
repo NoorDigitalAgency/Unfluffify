@@ -45,6 +45,7 @@ import {
   createSpaGuard,
   hydrateExistingLazyMedia,
   runReveal,
+  type RevealRunResult,
   waitForWindowScrollEnd,
 } from "../content/stabilization";
 import type { BrainSignal } from "../domain/schema/signals";
@@ -163,12 +164,27 @@ let pageContextProbedUrl = "";
  * boundary. Serializing the whole bridge prevents a second command from seeing
  * consent resumed before property/shield authority has been re-established. */
 let consentResumeQueue: Promise<unknown> = Promise.resolve();
-/** The page URL the reveal/freeze ritual has RUN for. One visit, one ritual — and
- *  set only once it actually ran, never when it skipped. */
-let ritualRanForUrl = "";
-/** The page URL a ritual is waiting on the load event for, so a second trigger in
- *  the meantime does not queue a second walk of the same page. */
-let ritualPendingForUrl = "";
+type PageVisitRitualIdentity = Readonly<{
+  pageUrl: string;
+  documentNonce: string;
+  lifecycleGeneration: number;
+  routeGeneration: number;
+}>;
+type PageVisitRitualOutcome = PageVisitRitualIdentity & Readonly<{
+  status: "prepared" | "stale" | "failed";
+  reason: string;
+  lazyExpansions: number;
+  frozenAtBottom: boolean;
+}>;
+type PendingPageVisitRitual = Readonly<{
+  identity: PageVisitRitualIdentity;
+  promise: Promise<PageVisitRitualOutcome>;
+}>;
+/** One successful exact-document occurrence and one joinable in-flight
+ * occurrence. URL strings alone are insufficient because a reload can replace
+ * the document while retaining the same address. */
+let completedPageVisitRitual: PageVisitRitualOutcome | null = null;
+let pendingPageVisitRitual: PendingPageVisitRitual | null = null;
 /** How long to wait for a load event before walking anyway. */
 const RITUAL_READY_TIMEOUT_MS = 8000;
 let contentSurfaceRoot: HTMLElement | null = null;
@@ -888,7 +904,7 @@ function currentDocumentScrollHeight(): number {
   );
 }
 
-async function runActivationStabilization(pageUrl: string): Promise<{ skipped: boolean } | null> {
+async function runActivationStabilization(pageUrl: string): Promise<RevealRunResult | null> {
   try {
     return await revealController.runTask(async () => {
       if (!interactionShieldAuthorityActive) {
@@ -1485,6 +1501,16 @@ function disposeTerminalContentSurfaces(): void {
   contentSurfaceRoot?.remove();
   contentSurfaceRoot = null;
   if (typeof document !== "undefined") {
+    // A terminal boundary must clean every extension-owned renderer occurrence,
+    // including an older instance that lost the module pointer during an
+    // overlapping silent/adoption transition. Normal presentation parking may
+    // retain a root for fast re-entry; unregister/property-exit/invalidation may
+    // not retain even an empty layer.
+    for (const root of Array.from(document.querySelectorAll?.(
+      '.uf-marking-layer-root[data-uf-extension-ui="true"]',
+    ) ?? [])) {
+      root.remove();
+    }
     document.getElementById?.(MARKING_CURSOR_STYLE_ID)?.remove();
     document.getElementById?.(CONTENT_SURFACE_STYLE_ID)?.remove();
   }
@@ -2221,7 +2247,7 @@ async function resolvePageContext(options: Readonly<{ ritualRequiresCandidate?: 
   const suspended = response.data.status === "suspended_candidate_removed" ||
     response.data.status === "suspended_candidate_feed_conflict";
   if (response.data.renderModeSet && wanted && !suspended) {
-    runPageVisitRitual(pageUrl, requireCandidate ? "page-load" : "render-mode-established");
+    void runPageVisitRitual(pageUrl, requireCandidate ? "page-load" : "render-mode-established");
   }
 }
 
@@ -2261,65 +2287,146 @@ function readyToWalk(): boolean {
   return state === undefined || state === "complete";
 }
 
-/** Runs the ritual, once a page has actually loaded and once per visit.
- *
- *  Latches on a real run only. A skip — no scroll room yet, or an activation that
- *  has been overtaken by a navigation — leaves the attempt available, because the
- *  page still has not been prepared and something later will ask again. */
-function runPageVisitRitual(pageUrl: string, cause: string): void {
-  // Only a real URL can be deduplicated against. Comparing empty strings would
-  // make the very first ritual on a page with no resolvable URL look like a repeat.
-  if (pageUrl && (ritualRanForUrl === pageUrl || ritualPendingForUrl === pageUrl)) {
-    return;
-  }
-  const attempt = (): void => {
-    if (pageUrl && currentPageUrl() !== pageUrl) {
-      // The page moved on while waiting; this ritual describes a document that is
-      // no longer here, and the new one has its own trigger.
-      ritualPendingForUrl = "";
-      return;
-    }
-    // Started synchronously so the page-world bridge is armed before anything else
-    // this tick can look for it; the walk's outcome settles later.
-    ritualPendingForUrl = pageUrl;
-    void runActivationStabilization(pageUrl).then((result) => {
-      if (result && !result.skipped) {
-        ritualRanForUrl = pageUrl;
-        console.debug(`[Unfluffify][rewrite] Page-visit reveal/freeze ran (${cause})`);
-        return;
-      }
-      console.debug(`[Unfluffify][rewrite] Page-visit reveal/freeze skipped (${cause}) — attempt kept`);
-    }).catch(() => {
-      // A failed walk has not prepared the page either, so the attempt stays free.
-    }).finally(() => {
-      if (ritualPendingForUrl === pageUrl) {
-        ritualPendingForUrl = "";
-      }
-    });
+function pageVisitRitualIdentity(pageUrl: string): PageVisitRitualIdentity {
+  return {
+    pageUrl,
+    documentNonce: RENDER_INSPECTION_DOCUMENT_NONCE,
+    lifecycleGeneration: contentLifecycleGeneration,
+    routeGeneration: documentLifecycleGeneration,
   };
+}
+
+function samePageVisitRitualIdentity(
+  left: PageVisitRitualIdentity,
+  right: PageVisitRitualIdentity,
+): boolean {
+  return left.pageUrl === right.pageUrl &&
+    left.documentNonce === right.documentNonce &&
+    left.lifecycleGeneration === right.lifecycleGeneration &&
+    left.routeGeneration === right.routeGeneration;
+}
+
+function pageVisitRitualIdentityIsCurrent(identity: PageVisitRitualIdentity): boolean {
+  return samePageVisitRitualIdentity(identity, pageVisitRitualIdentity(currentPageUrl())) &&
+    interactionShieldAuthorityActive;
+}
+
+function waitForPageWalkReadiness(identity: PageVisitRitualIdentity): Promise<boolean> {
   if (readyToWalk()) {
-    attempt();
-    return;
+    return Promise.resolve(pageVisitRitualIdentityIsCurrent(identity));
   }
   if (typeof window === "undefined") {
-    return;
+    return Promise.resolve(false);
   }
-  // Wait for the load event rather than giving up: a reload triggers this at
-  // document_start every time, and that is exactly when the ritual is due.
-  ritualPendingForUrl = pageUrl;
-  let settled = false;
-  const onReady = (): void => {
-    if (settled) {
-      return;
-    }
-    settled = true;
-    window.removeEventListener("load", onReady);
-    attempt();
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const finish = (): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      window.removeEventListener("load", onReady);
+      if (timeout !== null) {
+        clearTimeout(timeout);
+      }
+      resolve(pageVisitRitualIdentityIsCurrent(identity));
+    };
+    const onReady = (): void => finish();
+    window.addEventListener("load", onReady, { once: true });
+    // A page whose load event never fires — an aborted subresource is enough —
+    // still gets one bounded exact-document attempt.
+    timeout = setTimeout(finish, RITUAL_READY_TIMEOUT_MS);
+  });
+}
+
+async function executePageVisitRitual(
+  identity: PageVisitRitualIdentity,
+  cause: string,
+): Promise<PageVisitRitualOutcome> {
+  const ready = await waitForPageWalkReadiness(identity);
+  if (!ready || !pageVisitRitualIdentityIsCurrent(identity)) {
+    return {
+      ...identity,
+      status: "stale",
+      reason: "page-visit-identity-changed",
+      lazyExpansions: 0,
+      frozenAtBottom: false,
+    };
+  }
+  const result = await runActivationStabilization(identity.pageUrl);
+  if (!pageVisitRitualIdentityIsCurrent(identity)) {
+    console.debug(`[Unfluffify][rewrite] Page-visit reveal/freeze skipped (${cause}) — identity changed`);
+    return {
+      ...identity,
+      status: "stale",
+      reason: "page-visit-identity-changed",
+      lazyExpansions: result?.lazyExpansions ?? 0,
+      frozenAtBottom: false,
+    };
+  }
+  if (!result) {
+    return {
+      ...identity,
+      status: "failed",
+      reason: "page-visit-stabilization-failed",
+      lazyExpansions: 0,
+      frozenAtBottom: false,
+    };
+  }
+  // A no-scroll page is intentionally reported as skipped by runReveal, but it
+  // still freezes at its only position and is fully prepared.
+  if (result.frozenAtBottom) {
+    const outcome: PageVisitRitualOutcome = {
+      ...identity,
+      status: "prepared",
+      reason: result.skipped ? "no-scroll-room" : "",
+      lazyExpansions: result.lazyExpansions,
+      frozenAtBottom: true,
+    };
+    completedPageVisitRitual = outcome;
+    console.debug(`[Unfluffify][rewrite] Page-visit reveal/freeze prepared (${cause})`);
+    return outcome;
+  }
+  console.debug(`[Unfluffify][rewrite] Page-visit reveal/freeze skipped (${cause}) — attempt kept`);
+  return {
+    ...identity,
+    status: "failed",
+    reason: "page-visit-stabilization-skipped",
+    lazyExpansions: result.lazyExpansions,
+    frozenAtBottom: false,
   };
-  window.addEventListener("load", onReady, { once: true });
-  // A page whose load event never fires — an aborted subresource is enough — must
-  // not strand the ritual for the whole visit.
-  setTimeout(onReady, RITUAL_READY_TIMEOUT_MS);
+}
+
+/** Runs the ritual once for the exact current document and returns the shared
+ * occurrence promise to every page-load, preparation, or activation caller. */
+function runPageVisitRitual(pageUrl: string, cause: string): Promise<PageVisitRitualOutcome> {
+  const identity = pageVisitRitualIdentity(pageUrl);
+  if (
+    completedPageVisitRitual &&
+    completedPageVisitRitual.status === "prepared" &&
+    samePageVisitRitualIdentity(completedPageVisitRitual, identity)
+  ) {
+    return Promise.resolve(completedPageVisitRitual);
+  }
+  if (pendingPageVisitRitual && samePageVisitRitualIdentity(pendingPageVisitRitual.identity, identity)) {
+    return pendingPageVisitRitual.promise;
+  }
+  const promise = executePageVisitRitual(identity, cause);
+  pendingPageVisitRitual = { identity, promise };
+  void promise.then(
+    () => {
+      if (pendingPageVisitRitual?.promise === promise) {
+        pendingPageVisitRitual = null;
+      }
+    },
+    () => {
+      if (pendingPageVisitRitual?.promise === promise) {
+        pendingPageVisitRitual = null;
+      }
+    },
+  );
+  return promise;
 }
 
 function applyContentLockState(payload: unknown): Record<string, unknown> {
@@ -2794,8 +2901,8 @@ function handleUrlChanged(nextUrl?: string): void {
   // This closes the gap in which a same-property SPA could mount clickable consent
   // chrome. establishPageContext ends it only on a definitive property exit.
   pageContextProbedUrl = "";
-  ritualRanForUrl = "";
-  ritualPendingForUrl = "";
+  completedPageVisitRitual = null;
+  pendingPageVisitRitual = null;
   revealController.resetForNavigation();
   // A toast describes an occurrence on the old URL. Retire it synchronously at
   // the boundary even when no marking engine happens to be mounted.
@@ -2870,22 +2977,48 @@ function resetMarking(): boolean {
   return true;
 }
 
-function activateContentMain(payload: unknown): Record<string, unknown> {
+async function activateContentMain(payload: unknown): Promise<Record<string, unknown>> {
   const request = payloadObject(payload);
   const requestPageUrl = typeof request.pageUrl === "string" ? request.pageUrl : "";
   const pageUrl = currentPageUrl();
   if (requestPageUrl && pageUrl && requestPageUrl !== pageUrl) {
     return { ok: false, initialized: false, tree: "rewrite", reason: "page-url-mismatch" };
   }
+  if (typeof document === "undefined" || !document.documentElement) {
+    return {
+      ok: false,
+      initialized: false,
+      interactionsReady: false,
+      interactionsReason: "no-document",
+      tree: "rewrite",
+      reason: "no-document",
+    };
+  }
   const nextPageUrl = requestPageUrl || pageUrl;
   activation.arm(
     nextPageUrl,
     request.realEditorActivation !== false,
   );
-  // Through the same guard as the page-load path: a page prepared at load must not
-  // be walked again because marking was then armed on it.
-  runPageVisitRitual(nextPageUrl, "marking-activation");
-  if (typeof document !== "undefined" && document.documentElement) {
+  // Join the page-load occurrence when it already owns preparation. A successful
+  // activation is not acknowledged while its curtain can still own pointer input.
+  const ritual = await runPageVisitRitual(nextPageUrl, "marking-activation");
+  if (
+    ritual.status !== "prepared" ||
+    !pageVisitRitualIdentityIsCurrent(ritual) ||
+    pageInspectionActive
+  ) {
+    activation.disarm();
+    return {
+      ok: false,
+      initialized: false,
+      interactionsReady: false,
+      interactionsReason: ritual.reason || "page-visit-not-prepared",
+      ritual,
+      tree: "rewrite",
+      reason: ritual.reason || "page-visit-not-prepared",
+    };
+  }
+  if (document.documentElement) {
     removeSilentDebugCopyListener?.();
     lastKnownPageUrl = nextPageUrl || lastKnownPageUrl;
     if (!markingActive) {
@@ -2931,6 +3064,7 @@ function activateContentMain(payload: unknown): Record<string, unknown> {
       initialized: true,
       interactionsReady: interactions.ready,
       interactionsReason: interactions.reason,
+      ritual,
       tree: "rewrite",
       ...(interactions.ready ? {} : { reason: interactions.reason }),
     };
@@ -2940,6 +3074,7 @@ function activateContentMain(payload: unknown): Record<string, unknown> {
     initialized: false,
     interactionsReady: false,
     interactionsReason: "no-document",
+    ritual,
     tree: "rewrite",
     reason: "no-document",
   };
@@ -3117,6 +3252,8 @@ function activatePreviewRow(payload: unknown): Record<string, unknown> {
 
 function contentStatus(): Record<string, unknown> {
   const interactions = currentMarkingInteractionAvailability();
+  const contentRows = contentRowsFromEngine();
+  const listenerReady = interactions.ready && !markingInteractionsPaused && removeMarkingListeners !== null;
   return {
     ok: true,
     // This realm-scoped nonce changes on every real document replacement even
@@ -3128,13 +3265,24 @@ function contentStatus(): Record<string, unknown> {
     dirty: isUserMarkingDirty(),
     pageUrl: currentPageUrl(),
     markedCount: userToggleCount,
+    decisionRowCount: contentRows.length,
     markingToggleSeq,
-    contentRows: contentRowsFromEngine(),
+    contentRows,
     sessionState: contentState,
     authority: contentAuthority,
     presentation: contentPresentation,
-    interactionsReady: interactions.ready && !markingInteractionsPaused && removeMarkingListeners !== null,
+    interactionsReady: listenerReady,
     interactionsReason: interactions.reason || (markingInteractionsPaused ? "interactions-paused" : ""),
+    presentationPhase: pageInspectionActive
+      ? "preparing"
+      : listenerReady
+        ? "interactive"
+        : markingActive
+          ? "blocked"
+          : "silent",
+    ritual: pendingPageVisitRitual
+      ? { status: "pending", ...pendingPageVisitRitual.identity }
+      : completedPageVisitRitual,
     tree: "rewrite",
   };
 }
@@ -3305,7 +3453,13 @@ function createContentRouter() {
         if (!interactionShieldAuthorityActive) {
           return { ok: false, prepared: false, reason: "property-authority-unavailable" };
         }
-        return { ok: true, prepared: ritualRanForUrl === currentPageUrl() };
+        const ritual = await runPageVisitRitual(currentPageUrl(), "render-mode-established");
+        return {
+          ok: ritual.status === "prepared",
+          prepared: ritual.status === "prepared",
+          reason: ritual.reason,
+          ritual,
+        };
       },
     },
     pingActivity: pingContentActivity,

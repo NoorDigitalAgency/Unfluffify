@@ -1099,6 +1099,37 @@ in the owning phase and rerun its focused gate plus P9–P11.
     was fabricated. See
     [`p23-frozen-surface-performance-report-2026-08-27.md`](./p23-frozen-surface-performance-report-2026-08-27.md).
 
+- [ ] P24 — Exact readiness and corrected full cross-property parity
+  - Join page-load preparation and Enable marking to one exact document-fenced
+    reveal/freeze occurrence. A successful activation must prove the current
+    curtain is retired and physical marking listeners are installed.
+  - Keep P23's presentation clock and canonical evaluator. Preserve Shift-only
+    widening, Alt explicit inclusion, exact widened-owner clearing, invisible
+    exclusion paint suppression, intentional consent suppression, payload
+    hygiene, one-request Save, and publication fences.
+  - Correct the retained legacy/rewrite harness: discover eligible current
+    canonical targets, compare normalized row diffs and exact ownership, and
+    stop interpreting the monotonic dirty-toggle counter as current row count.
+  - Audit AI terminal cleanup, Hub stale-fence authority, endpoint deployment,
+    and candidate validity independently; fix only proven code-owned defects.
+  - Acceptance requires focused regressions, full verify/debug and P14-P23 plus
+    P24 gates, a headed pinned-legacy/rewrite rerun on every valid supplied
+    candidate, durable evidence, review, commit, graph refresh, and non-force
+    push. See [`../plan.md`](../plan.md).
+  - Implemented exact occurrence readiness and canonical row-diff evidence.
+    Hub `ff4a460` was released to Alpha as `v2026.11-alpha.14`; eight current
+    rewrite Saves then returned exactly one HTTP 200 each with clean
+    current-page payloads and no `stale_fence`.
+  - Final automated validation passed `pnpm verify` (130 files / 1,181 tests),
+    debug build, P14 192/192, P15 36/36, P16 13/13, P17 19/19,
+    P18 14/14, P20 4/4, and P23 24/24. P15 additionally proved terminal
+    unregister leaves no orphan marking root.
+  - P24 remains unchecked because the headed matrix still has Teknikhallen
+    emulation failure, Ledigajobb AI/list failure, DPJ freshness/list failures,
+    one Humanova invisible-target overlay, and unresolved observer-free
+    sequential transition timing. See
+    [`p24-exact-readiness-cross-property-report-2026-08-27.md`](./p24-exact-readiness-cross-property-report-2026-08-27.md).
+
 For each completed item, append the commit SHA(s), exact test command, result,
 and any live artifact/version directly beneath the checkbox. The first unchecked
 phase whose dependencies are complete is the sole resume pointer.

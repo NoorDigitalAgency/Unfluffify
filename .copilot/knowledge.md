@@ -120,6 +120,24 @@
 
 ### Live-QA pitfalls (2026-07-03, learned the hard way)
 
+- `contentStatus().markedCount` is the monotonic user-toggle/dirty sequence, not
+  the number of current canonical rows. Gesture evidence must diff normalized
+  `(xpath, classification)` rows and exact explicit ownership; a successful
+  unmark can increase the dirty sequence while decreasing the row set.
+- A successful Enable marking acknowledgement must join the exact current
+  URL/document nonce/lifecycle/route reveal occurrence and prove
+  `prepared + frozenAtBottom + interactionsReady`. A URL-only latch or
+  fire-and-forget reveal can release the popup while the inspection curtain
+  still owns pointer input.
+- Do not keep a page-target CDP/Playwright observer attached while the extension
+  owns Chrome device emulation. It can delay or occupy Chrome's single debugger
+  path and turn sequential activation timings into harness artifacts. Use the
+  launcher popup control surface during the transition, then attach only for a
+  bounded post-transition sample.
+- Hub mutation fences are distributed authority. A process-local loaded cache
+  is not sufficient for mutation validation: refresh the persisted fence under
+  the mutation gate before comparing editor session, lock token, and revisions.
+
 - Exclude-mode clicks on an ALREADY-excluded element resolve to no target — a
   designed no-op (`getMarkableTarget` filters by the excluded set). A scripted
   mark click must land on content NOT covered by an existing `.uf-rect`, or it

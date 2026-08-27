@@ -255,7 +255,17 @@ function makeTabsSendMessage(
     const frame = message as BusFrame;
     if (frame?.kind === "uf-bus/1" && frame.name === "command.dispatch") {
       const command = frame.payload as { name: string; payload?: Record<string, unknown> };
-      const data = await handler(tabId, { type: command.name, ...(command.payload ?? {}) });
+      const rawData = await handler(tabId, { type: command.name, ...(command.payload ?? {}) });
+      const data = command.name === "activateContentMain" &&
+          rawData &&
+          typeof rawData === "object" &&
+          (rawData as { ok?: unknown }).ok === true
+        ? {
+            interactionsReady: true,
+            ritual: { status: "prepared", frozenAtBottom: true },
+            ...rawData as Record<string, unknown>,
+          }
+        : rawData;
       return contentReplyFrame(frame, data);
     }
     if (frame?.kind === "uf-bus/1" && frame.frameType === "request" && frame.target === "content") {

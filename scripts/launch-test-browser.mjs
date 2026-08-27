@@ -394,6 +394,23 @@ async function openActualSidePanel(boundUrl, tabId) {
   return sidePanelUrl;
 }
 
+async function openOperatorSurface(boundUrl, tabId) {
+  try {
+    return { url: await openActualSidePanel(boundUrl, tabId), kind: "side panel" };
+  } catch (error) {
+    const description = String(error?.message ?? error);
+    if (!description.includes("No active side panel")) {
+      throw error;
+    }
+    // The pinned legacy build predates the persistent side-panel registration
+    // used by the rewrite. Its bound popup is the real operator surface, so keep
+    // that exact helper alive for legacy comparison instead of aborting launch.
+    await waitForCdpTarget(boundUrl);
+    console.warn("[launch] no active side panel; retaining the bound legacy popup as the operator surface");
+    return { url: boundUrl, kind: "bound popup" };
+  }
+}
+
 function sendCdpCommand(webSocketDebuggerUrl, method, params, timeoutMs) {
   return new Promise((resolvePromise, rejectPromise) => {
     const socket = new WebSocket(webSocketDebuggerUrl);
@@ -676,7 +693,9 @@ async function runCdpStateAction(action, timeoutMs, options = {}) {
   const pages = targets.filter((targetInfo) => targetInfo?.type === "page");
   const actualSidePanel = pages.find((targetInfo) =>
     /^chrome-extension:\/\/[^/]+\/popup\.html$/.test(String(targetInfo?.url ?? "")));
-  const popup = actualSidePanel;
+  const boundLegacyPopup = pages.find((targetInfo) =>
+    /^chrome-extension:\/\/[^/]+\/popup\.html\?/.test(String(targetInfo?.url ?? "")));
+  const popup = actualSidePanel ?? boundLegacyPopup;
   const targetPage = pages.find((targetInfo) => {
     const url = String(targetInfo?.url ?? "");
     return !url.startsWith("chrome-extension://") && !url.startsWith("chrome://");
@@ -1125,14 +1144,14 @@ try {
     // as `tab-hidden`; return focus to the target while retaining CDP control of
     // the hidden popup.
     await bringCdpPageToFront(finalUrl);
-    const sidePanelUrl = await openActualSidePanel(boundUrl, tabId);
+    const operatorSurface = await openOperatorSurface(boundUrl, tabId);
     console.log("");
     console.log("================ live test browser ready ================");
     console.log(`  target page : ${finalUrl}`);
     console.log(`  extension id: ${extId}${extId === predictedId ? " (matches path hash)" : " (WARNING: differs from path hash)"}`);
     console.log(`  page tabId  : ${tabId}`);
     console.log(`  helper popup: ${boundUrl} (closed after side-panel open)`);
-    console.log(`  side panel  : ${sidePanelUrl}`);
+    console.log(`  ${operatorSurface.kind.padEnd(12)}: ${operatorSurface.url}`);
     // The banner is evidence of what is actually running, so it must not claim more
     // than the launch can guarantee. A reused profile can still serve a worker from
     // a previous registration; only a fresh one rules that out.

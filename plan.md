@@ -1,282 +1,278 @@
-# P23 frozen-surface presentation performance remediation
+# P24 exact-readiness and cross-property parity remediation
 
-**Status:** Complete. Implementation `f71f5dab` and all clean-source automated
-acceptance gates passed. P22's remaining Hub/candidate acceptance blockers are
-external and do not block this independent code repair.
+**Status:** Executed, acceptance incomplete. P22 remains externally blocked;
+P23 is complete. P24's exact-readiness and Hub fence slices are implemented,
+but the headed matrix retains product red cells documented in
+`.reimplementation/p24-exact-readiness-cross-property-report-2026-08-27.md`.
 
 ## Goal
 
-Make interactive marking and silent highlighting at least as responsive and
-smooth as the pinned legacy release while preserving the rewrite's canonical
-evaluator, branch-scoped mutation model, generation/fingerprint fences,
-reveal/freeze ownership, and extraction semantics. Extension presentation work
-must remain live while the page's own timers and animation clock are frozen,
-and page-motion maintenance must be incremental instead of feeding extension UI
-mutations into repeated full-document scans.
+Make every operator-visible ready state correspond to the exact current
+document, property, session, and reveal/freeze occurrence that is actually able
+to receive input. Correct the legacy/rewrite harness so it measures canonical
+marking decisions instead of a monotonic dirty-event counter, then repeat the
+complete headed comparison on every supplied valid candidate page and separate
+code defects from Hub deployment and candidate-data blockers.
 
 ## Current facts
 
-- The synchronized baseline is `6711652a5aacdb50ba529e3ff301f983a8e252ee`
-  on `re-write`, 0 ahead / 0 behind `origin/re-write`, with a clean worktree.
-- The retained same-profile DPJ A/B evidence in
-  `.temp/ab-performance/report.md` shows legacy produced 159 hover frames for
-  82 inputs with 100% next-frame coverage, while the rewrite produced zero
-  hover frames for 81 inputs. Eight pointer positions produced eight legacy
-  visual frames but one static rewrite frame. Silent scrolling changed five
-  legacy geometry hashes and zero rewrite geometry hashes.
-- `src/entrypoints/content-loader.content.ts:scheduleHover()` and
-  `src/content/marking/engine.ts:scheduleRender()` dynamically use the current
-  document `requestAnimationFrame`. When reveal/freeze starves that clock, their
-  coalescing handles never clear and all trailing pointer/geometry work remains
-  permanently blocked.
-- `src/content/marking/engine.ts:installObservers()` supplies the same starvable
-  clock to `createGeometryStabilizer()`, so resize and mutation stabilization can
-  stall for the same reason.
-- The legacy `src/content/core.ts` captured extension scheduling primitives
-  before freeze, coalesced hover to one trailing frame, and reused the previous
-  canonical hover result while the physical overlay owner/hit surface was
-  unchanged.
-- `src/page-world/program.ts:scheduleMotionEnforcement()` defaults its `root`
-  argument to `document.documentElement`. Its mutation observer first collects
-  targeted roots and then calls the function with no argument, re-adding the
-  entire document on every mutation batch. `pauseMotionSources()` consequently
-  repeats `document.getAnimations()` and `querySelectorAll("*")`, including for
-  cursor and overlay mutations authored by the extension.
-- The legacy motion-maintenance fix deliberately limited full scans to explicit
-  engage points, collected incremental discovery roots, collapsed overlapping
-  roots, and ignored its own writes. The rewrite decision spec permits those
-  adaptations only when canonical output and freeze semantics remain identical.
-- `src/content/marking/engine.ts:resolveAtPoint()` linearly resolves every
-  explicit exclusion row on plain hover even when the event already carries a
-  current `data-uf-overlay-xpath`. The hint can safely accelerate an existing
-  owner only after current-generation/canonical-row/visibility validation; it
-  must never authorize creation, widening, or a semantic target change.
+- Baseline `0f31b54a0c81edb82686eccade9a60fe418a052c` is clean and synchronized
+  0 ahead / 0 behind `origin/re-write`.
+- The previous P24 harness read `contentStatus().markedCount`, but that field is
+  `userToggleCount`: it increases for every successful toggle, including a
+  clear. Its `finalCount < afterShift` assertion therefore makes a successful
+  widened-owner clear impossible to pass.
+- The harness chose arbitrary headings, paragraphs, and list items without
+  proving current canonical markability or that the target was uncovered. A
+  plain exclusion click on already excluded content is a specified no-op, not a
+  gesture failure.
+- `activateContentMain()` starts `runPageVisitRitual()` fire-and-forget,
+  installs marking, and immediately acknowledges `interactionsReady`. While the
+  ritual is still walking/frozen, `pageInspectionActive` presents a full
+  pointer-owning curtain. The popup consequently releases its preflight and
+  enables later actions before the visible page can receive marking input.
+- Acne evidence captured that race directly: activation was reported complete
+  with the page still at the reveal bottom, motion not yet frozen, and no
+  delivered hover transitions. Aleris, where the ritual had already settled,
+  was responsive.
+- P23's captured presentation clock, latest-only hover scheduling, canonical
+  evaluator, stable overlay reuse, and incremental motion maintenance remain
+  correct. P24 must not reintroduce a second evaluator or weaken Shift/Alt,
+  exact-owner clearing, hidden-exclusion, consent, extraction, Save, or lock
+  contracts.
+- Ledigajobb's 45-second AI observation and the legacy run exceeding 62 seconds
+  were labeled too aggressively by the old harness; a non-terminal operation
+  inside the contract timeout is long-running, not proven wedged.
+- Five prior rewrite Saves returned Hub `stale_fence`, production `/context`
+  returned 404, and 3D Prima's supplied candidate URL is a site-owned 404. P24
+  will audit those authorities but will not add unsafe retries, bypass a fence,
+  or count an invalid page as a valid candidate pass.
 
-## Decisions already made
+## Decisions
 
-- Keep `MARKING_AND_HIGHLIGHTING_LOGIC.md` unchanged: plain click cannot widen,
-  Shift is the only widening modifier, Alt creates explicit inclusions, and a
-  widened explicit exclusion owns its visible surface for ordinary unmarking.
-- Keep the rewrite's single canonical evaluator/store and branch-splice path.
-  No legacy monolithic cache or parallel marking truth will be copied.
-- Add one content-owned presentation clock that captures scheduling primitives
-  before page freeze, coalesces work, and uses a bounded task fallback so each
-  requested frame completes exactly once even when native rAF starves.
-- Use a 20 ms starvation fallback: normal rAF remains the primary paint-aligned
-  path, while the fallback bounds visible input latency to approximately one
-  60 Hz frame plus task dispatch.
-- Treat `data-uf-overlay-xpath` only as a validated performance hint for an
-  already canonical current-generation target. Missing, stale, invisible, or
-  ineligible hints fall back to the existing composed hit-test resolver.
-- Full page motion discovery remains exactly once at freeze engagement. Late
-  maintenance processes only minimal connected page-authored roots, enumerates
-  document animations once per enforcement batch, and ignores extension-owned
-  subtrees, cursor-only class changes, and normalization writes.
-- Do not weaken persistent page timer/rAF/idle freezing, lazy suppression,
-  consent suppression, payload/capture rules, emulation, lock authority, Save,
-  AI, Content List, or publication fences.
-
-## Open questions
-
-- None.
+- Replace the fire-and-forget ritual seam with one shared promise per exact
+  document/URL occurrence. Page-load preparation and marking activation join the
+  same occurrence; neither starts a second walk.
+- Activation acknowledges success only after the exact ritual reaches a
+  terminal result, the document/property occurrence is still current, the
+  curtain is gone, and canonical marking listeners are installed. Skipped
+  no-scroll rituals may complete successfully; stale, failed, timed-out, or
+  identity-mismatched rituals fail visibly and restore the prior posture.
+- Keep the popup preflight and Run AI unavailable while activation is preparing.
+  No intermediate boolean may masquerade as readiness.
+- Expose an explicit current decision-row count while retaining
+  `userToggleCount` as the dirty/edit sequence authority. The harness must diff
+  normalized `contentRows` and exact overlay ownership for every gesture.
+- Select gesture targets from current visible canonical overlay/row state and
+  verify eligibility before physical input. Test plain no-widen, Shift widen,
+  exact widened-owner clear, Alt explicit include, and context-menu actions as
+  independent physical occurrences.
+- Preserve intentional consent suppression: suppressed commerce/account/contact
+  and other blocking UI stays hidden and excluded from overlays, captures,
+  marking rows, AI HTML, and payloads.
+- Treat AI as terminal only on an authoritative completed/failed/cancelled
+  outcome or the configured timeout. Every terminal path must clear both popup
+  busy state and the page curtain for the same run generation.
+- Audit Hub stale-fence and endpoint deployment as separate authority systems.
+  Fix and deploy only a proven code-owned defect; otherwise retain the client
+  fence and report the external blocker precisely.
 
 ## Non-goals
 
-- No marking taxonomy, target-resolution precedence, row normalization,
-  selector seeding, overlay grammar, extraction, payload, or endpoint changes.
-- No routine full-document reconcile after a toggle and no second evaluator or
-  legacy global state transplant.
-- No release of the page motion/lazy freeze while marking, silent highlighting,
-  or preview owns it.
-- No attempt to clear P22's external Hub `stale_fence` or unavailable candidate
-  blockers as part of this performance phase.
+- No change to marking taxonomy, selector precedence, extraction grammar,
+  consent selectors, payload schema, public permissions, or Lynx publication
+  fences.
+- No extra Save request, automatic stale-fence retry, fake candidate, or
+  production-to-alpha authority mixing.
+- No final Lynx selector publication while coverage or candidate authority is
+  incomplete. Alpha checklist navigation may be tested up to that boundary.
+- No regression to page-clock rAF, full-document hover scans, or legacy global
+  state.
 
 ## Implementation phases
 
-### R1 — Characterize frozen-clock and incremental-maintenance failures
+### R1 — Exact reveal/activation occurrence
 
-- Add `tests/src/content/presentation-clock.test.ts` covering normal rAF,
-  starved rAF fallback, exactly-once delivery, trailing coalescing compatibility,
-  cancellation, and a clock captured before later global patching.
-- Extend `tests/c4-content-entrypoint.test.ts` with a marking mousemove case in
-  which rAF never fires but the latest pointer reaches `hoverAtPoint` within the
-  fallback bound and a later pointer schedules normally.
-- Extend `tests/src/content/marking/dom-bridge.test.ts` with frozen-rAF silent
-  scroll and geometry-stabilizer cases that retain overlay nodes and repaint.
-- Extend `tests/src/page-world/program.test.ts` with counters proving one initial
-  full scan, no full scan for extension-only mutations, minimal nested-root
-  collapse, one animation enumeration per enforcement batch, and continued
-  handling of genuine late page content.
-- Focused validation: `pnpm vitest run` on those four files.
-- Fallback rule: if a unit seam cannot reproduce the retained DPJ starvation,
-  add a narrow P23 browser fixture; do not relax the observed failure.
+- Refactor `runPageVisitRitual()` in
+  `src/entrypoints/content-loader.content.ts` to return/join one promise carrying
+  URL, document nonce, lifecycle generation, route generation, terminal status,
+  lazy-expansion result, and frozen-at-bottom proof.
+- Make `activateContentMain()` asynchronous. Await the exact occurrence before
+  final listener reconciliation and acknowledge only when the request URL,
+  document nonce, lifecycle generations, authority, curtain, and listener set
+  are still current.
+- Keep the page curtain mounted while preparing. In all stale/failure paths,
+  retire the attempted marking presentation, release the curtain, restore the
+  prior silent/device posture through existing popup `finally` paths, and return
+  a reason-specific failure.
+- Make `preparePageVisit` join the same promise and return its terminal reason
+  rather than inspecting a later string latch.
+- Regression tests: duplicate activation joins one walk; activation waits for
+  reveal/freeze; skipped no-scroll completes; hidden document waits; stale URL,
+  lifecycle, and replacement-document occurrences fail; listeners exist only at
+  success; every failure clears the curtain and restores the popup posture.
 
-### R2 — Install the content-owned presentation clock
+### R2 — Exact marking and silent readiness
 
-- Add `src/content/presentation-clock.ts` with an opaque logical handle registry,
-  captured/bound rAF and timeout primitives, rAF-first delivery, 20 ms starvation
-  fallback, exactly-once arbitration, cancellation of the losing primitive, and
-  deterministic teardown.
-- In `src/entrypoints/content-loader.content.ts:scheduleHover()`, use the shared
-  clock, preserve one coalesced trailing pointer, clear the logical handle before
-  resolving, and cancel it on listener teardown.
-- In `src/content/marking/engine.ts`, route `scheduleRender()`, the geometry
-  stabilizer, and deferred branch presentation through the same clock. Track and
-  cancel pending logical handles on refresh/dispose, and settle structural
-  single-flight state in all terminal paths.
-- Preserve rAF as the primary rendering acknowledgement and keep structural
-  quiet/idle batching intact; only its terminal presentation delivery changes.
-- Focused validation: presentation-clock, content entrypoint, marking engine,
-  renderer, stabilizer, and source-contract tests.
-- Rollback rule: if the dual primitive can deliver twice in any realm-specific
-  fake/native ordering, keep the logical registry and disable the rAF branch;
-  never return to an unbounded starvable handle.
+- Add explicit status fields for current normalized decision-row count,
+  presentation phase, ritual occurrence, and physical listener readiness; do not
+  overload the dirty toggle count.
+- Ensure the popup regards activation as complete only after both content
+  readiness and requested 412x960 emulation are current. Silent/highlight mode
+  similarly waits for desktop posture, shield, selector projection, retained
+  overlay geometry, and reveal/freeze ownership before Content List is enabled.
+- Retain P23 scheduling. If focused evidence still finds delivery loss after the
+  readiness race is removed, add only a validated hover-overlay XPath hint or
+  renderer-root listener ownership; canonical resolution remains the fallback.
+- Regression tests cover Run AI disabled during preparation, first physical
+  hover/click immediately after success, scroll/resize retention, and no stale
+  transition applying an old device posture.
 
-### R3 — Port safe legacy hover reuse without changing marking truth
+### R3 — Correct the legacy/rewrite evidence harness
 
-- In `src/entrypoints/content-loader.content.ts`, capture the closest current
-  classification overlay XPath from mousemove/click/contextmenu targets and pass
-  it as an optional resolution hint.
-- In `src/content/marking/engine.ts`, validate hinted explicit owners against the
-  current bridge generation, fingerprint, canonical explicit-exclude row,
-  connection, visual visibility, and pointer rectangle before bypassing the
-  all-row owner scan. Otherwise run the unchanged composed hit-test path.
-- Reuse the prior resolved hover only when non-empty overlay identity,
-  mode/Shift state, bridge generation, node identity/fingerprint, and connection
-  are unchanged. Reset the cache on every bridge/store/viewport-invalidating
-  transition already identified by the engine.
-- In `src/content/marking/renderer.ts:setHover()`, no-op when element and XPath
-  are unchanged so repeated events do not open a new geometry batch.
-- Add parity tests for implicit targets, widened exact-owner unmarking, Alt,
-  Shift, stale hints, invisible hints, navigation/generation changes, and
-  fallback hit-testing.
-- Focused validation: domain resolve, marking interaction/dom-bridge/renderer,
-  content entrypoint, and P14 smoke.
-- Rollback rule: any semantic row/classification difference disables the hint
-  fast path for that case; canonical resolution always wins.
+- Replace arbitrary DOM target selection in
+  `.temp/p24-side-by-side/run-flow-production.mjs` and its reusable helpers with
+  visible, connected, current-generation canonical target discovery.
+- Compare normalized row maps and exact XPath/classification changes before and
+  after each physical input. A clear passes when its owned explicit row is
+  removed, independent of the monotonic dirty counter.
+- Record delivered pointer events, presentation latency, overlay identity,
+  viewport/freeze/lazy state, semantic selector output, payload hygiene,
+  Content List row counts, and two-way focus evidence with explicit N/A reasons.
+- Use the configured AI timeout and distinguish `long_running`,
+  `terminal_error`, and `ui_wedge`. Stabilize Content List before reading rows.
+- Add a deterministic local harness self-test proving that a designed no-op is
+  not a failure and a successful clear cannot be misreported.
 
-### R4 — Make page-motion maintenance incremental
+### R4 — AI, Save, and Hub authority audit
 
-- In authored `src/page-world/program.ts`, make
-  `scheduleMotionEnforcement(root?: Element)` schedule collected work without
-  injecting a default root. Keep the initial explicit
-  `pauseMotionSources(documentElement)` full scan.
-- Add a minimal-root collector that discards a new descendant when an ancestor
-  is already queued and replaces queued descendants when a broader genuine
-  page-authored root arrives.
-- For child-list records, enqueue connected non-extension added element roots,
-  not their whole parent/document. For attributes, enqueue the target only when
-  the change is page-authored; compare `attributeOldValue` after stripping only
-  `uf-cursor-*` tokens, skip extension subtrees, and consume tracked
-  normalization-style writes.
-- Enumerate `document.getAnimations()` once per enforcement batch and reuse that
-  snapshot across minimal roots. Keep media, SVG, WAAPI, reveal normalization,
-  semantic-hidden preservation, restoration, and late/restarted source behavior
-  unchanged.
-- Generate `src/page-world/program.js` only through `pnpm page-world:generate`.
-- Focused validation: page-world program, source parity, motion freeze bridge,
-  stabilization, and full `pnpm test`.
-- Rollback rule: if a page-authored late animation is missed, broaden only that
-  record's minimal root; never restore unconditional document-root injection.
+- Trace AI start/poll/terminal generation through popup, background, content
+  organ, and curtain. Add missing `finally` cleanup or exact-generation tests
+  only where a code-owned terminal path can retain busy presentation.
+- Reproduce `stale_fence` against the authoritative Hub revisions. Inspect the
+  Hub mutation-fence implementation if the request and latest websocket lease
+  match; fix, test, commit, and deploy Alpha only for a proven backend defect.
+- Verify default environment endpoint selection. A production Hub missing the
+  rewrite `/context` contract remains a deployment blocker unless the extension
+  is incorrectly addressing it.
+- Preserve exactly one current-page Save per click and complete response
+  adoption. Never retry or publish around an authority refusal.
 
-### R5 — Add a frozen-surface browser performance gate and rerun A/B
+### R5 — Automated and clean-build acceptance
 
-- Extend the P14 performance harness or add a P23 companion scenario that uses
-  the production presentation scheduler with a deliberately starved page rAF,
-  physical mousemove/scroll inputs, retained overlay identities, and semantic
-  signature equality. Keep the existing clean-source, finite-timing, cardinality,
-  and page-error assertions.
-- Acceptance thresholds: every physical pointer sequence paints the latest
-  canonical target within 40 ms; silent geometry changes within 50 ms of each
-  scroll; no overlay node retirement on scroll/resize; no full-document motion
-  scan after extension-only mutations; current rows/classes equal the canonical
-  pre-optimization output.
-- Build production and debug artifacts. Using the repository `live-browser` /
-  `live-round` tooling and copied profile posture, rerun DPJ at 412x960 against
-  pinned legacy `28974c2a` and the rewrite. Capture frame-by-frame hover and
-  silent-scroll evidence with page debuggers detached during extension-owned
-  emulation.
-- Live acceptance: rewrite hover coverage is 100%, pointer-to-overlay p95 is no
-  slower than legacy plus 10 ms, eight distinct targets produce eight matching
-  frames, every silent scroll produces current geometry, and console/page error
-  sets are empty. Canonical rows, modifier behavior, exact unmarking, freeze,
-  consent exclusion, and payload hygiene remain unchanged.
-- Fallback rule: a timing miss returns to its owning R2-R4 slice; do not increase
-  the budget without retained profiler evidence identifying unavoidable browser
-  variance.
+- Run focused entrypoint, stabilization, marking, popup, AI, Save, content-list,
+  emulation, and harness tests after each slice.
+- Run `pnpm lint`, `pnpm check`, `pnpm test`, `pnpm build`,
+  `pnpm build:debug`, `pnpm verify`, P14–P20, P23, and the new P24 gate on a
+  clean source set.
+- Acceptance: activation acknowledgement never precedes reveal terminal proof;
+  immediate post-ack physical hover/click works; gesture row diffs pass; no
+  hidden exclusion paint; silent geometry survives scroll/resize; no unchecked
+  message errors; clean production/debug artifacts.
 
-### R6 — Integrated validation, durable evidence, review, and publication
+### R6 — Full headed side-by-side candidate comparison
 
-- Run `pnpm lint`, `pnpm check`, focused/full `pnpm test`, `pnpm build`,
-  `pnpm build:debug`, `pnpm verify`, the P14-P20 production gates, and the new
-  frozen-surface gate on a clean source set.
-- Record implementation, benchmark, live A/B, artifact identity, and exact
-  results in `.reimplementation/p23-frozen-surface-performance-report-2026-08-27.md`;
-  update `.copilot/knowledge.md` with the reusable scheduling/full-scan pitfall
-  and this execution checklist with the final evidence.
-- Perform a final high-signal diff review, explicitly stage only intended files,
-  commit, re-index the code graph, verify ahead/behind, push without force to
-  `origin/re-write`, verify 0/0 equality, and re-index the pushed HEAD.
+- Use the repository `live-browser`/`live-round` managed Chromium workflow and
+  the pinned legacy commit `28974c2a0c859c91a7167f4757cf84a47ea31e28`.
+  Copy the configured profile posture, but never launch OS Chrome or attach an
+  external debugger during extension-owned emulation.
+- Run the full flow, one property at a time, on Ledigajobb, DPJ, Aleris, Acne
+  Specialisten, Acapedia, Assist24, Arno, ArkivIT, Teknikhallen, and Humanova.
+  Probe 3D Prima and Bigbag, but classify site-owned 404/no-candidate outcomes
+  outside the valid-candidate pass denominator.
+- For both implementations record activation/reveal/freeze, 412x960 marking,
+  all modifier/context gestures, overlay responsiveness, consent/hidden paint,
+  AI start/terminal timing, payloads, Save/freshness where authority permits,
+  Content List/two-way focus, 1920x1080 silent mode, scroll/resize/lazy behavior,
+  Discard, checklist fencing, and console/network cleanliness.
+- Do not issue the final Lynx publish request. Report overall result, contract
+  matrix, performance/accuracy/similarity statistics, every code defect, and
+  every external or invalid-candidate blocker with retained artifacts.
+
+### R7 — Evidence, review, and publication
+
+- Write the durable P24 report under `.reimplementation/`, update this plan,
+  the execution checklist, and `.copilot/knowledge.md` with the false-metric and
+  premature-readiness lessons.
+- Review the complete diff and generated artifacts, explicitly stage intended
+  files, commit, refresh the code graph, fetch, push without force to
+  `origin/re-write`, verify 0 ahead / 0 behind, and index the pushed HEAD.
 
 ## Test matrix
 
-Execution result: focused 133/133; `pnpm verify` 129 files / 1,177 tests;
-production and debug builds; P14 192 scenarios; P15 36/36; P16 13/13; P17
-19/19; P18 14/14; P20 4/4; P23 24/24. Under permanently starved page rAF,
-physical hover latency was 21.0–22.4 ms and silent scroll latency was 22.6 ms,
-with unchanged canonical rows and no console/page errors. See
-`.reimplementation/p23-frozen-surface-performance-report-2026-08-27.md`.
-
-| Contract | Focused evidence | Browser/live evidence |
+| Contract | Automated proof | Headed proof |
 | --- | --- | --- |
-| Frozen-clock liveness | presentation clock, hover, geometry stabilizer | starved-rAF physical pointer/scroll gate |
-| Exactly-once/coalescing | scheduler cancellation/race tests | one paint per latest input, no stuck handle |
-| Marking semantic parity | resolve/store/dom-bridge/renderer tests | legacy/rewrite row and modifier equality |
-| Silent retention | scroll/resize overlay identity tests | every DPJ scroll changes current geometry |
-| Incremental freeze maintenance | page-world counters and late-source tests | no scan/CPU storm during hover mutations |
-| Existing architecture | full unit/source/integration suite | P14-P20 production/debug gates |
+| Activation occurrence | joined exact promise, stale document/URL tests | no usable toggle before reveal/freeze terminal |
+| Marking semantics | canonical row-map gesture tests | plain/Shift/Alt/exact-clear/context menu |
+| Responsive presentation | P23 + immediate-post-ack input gate | frame/latency comparison against legacy |
+| Hidden/consent exclusion | visibility/evidence/payload tests | no invisible paint; suppressed nodes absent |
+| AI lifecycle | exact run-generation terminal cleanup | start delay, terminal timing, curtain release |
+| Content List | stabilized rows and typed two-way routing | row/page focus in marking and silent modes |
+| Emulation/silent posture | serialized transition tests | 412x960 marking, 1920x1080 silent |
+| Save/authority | one-request/freshness/fence tests | HTTP outcome and complete adoption |
+| Reveal/freeze/lazy | one-visit occurrence tests | smooth top/mid/bottom/start, freeze retained |
+| Payload/publication | capture hygiene and coverage fence tests | payload inspection; no final Lynx publish |
 
-## Regression risks
+## Regression risks and rollback rules
 
-- A fallback and native rAF can race. The logical handle registry removes the
-  entry before invoking user code and cancels the losing primitive; tests cover
-  both callback orders and synchronous fakes.
-- A hint could become stale after DOM rebase. Generation, fingerprint, canonical
-  row, connection, visibility, and rect checks are mandatory; failure uses the
-  existing resolver.
-- Incremental motion discovery could miss a late descendant. Child-list roots
-  include every non-extension added element and genuine page-authored attribute
-  targets; late WAAPI/media/SVG tests remain binding.
-- Filtering class mutations could hide a real page class change. Comparison
-  removes only `uf-cursor-*`; every other token difference remains page-authored.
-- A 20 ms fallback can run outside a paint callback. Overlay writes remain one
-  coalesced geometry batch and the following browser paint is measured by the
-  physical acceptance gate.
+- Awaiting reveal can make activation visibly longer. The popup must show a
+  truthful preparing state and bounded failure, never restore premature input.
+- Two callers can race one ritual. One occurrence promise and generation-fenced
+  terminal cleanup must prevent duplicate walks or one caller clearing another's
+  curtain.
+- Dynamic pages can rebase rows during a gesture. Harness assertions use exact
+  owner XPath/classification and current-generation rows; an invalidated target
+  is retried as a new measurement, not counted as a semantic failure.
+- Backend fence repair can broaden mutation authority accidentally. Any Hub
+  change requires focused concurrency tests and Alpha deployment only; client
+  fences remain unchanged.
+- If the full suite finds a page that legitimately never becomes load-ready,
+  the existing bounded load fallback remains. Do not turn activation back into
+  fire-and-forget.
 
 ## Acceptance criteria
 
-- With page rAF permanently starved, marking hover, marking scroll, silent
-  scroll, resize, and geometry stabilization continue after every input; no
-  scheduling handle remains permanently armed.
-- DPJ rewrite hover coverage is 100%, eight tested target positions paint eight
-  correct target states, and input-to-overlay p95 is no slower than pinned
-  legacy plus 10 ms.
-- Silent highlight nodes remain mounted and their geometry follows every tested
-  scroll/resize within 50 ms.
-- Freeze engagement performs one full document discovery; later extension UI,
-  cursor, and normalization mutations perform zero full-document scans, while
-  genuine late page animations/media/SVG sources are still paused.
-- Canonical rows, classifications, Shift-only widening, Alt include, exact-owner
-  unmarking, consent exclusion, capture/payload output, reveal/freeze lifetime,
-  and publication fences are unchanged.
-- All focused, full, production/debug, P14-P20, P23 browser, review, commit,
-  graph-index, and non-force push gates pass.
+- Every successful Enable marking acknowledgement proves the exact current
+  document is revealed/frozen, the preparation curtain is gone, and the first
+  physical hover/click is accepted immediately.
+- Plain click never widens; Shift alone widens; Alt creates explicit inclusion
+  on eligible implicit content; exact widened-owner unmark works without a key;
+  hidden exclusions never paint; canonical extraction state is unchanged.
+- The corrected harness cannot report a successful clear as failure and cannot
+  treat a designed no-op on already excluded content as a gesture defect.
+- Silent highlights and Content List become ready without remote-poll delay,
+  remain current through scroll/resize, and work in both focus directions.
+- AI/Save busy presentation terminates exactly with its authoritative operation;
+  Save remains one request and stale authority remains fenced.
+- All automated production/debug gates pass, the full valid-candidate headed
+  legacy/rewrite matrix is retained, code-owned regressions are fixed, and
+  external/candidate blockers are explicitly separated from product failures.
 
-## Todo chain
+## Execution record — 2026-08-27
 
-1. `p23-characterize-frozen-presentation`
-2. `p23-extension-presentation-clock`
-3. `p23-hover-hotpath-parity`
-4. `p23-incremental-motion-maintenance`
-5. `p23-browser-performance-acceptance`
-6. `p23-integrated-review-push`
+- R1 completed: page-load, render-mode preparation, and activation now join one
+  exact URL/document/lifecycle/route occurrence. Activation awaits a prepared,
+  frozen ritual and installed interactions before acknowledging success.
+- R2 partially completed: explicit decision-row count, presentation phase, and
+  ritual status are exposed; strict popup acknowledgement is enforced. The live
+  matrix still found one Humanova invisible-target overlay and Teknikhallen could
+  not apply emulation.
+- R3 completed: canonical row-map evidence replaces the monotonic dirty-toggle
+  count, and exact widened-owner clearing is tested independently.
+- R4 completed for the proven Hub defect: Hub commit `ff4a460` refreshes
+  persisted mutation authority under the gate; Alpha release
+  `v2026.11-alpha.14` is live. Eight current rewrite Saves returned one HTTP 200
+  apiece with no `stale_fence`.
+- R5 completed: final `pnpm verify` passed (130 files / 1,181 tests), debug
+  build passed, P14 passed 192/192, P15 36/36, P16 13/13, P17 19/19,
+  P18 14/14, P20 4/4, and P23 24/24 on clean source sets where required.
+  The clean P15 pass first exposed and then verified the terminal orphan-root
+  cleanup repair.
+- R6 completed as an evidence pass, not an acceptance pass. Nine rewrite core
+  flows reached AI; eight reached one successful Save. Current legacy Alpha
+  runs were mostly fenced before AI, so the pinned retained production baseline
+  is used for comparable performance while current failures are reported
+  separately.
+- R7 report completed. P24 remains open for Teknikhallen emulation,
+  Ledigajobb AI/list, DPJ freshness/list, Humanova hidden paint, and
+  observer-free sequential-transition rechecks.

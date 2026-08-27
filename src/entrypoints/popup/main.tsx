@@ -1792,13 +1792,23 @@ async function requestContentActivation(
     const acknowledgement = data as {
       interactionsReady?: unknown;
       interactionsReason?: unknown;
+      ritual?: unknown;
     };
-    if (acknowledgement.interactionsReady === false) {
+    if (acknowledgement.interactionsReady !== true) {
       return {
         activated: false,
         reason: typeof acknowledgement.interactionsReason === "string" && acknowledgement.interactionsReason
           ? acknowledgement.interactionsReason
           : "the marking layer did not become interaction-ready",
+      };
+    }
+    const ritual = acknowledgement.ritual && typeof acknowledgement.ritual === "object"
+      ? acknowledgement.ritual as { status?: unknown; frozenAtBottom?: unknown }
+      : null;
+    if (!ritual || ritual.status !== "prepared" || ritual.frozenAtBottom !== true) {
+      return {
+        activated: false,
+        reason: "the page reveal and freeze occurrence did not become ready",
       };
     }
     return { activated: true };

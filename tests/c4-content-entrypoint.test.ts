@@ -175,6 +175,24 @@ function mockFastRevealVisit(): void {
   });
 }
 
+function mockAlreadyPreparedPageVisit(): void {
+  vi.doMock("../src/content/stabilization", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("../src/content/stabilization")>();
+    return {
+      ...actual,
+      createRevealVisitController: () => ({
+        resetForNavigation: vi.fn(),
+        async runTask() {
+          return { skipped: false, lazyExpansions: 0, frozenAtBottom: true };
+        },
+        async run() {
+          return { skipped: false, lazyExpansions: 0, frozenAtBottom: true };
+        },
+      }),
+    };
+  });
+}
+
 function commandFrame(name: string, payload: Record<string, unknown> = {}, tabId = 77): BusFrame {
   commandSeq += 1;
   return {
@@ -2060,6 +2078,7 @@ describe("C4 rewrite content entrypoints", () => {
     const markingOverlay = {
       className: "uf-marking-layer-root",
       style: { pointerEvents: "auto", zIndex: "2147483647" },
+      remove: vi.fn(),
     } as unknown as HTMLElement;
     const engine = {
       refresh: vi.fn(),
@@ -2154,6 +2173,10 @@ describe("C4 rewrite content entrypoints", () => {
         },
         createElement,
         getElementById: vi.fn((id: string) => contentElements.find((element) => element.id === id) ?? null),
+        querySelectorAll: vi.fn((selector: string) => selector ===
+            '.uf-marking-layer-root[data-uf-extension-ui="true"]'
+          ? [markingOverlay]
+          : []),
         addEventListener: vi.fn((type: string, listener: EventListener) => {
           documentListeners.set(type, listener);
         }),
@@ -2253,6 +2276,9 @@ describe("C4 rewrite content entrypoints", () => {
       element.attributes["data-uf-content-curtain-copy"] === "true"
       && element.textContent === "Inspecting page... it will be ready soon"
     )).toBe(true);
+    expect(contentRoot?.children.some((element) =>
+      element.attributes["data-uf-content-curtain"] === "true"
+    )).toBe(false);
     // Escape safety is installed at document_start, ahead of the interaction
     // shield, so Preview can always request its normal restoration path even
     // before marking listeners exist.
@@ -2265,10 +2291,13 @@ describe("C4 rewrite content entrypoints", () => {
       dirty: false,
       pageUrl: pageUrl.href,
       markedCount: 0,
+      decisionRowCount: 1,
       contentRows: [{ xpath: "/html[1]/body[1]/p[1]", classification: "excluded" }],
       sessionState: { name: "boot" },
       authority: { configPresent: true, lockRole: "editor", lockBlocked: false },
       presentation: { markingEditsBlocked: false, pageInputBlocked: false },
+      presentationPhase: "interactive",
+      ritual: { status: "prepared", frozenAtBottom: true },
       tree: "rewrite",
     });
     expect(inspectionCurtainHarness.instances).toHaveLength(0);
@@ -2660,6 +2689,7 @@ describe("C4 rewrite content entrypoints", () => {
     await Promise.resolve();
     await Promise.resolve();
     expect(engine.dispose).toHaveBeenCalledTimes(5);
+    expect(markingOverlay.remove).toHaveBeenCalledOnce();
     expect(contentRoot?.isConnected).toBe(false);
     expect(currentToast()).toBeUndefined();
     expect(shield?.dispose).toHaveBeenCalledOnce();
@@ -2870,19 +2900,26 @@ describe("C4 rewrite content entrypoints", () => {
     ) => unknown;
     delaySignals = true;
     await applyLockState(listener);
-    await dispatchContentCommand(listener, "activateContentMain", { pageUrl: pageUrl.href });
+    const activationResponse = vi.fn();
+    expect(listener(
+      commandFrame("activateContentMain", { pageUrl: pageUrl.href }),
+      {},
+      activationResponse,
+    )).toBe(true);
     for (let attempt = 0; attempt < 20 && pendingMotion === null; attempt += 1) {
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
     expect(pendingMotion).not.toBeNull();
+    expect(activationResponse).not.toHaveBeenCalled();
     const contentRoot = elements.find((element) =>
       element.attributes["data-uf-content-surface-root"] === "true"
     );
     expect(contentRoot?.isConnected).toBe(true);
 
     invalidate?.();
-    expect(engine.dispose).toHaveBeenCalledOnce();
+    // Marking is not constructed until this exact reveal occurrence settles.
+    expect(engine.dispose).not.toHaveBeenCalled();
     releaseSignals?.();
     const motion = pendingMotion as { nonce: string; command: string } | null;
     expect(motion).not.toBeNull();
@@ -2902,6 +2939,18 @@ describe("C4 rewrite content entrypoints", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
 
+    expect(activationResponse).toHaveBeenCalledWith(expect.objectContaining({
+      frameType: "reply",
+      ok: true,
+      payload: expect.objectContaining({
+        ok: true,
+        data: expect.objectContaining({
+          ok: false,
+          interactionsReady: false,
+          reason: "page-visit-identity-changed",
+        }),
+      }),
+    }));
     expect(scrollTo).not.toHaveBeenCalled();
     expect(posted).toContainEqual(expect.objectContaining({
       command: "DESTROY",
@@ -2919,6 +2968,7 @@ describe("C4 rewrite content entrypoints", () => {
   });
 
   it("pauses and resumes marking interactions without clearing dirty state", async () => {
+    mockAlreadyPreparedPageVisit();
     const addListener = vi.fn();
     const pageUrl = installTestLocation();
     const documentListeners = new Map<string, EventListener>();
@@ -2982,6 +3032,7 @@ describe("C4 rewrite content entrypoints", () => {
   });
 
   it("reconciles listeners after a transient lock without requiring a prior explicit pause", async () => {
+    mockAlreadyPreparedPageVisit();
     const addListener = vi.fn();
     const pageUrl = installTestLocation();
     const documentListeners = new Map<string, EventListener>();
@@ -3132,6 +3183,7 @@ describe("C4 rewrite content entrypoints", () => {
   });
 
   it("deactivates active marking on same-document URL changes without popup polling", async () => {
+    mockAlreadyPreparedPageVisit();
     const addListener = vi.fn();
     const windowListeners: TestListenerRegistry = new Map();
     const engine = {

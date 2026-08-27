@@ -269,7 +269,10 @@ async function dispatch(name: string, payload: Record<string, unknown> = {}): Pr
       let settled = false;
       const timer = setTimeout(() => {
         if (!settled) reject(new Error(`Timed out dispatching P18 content command ${name}`));
-      }, 5_000);
+      // Activation now acknowledges the exact reveal/freeze occurrence instead
+      // of returning while the inspection curtain still owns pointer input.
+      // The fixture must allow that shipping preparation contract to finish.
+      }, 30_000);
       const sendResponse = (value: unknown): void => {
         if (settled) return;
         settled = true;
