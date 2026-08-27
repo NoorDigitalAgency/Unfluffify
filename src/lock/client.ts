@@ -14,6 +14,7 @@ import {
   PROPERTY_LOCK_HEARTBEAT_INTERVAL_MS,
   PROPERTY_LOCK_RECONNECT_DELAY_MS,
   PROPERTY_LOCK_RECONNECT_MAX_DELAY_MS,
+  PROPERTY_LOCK_STATUS_REFRESH_TIMEOUT_MS,
 } from "./timings";
 
 export type WebSocketLike = Readonly<{
@@ -97,6 +98,38 @@ export function createPropertyLockClient(input: Readonly<{
     type: LockClientMessageType;
     extra?: Readonly<Record<string, string | number | boolean>>;
   }> = [];
+  let authoritativeStatusOccurrence = 0;
+  const statusWaiters = new Set<{
+    afterOccurrence: number;
+    timeout: ReturnType<typeof setTimeout>;
+    resolve: (state: PropertyLockState | null) => void;
+  }>();
+
+  const resolveStatusWaiters = (next: PropertyLockState | null): void => {
+    for (const waiter of [...statusWaiters]) {
+      if (next !== null && authoritativeStatusOccurrence <= waiter.afterOccurrence) {
+        continue;
+      }
+      statusWaiters.delete(waiter);
+      clearTimeout(waiter.timeout);
+      waiter.resolve(next);
+    }
+  };
+
+  const waitForStatusAfter = (
+    afterOccurrence: number,
+    timeoutMs: number,
+  ): Promise<PropertyLockState | null> => new Promise((resolve) => {
+    const waiter = {
+      afterOccurrence,
+      timeout: setTimeout(() => {
+        statusWaiters.delete(waiter);
+        resolve(null);
+      }, Math.max(0, timeoutMs)),
+      resolve,
+    };
+    statusWaiters.add(waiter);
+  });
 
   const transferEnvelope = (): Readonly<Record<string, string | number | boolean>> => ({
     operationId: operationId(),
@@ -197,6 +230,7 @@ export function createPropertyLockClient(input: Readonly<{
     currentSocket = null;
     socketOpen = false;
     subscribed = false;
+    resolveStatusWaiters(null);
     setState({
       ...state,
       role: "unknown",
@@ -296,6 +330,10 @@ export function createPropertyLockClient(input: Readonly<{
       const next = reducePropertyLockState(state, message);
       observeAuthoritativeOwnership(message, next);
       setState(next);
+      if (message.type === "lock_state") {
+        authoritativeStatusOccurrence += 1;
+        resolveStatusWaiters(next);
+      }
     });
     socket.addEventListener("error", () => {
       if (currentSocket !== socket || disposed) {
@@ -372,6 +410,36 @@ export function createPropertyLockClient(input: Readonly<{
     clientStatus(): void {
       send("client_status");
     },
+    async refreshStatus(timeoutMs = PROPERTY_LOCK_STATUS_REFRESH_TIMEOUT_MS): Promise<PropertyLockState | null> {
+      if (disposed) {
+        return null;
+      }
+      const deadline = Date.now() + Math.max(0, timeoutMs);
+      // A status heartbeat only mirrors the authority row. It does not run
+      // Hub's grant-time candidate-feed reconciliation, so a property whose
+      // stored snapshot advanced out of band can still reject the following
+      // mutation with a stale fence. Reacquiring the lock for this same
+      // editor session is Hub's authoritative mutation-fence refresh: it
+      // reconciles the feed first and returns the complete current grant.
+      //
+      // Run a drain round before the fence round. Save reconciliation reports
+      // presence/dirty facts immediately before this call, and their earlier
+      // client_status response may already be in flight. Without the drain,
+      // that older frame can satisfy the waiter before the take_lock response
+      // carrying Hub's reconciled mutation fence arrives.
+      const drain = waitForStatusAfter(authoritativeStatusOccurrence, deadline - Date.now());
+      send("take_lock");
+      if (await drain === null || disposed) {
+        return null;
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        return null;
+      }
+      const refreshed = waitForStatusAfter(authoritativeStatusOccurrence, remaining);
+      send("take_lock");
+      return await refreshed;
+    },
     suggestTakeover(): void {
       send("suggest_takeover");
     },
@@ -400,6 +468,7 @@ export function createPropertyLockClient(input: Readonly<{
       currentSocket = null;
       socketOpen = false;
       subscribed = false;
+      resolveStatusWaiters(null);
       socket?.close();
       pendingFrames.splice(0);
     },

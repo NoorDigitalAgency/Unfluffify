@@ -122,6 +122,16 @@ export function createInteractionShield(
   let mounted = false;
   let disposed = false;
   let syncScheduled = false;
+  let wheelFallbackOccurrence = 0;
+  let pendingWheelFallback: {
+    occurrence: number;
+    shield: HTMLElement;
+    scrollTarget: Element;
+    beforeLeft: number;
+    beforeTop: number;
+    deltaX: number;
+    deltaY: number;
+  } | null = null;
 
   const isolateAtExtensionBoundary = (event: Event): void => {
     isolateExtensionInput(event);
@@ -423,10 +433,78 @@ export function createInteractionShield(
     return "page";
   };
 
+  const scheduleWheelFallback = (event: Event): void => {
+    if (event.type !== "wheel" || !view || !shield) {
+      return;
+    }
+    const wheel = event as WheelEvent;
+    const multiplier = wheel.deltaMode === 1
+      ? 16
+      : wheel.deltaMode === 2
+        ? Math.max(1, view.innerHeight)
+        : 1;
+    const deltaX = Number.isFinite(wheel.deltaX) ? wheel.deltaX * multiplier : 0;
+    const deltaY = Number.isFinite(wheel.deltaY) ? wheel.deltaY * multiplier : 0;
+    if (deltaX === 0 && deltaY === 0) {
+      return;
+    }
+    const scrollTarget = document.scrollingElement ?? document.documentElement;
+    if (!scrollTarget) {
+      return;
+    }
+    if (
+      pendingWheelFallback &&
+      pendingWheelFallback.shield === shield &&
+      pendingWheelFallback.scrollTarget === scrollTarget
+    ) {
+      pendingWheelFallback.deltaX += deltaX;
+      pendingWheelFallback.deltaY += deltaY;
+      return;
+    }
+    const occurrence = ++wheelFallbackOccurrence;
+    pendingWheelFallback = {
+      occurrence,
+      shield,
+      scrollTarget,
+      beforeLeft: scrollTarget.scrollLeft,
+      beforeTop: scrollTarget.scrollTop,
+      deltaX,
+      deltaY,
+    };
+    // Reveal/freeze intentionally suspends the page animation clock. Use the
+    // next task, not requestAnimationFrame, so the fallback remains available
+    // while still running after the native wheel default action.
+    const scheduleTask = view.setTimeout?.bind(view) ?? setTimeout;
+    scheduleTask(() => {
+      const pending = pendingWheelFallback;
+      if (
+        !pending ||
+        pending.occurrence !== occurrence ||
+        !mounted ||
+        shield !== pending.shield
+      ) {
+        return;
+      }
+      pendingWheelFallback = null;
+      // Native wheel scrolling remains primary. Some properties retain a
+      // page-owned root scroll lock after reveal/freeze; only when the native
+      // frame made no progress do we advance the same document scroller.
+      if (
+        pending.scrollTarget.scrollLeft !== pending.beforeLeft ||
+        pending.scrollTarget.scrollTop !== pending.beforeTop
+      ) {
+        return;
+      }
+      pending.scrollTarget.scrollLeft = pending.beforeLeft + pending.deltaX;
+      pending.scrollTarget.scrollTop = pending.beforeTop + pending.deltaY;
+    }, 0);
+  };
+
   const filterInput = (event: Event): void => {
     const target = classifyInputTarget(event);
     if (target === "shield") {
       options.onShieldInput?.(event);
+      scheduleWheelFallback(event);
     }
     filterContentInput(event, target);
   };
@@ -502,6 +580,8 @@ export function createInteractionShield(
     }
     mounted = false;
     syncScheduled = false;
+    wheelFallbackOccurrence += 1;
+    pendingWheelFallback = null;
     observer?.disconnect();
     observer = null;
     removeInputListeners();

@@ -95,6 +95,10 @@ class FakeElement extends FakeEventTarget {
   parentElement: FakeElement | null = null;
   clientWidth = 1_024;
   clientHeight = 768;
+  scrollWidth = 1_024;
+  scrollHeight = 2_000;
+  scrollLeft = 0;
+  scrollTop = 0;
 
   constructor(readonly tagName: string) {
     super();
@@ -184,14 +188,41 @@ class FakeWindow extends FakeEventTarget {
   innerWidth = 1_024;
   innerHeight = 768;
   visualViewport: FakeVisualViewport | undefined = new FakeVisualViewport();
+  private animationFrames: FrameRequestCallback[] = [];
+  private tasks: Array<() => void> = [];
 
   queueMicrotask(callback: VoidFunction): void {
     queueMicrotask(callback);
+  }
+
+  requestAnimationFrame(callback: FrameRequestCallback): number {
+    this.animationFrames.push(callback);
+    return this.animationFrames.length;
+  }
+
+  flushAnimationFrames(): void {
+    const frames = this.animationFrames.splice(0);
+    for (const callback of frames) {
+      callback(0);
+    }
+  }
+
+  setTimeout(callback: () => void): number {
+    this.tasks.push(callback);
+    return this.tasks.length;
+  }
+
+  flushTasks(): void {
+    const tasks = this.tasks.splice(0);
+    for (const callback of tasks) {
+      callback();
+    }
   }
 }
 
 class FakeDocument extends FakeEventTarget {
   readonly documentElement = new FakeElement("HTML");
+  readonly scrollingElement = this.documentElement;
 
   constructor(readonly defaultView: FakeWindow) {
     super();
@@ -264,12 +295,21 @@ function styleOf(element: FakeElement, property: string): readonly [string, stri
 function inputEvent(
   type: string,
   path: readonly FakeEventTarget[],
-  options: Readonly<{ cancelable?: boolean; pointerType?: string }> = {},
+  options: Readonly<{
+    cancelable?: boolean;
+    pointerType?: string;
+    deltaX?: number;
+    deltaY?: number;
+    deltaMode?: number;
+  }> = {},
 ) {
   return {
     type,
     cancelable: options.cancelable ?? true,
     pointerType: options.pointerType,
+    deltaX: options.deltaX ?? 0,
+    deltaY: options.deltaY ?? 0,
+    deltaMode: options.deltaMode ?? 0,
     target: path[0] ?? null,
     composedPath: () => path,
     preventDefault: vi.fn(),
@@ -462,11 +502,28 @@ describe("interaction shield controller", () => {
     expect(onShieldInput).toHaveBeenCalledOnce();
     expect(onShieldInput).toHaveBeenCalledWith(expect.objectContaining({ type: "click" }));
 
-    const wheel = inputEvent("wheel", [shield, context.document.documentElement, context.window]);
+    context.document.scrollingElement.scrollTop = 100;
+    const wheel = inputEvent(
+      "wheel",
+      [shield, context.document.documentElement, context.window],
+      { deltaY: 240 },
+    );
     context.window.dispatch("wheel", wheel as unknown as Event);
     expect(wheel.preventDefault).not.toHaveBeenCalled();
     expect(wheel.stopPropagation).toHaveBeenCalledOnce();
     expect(wheel.stopImmediatePropagation).toHaveBeenCalledOnce();
+    context.window.flushTasks();
+    expect(context.document.scrollingElement.scrollTop).toBe(340);
+
+    const nativeWheel = inputEvent(
+      "wheel",
+      [shield, context.document.documentElement, context.window],
+      { deltaY: 240 },
+    );
+    context.window.dispatch("wheel", nativeWheel as unknown as Event);
+    context.document.scrollingElement.scrollTop = 580;
+    context.window.flushTasks();
+    expect(context.document.scrollingElement.scrollTop).toBe(580);
 
     const touchPointer = inputEvent(
       "pointermove",

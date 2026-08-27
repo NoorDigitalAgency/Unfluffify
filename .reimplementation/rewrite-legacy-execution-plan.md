@@ -1040,6 +1040,21 @@ in the owning phase and rerun its focused gate plus P9–P11.
     no Save or publication request was issued. See
     [`p21-humanova-live-sanity-report-2026-08-26.md`](./p21-humanova-live-sanity-report-2026-08-26.md).
 
+- [ ] P22 — Cross-property workflow remediation
+  - Refresh the authoritative websocket mutation fence before the one permitted
+    Save request; stale or timed-out refreshes fail locally with visible copy.
+  - Make current-tab dirty projection direct and sub-second, and make AI start
+    acknowledgement bounded, event-assisted, and exact-generation fenced.
+  - Clear widened exclusions by exact overlay ownership and suppress live
+    rectangles for visually hidden exclusions without changing extraction state.
+  - Reconcile authoritative silent selectors with Content List availability and
+    provide a no-double-scroll shield fallback for site-owned scroll locks.
+  - Preserve consent suppression and persistent reveal/freeze/lazy ownership.
+  - Acceptance requires focused regressions, full verify/build and P14–P20
+    gates, a clean headed rerun across every usable supplied candidate, evidence,
+    review, commit, graph refresh, and non-force push. See
+    [`p22-cross-property-workflow-remediation-plan-2026-08-27.md`](./p22-cross-property-workflow-remediation-plan-2026-08-27.md).
+
 For each completed item, append the commit SHA(s), exact test command, result,
 and any live artifact/version directly beneath the checkbox. The first unchecked
 phase whose dependencies are complete is the sole resume pointer.

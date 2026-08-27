@@ -62,6 +62,12 @@ const LAYER_BY_CLASSIFICATION: Readonly<Record<Classification, LayerKey>> = {
   "closed-shadow": "hard",
 };
 
+const LIVE_VISIBILITY_EXCLUSION_CLASSIFICATIONS: ReadonlySet<Classification> = new Set([
+  "exception",
+  "immutable",
+  "closed-shadow",
+]);
+
 const styleLeases = new WeakMap<Document, { element: HTMLStyleElement; count: number }>();
 
 function retainOverlayStyles(document: Document): () => void {
@@ -180,6 +186,43 @@ function rawClientRectsFor(element: Element): RectLike[] {
     return measurable;
   }
   return nearestDescendantRects(element, () => true);
+}
+
+function composedParentElement(element: Element): Element | null {
+  if (element.parentElement) {
+    return element.parentElement;
+  }
+  const root = element.getRootNode?.();
+  return root && "host" in root ? (root as ShadowRoot).host : null;
+}
+
+/** Paint hit-testing alone is insufficient for opacity-zero UI: browsers keep
+ * such elements pointer-addressable. Recheck the live composed ancestor chain
+ * before drawing an exclusion while leaving the evaluator's extraction state
+ * untouched. */
+export function isCurrentlyVisuallyVisible(element: Element): boolean {
+  const view = element.ownerDocument.defaultView;
+  if (!view) {
+    return false;
+  }
+  let current: Element | null = element;
+  while (current) {
+    const html = current as HTMLElement;
+    const style = view.getComputedStyle(current);
+    if (
+      html.hidden === true ||
+      current.hasAttribute("hidden") ||
+      current.getAttribute("aria-hidden") === "true" ||
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      style.visibility === "collapse" ||
+      Number(style.opacity) <= 0.01
+    ) {
+      return false;
+    }
+    current = composedParentElement(current);
+  }
+  return true;
 }
 
 function placeOverlay(overlay: HTMLElement, rect: RectLike): void {
@@ -327,7 +370,10 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     if (!target) {
       return;
     }
-    if (classification === "exception" && !target.visible) {
+    const visuallyHiddenExclusion = LIVE_VISIBILITY_EXCLUSION_CLASSIFICATIONS.has(classification)
+      && !isCurrentlyVisuallyVisible(target.element);
+    const unpaintedException = classification === "exception" && !target.visible;
+    if (visuallyHiddenExclusion || unpaintedException) {
       return;
     }
     const layerKey = LAYER_BY_CLASSIFICATION[classification];
@@ -392,6 +438,11 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     const drawPresentation = (xpath: string, requestedPresentation: string): void => {
       const target = byXpath.get(xpath);
       if (!target) {
+        return;
+      }
+      const isExcludedPresentation = requestedPresentation.includes("uf-silent-immutable")
+        || requestedPresentation.includes("uf-silent-excluded");
+      if (isExcludedPresentation && !isCurrentlyVisuallyVisible(target.element)) {
         return;
       }
       const presentation = requestedPresentation === "uf-silent-content" && !target.visible

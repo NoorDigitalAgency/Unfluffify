@@ -461,6 +461,87 @@ describe("P9 property-lock client", () => {
     expect(ws.sent.filter((frame) => JSON.parse(frame).type === "heartbeat")).toHaveLength(1);
   });
 
+  it("drains an in-flight status frame before resolving the reacquired mutation fence", async () => {
+    const ws = fakeSocket();
+    const client = createPropertyLockClient({
+      socket: ws.socket,
+      editorSession: editorSession(),
+      persistEditorSession() {},
+    });
+    ws.emit("open");
+    ws.emit("message", JSON.stringify({ type: "subscribed", editorSessionId: "editor-1" }));
+    ws.emit("message", JSON.stringify({
+      type: "lock_state",
+      state: "locked",
+      isEditor: true,
+      editorSessionId: "editor-1",
+      lockToken: "old-fence",
+      propertyRevision: 4,
+      feedRevision: 2,
+    }));
+
+    const refresh = client.refreshStatus(1_000);
+    expect(JSON.parse(ws.sent.at(-1) ?? "{}")).toMatchObject({
+      type: "take_lock",
+      editorSessionId: "editor-1",
+      lockToken: "old-fence",
+    });
+    ws.emit("message", JSON.stringify({ type: "inactivity_warning", secondsRemaining: 60 }));
+    let settled = false;
+    void refresh.then(() => { settled = true; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    ws.emit("message", JSON.stringify({
+      type: "lock_state",
+      state: "locked",
+      isEditor: true,
+      editorSessionId: "editor-1",
+      lockToken: "old-fence",
+      propertyRevision: 4,
+      feedRevision: 2,
+    }));
+    await Promise.resolve();
+    expect(ws.sent.map((frame) => JSON.parse(frame).type).filter((type) => type === "take_lock")).toHaveLength(2);
+    expect(settled).toBe(false);
+
+    ws.emit("message", JSON.stringify({
+      type: "lock_state",
+      state: "locked",
+      isEditor: true,
+      editorSessionId: "editor-1",
+      lockToken: "current-fence",
+      propertyRevision: 5,
+      feedRevision: 3,
+    }));
+    await expect(refresh).resolves.toMatchObject({
+      lockToken: "current-fence",
+      propertyRevision: 5,
+      feedRevision: 3,
+    });
+    client.close();
+  });
+
+  it("fails a mutation refresh closed when no newer lock state arrives", async () => {
+    vi.useFakeTimers();
+    try {
+      const ws = fakeSocket();
+      const client = createPropertyLockClient({
+        socket: ws.socket,
+        editorSession: editorSession(),
+        persistEditorSession() {},
+      });
+      ws.emit("open");
+      ws.emit("message", JSON.stringify({ type: "subscribed", editorSessionId: "editor-1" }));
+      const refresh = client.refreshStatus(250);
+      await vi.advanceTimersByTimeAsync(250);
+      await expect(refresh).resolves.toBeNull();
+      client.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("deduplicates queued frames until the editor session subscription is acknowledged", () => {
     const ws = fakeSocket();
     const client = createPropertyLockClient({

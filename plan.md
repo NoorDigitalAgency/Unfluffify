@@ -1,105 +1,273 @@
-# Humanova marking, preview, and stabilization remediation
+# P22 cross-property workflow remediation
 
-**Status:** Complete — all six phases and the headed acceptance passed on
-2026-08-26. Evidence is recorded in
-`.reimplementation/p21-humanova-live-sanity-report-2026-08-26.md`.
+**Status:** In progress — planned 2026-08-27 from the complete headed
+candidate round recorded in
+`.reimplementation/p20-all-candidate-properties-headed-workflow-report-2026-08-26.md`.
 
 ## Goal
 
-Restore the latest legacy interaction contract for explicit/implicit markings, make Content List and silent preview immediate and genuinely two-way, and restore the legacy smooth reveal/freeze sequence without regressing P14–P20 lifecycle, payload, lock, or consent guarantees.
+Close the cross-property Save, AI-start, dirty-projection, marking-overlay,
+silent Content List, and shield-scroll failures without changing consent
+suppression, persistent reveal/freeze ownership, extraction payloads, render
+mode semantics, or publication fences. P22 completes only after the automated
+gates and a clean repository-live-browser rerun pass on every currently usable
+candidate.
 
-## Observed facts
+## Current facts
 
-- Humanova live-watch confirmed that activation and Run AI latency are fixed, but invisible exclusions can still draw raw fallback rectangles.
-- Shift is the widening modifier in the latest legacy implementation. A plain click targets the nearest boundary and can remove that exact mark; Shift is required to create or manipulate a widened exclusion.
-- Alt changes the cursor in the rewrite, but include resolution currently requires an excluded context. This prevents explicit inclusion of otherwise implicitly/default-included content and disables the equivalent context-menu action.
-- Clear resolves only the point's nearest exact explicit node. It cannot find the explicit widened ancestor represented by the visible overlay.
-- Content List opening waits for binding, signals, lock, and brain acknowledgement before requesting the local projection; open projections are then re-requested on the 500 ms lane.
-- Popup-row to page activation exists. The reverse page-highlight to popup-row focus edge from the latest legacy implementation is absent.
-- Silent scroll currently hides the retained overlay layer and waits 120 ms plus a repaint/reprojection path. Resize rebuilds silent projection geometry.
-- The rewrite reveal uses instant scrolling and reaches the bottom before lazy-load suppression. Latest legacy smoothly scrolls to top, engages lazy suppression at the midpoint, continues through growth, freezes at the real bottom, and restores the starting position.
-- Consent suppression remains intentional extraction hygiene. Suppressed nodes must remain absent from markings, preview rows, AI HTML, and payloads.
+- The source baseline is `93bc2b2347779fd1e7d19bf8e524f07f8d898789` on
+  `re-write`; `origin/re-write` was synchronized at 0 ahead / 0 behind before
+  planning. The only pre-existing worktree addition is the headed-round report.
+- `pnpm verify`, the debug build, and P14–P20 controlled browser gates are green,
+  so the failures are production-shaped integration gaps not broad baseline
+  breakage.
+- Five usable candidates returned HTTP 409 on Save. The popup re-reads its local
+  lock directive immediately before `/save`, but that directive does not ask the
+  websocket lock client for a new authoritative `lock_state` and wait for it.
+  Retrying behind the operator's click is forbidden; the one request must carry
+  the refreshed fence.
+- Teknikhallen never reached `/get_selectors`. Its failure is the three-second
+  synchronous `syncContentSignals` race after the brain accepted `ai-run-started`.
+  A single slow content drain is classified as terminal instead of using the
+  existing signals-available/backstop lifecycle within one bounded generation.
+- Marking changes do emit brain-owned `markings.changed`, but the event-driven
+  popup path enters `pollFastSignalsOnce`, which resolves the tab and reapplies
+  session emulation before pulling the already-bound signal. This explains the
+  2.7–4.7 second dirty projection on several sites.
+- Widened exclusions are stored correctly. Physical clicks over extension
+  rectangles discard the overlay from DOM hit-testing and try to rediscover the
+  owner through page paint hits, so the exact widened XPath can be lost.
+- Interactive exclusion drawing trusts bridge-time `target.visible`; opacity or
+  visibility changes on a visually hidden ancestor can leave stale exclusion
+  rectangles. Extraction state must remain unchanged.
+- Silent highlighting can be sourced from the authoritative saved configuration,
+  while the popup button and preview controller currently read only the current
+  brain organ's selector set. A fresh popup can therefore show silent borders
+  while reporting zero selectors.
+- The shield deliberately does not cancel wheel/touch defaults. Arno nevertheless
+  retained the same `scrollY`, consistent with a site-owned scroll lock after a
+  blocking surface was suppressed. The extension needs a bounded fallback only
+  when native shield scrolling produced no movement.
+- Persistent `motionPaused` and `lazySuppressed` after reveal/freeze are correct
+  until navigation. They are not cleanup defects and must not be released on
+  entry to silent mode.
 
 ## Decisions
 
-- Interpret “marking expansion” according to the latest legacy contract: Shift is mandatory for widened/ancestor exclusion; plain interaction remains the nearest-boundary toggle and can remove the exact mark. This preserves ordinary exclusion marking while preventing accidental expansion.
-- Preserve invisible explicit exclusion state for extraction, but never render an exclusion overlay when its evaluated target is not user-visible. Explicit-inclusion ghost diagnostics remain unchanged.
-- Allow Alt/context-menu explicit inclusion on eligible implicit/default-included content, not only inside an excluded ancestor.
-- A plain click or Clear-one-mark action over a widened overlay resolves the owning explicit ancestor and removes only that mark.
-- Content List opening uses the current local binding and selector snapshot first; authority refresh remains asynchronous and cannot block local projection/opening.
-- Add a typed page-preview-focus event. Clicking a page highlight focuses and scrolls the matching popup row; row hover/focus and activation continue to emphasize/scroll the page.
-- Retain silent overlay nodes through scrolling and resize. Geometry updates are frame-coalesced, do not clear the layer, and do not re-request the projection.
-- Port the latest legacy smooth reveal order and settlement proof while retaining rewrite ownership fences, hidden-document deferral, single-flight execution, consent suppression, and persistent freeze.
+- Add an internal lock-fence refresh operation that sends `client_status` and
+  resolves only after a newer authoritative websocket state occurrence (or a
+  bounded failure). Save uses that result at its last safe point and still emits
+  zero or one `/save`, never an automatic retry.
+- Keep the brain as the only producer of running/dirty/terminal truth. Make the
+  already-bound signals-available path pull signals directly, with the 500 ms
+  poll retaining navigation discovery as a correctness backstop.
+- Make AI-start acknowledgement a bounded, event-assisted generation wait:
+  retry a timed content drain while the exact binding/run remains current and
+  distinguish unreachable, unsupported, timeout, and generation mismatch. Do
+  not send `/get_selectors` without exact content acknowledgement.
+- Treat a marking overlay's `data-uf-overlay-xpath` as extension-owned interaction
+  identity. Plain click and Clear remove that exact explicit owner; Shift remains
+  the only way to create a widened exclusion, and ordinary nearest-boundary
+  exclusion remains unchanged.
+- Recheck current composed-ancestor visual state before drawing exclusions.
+  Hidden exclusions remain in evaluation, selectors, capture rows, and payload
+  decisions but receive no visible rectangle.
+- Introduce one `effectiveSelectors` read owner: current fresh brain selectors in
+  marking/post-AI states, authoritative configuration selectors as the silent
+  fallback. Use it consistently for silent button availability and preview
+  projection; Save continues to require the fresh post-AI set.
+- Preserve native wheel/touch behavior. If a wheel on the shield produces no
+  root or scroll-container movement by the next frame, apply the delta once to
+  the nearest scrollable page container/root and repaint retained geometry.
+- Leave consent selector coverage, freeze/lazy lease lifetime, endpoint/public
+  payload schemas, extension permissions, and Lynx publication behavior intact.
+
+## Open questions
+
+- None for implementation. Acapedia's current 403 and the site-owned 3D Prima
+  candidate 404s require external authority/content changes before their headed
+  candidate gates can run; they do not authorize extension workarounds.
 
 ## Non-goals
 
-- No endpoint, public payload schema, permission, consent-selector, AI selector-generation, Save, or Lynx publication changes.
-- No change to Space passthrough or the rule that ordinary page links/actions are inert while the extension owns interaction.
-- No publication while required page coverage is incomplete.
+- No consent-suppression selector removal or re-exposure of cart, account,
+  contact, assembly, country, modal, or other blocking UI.
+- No release of persistent reveal/freeze or lazy-suppression state before
+  navigation.
+- No AI, Save, or publication payload-schema change; no multi-page Save; no
+  automatic Save retry; no publication below required coverage.
+- No candidate fabrication for Bigbag, Acapedia, or 3D Prima and no attempt to
+  repair third-party HTTP responses or Hub candidate data from this repository.
+- No redesign of keyboard-operable Content List rows, render inspection,
+  emulation dimensions, or reveal animation now that those contracts pass.
 
-## Execution phases
+## Implementation phases
 
-### H1 — Contract characterization and regression harnesses — Complete
+### R1 — Characterization and contract evidence
 
-- Update the durable marking/highlighting and execution-plan contracts with the Humanova findings and the decisions above.
-- Add failing regression coverage for invisible exclusion rendering, Shift-only widening, nearest/exact unmarking, Alt inclusion of implicit content, widened-owner clear, immediate preview opening, both focus directions, retained silent geometry, and smooth midpoint-first lazy suppression.
+- Correct the freeze classification and remediation order in
+  `.reimplementation/p20-all-candidate-properties-headed-workflow-report-2026-08-26.md`.
+- Add production-shaped failing regressions in
+  `tests/src/background/lock-browser-lifecycle.test.ts`,
+  `tests/src/lock/lock.test.ts`, `tests/src/popup/entrypoint.test.ts`,
+  `tests/src/content/marking/interaction.test.ts`,
+  `tests/src/content/marking/marking.test.ts`,
+  `tests/src/content/interaction-shield.test.ts`, and
+  `tests/src/popup/app.test.ts` before changing behavior.
+- Validate the focused files with Vitest; if a seam cannot model the observed
+  browser path, add a narrow P20 browser assertion rather than weakening the
+  acceptance statement.
 
-### H2 — Marking resolution and rendering — Complete
+### R2 — Exact marking ownership and live visibility
 
-- Remove raw-geometry fallback for invisible exclusion classifications.
-- Separate target resolution for new nearest exclusion, widened exclusion, and removal of an existing explicit owning boundary.
-- Expand include resolution to eligible implicit/default content and expose the same result in the context menu.
-- Make Clear remove one resolved explicit owner, with branch repair and signal emission identical to other marking changes.
+- In `src/content/marking/engine.ts`, expose exact current-generation XPath
+  resolution for extension-owned overlay interactions while retaining stale
+  node/fingerprint rejection in `toggle` and `clear`.
+- In `src/entrypoints/content-loader.content.ts`, resolve click/context-menu
+  Clear from the owning overlay XPath before page hit-testing. Do not interpret
+  the overlay identity as authority to create a new mark.
+- In `src/content/marking/renderer.ts`, add a current composed-ancestor visual
+  gate for `exception` rectangles and remove stale rectangles in the same paint
+  batch. Preserve explicit-inclusion ghost behavior.
+- Focused validation: marking resolve/store/interaction/renderer tests plus the
+  physical P14 marking matrix.
+- Fallback: if composed-tree style inspection is unavailable, suppress the
+  exclusion rectangle for that frame; never draw raw exclusion geometry.
 
-### H3 — Content List projection and two-way focus — Complete
+### R3 — Immediate dirty projection and bounded AI start
 
-- Open from a locally requested projection before authority reconciliation; use occurrence/generation fencing when the asynchronous authority lane catches up.
-- Stop projecting every 500 ms. Refresh only on typed selector/marking/structural revision signals and explicit Refresh.
-- Add the content-to-popup typed focus event and active-row state/scroll behavior; keep popup-to-content hover, keyboard focus, and activation intact.
+- Split `pollFastSignalsOnce` in `src/entrypoints/popup/main.tsx` so a
+  `signals.available` event for the current bound tab directly drains that
+  tab/key before any tab resolution, emulation, Todo, context, or configuration
+  work. Retain single-flight trailing coalescing and the 500 ms binding backstop.
+- Replace the single three-second `syncContentRunGeneration` race with a bounded
+  exact-binding/exact-run loop driven by signals-available revisions and short
+  delivery attempts. Return distinct `unreachable`, `unsupported`, `timed_out`,
+  and `generation_mismatch` outcomes and keep terminal cleanup in `finally`.
+- Extend debug stages/copy only enough to identify the failed acknowledgement
+  phase; production copy stays concise.
+- Focused validation: popup entrypoint, signal scheduler/cursor, operator-action,
+  and AI service tests. Acceptance budgets are `<1 s` dirty projection and one
+  bounded AI-start handshake before `/get_selectors`.
+- Fallback: older content realms may use the existing 500 ms backstop within the
+  same deadline; they never bypass generation proof.
 
-### H4 — Silent overlay lifecycle and latency — Complete
+### R4 — Authoritative one-shot Save fence
 
-- Keep retained silent boxes mounted during scroll and resize; update their transforms/rects in the next animation frame without opacity/removal gaps.
-- Reuse the current projection and bridge indexes when opening silent Content List; structural mutations alone may advance the projection revision.
-- Ensure scroll, visual viewport, and resize coalescing cannot retire preview occurrence identity.
+- Add an awaitable status occurrence to `src/lock/client.ts` and an internal
+  mutation-fence refresh in `src/background/lock-runtime.ts`. It sends one
+  `client_status`, waits for a subsequent authoritative state occurrence, and
+  returns a directive only when the same environment/site/editor still owns the
+  lock.
+- Extend the internal `lock.directive` request in
+  `src/messaging/realms.ts` and `src/entrypoints/popup/main.tsx` with an explicit
+  fence-refresh intent used only at Save's last safe point.
+- Keep `performSaveSession` serialization, frozen binding/selectors/snapshot,
+  pause/reconciliation, exactly-one `config.save`, authoritative response
+  adoption, visible abort reasons, and `finally` cleanup. A refresh timeout
+  blocks locally with zero `/save` requests.
+- Focused validation: lock reducer/client/runtime/background services and popup
+  Save entrypoint tests, including stale-first websocket state, status refresh,
+  one HTTP 200 Save, duplicate clicks, timeout, navigation, and dirty aborts.
+- Fallback: fail closed locally with a reason-specific toast; never reuse an
+  unproved fence or retry Hub.
 
-### H5 — Legacy reveal/freeze parity — Complete
+### R5 — Silent selector coherence and shield scrolling
 
-- Use smooth scroll with scroll/scrollend plus rAF dwell/timeout settlement.
-- Sequence start -> midpoint -> lazy suppression acknowledgement -> growth-aware bottom -> persistent freeze -> smooth restore.
-- Preserve hidden deferral, single-flight/generation ownership, consent suppression, motion freeze, and fail-open cleanup.
+- Add `effectiveSelectors` in `src/entrypoints/popup/main.tsx` and use it in
+  `operatorActionPresentation`, `previewController`, `showPreview`, and silent
+  selector counts. Marking/post-AI Save eligibility remains brain-owned.
+- In `src/content/interaction-shield.ts`, add a one-frame wheel fallback that
+  runs only for shield-targeted native-scroll input when no native scroll
+  position changed. Prefer the nearest scrollable page container, then the
+  document scrolling element; apply a delta once and preserve page-listener
+  isolation.
+- Ensure the geometry stabilizer receives the resulting scroll and retains all
+  silent overlay nodes.
+- Focused validation: popup App/preview controller, interaction shield/input
+  firewall, silent renderer/stabilizer, and P17/P18/P20 browser gates.
+- Fallback: if no scroll owner exists, leave the page unchanged and surface the
+  condition only in debug diagnostics; never re-enable page interactions.
 
-### H6 — Integration, performance, and headed acceptance — Complete
+### R6 — Integration, headed acceptance, evidence, and delivery
 
-- Run focused tests after each phase, then `pnpm verify`, production/debug builds, and the P14–P20 performance/browser gates affected by marking, preview, and stabilization.
-- Run a headed Humanova workflow with repository live-browser tooling and observer discipline. Verify no invisible exclusion overlay, Shift/Alt/unmark behavior, immediate Content List, both focus directions, persistent responsive silent highlights, smooth reveal/freeze, payload hygiene, consent exclusion, and console cleanliness.
-- Update P20/Humanova evidence, review the final diff, commit, refresh the code graph, push, and refresh the graph again.
+- Run `pnpm lint`, `pnpm check`, focused/full `pnpm test`, `pnpm build`,
+  `pnpm build:debug`, `pnpm verify`, and P14–P20 gates. Preserve generated
+  artifacts outside the source set when clean-source gates require it.
+- Rebuild and run repository `live-browser` headed workflows on DPJ, Aleris,
+  Acne Specialisten, Assist24, Arno, ArkivIT, Teknikhallen, and Humanova. Use
+  external observers only between extension-owned emulation/inspection
+  transitions.
+- Verify both render modes, 412×960 marking, 1920×1080 silent posture,
+  intentional suppression/exclusion, modifier and exact-clear behavior,
+  `<1 s` dirty projection, bounded Teknikhallen AI start, semantic two-way
+  Content List, one 200 Save, shield scrolling with retained overlays,
+  persistent reveal/freeze/lazy state, payload hygiene, publication fences, and
+  clean consoles.
+- Record external blocks for Acapedia/3D Prima and N/A for Bigbag without
+  downgrading or fabricating results. Update P22/P20 evidence and the execution
+  checklist.
+- Perform a final high-signal diff review, explicit staging, commit, graph
+  refresh, ahead/behind check, non-force push to `origin/re-write`, and final
+  graph refresh.
 
 ## Test matrix
 
 | Contract | Unit/component | Integration | Headed acceptance |
 | --- | --- | --- | --- |
-| Invisible exclusions never draw | renderer/dom bridge | marking engine branch repaint | Humanova suppressed/menu nodes |
-| Shift-only widening; exact unmark | resolve/store/interaction | content listener context menu | mouse + Shift workflow |
-| Alt explicit inclusion | resolve/hover/context menu | typed marking signal | Alt hover/click and menu |
-| Content List opens immediately | popup controller | popup/content bus | post-AI and silent modes |
-| Two-way focus | row component + renderer hit target | typed focus event | row->page and page->row |
-| Silent overlay retention | renderer/stabilizer | scroll/resize observers | scroll/resize without gaps |
-| Reveal/freeze parity | reveal scheduler | activation lifecycle | visible smooth top/down/restore |
-| Hygiene | evaluator/payload assertions | P14–P20 gates | consent + console inspection |
+| Exact widened-owner clear | engine/store/listener | content entrypoint physical action | plain click + context Clear after Shift widen |
+| Invisible exclusion paint | renderer/composed visibility | mutation + branch repaint | DPJ, Acne, ArkivIT hidden UI |
+| Dirty projection `<1 s` | popup signal queue/cursor | content fact -> brain -> popup | all usable candidates after post-AI edit |
+| AI start acknowledgement | scheduler/generation outcomes | popup/content/background bus | Teknikhallen sends one AI request or precise bounded failure |
+| One-shot Save fence | lock client/runtime/services | popup reconciliation -> Hub | one current-page `/save`, HTTP 200, no retry |
+| Silent selector authority | presentation/preview controller | config load + new popup organ | DPJ button, rows, and 100+ overlays agree |
+| Shield scroll fallback | input firewall/shield | scroll + geometry stabilizer | Arno moves and overlay identities persist |
+| Existing invariants | current suites | P14–P20 | consent, payload, freeze, render, emulation, publish fence |
 
-## Risks and controls
+## Regression risks
 
-- Ancestor unmark resolution can remove the wrong row: require overlay-owner/exact-XPath proof and occurrence generation checks.
-- Allowing implicit-content explicit include can create redundant selectors: canonical store normalization and evaluator tests remain authoritative.
-- Page-to-popup focus can loop with row hover: focus events carry projection/row occurrence and popup adoption does not echo activation.
-- Smooth scrolling can hang on hostile pages: bounded dwell/timeout, hidden deferral, and fail-open cleanup remain mandatory.
-- Retained overlays can show stale geometry: coalesced rAF reposition plus structural revision refresh, never a remote poll, repairs them.
+- A status waiter could accept an unrelated websocket event. Fence it by client
+  instance, monotonically increasing state occurrence, property identity,
+  editor session, ownership role, and token; timeout locally.
+- Direct signal pulls could race navigation. Require the exact bound tab/key and
+  let the existing navigation occurrence reset discard stale results.
+- Overlay XPath interaction could clear a relocated/stale row. Resolve only from
+  the current bridge generation and require an exact explicit canonical row.
+- Ancestor visual checks can be expensive on huge DOMs. Run only for exclusion
+  rows being painted, stop at the document root, and retain geometry batching.
+- Scroll fallback could double-scroll. Measure before/after the native frame and
+  apply only if every candidate scroll owner is unchanged.
+- Silent selector fallback could expose stale data during marking. Restrict it
+  to silent presentation/projection; post-AI and Save continue using brain state.
 
 ## Acceptance
 
-- All ten Humanova findings have an automated regression and pass in a clean headed run.
-- Marking activation/Run AI fixes remain passing.
-- Consent-suppressed and extension UI remain excluded from extraction and payload artifacts.
-- No unchecked message-port errors, stale preview occurrences, overlay gaps on scroll/resize, or overlapping fast/slow polling.
-- `pnpm verify`, required builds, and affected P14–P20 gates pass before commit and push.
+- Every code-owned failure in the 2026-08-26 report has an automated regression
+  and passes on the usable headed candidate set.
+- Each usable Save click emits at most one current-page-only `/save`; successful
+  scenarios receive one HTTP 200 and adopt the authoritative response. Local
+  fence-refresh failure emits zero requests and a visible reason.
+- Teknikhallen reaches `/get_selectors` after exact generation acknowledgement
+  without a minute-long popup stall; all terminal paths release popup/content
+  busy state promptly.
+- A post-AI edit disables Save and Content List within one second on every usable
+  candidate.
+- Shift widening, plain exact-owner unmark, Alt inclusion, and context Clear pass;
+  no visually invisible exclusion rectangle is present while extraction state
+  remains excluded.
+- DPJ silent highlighting, selector count, Content List availability, rows, and
+  two-way focus agree. Arno scrolls under the shield without losing highlights.
+- Persistent freeze/lazy suppression remains active until navigation, consent
+  suppression stays intentional, payloads remain singular/clean, and no publish
+  request occurs below coverage.
+- Full automated validation, clean headed evidence, final review, commit, graph
+  refresh, and non-force push all complete.
+
+## Todo chain
+
+- [ ] R1 — Characterization and contract evidence
+- [ ] R2 — Exact marking ownership and live visibility
+- [ ] R3 — Immediate dirty projection and bounded AI start
+- [ ] R4 — Authoritative one-shot Save fence
+- [ ] R5 — Silent selector coherence and shield scrolling
+- [ ] R6 — Integration, headed acceptance, evidence, and delivery

@@ -18,7 +18,11 @@ import { getComposedHitElements } from "./hit-testing";
 import { isPaintReachableWithinHits } from "./paint-reachability";
 import { createMarkingStore } from "./store";
 import { resolveTarget, type MarkingCandidate } from "./resolve";
-import { createOverlayRenderer, type OverlayRenderTarget } from "./renderer";
+import {
+  createOverlayRenderer,
+  isCurrentlyVisuallyVisible,
+  type OverlayRenderTarget,
+} from "./renderer";
 import { buildSilentHighlights } from "./silent-highlight";
 import { buildSubmissionSnapshot } from "./submit";
 import type { RenderMode } from "../../domain/schema/property";
@@ -1073,14 +1077,52 @@ export function createMarkingEngine(
     },
     resolveAtPoint(x: number, y: number, mode: MarkMode, shiftActive = false): EvaluationNode | null {
       const pointHits = getComposedHitElements(rootElement.ownerDocument, x, y);
+      if (mode === "exclude" && !shiftActive) {
+        // An expanded mark owns its painted rectangle even when a carousel,
+        // pseudo-control, or overlapping sibling becomes the native hit after
+        // the mark is created. Prefer the deepest visible explicit owner whose
+        // rectangle contains the pointer before resolving a new leaf target.
+        // This keeps ordinary clicks as unmark operations without making
+        // exclusion expansion possible unless Shift is held.
+        const explicitOwner = store.canonicalSet().rows
+          .filter((row) => row.explicit === true && row.excluded === true)
+          .flatMap((row) => {
+            const entry = bridge.byXpath.get(row.xpath);
+            if (!entry || !isCurrentlyVisuallyVisible(entry.element)) {
+              return [];
+            }
+            const rect = entry.element.getBoundingClientRect();
+            return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
+              ? [entry.evaluationNode]
+              : [];
+          })
+          .sort((left, right) => right.xpath.split("/").length - left.xpath.split("/").length)[0];
+        if (explicitOwner) {
+          return explicitOwner;
+        }
+      }
       const hits = pointHits
         .filter((element) => composedContains(rootElement, element))
         .filter((element) => isPaintReachableWithinHits(element, pointHits));
       const candidatesByXpath = currentCandidateIndex();
-      const candidates = hits
-        .map((element) => bridge.byElement.get(element)?.evaluationNode.xpath)
-        .map((xpath) => xpath ? candidatesByXpath.get(xpath) : undefined)
-        .filter((candidate): candidate is MarkingCandidate => Boolean(candidate));
+      const candidates: MarkingCandidate[] = [];
+      const candidateXpaths = new Set<string>();
+      for (const element of hits) {
+        const xpath = bridge.byElement.get(element)?.evaluationNode.xpath;
+        let candidate = xpath ? candidatesByXpath.get(xpath) : undefined;
+        // elementsFromPoint returns painted stack entries, not their ordinary
+        // DOM ancestors. A widened explicit mark commonly owns the painted
+        // descendant under the pointer, so restore the composed candidate path
+        // before resolving. Without this path the store contains the correct
+        // owner but a plain click can only see/create a nested child mark.
+        while (candidate) {
+          if (!candidateXpaths.has(candidate.xpath)) {
+            candidateXpaths.add(candidate.xpath);
+            candidates.push(candidate);
+          }
+          candidate = candidate.parent ?? undefined;
+        }
+      }
       const resolved = resolveTarget(candidates, mode);
       if (!resolved) {
         return null;

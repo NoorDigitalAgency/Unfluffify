@@ -64,6 +64,7 @@ const LockDirectiveRequestSchema = z.object({
   pageUrl: z.string(),
   baseUrl: z.string().optional(),
   hasUnsavedChanges: z.boolean().optional(),
+  refreshFence: z.boolean().optional(),
 });
 
 const LockActionRequestSchema = LockActionSchema.extend({

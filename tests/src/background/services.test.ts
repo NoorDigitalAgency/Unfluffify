@@ -898,6 +898,92 @@ describe("rewrite background services", () => {
     expect(sockets[0].sent.map((frame) => JSON.parse(frame).type)).toContain("release_lock");
   });
 
+  it("returns a mutation fence only after a newer authoritative lock state", async () => {
+    const sockets: ReturnType<typeof fakeSocket>[] = [];
+    const services = createRewriteBackgroundServices({
+      transport: async (request) => hubContext(request),
+      socketFactory() {
+        const ws = fakeSocket();
+        sockets.push(ws);
+        return ws.socket;
+      },
+      editorSessionIdFactory: () => "editor-mutation-fence",
+    });
+    await services.settings.update((current) => ({
+      ...current,
+      stageBase: "stage.example.com",
+      token: "live",
+    }));
+    const runtime = createPropertyLockRuntime({ services });
+    const request = {
+      tabId: 51,
+      pageUrl: "https://example.com/page",
+      baseUrl: "https://example.com",
+    };
+    await runtime.directive(request);
+    sockets[0].emit("open");
+    sockets[0].emit("message", JSON.stringify({
+      type: "subscribed",
+      editorSessionId: "editor-mutation-fence",
+    }));
+    sockets[0].emit("message", JSON.stringify({
+      type: "lock_state",
+      state: "locked",
+      isEditor: true,
+      environmentKey: "stage.example.com",
+      editorSessionId: "editor-mutation-fence",
+      lockToken: "stale-fence",
+      propertyRevision: 4,
+      feedRevision: 2,
+    }));
+
+    const takeLockCount = (): number => sockets[0].sent.filter((message) =>
+      JSON.parse(message).type === "take_lock"
+    ).length;
+    const takeLocksBeforeFence = takeLockCount();
+    const fencedDirective = runtime.directive({ ...request, refreshFence: true });
+    await vi.waitFor(() => {
+      expect(takeLockCount()).toBe(takeLocksBeforeFence + 1);
+    });
+    // The first authoritative state drains anything already in flight. The
+    // second take-lock round is the actual mutation-fence acknowledgement.
+    sockets[0].emit("message", JSON.stringify({
+      type: "lock_state",
+      state: "locked",
+      isEditor: true,
+      environmentKey: "stage.example.com",
+      editorSessionId: "editor-mutation-fence",
+      lockToken: "drained-fence",
+      propertyRevision: 4,
+      feedRevision: 2,
+    }));
+    await vi.waitFor(() => {
+      expect(takeLockCount()).toBe(takeLocksBeforeFence + 2);
+    });
+    sockets[0].emit("message", JSON.stringify({
+      type: "lock_state",
+      state: "locked",
+      isEditor: true,
+      environmentKey: "stage.example.com",
+      editorSessionId: "editor-mutation-fence",
+      lockToken: "current-fence",
+      propertyRevision: 5,
+      feedRevision: 3,
+    }));
+
+    await expect(fencedDirective).resolves.toMatchObject({
+      status: "ok",
+      canEdit: true,
+      authority: {
+        editorSessionId: "editor-mutation-fence",
+        lockToken: "current-fence",
+        propertyRevision: 5,
+        feedRevision: 3,
+      },
+    });
+    await runtime.terminateTab(51);
+  });
+
   it("does not publish a deferred lock observation after its tab is terminated", async () => {
     const sockets: ReturnType<typeof fakeSocket>[] = [];
     const tabMessages: unknown[] = [];

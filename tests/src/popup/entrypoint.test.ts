@@ -560,6 +560,10 @@ describe("rewrite popup entrypoint", () => {
     await waitFor(() => render.mock.calls.length > 0, "the initial popup render");
     props().onRefresh();
     await waitFor(() => silentProjectionCount() === 1, "the first silent selector projection");
+    expect(props().presentation).toMatchObject({
+      silentModeActive: true,
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+    });
 
     const poll = globalThis.window.setInterval.mock.calls
       .find(([, delay]) => delay === 500)?.[0] as (() => void) | undefined;
@@ -2590,6 +2594,11 @@ describe("rewrite popup entrypoint", () => {
         selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
       },
     });
+    const mutationFenceRequests = runtime.sendMessage.mock.calls
+      .map(([frame]) => frame)
+      .filter((frame) => frame.name === "lock.directive" &&
+        (frame.payload as { refreshFence?: boolean }).refreshFence === true);
+    expect(mutationFenceRequests).toHaveLength(1);
     expect(runtime.sendMessage.mock.calls
       .filter(([frame]) => frame.name === "page.context")).toHaveLength(contextCallsBeforeSave + 1);
     expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("getContentMainStatus", {}));

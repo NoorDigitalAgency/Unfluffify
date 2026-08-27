@@ -124,9 +124,35 @@ type PopupBindingOccurrence = Readonly<{
 }>;
 const operatorActionController = createOperatorActionController({ onChange: render });
 
+function effectivePresentationSelectors(): { inclusionSelectors: string[]; exclusionSelectors: string[] } {
+  const presentation = store.getPresentation();
+  const organSelectors = presentation.selectors;
+  if (
+    organSelectors.inclusionSelectors.length > 0 ||
+    organSelectors.exclusionSelectors.length > 0 ||
+    !presentation.silentModeActive
+  ) {
+    return {
+      inclusionSelectors: [...organSelectors.inclusionSelectors],
+      exclusionSelectors: [...organSelectors.exclusionSelectors],
+    };
+  }
+  const savedSelectors = currentPropertyConfiguration().selectors;
+  return savedSelectors
+    ? {
+      inclusionSelectors: [...savedSelectors.inclusionSelectors],
+      exclusionSelectors: [...savedSelectors.exclusionSelectors],
+    }
+    : {
+      inclusionSelectors: [...organSelectors.inclusionSelectors],
+      exclusionSelectors: [...organSelectors.exclusionSelectors],
+    };
+}
+
 function operatorActionPresentation() {
+  const presentation = store.getPresentation();
   return overlayOperatorActionPresentation(
-    store.getPresentation(),
+    { ...presentation, selectors: effectivePresentationSelectors() },
     operatorActionController.current(),
     DEBUG_BUILD,
   );
@@ -154,7 +180,7 @@ function advanceOperatorAction(
 let contentCommandTerminal = false;
 let contentCommandEpoch = 0;
 const previewController = createPopupPreviewController({
-  selectors: () => store.getPresentation().selectors,
+  selectors: effectivePresentationSelectors,
   currentProjection: () => store.getState().previewProjection ?? null,
   setProjection: (projection) => { store.setPreviewProjection(projection); },
   requestProjection: ({ tabId, pageUrl, selectors }) => requestPreviewProjection(tabId, {
@@ -188,6 +214,8 @@ type SignalsAvailableWaiter = Readonly<{
 const signalsAvailableWaitersByTab = new Map<number, Set<SignalsAvailableWaiter>>();
 let fastSignalPollInFlight: Promise<void> | null = null;
 let fastSignalPollQueued = false;
+let boundSignalPullInFlight: Promise<void> | null = null;
+let boundSignalPullQueued = false;
 let saveInFlight: Promise<void> | null = null;
 let postSaveAuthorityRefreshRequired = false;
 const authorityRefreshQueue = createAuthorityRefreshQueue({
@@ -381,6 +409,8 @@ function formatAiFailure(failure: PopupAiFailure): Readonly<{ copy: string; acti
     capture_failed: "The current page could not be captured for the AI run.",
     content_start_timed_out: "The page did not acknowledge the AI start in time.",
     content_generation_mismatch: "The page did not adopt the current AI generation.",
+    content_unreachable: "The page could not receive the AI start acknowledgement request.",
+    content_sync_unsupported: "The loaded page uses an older AI acknowledgement contract; reload it and retry.",
     site_missing: "Property authority has no active site for this run.",
     environment_unconfigured: "The AI service environment is not configured.",
     invalid_page_scope: "The captured page no longer matches the current AI run scope.",
@@ -914,7 +944,10 @@ function ensureSignalPolling(): void {
         }
       }
       if (boundTabId === tabId && !contentCommandTerminal) {
-        void queueFastSignalPoll();
+        // The event already identifies the bound tab. Pull its brain edge
+        // immediately; resolving the active tab and reapplying emulation here
+        // turned a local dirty projection into multi-second remote work.
+        void queueBoundSignalPull(tabId);
       }
     });
   }
@@ -1388,6 +1421,37 @@ async function pollFastSignalsOnce(): Promise<void> {
   render();
 }
 
+function queueBoundSignalPull(tabId: number): Promise<void> {
+  if (saveInFlight) {
+    fastSignalPollQueued = true;
+    return Promise.resolve();
+  }
+  if (boundTabId !== tabId || boundTabKey === null) {
+    return queueFastSignalPoll();
+  }
+  if (boundSignalPullInFlight) {
+    boundSignalPullQueued = true;
+    return boundSignalPullInFlight;
+  }
+  const operation = (async () => {
+    do {
+      boundSignalPullQueued = false;
+      const requestKey: string | null = boundTabId === tabId ? boundTabKey : null;
+      if (requestKey === null) {
+        return;
+      }
+      await pullSignals(tabId, requestKey);
+      if (boundTabId === tabId && boundTabKey === requestKey) {
+        render();
+      }
+    } while (boundSignalPullQueued && !saveInFlight);
+  })();
+  boundSignalPullInFlight = operation.finally(() => {
+    boundSignalPullInFlight = null;
+  });
+  return boundSignalPullInFlight;
+}
+
 async function refreshAuthorityOnce(force: boolean): Promise<void> {
   if (saveInFlight) {
     void authorityRefreshQueue.queue(force);
@@ -1761,49 +1825,83 @@ type ContentSignalSyncOutcome =
   | "timed_out"
   | "generation_mismatch";
 
+const CONTENT_SIGNAL_SYNC_ATTEMPT_MS = 2_000;
+const CONTENT_SIGNAL_SYNC_DEADLINE_MS = 15_000;
+
 async function syncContentRunGeneration(
   context: TargetTabContext,
   minimumSeq: number,
   runSessionId: string,
   phase: "started" | "terminal",
+  maxWaitMs = CONTENT_SIGNAL_SYNC_DEADLINE_MS,
 ): Promise<ContentSignalSyncOutcome> {
-  const delivery = requestContentDelivery(context.tabId, {
-    type: "syncContentSignals",
-    pageUrl: context.url,
-  }, { quietNoReceiver: true });
-  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-  const timeout = new Promise<ContentMessageDelivery>((resolve) => {
-    timeoutHandle = setTimeout(() => resolve({ status: "failed", failure: "content-signal-sync-timeout" }), 3_000);
-  });
-  const result = await Promise.race([delivery, timeout]);
-  if (timeoutHandle !== null) {
-    clearTimeout(timeoutHandle);
+  const binding = captureBindingOccurrence();
+  const deadlineAt = Date.now() + Math.max(0, maxWaitMs);
+  let observedRevision = signalsAvailableRevisionByTab.get(context.tabId) ?? 0;
+  let sawGenerationMismatch = false;
+  while (
+    bindingOccurrenceIsCurrent(binding) &&
+    boundTabId === context.tabId &&
+    Date.now() < deadlineAt
+  ) {
+    const remainingMs = deadlineAt - Date.now();
+    const attemptMs = Math.max(1, Math.min(CONTENT_SIGNAL_SYNC_ATTEMPT_MS, remainingMs));
+    const delivery = requestContentDelivery(context.tabId, {
+      type: "syncContentSignals",
+      pageUrl: context.url,
+    }, { quietNoReceiver: true });
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const timeout = new Promise<ContentMessageDelivery>((resolve) => {
+      timeoutHandle = setTimeout(() => resolve({
+        status: "failed",
+        failure: "content-signal-sync-timeout",
+      }), attemptMs);
+    });
+    const result = await Promise.race([delivery, timeout]);
+    if (timeoutHandle !== null) {
+      clearTimeout(timeoutHandle);
+    }
+    if (result.status === "no_receiver") {
+      return "unreachable";
+    }
+    if (result.status === "delivered") {
+      if (!result.data || typeof result.data !== "object") {
+        return "unsupported";
+      }
+      const data = result.data as {
+        lastConsumedSeq?: unknown;
+        organName?: unknown;
+        runSessionId?: unknown;
+      };
+      if (typeof data.lastConsumedSeq !== "number" || typeof data.organName !== "string") {
+        return "unsupported";
+      }
+      const generationMatches = data.lastConsumedSeq >= minimumSeq && (
+        phase === "started"
+          ? data.organName === "running" && data.runSessionId === runSessionId
+          : data.organName !== "running" || data.runSessionId !== runSessionId
+      );
+      if (generationMatches) {
+        return "acknowledged";
+      }
+      sawGenerationMismatch = true;
+    } else if (result.failure !== "content-signal-sync-timeout") {
+      sawGenerationMismatch = true;
+    }
+
+    // Wait for the typed availability edge, but wake on the 500 ms correctness
+    // cadence as well. A hostile page may starve one content task without
+    // invalidating the exact run generation.
+    const waitMs = Math.min(FAST_SIGNAL_POLL_MS, Math.max(0, deadlineAt - Date.now()));
+    if (waitMs > 0) {
+      await waitForSignalsAvailable(context.tabId, observedRevision, waitMs);
+      observedRevision = signalsAvailableRevisionByTab.get(context.tabId) ?? observedRevision;
+    }
   }
-  if (result.status === "no_receiver") {
-    return "unreachable";
+  if (!bindingOccurrenceIsCurrent(binding)) {
+    return "generation_mismatch";
   }
-  if (result.status === "failed") {
-    return result.failure === "content-signal-sync-timeout" ? "timed_out" : "generation_mismatch";
-  }
-  if (!result.data || typeof result.data !== "object") {
-    return "unsupported";
-  }
-  const data = result.data as {
-    lastConsumedSeq?: unknown;
-    organName?: unknown;
-    runSessionId?: unknown;
-  };
-  if (typeof data.lastConsumedSeq !== "number" || typeof data.organName !== "string") {
-    // Rolling extension updates can leave an older content realm alive until
-    // the next page load. It remains on the 500 ms correctness backstop.
-    return "unsupported";
-  }
-  const generationMatches = data.lastConsumedSeq >= minimumSeq && (
-    phase === "started"
-      ? data.organName === "running" && data.runSessionId === runSessionId
-      : data.organName !== "running" || data.runSessionId !== runSessionId
-  );
-  return generationMatches ? "acknowledged" : "generation_mismatch";
+  return sawGenerationMismatch ? "generation_mismatch" : "timed_out";
 }
 
 async function requestTypedPreviewContent<T>(
@@ -2101,11 +2199,15 @@ function lockAllowsEditing(lock: LockDirectiveResponse): boolean {
   return lock.lockRole === "editor" && lock.canEdit;
 }
 
-async function requestLockDirective(context: TargetTabContext): Promise<LockDirectiveResponse | null> {
+async function requestLockDirective(
+  context: TargetTabContext,
+  options: Readonly<{ refreshFence?: boolean }> = {},
+): Promise<LockDirectiveResponse | null> {
   const response = await getPopupBus().request("lock.directive", {
     tabId: context.tabId,
     pageUrl: context.url,
     baseUrl: baseUrlFor(context.url),
+    ...(options.refreshFence === true ? { refreshFence: true } : {}),
   }, { target: "background" });
   return response.ok ? response.data as LockDirectiveResponse : unavailableLockDirective(context);
 }
@@ -2132,8 +2234,12 @@ function unavailableLockDirective(context: TargetTabContext): LockDirectiveRespo
   };
 }
 
-async function refreshLockDirective(context: TargetTabContext, requestKey = boundTabKey): Promise<LockDirectiveResponse | null> {
-  const lock = await requestLockDirective(context);
+async function refreshLockDirective(
+  context: TargetTabContext,
+  requestKey = boundTabKey,
+  options: Readonly<{ refreshFence?: boolean }> = {},
+): Promise<LockDirectiveResponse | null> {
+  const lock = await requestLockDirective(context, options);
   if (!lock || boundTabId !== context.tabId || boundTabKey !== requestKey) {
     return null;
   }
@@ -3268,10 +3374,17 @@ async function runAiOperation(action: OperatorActionOccurrence): Promise<void> {
       "started",
     )
     : "generation_mismatch";
+  // An older content realm can lack the typed acknowledgement fields during a
+  // rolling extension update. Preserve its 500 ms correctness backstop; a
+  // current realm that explicitly times out or proves the wrong generation is
+  // never allowed to start the backend request.
   if (startSync === "timed_out" || startSync === "generation_mismatch") {
+    const failureReason = startSync === "timed_out"
+      ? "content_start_timed_out"
+      : "content_generation_mismatch";
     notifyAiFailure(binding, {
       stage: "generation",
-      reason: startSync === "timed_out" ? "content_start_timed_out" : "content_generation_mismatch",
+      reason: failureReason,
       status: startSync,
       localRunId,
     });
@@ -3285,6 +3398,7 @@ async function runAiOperation(action: OperatorActionOccurrence): Promise<void> {
       brainSignals.consumedThrough(),
       localRunId,
       "terminal",
+      3_000,
     );
     if (activeRunSessionId === localRunId) {
       activeRunSessionId = null;
@@ -3633,7 +3747,7 @@ async function performSaveSession(): Promise<void> {
     // Re-read authority at the last safe point and build the one Hub mutation
     // from that exact grant. A lost grant aborts locally; Save never retries a
     // different fence behind the operator's back.
-    const mutationLock = await refreshLockDirective(context, requestKey);
+    const mutationLock = await refreshLockDirective(context, requestKey, { refreshFence: true });
     if (!mutationLock || !lockAllowsEditing(mutationLock)) {
       reconciliationReason = "save-authority-changed";
       notifyBoundEvent(

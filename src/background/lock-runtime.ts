@@ -24,6 +24,8 @@ export type LockDirectiveRequest = Readonly<{
   hasUnsavedChanges?: boolean;
   /** Background-owned recovery checks bypass the settled context cache. */
   refreshContext?: boolean;
+  /** Mutation safe-points require a lock_state newer than this request. */
+  refreshFence?: boolean;
 }>;
 
 export type LockActionRequest = Readonly<LockAction & { tabId: number }>;
@@ -521,7 +523,7 @@ export function createPropertyLockRuntime(input: Readonly<{
       refreshing: false,
     };
     suspended.reason = reason;
-    suspended.request = { ...request, refreshContext: undefined };
+    suspended.request = { ...request, refreshContext: undefined, refreshFence: undefined };
     if (!qualifies && suspended.recoveryDeadlineAt === null) {
       suspended.recoveryDeadlineAt = now() + PROPERTY_LOCK_SUSPENDED_RECOVERY_GRACE_MS;
     }
@@ -775,10 +777,28 @@ export function createPropertyLockRuntime(input: Readonly<{
       if (previousPageUrl !== request.pageUrl || previousUnsaved !== nextUnsaved) {
         client.clientStatus();
       }
+      const refreshedState = request.refreshFence === true
+        ? await client.refreshStatus()
+        : null;
+      if ((generationByTab.get(request.tabId) ?? 0) !== generation) {
+        throw new Error("Property-lock directive was superseded by tab navigation");
+      }
+      if (request.refreshFence === true && refreshedState === null) {
+        const response = lockStateFromState({
+          pageUrl: request.pageUrl,
+          baseUrl,
+          siteId: context.siteId,
+          state: null,
+          status: "unavailable",
+        });
+        await observeLockState(request.tabId, request.pageUrl, response);
+        publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);
+        return response;
+      }
       if (presenceQualifies(presenceForTab(request.tabId))) {
         client.heartbeat();
       }
-      const state = client.state();
+      const state = refreshedState ?? client.state();
       const response = lockStateFromState({ pageUrl: request.pageUrl, baseUrl, siteId: context.siteId, state, status: "ok" });
       await observeLockState(request.tabId, request.pageUrl, response);
       publishLockStateIfChanged(`tab:${request.tabId}`, request.tabId, response);

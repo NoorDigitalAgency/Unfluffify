@@ -1474,6 +1474,66 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
+  it("removes an exclusion rectangle when a live ancestor becomes transparent", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const modal = new FakeElement("SECTION", rect(0, 0, 260, 120));
+    const paragraph = new FakeElement("P", rect(10, 10, 120, 20), "Hidden exclusion");
+    for (const element of [root, modal, paragraph]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(modal);
+    modal.appendChild(paragraph);
+    doc.hits = [paragraph];
+    const engine = createMarkingEngine(root as unknown as Element);
+    const target = engine.resolveAtPoint(20, 15, "exclude");
+    engine.toggle(target!, "exclude");
+
+    modal.style.opacity = "0";
+    engine.renderReadOnly();
+
+    expect(engine.rows()).toContainEqual({
+      xpath: "/main[1]/section[1]/p[1]",
+      excluded: true,
+      explicit: true,
+    });
+    expect(engine.overlayRoot().children.flatMap((layer) => layer.children).some((overlay) =>
+      overlay.getAttribute("data-uf-overlay-xpath") === "/main[1]/section[1]/p[1]"
+    )).toBe(false);
+    engine.dispose();
+  });
+
+  it("does not paint visually hidden immutable exclusions in marking or silent mode", () => {
+    const doc = new FakeDocument();
+    const image = new FakeElement("IMG", rect(10, 10, 120, 80));
+    image.ownerDocument = doc;
+    image.style.opacity = "0";
+    doc.hits = [image];
+    const renderer = createOverlayRenderer({ document: doc as unknown as Document });
+    const xpath = "/img[1]";
+    const targets = new Map([[xpath, {
+      element: image as unknown as Element,
+      visible: false,
+    }]]);
+
+    renderer.render({
+      rows: [{ xpath, excluded: true }],
+      overlay: new Map([[xpath, "immutable"]]),
+    }, targets);
+    renderer.renderSilentHighlights([], targets, {
+      immutableXpaths: [xpath],
+      excludedXpaths: [xpath],
+    });
+
+    expect(renderer.root.children.flatMap((layer) => layer.children).some((overlay) =>
+      overlay.getAttribute("data-uf-overlay-xpath") === xpath
+      || overlay.getAttribute("data-uf-silent-highlight") === xpath
+    )).toBe(false);
+    renderer.dispose();
+  });
+
   it("rebuilds for page mutations but not extension or consent-suppressed mutations", () => {
     vi.useFakeTimers();
     const doc = new FakeDocument();
@@ -2030,6 +2090,73 @@ describe("P6 DOM bridge", () => {
     // ineligible one-child gap, outranks the nearer footer boundary, and does
     // not climb to the broad ordinary markable wrapper.
     expect(widened?.xpath).toBe("/main[1]/div[1]/section[1]");
+  });
+
+  it("reconstructs the ancestor hit path so a plain click clears a widened owner", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 400, 400));
+    const group = new FakeElement("SECTION", rect(10, 10, 360, 320));
+    const paragraph = new FakeElement("P", rect(40, 40, 120, 20), "Clicked copy");
+    const sibling = new FakeElement("ARTICLE", rect(200, 40, 120, 100), "Sibling copy");
+    for (const element of [root, group, paragraph, sibling]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    group.appendChild(paragraph);
+    group.appendChild(sibling);
+    root.appendChild(group);
+    // Native elementsFromPoint commonly returns only the painted leaf. The
+    // engine must restore its candidate ancestors from the bridge.
+    doc.hits = [paragraph];
+    const engine = createMarkingEngine(root as unknown as Element);
+    const widened = engine.resolveAtPoint(50, 45, "exclude", true);
+    expect(widened?.xpath).toBe("/main[1]/section[1]");
+    expect(engine.toggle(widened!, "exclude")).toBe(true);
+
+    const owner = engine.resolveAtPoint(50, 45, "exclude", false);
+    expect(owner?.xpath).toBe("/main[1]/section[1]");
+    expect(engine.toggle(owner!, "exclude")).toBe(true);
+    expect(engine.rows()).not.toContainEqual({
+      xpath: "/main[1]/section[1]",
+      excluded: true,
+      explicit: true,
+    });
+    engine.dispose();
+  });
+
+  it("uses visible expanded-owner geometry when an overlapping sibling replaces the native hit", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 400, 400));
+    const group = new FakeElement("SECTION", rect(10, 10, 360, 320));
+    const paragraph = new FakeElement("P", rect(40, 40, 120, 20), "Clicked copy");
+    const sibling = new FakeElement("ARTICLE", rect(200, 40, 120, 100), "Sibling copy");
+    const floating = new FakeElement("BUTTON", rect(0, 0, 180, 90), "Overlapping control");
+    for (const element of [root, group, paragraph, sibling, floating]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    group.appendChild(paragraph);
+    group.appendChild(sibling);
+    root.appendChild(group);
+    root.appendChild(floating);
+    doc.hits = [paragraph];
+    const engine = createMarkingEngine(root as unknown as Element);
+    const widened = engine.resolveAtPoint(50, 45, "exclude", true);
+    expect(widened?.xpath).toBe("/main[1]/section[1]");
+    expect(engine.toggle(widened!, "exclude")).toBe(true);
+
+    doc.hits = [floating];
+    const owner = engine.resolveAtPoint(50, 45, "exclude", false);
+    expect(owner?.xpath).toBe("/main[1]/section[1]");
+    expect(engine.toggle(owner!, "exclude")).toBe(true);
+    expect(engine.rows()).not.toContainEqual({
+      xpath: "/main[1]/section[1]",
+      excluded: true,
+      explicit: true,
+    });
+    engine.dispose();
   });
 
   it("seeds toggleable default exclusions before the first read-only render", () => {
