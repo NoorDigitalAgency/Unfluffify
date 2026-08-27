@@ -1,8 +1,9 @@
 # P22 cross-property workflow remediation
 
-**Status:** In progress — planned 2026-08-27 from the complete headed
-candidate round recorded in
-`.reimplementation/p20-all-candidate-properties-headed-workflow-report-2026-08-26.md`.
+**Status:** Repository remediation complete; release acceptance remains open on
+four Hub `stale_fence` responses plus unavailable 3D Prima/Bigbag candidates.
+Implementation and headed evidence are recorded in
+`.reimplementation/p22-cross-property-workflow-remediation-report-2026-08-27.md`.
 
 ## Goal
 

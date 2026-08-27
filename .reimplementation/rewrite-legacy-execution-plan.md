@@ -1054,6 +1054,16 @@ in the owning phase and rerun its focused gate plus P9–P11.
     gates, a clean headed rerun across every usable supplied candidate, evidence,
     review, commit, graph refresh, and non-force push. See
     [`p22-cross-property-workflow-remediation-plan-2026-08-27.md`](./p22-cross-property-workflow-remediation-plan-2026-08-27.md).
+  - Repository implementation commit: `3b32c25e`. Validation passed `pnpm
+    verify` (127 files / 1,167 tests), debug build, P14 192 scenarios, P15 36/36,
+    P16 13/13, P17 19/19, P18 14/14, manifest 7/7, and P20 4/4 on clean source.
+  - Headed extension contracts pass on every currently usable supplied page.
+    DPJ, Aleris, Assist24, Arno, and Teknikhallen completed one HTTP 200 Save;
+    Teknikhallen advanced to 1/4. Acne, Acapedia, ArkivIT, and Humanova remain
+    release-blocked by one Hub `stale_fence` response each despite matching
+    property/feed revisions. 3D Prima remains a candidate 404 and Bigbag N/A.
+    Keep P22 unchecked until those authority/candidate blockers clear. See
+    [`p22-cross-property-workflow-remediation-report-2026-08-27.md`](./p22-cross-property-workflow-remediation-report-2026-08-27.md).
 
 For each completed item, append the commit SHA(s), exact test command, result,
 and any live artifact/version directly beneath the checkbox. The first unchecked
