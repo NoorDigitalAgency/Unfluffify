@@ -1,274 +1,276 @@
-# P22 cross-property workflow remediation
+# P23 frozen-surface presentation performance remediation
 
-**Status:** Repository remediation complete; release acceptance remains open on
-four Hub `stale_fence` responses plus unavailable 3D Prima/Bigbag candidates.
-Implementation and headed evidence are recorded in
-`.reimplementation/p22-cross-property-workflow-remediation-report-2026-08-27.md`.
+**Status:** Implementation complete; clean-source browser qualification,
+durable evidence, review, and publication are in progress. P22's remaining
+Hub/candidate acceptance blockers are external and do not block this
+independent code repair.
 
 ## Goal
 
-Close the cross-property Save, AI-start, dirty-projection, marking-overlay,
-silent Content List, and shield-scroll failures without changing consent
-suppression, persistent reveal/freeze ownership, extraction payloads, render
-mode semantics, or publication fences. P22 completes only after the automated
-gates and a clean repository-live-browser rerun pass on every currently usable
-candidate.
+Make interactive marking and silent highlighting at least as responsive and
+smooth as the pinned legacy release while preserving the rewrite's canonical
+evaluator, branch-scoped mutation model, generation/fingerprint fences,
+reveal/freeze ownership, and extraction semantics. Extension presentation work
+must remain live while the page's own timers and animation clock are frozen,
+and page-motion maintenance must be incremental instead of feeding extension UI
+mutations into repeated full-document scans.
 
 ## Current facts
 
-- The source baseline is `93bc2b2347779fd1e7d19bf8e524f07f8d898789` on
-  `re-write`; `origin/re-write` was synchronized at 0 ahead / 0 behind before
-  planning. The only pre-existing worktree addition is the headed-round report.
-- `pnpm verify`, the debug build, and P14–P20 controlled browser gates are green,
-  so the failures are production-shaped integration gaps not broad baseline
-  breakage.
-- Five usable candidates returned HTTP 409 on Save. The popup re-reads its local
-  lock directive immediately before `/save`, but that directive does not ask the
-  websocket lock client for a new authoritative `lock_state` and wait for it.
-  Retrying behind the operator's click is forbidden; the one request must carry
-  the refreshed fence.
-- Teknikhallen never reached `/get_selectors`. Its failure is the three-second
-  synchronous `syncContentSignals` race after the brain accepted `ai-run-started`.
-  A single slow content drain is classified as terminal instead of using the
-  existing signals-available/backstop lifecycle within one bounded generation.
-- Marking changes do emit brain-owned `markings.changed`, but the event-driven
-  popup path enters `pollFastSignalsOnce`, which resolves the tab and reapplies
-  session emulation before pulling the already-bound signal. This explains the
-  2.7–4.7 second dirty projection on several sites.
-- Widened exclusions are stored correctly. Physical clicks over extension
-  rectangles discard the overlay from DOM hit-testing and try to rediscover the
-  owner through page paint hits, so the exact widened XPath can be lost.
-- Interactive exclusion drawing trusts bridge-time `target.visible`; opacity or
-  visibility changes on a visually hidden ancestor can leave stale exclusion
-  rectangles. Extraction state must remain unchanged.
-- Silent highlighting can be sourced from the authoritative saved configuration,
-  while the popup button and preview controller currently read only the current
-  brain organ's selector set. A fresh popup can therefore show silent borders
-  while reporting zero selectors.
-- The shield deliberately does not cancel wheel/touch defaults. Arno nevertheless
-  retained the same `scrollY`, consistent with a site-owned scroll lock after a
-  blocking surface was suppressed. The extension needs a bounded fallback only
-  when native shield scrolling produced no movement.
-- Persistent `motionPaused` and `lazySuppressed` after reveal/freeze are correct
-  until navigation. They are not cleanup defects and must not be released on
-  entry to silent mode.
+- The synchronized baseline is `6711652a5aacdb50ba529e3ff301f983a8e252ee`
+  on `re-write`, 0 ahead / 0 behind `origin/re-write`, with a clean worktree.
+- The retained same-profile DPJ A/B evidence in
+  `.temp/ab-performance/report.md` shows legacy produced 159 hover frames for
+  82 inputs with 100% next-frame coverage, while the rewrite produced zero
+  hover frames for 81 inputs. Eight pointer positions produced eight legacy
+  visual frames but one static rewrite frame. Silent scrolling changed five
+  legacy geometry hashes and zero rewrite geometry hashes.
+- `src/entrypoints/content-loader.content.ts:scheduleHover()` and
+  `src/content/marking/engine.ts:scheduleRender()` dynamically use the current
+  document `requestAnimationFrame`. When reveal/freeze starves that clock, their
+  coalescing handles never clear and all trailing pointer/geometry work remains
+  permanently blocked.
+- `src/content/marking/engine.ts:installObservers()` supplies the same starvable
+  clock to `createGeometryStabilizer()`, so resize and mutation stabilization can
+  stall for the same reason.
+- The legacy `src/content/core.ts` captured extension scheduling primitives
+  before freeze, coalesced hover to one trailing frame, and reused the previous
+  canonical hover result while the physical overlay owner/hit surface was
+  unchanged.
+- `src/page-world/program.ts:scheduleMotionEnforcement()` defaults its `root`
+  argument to `document.documentElement`. Its mutation observer first collects
+  targeted roots and then calls the function with no argument, re-adding the
+  entire document on every mutation batch. `pauseMotionSources()` consequently
+  repeats `document.getAnimations()` and `querySelectorAll("*")`, including for
+  cursor and overlay mutations authored by the extension.
+- The legacy motion-maintenance fix deliberately limited full scans to explicit
+  engage points, collected incremental discovery roots, collapsed overlapping
+  roots, and ignored its own writes. The rewrite decision spec permits those
+  adaptations only when canonical output and freeze semantics remain identical.
+- `src/content/marking/engine.ts:resolveAtPoint()` linearly resolves every
+  explicit exclusion row on plain hover even when the event already carries a
+  current `data-uf-overlay-xpath`. The hint can safely accelerate an existing
+  owner only after current-generation/canonical-row/visibility validation; it
+  must never authorize creation, widening, or a semantic target change.
 
-## Decisions
+## Decisions already made
 
-- Add an internal lock-fence refresh operation that sends `client_status` and
-  resolves only after a newer authoritative websocket state occurrence (or a
-  bounded failure). Save uses that result at its last safe point and still emits
-  zero or one `/save`, never an automatic retry.
-- Keep the brain as the only producer of running/dirty/terminal truth. Make the
-  already-bound signals-available path pull signals directly, with the 500 ms
-  poll retaining navigation discovery as a correctness backstop.
-- Make AI-start acknowledgement a bounded, event-assisted generation wait:
-  retry a timed content drain while the exact binding/run remains current and
-  distinguish unreachable, unsupported, timeout, and generation mismatch. Do
-  not send `/get_selectors` without exact content acknowledgement.
-- Treat a marking overlay's `data-uf-overlay-xpath` as extension-owned interaction
-  identity. Plain click and Clear remove that exact explicit owner; Shift remains
-  the only way to create a widened exclusion, and ordinary nearest-boundary
-  exclusion remains unchanged.
-- Recheck current composed-ancestor visual state before drawing exclusions.
-  Hidden exclusions remain in evaluation, selectors, capture rows, and payload
-  decisions but receive no visible rectangle.
-- Introduce one `effectiveSelectors` read owner: current fresh brain selectors in
-  marking/post-AI states, authoritative configuration selectors as the silent
-  fallback. Use it consistently for silent button availability and preview
-  projection; Save continues to require the fresh post-AI set.
-- Preserve native wheel/touch behavior. If a wheel on the shield produces no
-  root or scroll-container movement by the next frame, apply the delta once to
-  the nearest scrollable page container/root and repaint retained geometry.
-- Leave consent selector coverage, freeze/lazy lease lifetime, endpoint/public
-  payload schemas, extension permissions, and Lynx publication behavior intact.
+- Keep `MARKING_AND_HIGHLIGHTING_LOGIC.md` unchanged: plain click cannot widen,
+  Shift is the only widening modifier, Alt creates explicit inclusions, and a
+  widened explicit exclusion owns its visible surface for ordinary unmarking.
+- Keep the rewrite's single canonical evaluator/store and branch-splice path.
+  No legacy monolithic cache or parallel marking truth will be copied.
+- Add one content-owned presentation clock that captures scheduling primitives
+  before page freeze, coalesces work, and uses a bounded task fallback so each
+  requested frame completes exactly once even when native rAF starves.
+- Use a 20 ms starvation fallback: normal rAF remains the primary paint-aligned
+  path, while the fallback bounds visible input latency to approximately one
+  60 Hz frame plus task dispatch.
+- Treat `data-uf-overlay-xpath` only as a validated performance hint for an
+  already canonical current-generation target. Missing, stale, invisible, or
+  ineligible hints fall back to the existing composed hit-test resolver.
+- Full page motion discovery remains exactly once at freeze engagement. Late
+  maintenance processes only minimal connected page-authored roots, enumerates
+  document animations once per enforcement batch, and ignores extension-owned
+  subtrees, cursor-only class changes, and normalization writes.
+- Do not weaken persistent page timer/rAF/idle freezing, lazy suppression,
+  consent suppression, payload/capture rules, emulation, lock authority, Save,
+  AI, Content List, or publication fences.
 
 ## Open questions
 
-- None for implementation. Acapedia's current 403 and the site-owned 3D Prima
-  candidate 404s require external authority/content changes before their headed
-  candidate gates can run; they do not authorize extension workarounds.
+- None.
 
 ## Non-goals
 
-- No consent-suppression selector removal or re-exposure of cart, account,
-  contact, assembly, country, modal, or other blocking UI.
-- No release of persistent reveal/freeze or lazy-suppression state before
-  navigation.
-- No AI, Save, or publication payload-schema change; no multi-page Save; no
-  automatic Save retry; no publication below required coverage.
-- No candidate fabrication for Bigbag, Acapedia, or 3D Prima and no attempt to
-  repair third-party HTTP responses or Hub candidate data from this repository.
-- No redesign of keyboard-operable Content List rows, render inspection,
-  emulation dimensions, or reveal animation now that those contracts pass.
+- No marking taxonomy, target-resolution precedence, row normalization,
+  selector seeding, overlay grammar, extraction, payload, or endpoint changes.
+- No routine full-document reconcile after a toggle and no second evaluator or
+  legacy global state transplant.
+- No release of the page motion/lazy freeze while marking, silent highlighting,
+  or preview owns it.
+- No attempt to clear P22's external Hub `stale_fence` or unavailable candidate
+  blockers as part of this performance phase.
 
 ## Implementation phases
 
-### R1 — Characterization and contract evidence
+### R1 — Characterize frozen-clock and incremental-maintenance failures
 
-- Correct the freeze classification and remediation order in
-  `.reimplementation/p20-all-candidate-properties-headed-workflow-report-2026-08-26.md`.
-- Add production-shaped failing regressions in
-  `tests/src/background/lock-browser-lifecycle.test.ts`,
-  `tests/src/lock/lock.test.ts`, `tests/src/popup/entrypoint.test.ts`,
-  `tests/src/content/marking/interaction.test.ts`,
-  `tests/src/content/marking/marking.test.ts`,
-  `tests/src/content/interaction-shield.test.ts`, and
-  `tests/src/popup/app.test.ts` before changing behavior.
-- Validate the focused files with Vitest; if a seam cannot model the observed
-  browser path, add a narrow P20 browser assertion rather than weakening the
-  acceptance statement.
+- Add `tests/src/content/presentation-clock.test.ts` covering normal rAF,
+  starved rAF fallback, exactly-once delivery, trailing coalescing compatibility,
+  cancellation, and a clock captured before later global patching.
+- Extend `tests/c4-content-entrypoint.test.ts` with a marking mousemove case in
+  which rAF never fires but the latest pointer reaches `hoverAtPoint` within the
+  fallback bound and a later pointer schedules normally.
+- Extend `tests/src/content/marking/dom-bridge.test.ts` with frozen-rAF silent
+  scroll and geometry-stabilizer cases that retain overlay nodes and repaint.
+- Extend `tests/src/page-world/program.test.ts` with counters proving one initial
+  full scan, no full scan for extension-only mutations, minimal nested-root
+  collapse, one animation enumeration per enforcement batch, and continued
+  handling of genuine late page content.
+- Focused validation: `pnpm vitest run` on those four files.
+- Fallback rule: if a unit seam cannot reproduce the retained DPJ starvation,
+  add a narrow P23 browser fixture; do not relax the observed failure.
 
-### R2 — Exact marking ownership and live visibility
+### R2 — Install the content-owned presentation clock
 
-- In `src/content/marking/engine.ts`, expose exact current-generation XPath
-  resolution for extension-owned overlay interactions while retaining stale
-  node/fingerprint rejection in `toggle` and `clear`.
-- In `src/entrypoints/content-loader.content.ts`, resolve click/context-menu
-  Clear from the owning overlay XPath before page hit-testing. Do not interpret
-  the overlay identity as authority to create a new mark.
-- In `src/content/marking/renderer.ts`, add a current composed-ancestor visual
-  gate for `exception` rectangles and remove stale rectangles in the same paint
-  batch. Preserve explicit-inclusion ghost behavior.
-- Focused validation: marking resolve/store/interaction/renderer tests plus the
-  physical P14 marking matrix.
-- Fallback: if composed-tree style inspection is unavailable, suppress the
-  exclusion rectangle for that frame; never draw raw exclusion geometry.
+- Add `src/content/presentation-clock.ts` with an opaque logical handle registry,
+  captured/bound rAF and timeout primitives, rAF-first delivery, 20 ms starvation
+  fallback, exactly-once arbitration, cancellation of the losing primitive, and
+  deterministic teardown.
+- In `src/entrypoints/content-loader.content.ts:scheduleHover()`, use the shared
+  clock, preserve one coalesced trailing pointer, clear the logical handle before
+  resolving, and cancel it on listener teardown.
+- In `src/content/marking/engine.ts`, route `scheduleRender()`, the geometry
+  stabilizer, and deferred branch presentation through the same clock. Track and
+  cancel pending logical handles on refresh/dispose, and settle structural
+  single-flight state in all terminal paths.
+- Preserve rAF as the primary rendering acknowledgement and keep structural
+  quiet/idle batching intact; only its terminal presentation delivery changes.
+- Focused validation: presentation-clock, content entrypoint, marking engine,
+  renderer, stabilizer, and source-contract tests.
+- Rollback rule: if the dual primitive can deliver twice in any realm-specific
+  fake/native ordering, keep the logical registry and disable the rAF branch;
+  never return to an unbounded starvable handle.
 
-### R3 — Immediate dirty projection and bounded AI start
+### R3 — Port safe legacy hover reuse without changing marking truth
 
-- Split `pollFastSignalsOnce` in `src/entrypoints/popup/main.tsx` so a
-  `signals.available` event for the current bound tab directly drains that
-  tab/key before any tab resolution, emulation, Todo, context, or configuration
-  work. Retain single-flight trailing coalescing and the 500 ms binding backstop.
-- Replace the single three-second `syncContentRunGeneration` race with a bounded
-  exact-binding/exact-run loop driven by signals-available revisions and short
-  delivery attempts. Return distinct `unreachable`, `unsupported`, `timed_out`,
-  and `generation_mismatch` outcomes and keep terminal cleanup in `finally`.
-- Extend debug stages/copy only enough to identify the failed acknowledgement
-  phase; production copy stays concise.
-- Focused validation: popup entrypoint, signal scheduler/cursor, operator-action,
-  and AI service tests. Acceptance budgets are `<1 s` dirty projection and one
-  bounded AI-start handshake before `/get_selectors`.
-- Fallback: older content realms may use the existing 500 ms backstop within the
-  same deadline; they never bypass generation proof.
+- In `src/entrypoints/content-loader.content.ts`, capture the closest current
+  classification overlay XPath from mousemove/click/contextmenu targets and pass
+  it as an optional resolution hint.
+- In `src/content/marking/engine.ts`, validate hinted explicit owners against the
+  current bridge generation, fingerprint, canonical explicit-exclude row,
+  connection, visual visibility, and pointer rectangle before bypassing the
+  all-row owner scan. Otherwise run the unchanged composed hit-test path.
+- Reuse the prior resolved hover only when non-empty overlay identity,
+  mode/Shift state, bridge generation, node identity/fingerprint, and connection
+  are unchanged. Reset the cache on every bridge/store/viewport-invalidating
+  transition already identified by the engine.
+- In `src/content/marking/renderer.ts:setHover()`, no-op when element and XPath
+  are unchanged so repeated events do not open a new geometry batch.
+- Add parity tests for implicit targets, widened exact-owner unmarking, Alt,
+  Shift, stale hints, invisible hints, navigation/generation changes, and
+  fallback hit-testing.
+- Focused validation: domain resolve, marking interaction/dom-bridge/renderer,
+  content entrypoint, and P14 smoke.
+- Rollback rule: any semantic row/classification difference disables the hint
+  fast path for that case; canonical resolution always wins.
 
-### R4 — Authoritative one-shot Save fence
+### R4 — Make page-motion maintenance incremental
 
-- Add an awaitable status occurrence to `src/lock/client.ts` and an internal
-  mutation-fence refresh in `src/background/lock-runtime.ts`. It sends one
-  `client_status`, waits for a subsequent authoritative state occurrence, and
-  returns a directive only when the same environment/site/editor still owns the
-  lock.
-- Extend the internal `lock.directive` request in
-  `src/messaging/realms.ts` and `src/entrypoints/popup/main.tsx` with an explicit
-  fence-refresh intent used only at Save's last safe point.
-- Keep `performSaveSession` serialization, frozen binding/selectors/snapshot,
-  pause/reconciliation, exactly-one `config.save`, authoritative response
-  adoption, visible abort reasons, and `finally` cleanup. A refresh timeout
-  blocks locally with zero `/save` requests.
-- Focused validation: lock reducer/client/runtime/background services and popup
-  Save entrypoint tests, including stale-first websocket state, status refresh,
-  one HTTP 200 Save, duplicate clicks, timeout, navigation, and dirty aborts.
-- Fallback: fail closed locally with a reason-specific toast; never reuse an
-  unproved fence or retry Hub.
+- In authored `src/page-world/program.ts`, make
+  `scheduleMotionEnforcement(root?: Element)` schedule collected work without
+  injecting a default root. Keep the initial explicit
+  `pauseMotionSources(documentElement)` full scan.
+- Add a minimal-root collector that discards a new descendant when an ancestor
+  is already queued and replaces queued descendants when a broader genuine
+  page-authored root arrives.
+- For child-list records, enqueue connected non-extension added element roots,
+  not their whole parent/document. For attributes, enqueue the target only when
+  the change is page-authored; compare `attributeOldValue` after stripping only
+  `uf-cursor-*` tokens, skip extension subtrees, and consume tracked
+  normalization-style writes.
+- Enumerate `document.getAnimations()` once per enforcement batch and reuse that
+  snapshot across minimal roots. Keep media, SVG, WAAPI, reveal normalization,
+  semantic-hidden preservation, restoration, and late/restarted source behavior
+  unchanged.
+- Generate `src/page-world/program.js` only through `pnpm page-world:generate`.
+- Focused validation: page-world program, source parity, motion freeze bridge,
+  stabilization, and full `pnpm test`.
+- Rollback rule: if a page-authored late animation is missed, broaden only that
+  record's minimal root; never restore unconditional document-root injection.
 
-### R5 — Silent selector coherence and shield scrolling
+### R5 — Add a frozen-surface browser performance gate and rerun A/B
 
-- Add `effectiveSelectors` in `src/entrypoints/popup/main.tsx` and use it in
-  `operatorActionPresentation`, `previewController`, `showPreview`, and silent
-  selector counts. Marking/post-AI Save eligibility remains brain-owned.
-- In `src/content/interaction-shield.ts`, add a one-frame wheel fallback that
-  runs only for shield-targeted native-scroll input when no native scroll
-  position changed. Prefer the nearest scrollable page container, then the
-  document scrolling element; apply a delta once and preserve page-listener
-  isolation.
-- Ensure the geometry stabilizer receives the resulting scroll and retains all
-  silent overlay nodes.
-- Focused validation: popup App/preview controller, interaction shield/input
-  firewall, silent renderer/stabilizer, and P17/P18/P20 browser gates.
-- Fallback: if no scroll owner exists, leave the page unchanged and surface the
-  condition only in debug diagnostics; never re-enable page interactions.
+- Extend the P14 performance harness or add a P23 companion scenario that uses
+  the production presentation scheduler with a deliberately starved page rAF,
+  physical mousemove/scroll inputs, retained overlay identities, and semantic
+  signature equality. Keep the existing clean-source, finite-timing, cardinality,
+  and page-error assertions.
+- Acceptance thresholds: every physical pointer sequence paints the latest
+  canonical target within 40 ms; silent geometry changes within 50 ms of each
+  scroll; no overlay node retirement on scroll/resize; no full-document motion
+  scan after extension-only mutations; current rows/classes equal the canonical
+  pre-optimization output.
+- Build production and debug artifacts. Using the repository `live-browser` /
+  `live-round` tooling and copied profile posture, rerun DPJ at 412x960 against
+  pinned legacy `28974c2a` and the rewrite. Capture frame-by-frame hover and
+  silent-scroll evidence with page debuggers detached during extension-owned
+  emulation.
+- Live acceptance: rewrite hover coverage is 100%, pointer-to-overlay p95 is no
+  slower than legacy plus 10 ms, eight distinct targets produce eight matching
+  frames, every silent scroll produces current geometry, and console/page error
+  sets are empty. Canonical rows, modifier behavior, exact unmarking, freeze,
+  consent exclusion, and payload hygiene remain unchanged.
+- Fallback rule: a timing miss returns to its owning R2-R4 slice; do not increase
+  the budget without retained profiler evidence identifying unavoidable browser
+  variance.
 
-### R6 — Integration, headed acceptance, evidence, and delivery
+### R6 — Integrated validation, durable evidence, review, and publication
 
 - Run `pnpm lint`, `pnpm check`, focused/full `pnpm test`, `pnpm build`,
-  `pnpm build:debug`, `pnpm verify`, and P14–P20 gates. Preserve generated
-  artifacts outside the source set when clean-source gates require it.
-- Rebuild and run repository `live-browser` headed workflows on DPJ, Aleris,
-  Acne Specialisten, Assist24, Arno, ArkivIT, Teknikhallen, and Humanova. Use
-  external observers only between extension-owned emulation/inspection
-  transitions.
-- Verify both render modes, 412×960 marking, 1920×1080 silent posture,
-  intentional suppression/exclusion, modifier and exact-clear behavior,
-  `<1 s` dirty projection, bounded Teknikhallen AI start, semantic two-way
-  Content List, one 200 Save, shield scrolling with retained overlays,
-  persistent reveal/freeze/lazy state, payload hygiene, publication fences, and
-  clean consoles.
-- Record external blocks for Acapedia/3D Prima and N/A for Bigbag without
-  downgrading or fabricating results. Update P22/P20 evidence and the execution
-  checklist.
-- Perform a final high-signal diff review, explicit staging, commit, graph
-  refresh, ahead/behind check, non-force push to `origin/re-write`, and final
-  graph refresh.
+  `pnpm build:debug`, `pnpm verify`, the P14-P20 production gates, and the new
+  frozen-surface gate on a clean source set.
+- Record implementation, benchmark, live A/B, artifact identity, and exact
+  results in `.reimplementation/p23-frozen-surface-performance-report-2026-08-27.md`;
+  update `.copilot/knowledge.md` with the reusable scheduling/full-scan pitfall
+  and this execution checklist with the final evidence.
+- Perform a final high-signal diff review, explicitly stage only intended files,
+  commit, re-index the code graph, verify ahead/behind, push without force to
+  `origin/re-write`, verify 0/0 equality, and re-index the pushed HEAD.
 
 ## Test matrix
 
-| Contract | Unit/component | Integration | Headed acceptance |
-| --- | --- | --- | --- |
-| Exact widened-owner clear | engine/store/listener | content entrypoint physical action | plain click + context Clear after Shift widen |
-| Invisible exclusion paint | renderer/composed visibility | mutation + branch repaint | DPJ, Acne, ArkivIT hidden UI |
-| Dirty projection `<1 s` | popup signal queue/cursor | content fact -> brain -> popup | all usable candidates after post-AI edit |
-| AI start acknowledgement | scheduler/generation outcomes | popup/content/background bus | Teknikhallen sends one AI request or precise bounded failure |
-| One-shot Save fence | lock client/runtime/services | popup reconciliation -> Hub | one current-page `/save`, HTTP 200, no retry |
-| Silent selector authority | presentation/preview controller | config load + new popup organ | DPJ button, rows, and 100+ overlays agree |
-| Shield scroll fallback | input firewall/shield | scroll + geometry stabilizer | Arno moves and overlay identities persist |
-| Existing invariants | current suites | P14–P20 | consent, payload, freeze, render, emulation, publish fence |
+| Contract | Focused evidence | Browser/live evidence |
+| --- | --- | --- |
+| Frozen-clock liveness | presentation clock, hover, geometry stabilizer | starved-rAF physical pointer/scroll gate |
+| Exactly-once/coalescing | scheduler cancellation/race tests | one paint per latest input, no stuck handle |
+| Marking semantic parity | resolve/store/dom-bridge/renderer tests | legacy/rewrite row and modifier equality |
+| Silent retention | scroll/resize overlay identity tests | every DPJ scroll changes current geometry |
+| Incremental freeze maintenance | page-world counters and late-source tests | no scan/CPU storm during hover mutations |
+| Existing architecture | full unit/source/integration suite | P14-P20 production/debug gates |
 
 ## Regression risks
 
-- A status waiter could accept an unrelated websocket event. Fence it by client
-  instance, monotonically increasing state occurrence, property identity,
-  editor session, ownership role, and token; timeout locally.
-- Direct signal pulls could race navigation. Require the exact bound tab/key and
-  let the existing navigation occurrence reset discard stale results.
-- Overlay XPath interaction could clear a relocated/stale row. Resolve only from
-  the current bridge generation and require an exact explicit canonical row.
-- Ancestor visual checks can be expensive on huge DOMs. Run only for exclusion
-  rows being painted, stop at the document root, and retain geometry batching.
-- Scroll fallback could double-scroll. Measure before/after the native frame and
-  apply only if every candidate scroll owner is unchanged.
-- Silent selector fallback could expose stale data during marking. Restrict it
-  to silent presentation/projection; post-AI and Save continue using brain state.
+- A fallback and native rAF can race. The logical handle registry removes the
+  entry before invoking user code and cancels the losing primitive; tests cover
+  both callback orders and synchronous fakes.
+- A hint could become stale after DOM rebase. Generation, fingerprint, canonical
+  row, connection, visibility, and rect checks are mandatory; failure uses the
+  existing resolver.
+- Incremental motion discovery could miss a late descendant. Child-list roots
+  include every non-extension added element and genuine page-authored attribute
+  targets; late WAAPI/media/SVG tests remain binding.
+- Filtering class mutations could hide a real page class change. Comparison
+  removes only `uf-cursor-*`; every other token difference remains page-authored.
+- A 20 ms fallback can run outside a paint callback. Overlay writes remain one
+  coalesced geometry batch and the following browser paint is measured by the
+  physical acceptance gate.
 
-## Acceptance
+## Acceptance criteria
 
-- Every code-owned failure in the 2026-08-26 report has an automated regression
-  and passes on the usable headed candidate set.
-- Each usable Save click emits at most one current-page-only `/save`; successful
-  scenarios receive one HTTP 200 and adopt the authoritative response. Local
-  fence-refresh failure emits zero requests and a visible reason.
-- Teknikhallen reaches `/get_selectors` after exact generation acknowledgement
-  without a minute-long popup stall; all terminal paths release popup/content
-  busy state promptly.
-- A post-AI edit disables Save and Content List within one second on every usable
-  candidate.
-- Shift widening, plain exact-owner unmark, Alt inclusion, and context Clear pass;
-  no visually invisible exclusion rectangle is present while extraction state
-  remains excluded.
-- DPJ silent highlighting, selector count, Content List availability, rows, and
-  two-way focus agree. Arno scrolls under the shield without losing highlights.
-- Persistent freeze/lazy suppression remains active until navigation, consent
-  suppression stays intentional, payloads remain singular/clean, and no publish
-  request occurs below coverage.
-- Full automated validation, clean headed evidence, final review, commit, graph
-  refresh, and non-force push all complete.
+- With page rAF permanently starved, marking hover, marking scroll, silent
+  scroll, resize, and geometry stabilization continue after every input; no
+  scheduling handle remains permanently armed.
+- DPJ rewrite hover coverage is 100%, eight tested target positions paint eight
+  correct target states, and input-to-overlay p95 is no slower than pinned
+  legacy plus 10 ms.
+- Silent highlight nodes remain mounted and their geometry follows every tested
+  scroll/resize within 50 ms.
+- Freeze engagement performs one full document discovery; later extension UI,
+  cursor, and normalization mutations perform zero full-document scans, while
+  genuine late page animations/media/SVG sources are still paused.
+- Canonical rows, classifications, Shift-only widening, Alt include, exact-owner
+  unmarking, consent exclusion, capture/payload output, reveal/freeze lifetime,
+  and publication fences are unchanged.
+- All focused, full, production/debug, P14-P20, P23 browser, review, commit,
+  graph-index, and non-force push gates pass.
 
 ## Todo chain
 
-- [ ] R1 — Characterization and contract evidence
-- [ ] R2 — Exact marking ownership and live visibility
-- [ ] R3 — Immediate dirty projection and bounded AI start
-- [ ] R4 — Authoritative one-shot Save fence
-- [ ] R5 — Silent selector coherence and shield scrolling
-- [ ] R6 — Integration, headed acceptance, evidence, and delivery
+1. `p23-characterize-frozen-presentation`
+2. `p23-extension-presentation-clock`
+3. `p23-hover-hotpath-parity`
+4. `p23-incremental-motion-maintenance`
+5. `p23-browser-performance-acceptance`
+6. `p23-integrated-review-push`

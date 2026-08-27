@@ -29,6 +29,7 @@ import {
 } from "../content/render-inspection-curtain";
 import { createMarkingEngine } from "../content/marking";
 import { createPhysicalActionDeduper, openMarkingContextMenu } from "../content/marking/interaction";
+import { presentationClockFor } from "../content/presentation-clock";
 import { createPreviewController } from "../content/preview-controller";
 import { createSignalScheduler } from "../content/signal-scheduler";
 import {
@@ -62,6 +63,9 @@ import type { SelectorSet } from "../storage/config";
 import type { TransientSurfaceHandle } from "../ui/transient-surface-manager";
 
 const activation = createActivationGate();
+const contentPresentationClock = presentationClockFor(
+  typeof window === "undefined" ? null : window,
+);
 const freezeController = createFreezeController();
 const revealController = createRevealVisitController({
   isVisible: () => typeof document === "undefined" || document.visibilityState !== "hidden",
@@ -2347,7 +2351,13 @@ function ensureMarkingListeners(): void {
   ) {
     return;
   }
-  let lastPointer: Readonly<{ x: number; y: number; altKey: boolean; shiftKey: boolean }> | null = null;
+  let lastPointer: Readonly<{
+    x: number;
+    y: number;
+    altKey: boolean;
+    shiftKey: boolean;
+    overlayXpath: string;
+  }> | null = null;
   let hoverFrame = 0;
   let shiftHeld = false;
   let physicalSequence = 0;
@@ -2360,6 +2370,25 @@ function ensureMarkingListeners(): void {
   }> | null = null;
   let closeMarkingMenu: (() => void) | null = null;
   const deduper = createPhysicalActionDeduper();
+  const overlayXpathFromTarget = (target: EventTarget | null): string => {
+    const candidate = target as (Element & {
+      closest?: (selector: string) => Element | null;
+    }) | null;
+    const overlay = candidate?.closest?.("[data-uf-overlay-xpath]");
+    if (!overlay?.closest?.(".uf-marking-layer-root")) {
+      return "";
+    }
+    return overlay.getAttribute("data-uf-overlay-xpath") ?? "";
+  };
+  const resolveAtPoint = (
+    x: number,
+    y: number,
+    mode: "include" | "exclude",
+    shiftActive: boolean,
+    overlayXpath: string,
+  ) => overlayXpath
+    ? markingEngine?.resolveAtPoint(x, y, mode, shiftActive, { overlayXpath }) ?? null
+    : markingEngine?.resolveAtPoint(x, y, mode, shiftActive) ?? null;
   const physicalIdFor = (event: MouseEvent): number => {
     const down = lastPointerDown;
     if (
@@ -2408,11 +2437,19 @@ function ensureMarkingListeners(): void {
         : pointer.altKey
           ? "include"
           : "exclude";
-      markingEngine.hoverAtPoint(pointer.x, pointer.y, mode, pointer.shiftKey);
+      if (pointer.overlayXpath) {
+        markingEngine.hoverAtPoint(
+          pointer.x,
+          pointer.y,
+          mode,
+          pointer.shiftKey,
+          { overlayXpath: pointer.overlayXpath },
+        );
+      } else {
+        markingEngine.hoverAtPoint(pointer.x, pointer.y, mode, pointer.shiftKey);
+      }
     };
-    hoverFrame = typeof window.requestAnimationFrame === "function"
-      ? window.requestAnimationFrame(run)
-      : window.setTimeout(run, 0);
+    hoverFrame = contentPresentationClock.requestFrame(run);
   };
   const handleClick = (event: MouseEvent): void => {
     if (!markingActive || !markingEngine) {
@@ -2435,7 +2472,13 @@ function ensureMarkingListeners(): void {
     }
     event.preventDefault();
     event.stopPropagation();
-    const target = markingEngine.resolveAtPoint(event.clientX, event.clientY, mode, event.shiftKey);
+    const target = resolveAtPoint(
+      event.clientX,
+      event.clientY,
+      mode,
+      event.shiftKey,
+      overlayXpathFromTarget(event.target),
+    );
     if (!target) {
       markingEngine.rejectAtPoint?.(event.clientX, event.clientY);
       const debugDetail = typeof __UF_DEBUG_BUILD__ !== "undefined" && __UF_DEBUG_BUILD__
@@ -2474,9 +2517,10 @@ function ensureMarkingListeners(): void {
     event.stopPropagation();
     closeMarkingMenu?.();
     const physicalId = physicalIdFor(event);
-    const include = markingEngine.resolveAtPoint(event.clientX, event.clientY, "include", false);
-    const exclude = markingEngine.resolveAtPoint(event.clientX, event.clientY, "exclude", false);
-    const widen = markingEngine.resolveAtPoint(event.clientX, event.clientY, "exclude", true);
+    const overlayXpath = overlayXpathFromTarget(event.target);
+    const include = resolveAtPoint(event.clientX, event.clientY, "include", false, overlayXpath);
+    const exclude = resolveAtPoint(event.clientX, event.clientY, "exclude", false, overlayXpath);
+    const widen = resolveAtPoint(event.clientX, event.clientY, "exclude", true, overlayXpath);
     const clearTarget = exclude ?? include;
     if (!include && !exclude) {
       markingEngine.rejectAtPoint?.(event.clientX, event.clientY);
@@ -2520,6 +2564,7 @@ function ensureMarkingListeners(): void {
       y: event.clientY,
       altKey: event.altKey,
       shiftKey: event.shiftKey,
+      overlayXpath: overlayXpathFromTarget(event.target),
     };
     scheduleHover();
   };
@@ -2591,11 +2636,7 @@ function ensureMarkingListeners(): void {
     }
     document.removeEventListener("visibilitychange", resetModifiers, true);
     if (hoverFrame && typeof window !== "undefined") {
-      if (typeof window.cancelAnimationFrame === "function") {
-        window.cancelAnimationFrame(hoverFrame);
-      } else {
-        window.clearTimeout(hoverFrame);
-      }
+      contentPresentationClock.cancelFrame(hoverFrame);
       hoverFrame = 0;
     }
     lastPointer = null;

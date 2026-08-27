@@ -2072,6 +2072,7 @@ describe("C4 rewrite content entrypoints", () => {
       setInputTransparent: vi.fn(),
       setSuspended: vi.fn(),
       clearHover: vi.fn(),
+      hoverAtPoint: vi.fn(),
       rejectAtPoint: vi.fn(),
       rows: vi.fn(() => [{ xpath: "/html[1]/body[1]/p[1]", excluded: true }]),
       lastInitializationSeededSelectors: vi.fn(() => true),
@@ -2373,6 +2374,50 @@ describe("C4 rewrite content entrypoints", () => {
     expect(engine.setPassthrough).toHaveBeenNthCalledWith(6, false);
     expect(engine.setPassthrough).toHaveBeenNthCalledWith(7, true);
     expect(engine.setPassthrough).toHaveBeenNthCalledWith(8, false);
+    vi.useFakeTimers();
+    const classificationOverlayTarget = {
+      getAttribute: vi.fn((name: string) => name === "data-uf-overlay-xpath"
+        ? "/html[1]/body[1]/p[1]"
+        : null),
+      closest: vi.fn((selector: string) => (
+        selector === "[data-uf-overlay-xpath]" || selector === ".uf-marking-layer-root"
+          ? classificationOverlayTarget
+          : null
+      )),
+    };
+    documentListeners.get("mousemove")?.({
+      clientX: 25,
+      clientY: 35,
+      altKey: false,
+      shiftKey: false,
+    } as unknown as Event);
+    documentListeners.get("mousemove")?.({
+      clientX: 45,
+      clientY: 55,
+      altKey: true,
+      shiftKey: false,
+      target: classificationOverlayTarget,
+    } as unknown as Event);
+    await vi.advanceTimersByTimeAsync(19);
+    expect(engine.hoverAtPoint).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(engine.hoverAtPoint).toHaveBeenLastCalledWith(
+      45,
+      55,
+      "include",
+      false,
+      { overlayXpath: "/html[1]/body[1]/p[1]" },
+    );
+    documentListeners.get("mousemove")?.({
+      clientX: 65,
+      clientY: 75,
+      altKey: false,
+      shiftKey: true,
+    } as unknown as Event);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(engine.hoverAtPoint).toHaveBeenLastCalledWith(65, 75, "exclude", true);
+    expect(engine.hoverAtPoint).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
     await dispatchContentCommand(listener, "pauseContentMainInteractions");
     expect(engine.setSuspended).toHaveBeenCalledWith(true);
     expect(contentRoot?.children.some((element) =>

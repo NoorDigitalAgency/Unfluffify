@@ -115,11 +115,13 @@ const page = globalThis as unknown as PageWorldRoot;
     priority: string;
   }>> = [];
   const normalizedProperties = new WeakMap<Element, Set<string>>();
+  let normalizedStyleMutationBudgets = new WeakMap<Element, number>();
   const pendingMotionRoots = new Set<Element>();
   const motionEventCleanups: Array<() => void> = [];
   let motionStyle: HTMLStyleElement | null = null;
   let motionObserver: MutationObserver | null = null;
   let motionEnforcementScheduled = false;
+  let motionFreezeInstalled = false;
   let motionSourceHooksInstalled = false;
   let motionErrorCount = 0;
   let lastKnownUrl = page.location && page.location.href ? String(page.location.href) : "";
@@ -234,6 +236,12 @@ const page = globalThis as unknown as PageWorldRoot;
       value: element.style.getPropertyValue(property),
       priority: element.style.getPropertyPriority(property),
     });
+    if (motionObserver) {
+      normalizedStyleMutationBudgets.set(
+        element,
+        (normalizedStyleMutationBudgets.get(element) ?? 0) + 1,
+      );
+    }
     element.style.setProperty(property, value, "important");
   }
 
@@ -265,8 +273,10 @@ const page = globalThis as unknown as PageWorldRoot;
     }
   }
 
-  function pauseMotionSources(root: Element): void {
-    const documentAnimations = page.document?.getAnimations?.() ?? [];
+  function pauseMotionSources(
+    root: Element,
+    documentAnimations: readonly Animation[] = page.document?.getAnimations?.() ?? [],
+  ): void {
     for (const animation of documentAnimations) {
       const target = (animation.effect as KeyframeEffect | null)?.target as Element | null;
       if (target?.nodeType === 1 && !root.contains(target) && root !== target) continue;
@@ -306,17 +316,35 @@ const page = globalThis as unknown as PageWorldRoot;
     }
   }
 
-  function scheduleMotionEnforcement(root: Element = page.document.documentElement): void {
-    if (!paused || !root || isExtensionElement(root)) return;
+  function addPendingMotionRoot(root: Element | null | undefined): void {
+    if (!paused || !root || isExtensionElement(root) || root.isConnected === false) return;
+    for (const pendingRoot of pendingMotionRoots) {
+      if (pendingRoot === root || pendingRoot.contains(root)) {
+        return;
+      }
+      if (root.contains(pendingRoot)) {
+        pendingMotionRoots.delete(pendingRoot);
+      }
+    }
     pendingMotionRoots.add(root);
-    if (motionEnforcementScheduled) return;
+  }
+
+  function scheduleMotionEnforcement(root?: Element): void {
+    if (!paused) return;
+    if (root) {
+      addPendingMotionRoot(root);
+    }
+    if (motionEnforcementScheduled || pendingMotionRoots.size === 0) return;
     motionEnforcementScheduled = true;
     const enforce = () => {
       motionEnforcementScheduled = false;
       const roots = [...pendingMotionRoots];
       pendingMotionRoots.clear();
+      const documentAnimations = page.document?.getAnimations?.() ?? [];
       for (const pendingRoot of roots) {
-        if (pendingRoot.isConnected !== false) pauseMotionSources(pendingRoot);
+        if (pendingRoot.isConnected !== false) {
+          pauseMotionSources(pendingRoot, documentAnimations);
+        }
       }
     };
     if (originals.requestAnimationFrame) {
@@ -390,6 +418,8 @@ const page = globalThis as unknown as PageWorldRoot;
   function installMotionFreeze(): void {
     const documentElement = page.document?.documentElement;
     if (!documentElement || typeof documentElement.setAttribute !== "function") return;
+    if (motionFreezeInstalled) return;
+    motionFreezeInstalled = true;
     documentElement.setAttribute("data-uf-page-motion-paused", "true");
     installMotionSourceHooks();
     if (!motionStyle) {
@@ -410,9 +440,41 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
       motionObserver = new page.MutationObserver((records) => {
         for (const record of records) {
           const target = record.target.nodeType === 1 ? record.target as Element : record.target.parentElement;
-          if (target) pendingMotionRoots.add(target);
+          if (record.type === "attributes") {
+            if (!target || isExtensionElement(target)) {
+              continue;
+            }
+            if (record.attributeName === "style") {
+              const ownWriteBudget = normalizedStyleMutationBudgets.get(target) ?? 0;
+              if (ownWriteBudget > 0) {
+                if (ownWriteBudget === 1) {
+                  normalizedStyleMutationBudgets.delete(target);
+                } else {
+                  normalizedStyleMutationBudgets.set(target, ownWriteBudget - 1);
+                }
+                continue;
+              }
+            }
+            if (record.attributeName === "class") {
+              const authoredClassTokens = (value: string | null): string => (value ?? "")
+                .split(/\s+/)
+                .filter((token) => token && !token.startsWith("uf-cursor-"))
+                .sort()
+                .join(" ");
+              if (
+                authoredClassTokens(record.oldValue) ===
+                authoredClassTokens(target.getAttribute?.("class"))
+              ) {
+                continue;
+              }
+            }
+            addPendingMotionRoot(target);
+            continue;
+          }
           for (const node of Array.from(record.addedNodes ?? [])) {
-            if (node.nodeType === 1) pendingMotionRoots.add(node as Element);
+            if (node.nodeType === 1) {
+              addPendingMotionRoot(node as Element);
+            }
           }
         }
         scheduleMotionEnforcement();
@@ -421,6 +483,7 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
         childList: true,
         subtree: true,
         attributes: true,
+        attributeOldValue: true,
         attributeFilter: ["class", "style", "hidden", "open", "aria-hidden", "aria-expanded"],
       });
     }
@@ -429,8 +492,10 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
         const listener = (event: Event): void => {
           const target = (event.target as Element | null)?.nodeType === 1
             ? event.target as Element
-            : documentElement;
-          scheduleMotionEnforcement(target);
+            : null;
+          if (target) {
+            scheduleMotionEnforcement(target);
+          }
         };
         originals.addEventListener.call(page.document, type, listener, true);
         motionEventCleanups.push(() => originals.removeEventListener?.call(page.document, type, listener, true));
@@ -444,6 +509,7 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
     while (motionEventCleanups.length > 0) motionEventCleanups.pop()?.();
     pendingMotionRoots.clear();
     motionEnforcementScheduled = false;
+    motionFreezeInstalled = false;
     motionStyle?.remove();
     motionStyle = null;
     page.document?.documentElement?.removeAttribute?.("data-uf-page-motion-paused");
@@ -459,6 +525,7 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
       normalizedProperties.get(remembered.element)?.delete(remembered.property);
     }
     normalizedMotionStyles.length = 0;
+    normalizedStyleMutationBudgets = new WeakMap<Element, number>();
     for (const animation of pausedAnimations) {
       try {
         if (animation.playState === "paused") animation.play();

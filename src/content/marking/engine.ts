@@ -31,6 +31,7 @@ import type { VisibilityGeometry } from "../../domain/visibility";
 import { isToggleableBoundary } from "../../domain/boundary";
 import { createGeometryStabilizer } from "./stabilizer";
 import { readElementId } from "./element-identity";
+import { presentationClockFor } from "../presentation-clock";
 
 function evaluationNodeFingerprint(node: EvaluationNode): string {
   return [
@@ -307,6 +308,11 @@ export type MarkingEngineRefreshOptions = Readonly<{
   render?: boolean;
 }>;
 
+export type MarkingPointResolutionHint = Readonly<{
+  /** Current extension-owned classification rectangle under the pointer. */
+  overlayXpath: string;
+}>;
+
 const DEFERRED_BRANCH_RENDER_TARGET_THRESHOLD = 200;
 const STRUCTURAL_MUTATION_QUIET_MS = 150;
 const STRUCTURAL_MUTATION_IDLE_TIMEOUT_MS = 1_200;
@@ -466,6 +472,7 @@ export function createMarkingEngine(
   rootElement: Element,
   options: MarkingEngineInitializationOptions = {},
 ) {
+  const presentationClock = presentationClockFor(rootElement.ownerDocument.defaultView);
   const instrumentation = options.instrumentation;
   const debugWorkTiming = typeof __UF_DEBUG_BUILD__ !== "undefined" && __UF_DEBUG_BUILD__;
   let workStageStartedAt = globalThis.performance?.now?.() ?? Date.now();
@@ -525,6 +532,7 @@ export function createMarkingEngine(
   });
   let observerCleanup: (() => void) | null = null;
   let renderScheduled = false;
+  let renderFrameHandle = 0;
   type RenderWork = "geometry" | "silent-geometry" | "structural";
   let scheduledWork: RenderWork | null = null;
   let structuralRenderSettled: (() => void) | null = null;
@@ -537,13 +545,16 @@ export function createMarkingEngine(
     y: number;
     mode: MarkMode;
     shiftActive: boolean;
+    overlayXpath: string;
+    generation: number;
     node: EvaluationNode | null;
   }> | null = null;
   let candidateByXpath: Map<string, MarkingCandidate> | null = null;
+  let explicitExclusionOwnerByXpath: Map<string, EvaluationNode> | null = null;
   let overlayTargets = new Map<string, OverlayRenderTarget>();
   let widenByKey = new Map<string, WidenNode>();
   let bridgeGeneration = 0;
-  let deferredBranchRenderHandle: ReturnType<typeof setTimeout> | null = null;
+  let deferredBranchRenderHandle: number | null = null;
   let deferredBranchRenderGeneration = 0;
   let deferredBranchTargets = new Map<string, OverlayRenderTarget>();
   let previewRevision = 0;
@@ -556,6 +567,7 @@ export function createMarkingEngine(
 
   const rebuildBridgeIndexes = (): void => {
     bridgeGeneration += 1;
+    explicitExclusionOwnerByXpath = null;
     overlayTargets = new Map([...bridge.byXpath].map(([xpath, value]) => [xpath, {
       element: value.element,
       visible: value.evaluationNode.visible,
@@ -577,6 +589,32 @@ export function createMarkingEngine(
       candidateByXpath = buildCandidateIndex(bridge.root, evaluation.overlay, store.canonicalSet().rows);
     }
     return candidateByXpath;
+  };
+
+  const currentExplicitExclusionOwners = (): ReadonlyMap<string, EvaluationNode> => {
+    if (!explicitExclusionOwnerByXpath) {
+      explicitExclusionOwnerByXpath = new Map(
+        store.canonicalSet().rows.flatMap((row) => {
+          const entry = row.explicit === true && row.excluded === true
+            ? bridge.byXpath.get(row.xpath)
+            : undefined;
+          return entry ? [[row.xpath, entry.evaluationNode] as const] : [];
+        }),
+      );
+    }
+    return explicitExclusionOwnerByXpath;
+  };
+
+  const currentNodeForHint = (xpath: string): EvaluationNode | null => {
+    const entry = bridge.byXpath.get(xpath);
+    const node = entry?.evaluationNode;
+    const element = entry?.element as (Element & { isConnected?: boolean }) | undefined;
+    return node &&
+      generationByNode.get(node) === bridgeGeneration &&
+      fingerprintByNode.get(node) === evaluationNodeFingerprint(node) &&
+      element?.isConnected !== false
+      ? node
+      : null;
   };
 
   const buildPreviewProjection = (pageUrl: string, selectors: SelectorSet): PreviewProjection => {
@@ -642,7 +680,7 @@ export function createMarkingEngine(
 
   const refreshBridge = (refreshOptions: MarkingEngineRefreshOptions = {}): boolean => {
     if (deferredBranchRenderHandle !== null) {
-      clearTimeout(deferredBranchRenderHandle);
+      presentationClock.cancelFrame(deferredBranchRenderHandle);
       deferredBranchRenderHandle = null;
       deferredBranchTargets.clear();
     }
@@ -768,7 +806,7 @@ export function createMarkingEngine(
     // marking state is already committed. Yield once so the browser can paint
     // that acknowledgement and the signal path can invalidate popup controls
     // before a very large branch performs its geometry-heavy overlay repaint.
-    deferredBranchRenderHandle = setTimeout(() => {
+    const deferredHandle = presentationClock.requestFrame(() => {
       deferredBranchRenderHandle = null;
       const targets = deferredBranchTargets;
       deferredBranchTargets = new Map<string, OverlayRenderTarget>();
@@ -780,7 +818,8 @@ export function createMarkingEngine(
       if (silentHighlightsArmed) {
         renderSilentBranch(current, targets);
       }
-    }, 0);
+    });
+    deferredBranchRenderHandle = deferredHandle || null;
   };
   const scheduleRender = (work: RenderWork): void => {
     hoverResolution = null;
@@ -796,8 +835,8 @@ export function createMarkingEngine(
       return;
     }
     renderScheduled = true;
-    const view = rootElement.ownerDocument.defaultView;
     const run = (): void => {
+      renderFrameHandle = 0;
       renderScheduled = false;
       const nextWork = scheduledWork;
       scheduledWork = null;
@@ -819,11 +858,7 @@ export function createMarkingEngine(
         renderer.reposition(byXpath);
       }
     };
-    if (view?.requestAnimationFrame) {
-      view.requestAnimationFrame(run);
-    } else {
-      setTimeout(run, 0);
-    }
+    renderFrameHandle = presentationClock.requestFrame(run);
   };
   const installObservers = (): (() => void) => {
     const view = rootElement.ownerDocument.defaultView;
@@ -845,12 +880,8 @@ export function createMarkingEngine(
       onSettled: () => {
         observerGeometryWork = "geometry";
       },
-      requestFrame: (callback) => view?.requestAnimationFrame
-        ? view.requestAnimationFrame(callback)
-        : (setTimeout(() => callback(Date.now()), 0) as unknown as number),
-      cancelFrame: (handle) => view?.cancelAnimationFrame
-        ? view.cancelAnimationFrame(handle)
-        : clearTimeout(handle),
+      requestFrame: (callback) => presentationClock.requestFrame(callback),
+      cancelFrame: (handle) => presentationClock.cancelFrame(handle),
       maxSamples: 4,
       requiredStableSamples: 2,
     });
@@ -1075,19 +1106,38 @@ export function createMarkingEngine(
       renderer.clearSilentHighlights();
       renderCurrent();
     },
-    resolveAtPoint(x: number, y: number, mode: MarkMode, shiftActive = false): EvaluationNode | null {
-      const pointHits = getComposedHitElements(rootElement.ownerDocument, x, y);
+    resolveAtPoint(
+      x: number,
+      y: number,
+      mode: MarkMode,
+      shiftActive = false,
+      hint?: MarkingPointResolutionHint,
+    ): EvaluationNode | null {
       if (mode === "exclude" && !shiftActive) {
+        const hintedOwner = hint?.overlayXpath
+          ? currentExplicitExclusionOwners().get(hint.overlayXpath)
+          : undefined;
+        const hintedEntry = hintedOwner ? bridge.byXpath.get(hintedOwner.xpath) : undefined;
+        if (
+          hintedOwner &&
+          currentNodeForHint(hintedOwner.xpath) === hintedOwner &&
+          hintedEntry &&
+          isCurrentlyVisuallyVisible(hintedEntry.element)
+        ) {
+          const rect = hintedEntry.element.getBoundingClientRect();
+          if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+            return hintedOwner;
+          }
+        }
         // An expanded mark owns its painted rectangle even when a carousel,
         // pseudo-control, or overlapping sibling becomes the native hit after
         // the mark is created. Prefer the deepest visible explicit owner whose
         // rectangle contains the pointer before resolving a new leaf target.
         // This keeps ordinary clicks as unmark operations without making
         // exclusion expansion possible unless Shift is held.
-        const explicitOwner = store.canonicalSet().rows
-          .filter((row) => row.explicit === true && row.excluded === true)
-          .flatMap((row) => {
-            const entry = bridge.byXpath.get(row.xpath);
+        const explicitOwner = [...currentExplicitExclusionOwners().values()]
+          .flatMap((node) => {
+            const entry = bridge.byXpath.get(node.xpath);
             if (!entry || !isCurrentlyVisuallyVisible(entry.element)) {
               return [];
             }
@@ -1101,6 +1151,7 @@ export function createMarkingEngine(
           return explicitOwner;
         }
       }
+      const pointHits = getComposedHitElements(rootElement.ownerDocument, x, y);
       const hits = pointHits
         .filter((element) => composedContains(rootElement, element))
         .filter((element) => isPaintReachableWithinHits(element, pointHits));
@@ -1156,6 +1207,7 @@ export function createMarkingEngine(
         }
         const toggled = store.toggle(node, mode);
         candidateByXpath = null;
+        explicitExclusionOwnerByXpath = null;
         interactiveMarkingRendered = true;
         renderChangedBranch(toggled, toggled.branchRoot);
         return true;
@@ -1190,6 +1242,7 @@ export function createMarkingEngine(
           return false;
         }
         candidateByXpath = null;
+        explicitExclusionOwnerByXpath = null;
         interactiveMarkingRendered = true;
         renderChangedBranch(cleared, cleared.branchRoot);
         return true;
@@ -1232,7 +1285,14 @@ export function createMarkingEngine(
       interactiveMarkingRendered = true;
       renderCurrent();
     },
-    hoverAtPoint(x: number, y: number, mode: MarkMode = "exclude", shiftActive = false): void {
+    hoverAtPoint(
+      x: number,
+      y: number,
+      mode: MarkMode = "exclude",
+      shiftActive = false,
+      hint?: MarkingPointResolutionHint,
+    ): void {
+      const overlayXpath = hint?.overlayXpath ?? "";
       if (
         hoverResolution?.x === x &&
         hoverResolution.y === y &&
@@ -1241,8 +1301,20 @@ export function createMarkingEngine(
       ) {
         return;
       }
-      const node = this.resolveAtPoint(x, y, mode, shiftActive);
-      hoverResolution = { x, y, mode, shiftActive, node };
+      if (
+        overlayXpath &&
+        hoverResolution?.overlayXpath === overlayXpath &&
+        hoverResolution.mode === mode &&
+        hoverResolution.shiftActive === shiftActive &&
+        hoverResolution.generation === bridgeGeneration &&
+        hoverResolution.node &&
+        currentNodeForHint(hoverResolution.node.xpath) === hoverResolution.node
+      ) {
+        hoverResolution = { ...hoverResolution, x, y };
+        return;
+      }
+      const node = this.resolveAtPoint(x, y, mode, shiftActive, hint);
+      hoverResolution = { x, y, mode, shiftActive, overlayXpath, generation: bridgeGeneration, node };
       const element = node ? bridge.byXpath.get(node.xpath)?.element ?? null : null;
       renderer.setHover(element, node?.xpath ?? "");
     },
@@ -1358,7 +1430,7 @@ export function createMarkingEngine(
     },
     clearOverlays(): void {
       if (deferredBranchRenderHandle !== null) {
-        clearTimeout(deferredBranchRenderHandle);
+        presentationClock.cancelFrame(deferredBranchRenderHandle);
         deferredBranchRenderHandle = null;
         deferredBranchTargets.clear();
       }
@@ -1369,7 +1441,7 @@ export function createMarkingEngine(
     },
     parkPresentation(): void {
       if (deferredBranchRenderHandle !== null) {
-        clearTimeout(deferredBranchRenderHandle);
+        presentationClock.cancelFrame(deferredBranchRenderHandle);
         deferredBranchRenderHandle = null;
         deferredBranchTargets.clear();
       }
@@ -1381,7 +1453,7 @@ export function createMarkingEngine(
     },
     dispose(): void {
       if (deferredBranchRenderHandle !== null) {
-        clearTimeout(deferredBranchRenderHandle);
+        presentationClock.cancelFrame(deferredBranchRenderHandle);
         deferredBranchRenderHandle = null;
         deferredBranchTargets.clear();
       }
@@ -1392,6 +1464,13 @@ export function createMarkingEngine(
       activePreviewProjectionId = null;
       observerCleanup?.();
       observerCleanup = null;
+      if (renderFrameHandle !== 0) {
+        presentationClock.cancelFrame(renderFrameHandle);
+        renderFrameHandle = 0;
+        renderScheduled = false;
+        scheduledWork = null;
+        structuralRenderSettled = null;
+      }
       renderer.dispose();
     },
     captureRenderedHtml(): string {

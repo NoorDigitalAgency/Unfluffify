@@ -71,6 +71,9 @@ P0 Contract alignment
                                     -> P18 Transient UI and production toasts
                                       -> P19 Targeted decomposition
                                         -> P20 Integrated release and live acceptance
+                                          -> P21 Humanova parity
+                                            -> P22 Cross-property remediation (external acceptance open)
+                                              -> P23 Frozen-surface presentation performance
 ```
 
 P0–P11 are the completed baseline. The follow-up sequence is intentionally
@@ -1064,6 +1067,25 @@ in the owning phase and rerun its focused gate plus P9–P11.
     property/feed revisions. 3D Prima remains a candidate 404 and Bigbag N/A.
     Keep P22 unchecked until those authority/candidate blockers clear. See
     [`p22-cross-property-workflow-remediation-report-2026-08-27.md`](./p22-cross-property-workflow-remediation-report-2026-08-27.md).
+
+- [ ] P23 — Frozen-surface presentation performance
+  - Decouple marking hover, marking/silent geometry, and bounded stabilization
+    from the page animation clock through one captured, exactly-once content
+    presentation scheduler with a 20 ms starvation fallback.
+  - Port only behavior-preserving legacy hot-path adaptations: coalesced latest
+    pointer delivery, validated same-overlay hover reuse, stable overlay reuse,
+    and no-op redraws for unchanged hover identity.
+  - Keep one canonical evaluator and validate overlay XPath hints against the
+    current generation/fingerprint/canonical row before using them; Shift, Alt,
+    exact-owner clear, extraction, and payload semantics remain unchanged.
+  - Restore incremental page-motion maintenance: one full engage scan, minimal
+    page-authored late roots, extension/own-write filtering, and one animation
+    enumeration per enforcement batch.
+  - P23 may execute while P22 remains externally blocked because P22's repository
+    remediation is complete and P23 changes no Hub/candidate authority. Acceptance
+    requires focused regressions, verify/debug, P14-P20 plus a frozen-surface
+    browser gate, copied-profile DPJ legacy/rewrite frame evidence, review,
+    commit, graph refresh, and non-force push. See [`../plan.md`](../plan.md).
 
 For each completed item, append the commit SHA(s), exact test command, result,
 and any live artifact/version directly beneath the checkbox. The first unchecked

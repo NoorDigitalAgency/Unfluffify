@@ -134,6 +134,7 @@ describe("P5 page-world program", () => {
       playCalls = 0;
       pauseAnimationCalls = 0;
       unpauseAnimationCalls = 0;
+      querySelectorAllCalls = 0;
       textContent = "";
       constructor(readonly tagName: string) {}
       setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
@@ -145,7 +146,10 @@ describe("P5 page-world program", () => {
         else this.attributes.delete(name);
       }
       appendChild<T extends FakeElement>(child: T): T { child.parentElement = this; this.children.push(child); return child; }
-      querySelectorAll(): FakeElement[] { return this.children.flatMap((child) => [child, ...child.querySelectorAll()]); }
+      querySelectorAll(): FakeElement[] {
+        this.querySelectorAllCalls += 1;
+        return this.children.flatMap((child) => [child, ...child.querySelectorAll()]);
+      }
       closest(selector: string): FakeElement | null {
         if (selector === '[data-uf-extension-ui="true"]' && this.getAttribute("data-uf-extension-ui") === "true") return this;
         return this.parentElement?.closest(selector) ?? null;
@@ -175,11 +179,15 @@ describe("P5 page-world program", () => {
     semantic.animations.push(new FakeAnimation(semantic));
     media.paused = false;
     const animations = [...entrance.animations, ...semantic.animations];
+    let animationEnumerationCalls = 0;
     const document = {
       documentElement: root,
       head,
       createElement: (tagName: string) => new FakeElement(tagName.toUpperCase()),
-      getAnimations: () => animations,
+      getAnimations: () => {
+        animationEnumerationCalls += 1;
+        return animations;
+      },
     };
     const context = {
       performance: { now: () => 123 },
@@ -191,7 +199,9 @@ describe("P5 page-world program", () => {
         return {
           display: "block",
           visibility: "visible",
-          opacity: element === entrance || element === semantic ? "0" : "1",
+          opacity: element === entrance || element === semantic || element.hasAttribute("data-motion-hidden")
+            ? "0"
+            : "1",
           animationName: element.animations.length > 0 ? "enter" : "none",
           animationDuration: element.animations.length > 0 ? "1s" : "0s",
           clipPath: "none",
@@ -234,6 +244,18 @@ describe("P5 page-world program", () => {
     expect(entrance.animations[0]?.playState).toBe("paused");
     expect(media.pauseCalls).toBe(1);
     expect(svg.pauseAnimationCalls).toBe(1);
+    expect(root.querySelectorAllCalls).toBe(1);
+    expect(animationEnumerationCalls).toBe(1);
+    send({
+      kind: "uf-page-bus/1",
+      type: "request",
+      nonce: "n2-repeat",
+      sessionNonce: "n1",
+      command: "SET_MOTION_PAUSED",
+      payload: { paused: true },
+    });
+    expect(root.querySelectorAllCalls).toBe(1);
+    expect(animationEnumerationCalls).toBe(1);
 
     entrance.animations[0]?.play();
     expect(entrance.animations[0]?.playState).toBe("paused");
@@ -248,11 +270,77 @@ describe("P5 page-world program", () => {
     expect(idleFired).toBe(false);
 
     const late = root.appendChild(new FakeElement("DIV"));
+    late.setAttribute("data-motion-hidden", "true");
+    const lateNested = late.appendChild(new FakeElement("SPAN"));
     const lateAnimation = new FakeAnimation(late);
+    const lateNestedAnimation = new FakeAnimation(lateNested);
     late.animations.push(lateAnimation);
-    animations.push(lateAnimation);
-    mutationCallback([{ target: root, addedNodes: [late] }] as unknown as MutationRecord[], {} as MutationObserver);
+    lateNested.animations.push(lateNestedAnimation);
+    animations.push(lateAnimation, lateNestedAnimation);
+    mutationCallback([{
+      type: "childList",
+      target: root,
+      addedNodes: [late, lateNested],
+    }] as unknown as MutationRecord[], {} as MutationObserver);
     expect(lateAnimation.playState).toBe("paused");
+    expect(lateNestedAnimation.playState).toBe("paused");
+    expect(root.querySelectorAllCalls).toBe(1);
+    expect(late.querySelectorAllCalls).toBe(1);
+    expect(lateNested.querySelectorAllCalls).toBe(1);
+    expect(animationEnumerationCalls).toBe(2);
+
+    mutationCallback([{
+      type: "attributes",
+      target: late,
+      attributeName: "style",
+      oldValue: "",
+      addedNodes: [],
+    }] as unknown as MutationRecord[], {} as MutationObserver);
+    expect(late.querySelectorAllCalls).toBe(1);
+    expect(animationEnumerationCalls).toBe(2);
+
+    mutationCallback([{
+      type: "attributes",
+      target: late,
+      attributeName: "style",
+      oldValue: "opacity: 1",
+      addedNodes: [],
+    }] as unknown as MutationRecord[], {} as MutationObserver);
+    expect(late.querySelectorAllCalls).toBe(2);
+    expect(animationEnumerationCalls).toBe(3);
+
+    const extensionRoot = root.appendChild(new FakeElement("DIV"));
+    extensionRoot.setAttribute("data-uf-extension-ui", "true");
+    mutationCallback([{
+      type: "childList",
+      target: root,
+      addedNodes: [extensionRoot],
+    }] as unknown as MutationRecord[], {} as MutationObserver);
+    expect(extensionRoot.querySelectorAllCalls).toBe(0);
+    expect(root.querySelectorAllCalls).toBe(1);
+    expect(animationEnumerationCalls).toBe(3);
+
+    root.setAttribute("class", "uf-cursor-exclude");
+    mutationCallback([{
+      type: "attributes",
+      target: root,
+      attributeName: "class",
+      oldValue: "",
+      addedNodes: [],
+    }] as unknown as MutationRecord[], {} as MutationObserver);
+    expect(root.querySelectorAllCalls).toBe(1);
+    expect(animationEnumerationCalls).toBe(3);
+
+    const lateSiblingOne = root.appendChild(new FakeElement("DIV"));
+    const lateSiblingTwo = root.appendChild(new FakeElement("DIV"));
+    mutationCallback([{
+      type: "childList",
+      target: root,
+      addedNodes: [lateSiblingOne, lateSiblingTwo],
+    }] as unknown as MutationRecord[], {} as MutationObserver);
+    expect(lateSiblingOne.querySelectorAllCalls).toBe(1);
+    expect(lateSiblingTwo.querySelectorAllCalls).toBe(1);
+    expect(animationEnumerationCalls).toBe(4);
 
     send({ kind: "uf-page-bus/1", type: "request", nonce: "n3", sessionNonce: "n1", command: "DESTROY", payload: {} });
     expect(root.getAttribute("data-uf-page-motion-paused")).toBeNull();

@@ -262,18 +262,41 @@ describe("P6 DOM bridge", () => {
     target.ownerDocument = doc;
     root.appendChild(target);
     doc.hits = [target, root];
-    const engine = createMarkingEngine(root as unknown as Element);
+    const rendererSeam = createRendererTestSeam();
+    const engine = createMarkingEngine(root as unknown as Element, {
+      instrumentation: { createRenderer: rendererSeam.createRenderer },
+    });
+    const hint = { overlayXpath: "/main[1]/p[1]" };
 
-    engine.hoverAtPoint(20, 15);
+    engine.hoverAtPoint(20, 15, "exclude", false, hint);
     const firstProbeReads = doc.hitReadCount;
-    engine.hoverAtPoint(20, 15);
+    const firstHoverRenders = rendererSeam.hoverRender.mock.calls.length;
+    engine.hoverAtPoint(40, 15, "exclude", false, hint);
 
     expect(doc.hitReadCount).toBe(firstProbeReads);
+    expect(rendererSeam.hoverRender).toHaveBeenCalledTimes(firstHoverRenders);
 
     engine.refresh();
-    engine.hoverAtPoint(20, 15);
+    engine.hoverAtPoint(40, 15, "exclude", false, hint);
 
     expect(doc.hitReadCount).toBeGreaterThan(firstProbeReads);
+  });
+
+  it("falls back to composed hit testing when an overlay hint is stale", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const target = new FakeElement("P", rect(10, 10, 100, 20), "Hover copy");
+    root.ownerDocument = doc;
+    target.ownerDocument = doc;
+    root.appendChild(target);
+    doc.hits = [target, root];
+    const engine = createMarkingEngine(root as unknown as Element);
+
+    expect(engine.resolveAtPoint(20, 15, "exclude", false, {
+      overlayXpath: "/main[1]/stale[1]",
+    })?.xpath).toBe("/main[1]/p[1]");
+    expect(doc.hitReadCount).toBe(1);
+    engine.dispose();
   });
 
   it("shares one composed hit stack across every point-resolution candidate", () => {
@@ -1856,13 +1879,79 @@ describe("P6 DOM bridge", () => {
       doc.hits = [paragraph, root];
       const engine = createMarkingEngine(root as unknown as Element);
       engine.renderSilentHighlights();
+      const silentBoxes = (): FakeElement[] => engine.overlayRoot().children
+        .flatMap((layer) => layer.children)
+        .filter((overlay) => overlay.getAttribute("data-uf-silent-highlight") !== null);
+      const retainedBox = silentBoxes()[0];
+      expect(retainedBox).toBeDefined();
 
+      paragraph.clientRects = [rect(500, 0, 120, 20)];
+      doc.hits = [root];
       listeners.get("scroll")?.({ target: doc } as unknown as Event);
       expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
       expect(animationFrames).toHaveLength(1);
 
       animationFrames.shift()?.();
       expect(animationFrames).toHaveLength(0);
+      expect(silentBoxes()).toEqual([retainedBox]);
+      expect(retainedBox?.style.visibility).toBe("hidden");
+
+      paragraph.clientRects = [rect(10, 12, 120, 20)];
+      doc.hits = [paragraph, root];
+      listeners.get("scroll")?.({ target: doc } as unknown as Event);
+      animationFrames.shift()?.();
+      expect(silentBoxes()).toEqual([retainedBox]);
+      expect(retainedBox?.style.visibility).toBe("");
+      expect(retainedBox?.style.left).toBe("10px");
+      expect(retainedBox?.style.top).toBe("12px");
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("repositions silent geometry through the bounded fallback when page rAF starves", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const animationFrames: Array<() => void> = [];
+      const listeners = new Map<string, (event?: Event) => void>();
+      Object.assign(doc.defaultView, {
+        requestAnimationFrame(callback: () => void) {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+        cancelAnimationFrame: vi.fn(),
+        addEventListener(type: string, listener: (event?: Event) => void) {
+          listeners.set(type, listener);
+        },
+        removeEventListener(type: string) {
+          listeners.delete(type);
+        },
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+      const paragraph = new FakeElement("P", rect(0, 0, 120, 20), "First");
+      root.ownerDocument = doc;
+      paragraph.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      root.appendChild(paragraph);
+      doc.hits = [paragraph, root];
+      const engine = createMarkingEngine(root as unknown as Element);
+      engine.renderSilentHighlights();
+      const readsBefore = paragraph.clientRectReadCount;
+
+      listeners.get("scroll")?.({ target: doc } as unknown as Event);
+      vi.advanceTimersByTime(19);
+      expect(paragraph.clientRectReadCount).toBe(readsBefore);
+      vi.advanceTimersByTime(1);
+      expect(paragraph.clientRectReadCount).toBeGreaterThan(readsBefore);
+      const readsAfterFirstFallback = paragraph.clientRectReadCount;
+
+      listeners.get("scroll")?.({ target: doc } as unknown as Event);
+      vi.advanceTimersByTime(20);
+      expect(paragraph.clientRectReadCount).toBeGreaterThan(readsAfterFirstFallback);
+      expect(animationFrames).toHaveLength(2);
       engine.dispose();
     } finally {
       vi.useRealTimers();

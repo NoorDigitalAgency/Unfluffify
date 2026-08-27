@@ -226,6 +226,7 @@ export function isCurrentlyVisuallyVisible(element: Element): boolean {
 }
 
 function placeOverlay(overlay: HTMLElement, rect: RectLike): void {
+  overlay.style.visibility = "";
   overlay.style.left = `${rect.left}px`;
   overlay.style.top = `${rect.top}px`;
   overlay.style.width = `${rect.width}px`;
@@ -433,8 +434,10 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   const drawSilent = (
     byXpath: ReadonlyMap<string, OverlayRenderTarget>,
     affected?: ReadonlySet<string>,
+    preserveUnmeasured = false,
   ): void => {
     const used = new Set<string>();
+    const unmeasured = new Set<string>();
     const drawPresentation = (xpath: string, requestedPresentation: string): void => {
       const target = byXpath.get(xpath);
       if (!target) {
@@ -460,6 +463,18 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       let rects = measuredClientRectsFor(target.element);
       if (rects.length === 0 && presentation.includes("uf-silent-content-ghost")) {
         rects = rawClientRectsFor(target.element);
+      }
+      if (preserveUnmeasured && rects.length === 0) {
+        // Viewport movement can make a still-canonical source temporarily
+        // ineligible for strict paint hit-testing. Keep its keyed projection
+        // mounted until it is measurable again; structural/silent renders do
+        // not use this exception and remain authoritative for removals.
+        unmeasured.add(xpath);
+        for (const record of silentBoxes.values()) {
+          if (record.xpath === xpath) {
+            record.overlay.style.visibility = "hidden";
+          }
+        }
       }
       for (let index = 0; index < rects.length; index += 1) {
         const key = silentKey(xpath, presentation, index);
@@ -498,7 +513,11 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       }
     }
     for (const [key, record] of silentBoxes) {
-      if ((!affected || affected.has(record.xpath)) && !used.has(key)) {
+      if (
+        (!affected || affected.has(record.xpath))
+        && !used.has(key)
+        && !unmeasured.has(record.xpath)
+      ) {
         record.overlay.remove();
         silentBoxes.delete(key);
       }
@@ -628,7 +647,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         updateClientArea();
         drawCurrentClassifications(byXpath);
         if (renderOptions.includeSilent !== false) {
-          drawSilent(byXpath);
+          drawSilent(byXpath, undefined, true);
         }
         drawHover();
       } finally {
@@ -636,8 +655,12 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       }
     },
     setHover(element: Element | null, xpath = ""): void {
+      const nextXpath = element ? xpath : "";
+      if (hoverElement === element && hoverXpath === nextXpath) {
+        return;
+      }
       hoverElement = element;
-      hoverXpath = element ? xpath : "";
+      hoverXpath = nextXpath;
       beginGeometryBatch();
       try {
         drawHover();

@@ -2,6 +2,7 @@ import { createMarkingEngine } from "../../../src/content/marking/engine";
 import { createDomBridgeView, type DomBridgeView } from "../../../src/content/marking/dom-view";
 import { createOverlayRenderer } from "../../../src/content/marking/renderer";
 import { createPhysicalActionDeduper } from "../../../src/content/marking/interaction";
+import { presentationClockFor } from "../../../src/content/presentation-clock";
 import { evaluate, type EvaluationResult } from "../../../src/domain/evaluate";
 import type { SelectorSet } from "../../../src/storage/config";
 import {
@@ -22,6 +23,7 @@ type Engine = ReturnType<typeof createMarkingEngine>;
 type Mode = "silent" | "marking";
 
 const clock = createOperationClock();
+const presentationClock = presentationClockFor(window);
 let engine: Engine | null = null;
 let mode: Mode | null = null;
 let activationFinishedAt = 0;
@@ -127,7 +129,7 @@ function installMarkingInputs(): () => void {
     if (hoverFrame) {
       return;
     }
-    hoverFrame = requestAnimationFrame(() => {
+    hoverFrame = presentationClock.requestFrame(() => {
       hoverFrame = 0;
       if (lastPointer) {
         engine?.hoverAtPoint(
@@ -186,7 +188,7 @@ function installMarkingInputs(): () => void {
     document.documentElement.classList.remove("uf-cursor-exclude");
     cursorStyle.remove();
     if (hoverFrame) {
-      cancelAnimationFrame(hoverFrame);
+      presentationClock.cancelFrame(hoverFrame);
     }
   };
 }
