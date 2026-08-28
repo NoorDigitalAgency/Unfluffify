@@ -261,6 +261,20 @@ describe("P25 persistent publication guard", () => {
       params: { targetId: "popup-one", flatten: true },
     }));
 
+    // /json/list uses `id`, while Target domain events use `targetId`.
+    // Existing extension pages discovered by the install fallback must be
+    // normalized before an explicit attach is issued.
+    guard.scheduleDiscoveredExtensionPage({
+      id: "popup-list-shape",
+      type: "page",
+      url: "chrome-extension://abcdefghijklmnop/popup.html",
+    });
+    await waitFor(() => guard.publicationFenceEvidence().activeTargetCount === 3, "list-shape extension-page coverage");
+    expect(socket.sent).toContainEqual(expect.objectContaining({
+      method: "Target.attachToTarget",
+      params: { targetId: "popup-list-shape", flatten: true },
+    }));
+
     await guard.close();
     expect(guard.publicationFenceEvidence().errors).toEqual([]);
   });

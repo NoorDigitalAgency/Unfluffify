@@ -488,21 +488,23 @@ export class ExtensionTrafficGuard {
   }
 
   scheduleDiscoveredExtensionPage(targetInfo) {
-    if (targetInfo?.type !== "page" || !this.extensionTarget(targetInfo) || this.flattenedTargetIds.has(targetInfo.targetId) || this.pendingTargetIds.has(targetInfo.targetId)) return;
-    this.pendingTargetIds.add(targetInfo.targetId);
-    const task = this.dynamicBrowser.send("Target.attachToTarget", { targetId: targetInfo.targetId, flatten: true })
+    const targetId = targetInfo?.targetId ?? targetInfo?.id;
+    if (targetInfo?.type !== "page" || typeof targetId !== "string" || !targetId || !this.extensionTarget(targetInfo) || this.flattenedTargetIds.has(targetId) || this.pendingTargetIds.has(targetId)) return;
+    const normalizedTargetInfo = targetInfo.targetId === targetId ? targetInfo : { ...targetInfo, targetId };
+    this.pendingTargetIds.add(targetId);
+    const task = this.dynamicBrowser.send("Target.attachToTarget", { targetId, flatten: true })
       .then((attached) => {
         if (attached?.sessionId && !this.flattenedTargets.has(attached.sessionId)) {
-          this.scheduleFlattenedAttachment(attached.sessionId, targetInfo, false);
+          this.scheduleFlattenedAttachment(attached.sessionId, normalizedTargetInfo, false);
         }
       })
       .catch((error) => {
-        this.recordError(`Failed to attach discovered extension page ${targetInfo.targetId}: ${error instanceof Error ? error.message : String(error)}`);
+        this.recordError(`Failed to attach discovered extension page ${targetId}: ${error instanceof Error ? error.message : String(error)}`);
       });
     this.pendingAttachments.add(task);
     void task.finally(() => {
       this.pendingAttachments.delete(task);
-      this.pendingTargetIds.delete(targetInfo.targetId);
+      this.pendingTargetIds.delete(targetId);
     });
   }
 
