@@ -473,6 +473,17 @@ headed-validation gates.
   inclusions. The renderer now indexes every painted explicit owner, plain input
   resolves that owner before an exclusion, and the content handler commits a
   semantic clear. Shift remains required to create/widen exclusions.
+- The next rerun proved the semantic clear contract, then found that the probe's
+  initial plain-click target could itself sit under a saved explicit footer
+  exclusion after reveal/restore left the page at the bottom. That is a valid
+  unmark action, not a plain-create failure. Gesture targeting now excludes
+  every currently painted explicit owner, may move a clean content candidate
+  into view, waits for the resulting presentation, and resolves the target a
+  second time against the settled owner index. Light-DOM bridge identity is
+  derived from the ancestor chain instead of a full-document traversal. The
+  same run retained one independent 58 ms Long Task during Alt inclusion; use a
+  debug-work-stage pass to attribute and remove that production cost before the
+  clean gate is repeated.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

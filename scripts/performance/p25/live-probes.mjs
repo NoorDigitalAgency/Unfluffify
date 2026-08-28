@@ -467,6 +467,33 @@ export function bridgeXpathForElement(target, environment = globalThis) {
       || id === "uf-consent-bypass"
       || id.startsWith("unfluffify-");
   };
+  // Physical gesture probes discover light-DOM targets with querySelectorAll.
+  // Derive those identities from their ancestor chain instead of walking the
+  // entire flattened document. Fall back to the composed traversal whenever a
+  // shadow boundary can affect the bridge path.
+  const targetRoot = typeof target.getRootNode === "function" ? target.getRootNode() : document;
+  if (targetRoot === document && !target.assignedSlot) {
+    const parts = [];
+    let node = target;
+    let lightPath = true;
+    while (node?.nodeType === 1) {
+      if (isBridgeExcluded(node)) return null;
+      const parent = node.parentElement;
+      if (parent?.shadowRoot) {
+        lightPath = false;
+        break;
+      }
+      const tag = String(node.tagName).toLowerCase();
+      let index = 1;
+      for (let sibling = node.previousElementSibling; sibling; sibling = sibling.previousElementSibling) {
+        if (!isBridgeExcluded(sibling) && String(sibling.tagName).toLowerCase() === tag) index += 1;
+      }
+      parts.unshift(`${tag}[${index}]`);
+      if (node === root) break;
+      node = parent;
+    }
+    if (lightPath && node === root) return `/${parts.join("/")}`;
+  }
   const immutableTags = new Set([
     "IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT",
     "TEMPLATE", "IFRAME", "VIDEO", "SVG",
@@ -987,30 +1014,69 @@ const markingTargetExpression = `(() => {
     }
     return '/' + parts.join('/');
   };
+  const bridgeActive = Boolean(document.querySelector('.uf-marking-layer-root[data-uf-extension-ui="true"]'));
+  const candidateXpath = (element) => bridgeActive ? bridgeXpathForElement(element, { document }) : xpath(element);
+  const explicitOwnerXpaths = [...document.querySelectorAll('[data-uf-overlay-xpath], [data-mc-mark-id]')].flatMap((overlay) => {
+    const layer = overlay.closest('[data-layer]')?.getAttribute('data-layer') || overlay.getAttribute('data-mc-mark-kind') || '';
+    const classes = overlay.className || '';
+    if (!(/explicit/i.test(layer) || /uf-explicit-(?:include|exclude)/.test(classes))) return [];
+    const direct = overlay.getAttribute('data-uf-overlay-xpath');
+    if (direct) return [direct];
+    const markId = overlay.getAttribute('data-mc-mark-id');
+    const source = markId ? document.querySelector('[data-uf-mark-id="' + CSS.escape(markId) + '"]') : null;
+    return source instanceof Element ? [xpath(source)] : [];
+  });
+  const explicitlyOwned = (targetXpath) => explicitOwnerXpaths.some((ownerXpath) =>
+    targetXpath === ownerXpath || targetXpath.startsWith(ownerXpath + '/')
+  );
   const eligible = [...document.querySelectorAll('h1,h2,h3,p,li')].filter((element) => {
     if (!(element instanceof HTMLElement) || element.closest('[data-uf-extension-ui="true"], [data-uf-consent-hidden]')) return false;
     const rect = element.getBoundingClientRect();
     const style = getComputedStyle(element);
     return (element.textContent ?? '').trim().length >= 3 && rect.width >= 20 && rect.height >= 12 &&
-      rect.top < innerHeight && rect.bottom > 0 && style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity || '1') > 0;
+      style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity || '1') > 0;
   });
-  const element = eligible.find((candidate) => candidate.matches('h1,h2,h3,p') && !candidate.closest('nav,header,footer')) || eligible[0];
+  const clean = eligible.filter((candidate) => {
+    const targetXpath = candidateXpath(candidate);
+    return typeof targetXpath === 'string' && !explicitlyOwned(targetXpath);
+  });
+  const visible = (candidate) => {
+    const rect = candidate.getBoundingClientRect();
+    return rect.top < innerHeight && rect.bottom > 0;
+  };
+  const preferred = (candidate) => candidate.matches('h1,h2,h3,p') && !candidate.closest('nav,header,footer');
+  const element = clean.find((candidate) => visible(candidate) && preferred(candidate))
+    || clean.find(visible)
+    || clean.find(preferred)
+    || clean[0];
   if (!element) return null;
+  if (!visible(element)) element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
   const rect = element.getBoundingClientRect();
   const domXpath = xpath(element);
-  const bridgeXpath = document.querySelector('.uf-marking-layer-root[data-uf-extension-ui="true"]')
-    ? bridgeXpathForElement(element, { document })
-    : null;
+  const bridgeXpath = bridgeActive ? bridgeXpathForElement(element, { document }) : null;
   return {
     xpath: bridgeXpath || domXpath,
     domXpath,
     xpathMode: bridgeXpath ? 'bridge' : 'dom',
     tag: element.tagName,
     text: (element.textContent ?? '').trim().replace(/\\s+/g, ' ').slice(0, 120),
+    explicitOwnerCount: explicitOwnerXpaths.length,
+    startsExplicitlyOwned: explicitlyOwned(bridgeXpath || domXpath),
     x: Math.max(2, Math.min(innerWidth - 2, rect.left + Math.min(rect.width / 2, 80))),
     y: Math.max(2, Math.min(innerHeight - 2, rect.top + Math.min(rect.height / 2, 40))),
   };
 })()`;
+
+async function selectCleanMarkingTarget(session) {
+  // The previous stage may leave the document at an explicitly excluded
+  // boundary (commonly a footer). The first evaluation is allowed to move a
+  // clean candidate into view; after the scroll presentation settles, resolve
+  // once more against the freshly painted explicit-owner index.
+  const initial = await session.evaluate(markingTargetExpression);
+  if (!initial) return null;
+  await waitForPresentationOpportunity(session, { frameCount: 2 });
+  return session.evaluate(markingTargetExpression);
+}
 
 async function dispatchPhysicalGesture(session, target, { shift = false, alt = false, button = "left" }) {
   const modifiers = (alt ? 1 : 0) | (shift ? 8 : 0);
@@ -1162,7 +1228,7 @@ async function waitForGestureAcknowledgement(session, target, before, id, starte
 }
 
 export async function performPhysicalShiftExclusion(session) {
-  const target = await session.evaluate(markingTargetExpression);
+  const target = await selectCleanMarkingTarget(session);
   if (!target) throw new Error("No visible non-consent marking target is available for the dirty-state probe");
   await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y });
   await waitForPresentationOpportunity(session, { frameCount: 2 });
@@ -1175,7 +1241,7 @@ export async function performPhysicalShiftExclusion(session) {
 }
 
 export async function probeMarkingGestures(session) {
-  const target = await session.evaluate(markingTargetExpression);
+  const target = await selectCleanMarkingTarget(session);
   if (!target) throw new Error("No visible non-consent marking target is available");
   await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y });
   await waitForPresentationOpportunity(session, { frameCount: 2 });
