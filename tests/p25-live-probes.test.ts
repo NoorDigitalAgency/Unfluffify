@@ -6,9 +6,12 @@ import {
   applyAuthoritativeResizePosture,
   authoritativeResizePosture,
   classifyVisualSourcePaint,
+  collectorWindowShouldContinue,
   composedVisibilityEvidence,
   executeResizePerturbation,
   filterLongTasksToCollectorWindow,
+  preparedMarkingTargetIsUsable,
+  resolveCollectorPerformanceWindow,
   snapshotMatchesAuthoritativePosture,
   topHitPaintEvidence,
   waitForPresentationOpportunity,
@@ -325,5 +328,50 @@ describe("P25 frame collector Long Task evidence", () => {
   it("fails closed for invalid or missing collector bounds", () => {
     expect(filterLongTasksToCollectorWindow([{ startTime: 100, duration: 12 }], Number.NaN, 200)).toEqual([]);
     expect(filterLongTasksToCollectorWindow([{ startTime: 100, duration: 12 }], 200, 100)).toEqual([]);
+  });
+
+  it("keeps collecting through a long action and its settled tail", () => {
+    const base = { startedAt: 100, durationMs: 2_200, frameCount: 240 };
+    expect(collectorWindowShouldContinue({ ...base, now: 2_500, actionFinishedAt: null })).toBe(true);
+    expect(collectorWindowShouldContinue({ ...base, now: 4_500, actionFinishedAt: 4_400 })).toBe(true);
+    expect(collectorWindowShouldContinue({ ...base, now: 4_581, actionFinishedAt: 4_400 })).toBe(false);
+  });
+
+  it("uses explicit operator-action bounds instead of harness preparation bounds", () => {
+    expect(resolveCollectorPerformanceWindow({
+      performanceWindow: { startedAt: 300, endedAt: 700 },
+    }, 100, 900)).toEqual({ startedAt: 300, endedAt: 700, source: "action" });
+    expect(resolveCollectorPerformanceWindow({}, 100, 900)).toEqual({
+      startedAt: 100,
+      endedAt: 900,
+      source: "collector",
+    });
+  });
+});
+
+describe("P25 prepared marking target authority", () => {
+  const target = { xpath: "/html[1]/body[1]/main[1]/h1[1]" };
+
+  it("accepts only an exact Alt owner, strict Shift ancestor, and clean final owner set", () => {
+    expect(preparedMarkingTargetIsUsable({
+      target,
+      includedOwnerXpath: target.xpath,
+      shiftedOwnerXpath: "/html[1]/body[1]/main[1]",
+      decision: { targetOwned: [] },
+    })).toBe(true);
+  });
+
+  it.each([
+    ["late ancestor ownership", target.xpath, "/html[1]/body[1]/main[1]", [{ ownerRelation: "ancestor" }]],
+    ["descendant Alt owner", `${target.xpath}/a[1]`, "/html[1]/body[1]/main[1]", []],
+    ["same-node Shift owner", target.xpath, target.xpath, []],
+    ["descendant Shift owner", target.xpath, `${target.xpath}/span[1]`, []],
+  ])("rejects %s", (_label, includedOwnerXpath, shiftedOwnerXpath, targetOwned) => {
+    expect(preparedMarkingTargetIsUsable({
+      target,
+      includedOwnerXpath,
+      shiftedOwnerXpath,
+      decision: { targetOwned },
+    })).toBe(false);
   });
 });

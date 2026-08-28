@@ -535,6 +535,18 @@ headed-validation gates.
   to equal the candidate exactly and the physical Shift-hover owner to be a
   strict bridge ancestor. Descendant, sibling, stale, and same-owner resolutions
   are skipped before the stage mutates any mark.
+- The next exact run proved the product's plain-click behavior again: the click
+  removed an ancestor exclusion that appeared after the chooser's initial clean
+  scan. The harness had allowed its modifier preflights and late authority paint
+  to invalidate target ownership before the first operation. It also stopped
+  its 2.2-second frame collector while the six-gesture action continued for 4.3
+  seconds, and attributed two expensive full-document chooser evaluations to
+  marking input. Candidate preparation now finishes outside the operator
+  measurement, re-proves zero final ownership after both modifiers are released,
+  and is checked once more immediately before input. The rAF/screencast window
+  remains open through the entire action plus a settled tail, while Long Tasks
+  use the action's explicit page-clock bounds. A fresh exact-source run must now
+  prove both the corrected evidence boundary and the real ≤50 ms input budget.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

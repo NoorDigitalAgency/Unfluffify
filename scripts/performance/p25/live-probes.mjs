@@ -720,8 +720,33 @@ export function filterLongTasksToCollectorWindow(entries, startedAt, endedAt) {
     entry.startTime >= startedAt && entry.startTime <= endedAt);
 }
 
+export function collectorWindowShouldContinue({
+  startedAt,
+  actionFinishedAt,
+  now,
+  durationMs,
+  frameCount,
+  maximumFrames = 900,
+  actionTailMs = 180,
+}) {
+  const minimumWindowOpen = now - startedAt < durationMs;
+  const actionTailOpen = actionFinishedAt === null || now - actionFinishedAt < actionTailMs;
+  return (minimumWindowOpen || actionTailOpen) && frameCount < maximumFrames;
+}
+
+export function resolveCollectorPerformanceWindow(action, startedAt, endedAt) {
+  const requestedStart = action?.performanceWindow?.startedAt;
+  const requestedEnd = action?.performanceWindow?.endedAt;
+  return {
+    startedAt: Number.isFinite(requestedStart) ? Math.max(startedAt ?? requestedStart, requestedStart) : startedAt,
+    endedAt: Number.isFinite(requestedEnd) ? Math.min(endedAt ?? requestedEnd, requestedEnd) : endedAt,
+    source: Number.isFinite(requestedStart) && Number.isFinite(requestedEnd) ? "action" : "collector",
+  };
+}
+
 function frameCollectorExpression(collectorKey, ownerXPath, durationMs) {
   return `(() => {
+    const collectorWindowShouldContinue = ${collectorWindowShouldContinue.toString()};
     const key = ${JSON.stringify(collectorKey)};
     const ownerXPath = ${JSON.stringify(ownerXPath)};
     const durationMs = ${JSON.stringify(durationMs)};
@@ -732,6 +757,7 @@ function frameCollectorExpression(collectorKey, ownerXPath, durationMs) {
       longTasks: [],
       longTaskObserverSupported: typeof PerformanceObserver === 'function',
       longTaskObserverInstalled: false,
+      actionFinishedAt: null,
       finished: false,
     };
     window[key] = state;
@@ -778,7 +804,13 @@ function frameCollectorExpression(collectorKey, ownerXPath, durationMs) {
         rectSignature: rects.length + ':' + rects.flat().join(','),
       });
       previous = now;
-      if (now - state.startedAt < durationMs && state.frames.length < 360) requestAnimationFrame(tick);
+      if (collectorWindowShouldContinue({
+        startedAt: state.startedAt,
+        actionFinishedAt: state.actionFinishedAt,
+        now,
+        durationMs,
+        frameCount: state.frames.length,
+      })) requestAnimationFrame(tick);
       else {
         state.endedAt = now;
         state.longTasks = state.longTasks.filter((entry) => entry.startTime >= state.startedAt && entry.startTime <= state.endedAt);
@@ -837,7 +869,11 @@ export async function captureCompactFrames(session, { artifactDirectory, name, d
   try {
     action = during ? await during() : null;
     actionDurationMs = performance.now() - actionStarted;
-    await sleep(durationMs + 180);
+    await session.evaluate(`(() => {
+      const state = window[${JSON.stringify(collectorKey)}];
+      if (state) state.actionFinishedAt = performance.now();
+    })()`, { contextId });
+    await sleep(Math.max(0, durationMs - actionDurationMs) + 240);
   } finally {
     await session.send("Page.stopScreencast").catch(() => undefined);
     removeFrameListener();
@@ -850,7 +886,12 @@ export async function captureCompactFrames(session, { artifactDirectory, name, d
   await Promise.all(writes);
   const framePath = join(artifactDirectory, `${name}-frames.json`);
   const rAFFrames = raf?.frames ?? [];
-  const longTasks = filterLongTasksToCollectorWindow(raf?.longTasks, raf?.startedAt, raf?.endedAt);
+  const performanceWindow = resolveCollectorPerformanceWindow(action, raf?.startedAt, raf?.endedAt);
+  const longTasks = filterLongTasksToCollectorWindow(
+    raf?.longTasks,
+    performanceWindow.startedAt,
+    performanceWindow.endedAt,
+  );
   const longTaskWindowReady = raf?.finished === true && Number.isFinite(raf?.startedAt) && Number.isFinite(raf?.endedAt);
   const longTaskObserverReady = longTaskWindowReady && raf?.longTaskObserverSupported === true && raf?.longTaskObserverInstalled === true;
   const payload = {
@@ -866,6 +907,11 @@ export async function captureCompactFrames(session, { artifactDirectory, name, d
       longTaskObserverSupported: raf?.longTaskObserverSupported === true,
       longTaskObserverInstalled: raf?.longTaskObserverInstalled === true,
       longTaskWindowReady,
+      performanceWindow: {
+        startedAt: performanceWindow.startedAt ?? null,
+        endedAt: performanceWindow.endedAt ?? null,
+        source: performanceWindow.source,
+      },
       longTasks,
       // Null intentionally fails the finite frame-proof contract if this browser
       // cannot install the observer; missing evidence must never look like 0 ms.
@@ -1117,6 +1163,17 @@ const resolveIncludedHoverOwner = (session, target) => resolveModifiedHoverOwner
   modifiers: 1,
 });
 
+export function preparedMarkingTargetIsUsable({ target, includedOwnerXpath, shiftedOwnerXpath, decision }) {
+  return Boolean(
+    target &&
+    includedOwnerXpath === target.xpath &&
+    typeof shiftedOwnerXpath === "string" &&
+    target.xpath.startsWith(`${shiftedOwnerXpath}/`) &&
+    Array.isArray(decision?.targetOwned) &&
+    decision.targetOwned.length === 0
+  );
+}
+
 async function selectCleanMarkingTarget(session) {
   // The previous stage may leave the document at an explicitly excluded
   // boundary (commonly a footer). The first evaluation is allowed to move a
@@ -1133,16 +1190,23 @@ async function selectCleanMarkingTarget(session) {
     await waitForPresentationOpportunity(session);
     const includedOwnerXpath = await resolveIncludedHoverOwner(session, target);
     const shiftedOwnerXpath = await resolveShiftedHoverOwner(session, target);
-    if (
-      includedOwnerXpath === target.xpath &&
-      typeof shiftedOwnerXpath === "string" &&
-      target.xpath.startsWith(`${shiftedOwnerXpath}/`)
-    ) {
+    // Modifier preflights and late authoritative reconciliation can change the
+    // painted explicit-owner set after the initial candidate scan. Re-prove the
+    // candidate only after both modifiers have been released and the ordinary
+    // hover paint has settled; otherwise the first plain click would correctly
+    // unmark an owned ancestor while the probe falsely called it a creation.
+    await waitForPresentationOpportunity(session, { frameCount: 2 });
+    const decision = await session.evaluate(markingDecisionExpression(target));
+    if (preparedMarkingTargetIsUsable({ target, includedOwnerXpath, shiftedOwnerXpath, decision })) {
       return { ...target, includedOwnerXpath, shiftedOwnerXpath };
     }
     skippedXpaths.push(target.xpath);
   }
   return null;
+}
+
+export async function prepareMarkingGestureTarget(session) {
+  return selectCleanMarkingTarget(session);
 }
 
 async function dispatchPhysicalGesture(session, target, { shift = false, alt = false, button = "left" }) {
@@ -1307,11 +1371,16 @@ export async function performPhysicalShiftExclusion(session) {
   return { target, dispatchLatencyMs, ...acknowledgement };
 }
 
-export async function probeMarkingGestures(session) {
-  const target = await selectCleanMarkingTarget(session);
+export async function probeMarkingGestures(session, preparedTarget = null) {
+  const target = preparedTarget ?? await selectCleanMarkingTarget(session);
   if (!target) throw new Error("No visible non-consent marking target is available");
   await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y });
   await waitForPresentationOpportunity(session, { frameCount: 2 });
+  const preparedDecision = await session.evaluate(markingDecisionExpression(target));
+  if (!Array.isArray(preparedDecision?.targetOwned) || preparedDecision.targetOwned.length > 0) {
+    throw new Error(`Prepared marking target became explicitly owned before input: ${JSON.stringify(preparedDecision?.targetOwned ?? null)}`);
+  }
+  const performanceWindowStartedAt = await session.evaluate("performance.now()");
   const operations = [];
   const operate = async (id, gesture) => {
     const before = await session.evaluate(markingDecisionExpression(target));
@@ -1374,6 +1443,7 @@ export async function probeMarkingGestures(session) {
   await session.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
   await session.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
   await operate("plain-include-unmark", {});
+  const performanceWindowEndedAt = await session.evaluate("performance.now()");
   const timing = summarizeTiming(operations.map((operation) => operation.acknowledgementLatencyMs).filter(Number.isFinite));
   const contextExpectedDisabled = {
     include: false,
@@ -1383,7 +1453,15 @@ export async function probeMarkingGestures(session) {
     widen: !(typeof shiftedHoverOwner === "string" && shiftedHoverOwner !== target.xpath),
     clear: false,
   };
-  return { target, operations, contextMenu, contextCandidateEvidence: { shiftedHoverOwner }, contextExpectedDisabled, timing };
+  return {
+    target,
+    operations,
+    contextMenu,
+    contextCandidateEvidence: { shiftedHoverOwner },
+    contextExpectedDisabled,
+    timing,
+    performanceWindow: { startedAt: performanceWindowStartedAt, endedAt: performanceWindowEndedAt },
+  };
 }
 
 export async function withSiteSession(target, callback) {

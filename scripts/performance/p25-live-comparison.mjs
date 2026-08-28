@@ -44,6 +44,7 @@ import {
   captureScreenshot,
   captureVisualSnapshot,
   performPhysicalShiftExclusion,
+  prepareMarkingGestureTarget,
   probeMarkingGestures,
   probeResize,
   probeScrollFade,
@@ -1366,11 +1367,17 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
     return { data, document, screenshots };
   }
   if (id === "marking-gestures") {
+    // Candidate discovery performs full-document geometry and modifier-hover
+    // preflights. Keep that harness work outside the operator frame/Long Task
+    // window, then fail closed if the prepared target becomes owned before the
+    // first physical gesture.
+    const target = await withSiteSession(targets.site, (session) => prepareMarkingGestureTarget(session));
+    if (!target) throw new Error("No stable exact and widenable clean marking target is available");
     const frames = await withSiteSession(targets.site, (session) => captureCompactFrames(session, {
       artifactDirectory: frameDirectory,
       name: id,
       durationMs: 2200,
-      during: () => probeMarkingGestures(session),
+      during: () => probeMarkingGestures(session, target),
     }));
     const gestures = frames.action;
     const document = await withSiteSession(targets.site, (session) => captureDocumentIdentity(session, identity.expectedUrl));

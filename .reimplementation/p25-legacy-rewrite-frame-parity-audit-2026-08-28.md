@@ -522,6 +522,22 @@ preserves the stronger architecture.
     requires Alt hover to resolve the exact candidate XPath and Shift hover to
     resolve a strict bridge ancestor. Descendants, siblings, same-owner results,
     and stale/no-hover results are rejected before any mark mutation.
+97. **Closed harness P0 — target cleanliness and gesture frame timing were
+    measured on stale and incomplete boundaries.** The following run selected
+    an exact `H1` with a strict Shift ancestor, but late explicit-owner paint
+    placed that ancestor in `session-explicit-exclude` before the first plain
+    click. The product correctly removed it; the probe incorrectly reported a
+    no-create mutation. Its compact collector also ended at 2.2 seconds although
+    target preparation plus six gestures took 4.3 seconds, so later Alt,
+    context-menu, and clear frames were absent. The reported 59 ms and 53 ms
+    Long Tasks started during the harness's two full-document target scans,
+    before the first operation at page time 37879.8 ms. Target preparation now
+    runs before frame collection, revalidates zero target ownership after both
+    modifier preflights, and fails closed on any final ownership drift. The
+    collector stays alive until the complete action and a 180 ms settled tail;
+    gesture Long Tasks are filtered to explicit page-clock action bounds. No
+    product performance waiver was introduced: the next clean run must still
+    prove every real input task at or below 50 ms.
 
 ## Confirmed parity or stronger rewrite behavior
 
