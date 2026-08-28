@@ -1960,7 +1960,8 @@ describe("P6 DOM bridge", () => {
     vi.useRealTimers();
   });
 
-  it("removes stale exclusions when consent suppression hides a bridged element", () => {
+  it("rebuilds sibling identities when consent suppression hides a bridged element", () => {
+    vi.useFakeTimers();
     const doc = new FakeDocument();
     const callbacks: Array<(records: MutationRecord[]) => void> = [];
     const animationFrames: Array<() => void> = [];
@@ -1978,36 +1979,54 @@ describe("P6 DOM bridge", () => {
       },
     });
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
-    const image = new FakeElement("IMG", rect(0, 0, 120, 80));
+    const suppressed = new FakeElement("DIV", rect(0, 0, 120, 80), "Modal");
+    const content = new FakeElement("DIV", rect(0, 90, 120, 80));
+    const paragraph = new FakeElement("P", rect(0, 90, 120, 20), "Page copy");
     root.ownerDocument = doc;
-    image.ownerDocument = doc;
+    suppressed.ownerDocument = doc;
+    content.ownerDocument = doc;
+    paragraph.ownerDocument = doc;
     doc.documentElement.ownerDocument = doc;
     doc.documentElement.appendChild(root);
-    root.appendChild(image);
-    doc.hits = [image, root];
+    root.appendChild(suppressed);
+    root.appendChild(content);
+    content.appendChild(paragraph);
+    doc.hits = [paragraph, content, root];
     const createBridge = vi.fn((element: Element) => createDomBridgeView(element));
     const engine = createMarkingEngine(root as unknown as Element, {
       instrumentation: { createBridge },
     });
     engine.renderReadOnly();
-    const exclusions = (): FakeElement[] => engine.overlayRoot().children
-      .flatMap((layer) => layer.children)
-      .filter((overlay) => overlay.getAttribute("data-uf-overlay-classification") === "immutable");
+    expect(engine.rows()).toContainEqual({
+      xpath: "/main[1]/div[2]/p[1]",
+      excluded: false,
+    });
 
-    expect(exclusions()).toHaveLength(1);
-    image.setAttribute("data-uf-consent-hidden", "true");
+    suppressed.setAttribute("data-uf-consent-hidden", "true");
     callbacks[0]?.([{
       type: "attributes",
-      target: image,
+      target: suppressed,
       attributeName: "data-uf-consent-hidden",
       oldValue: null,
     } as unknown as MutationRecord]);
 
+    expect(animationFrames).toHaveLength(0);
+    vi.advanceTimersByTime(149);
+    expect(animationFrames).toHaveLength(0);
+    vi.advanceTimersByTime(1);
     expect(animationFrames).toHaveLength(1);
     animationFrames.shift()?.();
-    expect(exclusions()).toHaveLength(0);
-    expect(createBridge).toHaveBeenCalledTimes(1);
+    expect(createBridge).toHaveBeenCalledTimes(2);
+    expect(engine.rows()).not.toContainEqual({
+      xpath: "/main[1]/div[2]/p[1]",
+      excluded: false,
+    });
+    expect(engine.rows()).toContainEqual({
+      xpath: "/main[1]/div[1]/p[1]",
+      excluded: false,
+    });
     engine.dispose();
+    vi.useRealTimers();
   });
 
   it("coalesces presentation attribute churn into one quiet structural refresh", () => {

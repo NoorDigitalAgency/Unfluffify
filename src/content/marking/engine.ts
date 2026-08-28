@@ -1044,7 +1044,28 @@ export function createMarkingEngine(
         || element?.closest?.("[data-uf-consent-hidden]"),
       );
     };
+    const isConsentSuppressionBoundaryMutation = (record: MutationRecord): boolean => {
+      if (
+        record.type !== "attributes"
+        || record.attributeName !== "data-uf-consent-hidden"
+        || record.target.nodeType !== 1
+      ) {
+        return false;
+      }
+      const element = record.target as Element;
+      // Adding or removing the suppression attribute changes whether this
+      // element participates in the flattened bridge. That can renumber every
+      // same-tag sibling after it, so it is structural even though the element
+      // is already suppressed by the time MutationObserver delivers the
+      // record. Descendant churn inside an existing suppressed/extension root
+      // remains extraction-irrelevant.
+      return !element.closest?.('[data-uf-extension-ui="true"]')
+        && !element.parentElement?.closest?.("[data-uf-consent-hidden]");
+    };
     const isExtractionIrrelevantMutation = (record: MutationRecord): boolean => {
+      if (isConsentSuppressionBoundaryMutation(record)) {
+        return false;
+      }
       // Mutations inside extension or consent-suppressed roots cannot affect
       // extraction, even when a removed child is already detached.
       if (isExtractionIrrelevantNode(record.target)) {

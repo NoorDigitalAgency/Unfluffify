@@ -416,6 +416,18 @@ headed-validation gates.
   document. The renderer no longer performs a queue-shifting breadth-first scan
   in that path; the clean rerun must still prove the strict no-long-task budget
   before the optimization is accepted as sufficient.
+- The next clean rewrite Ledigajobb run passed preflight, both render modes,
+  activation, and resize, but exposed a product identity race: adding
+  `data-uf-consent-hidden` to an already bridged page node was treated as a
+  geometry-only mutation even though removing that node from the flattened DOM
+  bridge renumbered later same-tag siblings. The result was 32 unresolved
+  painted sources and Shift/Alt gestures recorded against the preceding sibling.
+  Consent-boundary membership changes now force a coalesced structural rebuild;
+  mutations inside an already suppressed subtree remain ignored. The run also
+  measured a 145 ms frame in the same delayed stale-overlay reconciliation and
+  remains failure evidence outside the final comparison denominator. Rerun the
+  unchanged gate after the identity fix before deciding whether any independent
+  renderer optimization is still required.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 
