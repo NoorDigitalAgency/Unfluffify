@@ -388,7 +388,17 @@ export function resolveBridgeXpath(xpath, environment = globalThis) {
   };
   const segments = xpath.split("/").filter(Boolean).map(parseSegment);
   if (segments.length === 0 || segments.some((segment) => segment === null)) return null;
-  const isExtensionUi = (node) => node?.nodeType === 1 && node.getAttribute?.("data-uf-extension-ui") === "true";
+  const isBridgeExcluded = (node) => {
+    if (node?.nodeType !== 1) return false;
+    const id = node.getAttribute?.("id") ?? "";
+    return node.hasAttribute?.("data-uf-consent-hidden")
+      || node.hasAttribute?.("data-wxt-shadow-root")
+      || node.getAttribute?.("data-uf-extension-ui") === "true"
+      || String(node.tagName).toLowerCase() === "browser-mcp-container"
+      || id === "browser-mcp-container"
+      || id === "uf-consent-bypass"
+      || id.startsWith("unfluffify-");
+  };
   const isSlot = (node) => node?.nodeType === 1 && String(node.tagName).toUpperCase() === "SLOT";
   const slotReplacements = (slot, assigned) => {
     let assignedNodes;
@@ -409,7 +419,7 @@ export function resolveBridgeXpath(xpath, environment = globalThis) {
     if (!shadowRoot) {
       return Array.from(element?.childNodes ?? [])
         .flatMap((node) => expandDirectSlot(node))
-        .filter((node) => node?.nodeType === 1 && !isExtensionUi(node));
+        .filter((node) => node?.nodeType === 1 && !isBridgeExcluded(node));
     }
     const assigned = new Set();
     const collectAssigned = (node) => {
@@ -425,12 +435,12 @@ export function resolveBridgeXpath(xpath, environment = globalThis) {
     return [
       ...Array.from(shadowRoot.childNodes ?? []).flatMap((node) => expandDirectSlot(node, assigned)),
       ...Array.from(element.childNodes ?? []).filter((node) => !assigned.has(node)),
-    ].filter((node) => node?.nodeType === 1 && !isExtensionUi(node));
+    ].filter((node) => node?.nodeType === 1 && !isBridgeExcluded(node));
   };
   const first = segments[0];
   const roots = [document.documentElement, document.body, ...Array.from(document.querySelectorAll?.(first.tag) ?? [])]
     .filter((node, index, all) => node && all.indexOf(node) === index)
-    .filter((node) => !isExtensionUi(node) && String(node.tagName).toLowerCase() === first.tag);
+    .filter((node) => !isBridgeExcluded(node) && String(node.tagName).toLowerCase() === first.tag);
   let cursor = roots[first.index - 1] ?? null;
   if (!cursor) return null;
   for (const segment of segments.slice(1)) {

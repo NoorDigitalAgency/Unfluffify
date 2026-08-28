@@ -428,6 +428,12 @@ headed-validation gates.
   remains failure evidence outside the final comparison denominator. Rerun the
   unchanged gate after the identity fix before deciding whether any independent
   renderer optimization is still required.
+- That rerun reduced unresolved paint sources from 32 to nine. The remaining
+  nine were a live-probe parity defect: its bridge-relative XPath resolver
+  skipped extension roots but not consent-hidden/WXT/helper roots, while the
+  production bridge intentionally excludes all of them. The resolver now uses
+  the production exclusion rules and has a hidden-same-tag-sibling regression;
+  no product visibility rule or consent suppression behavior was weakened.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

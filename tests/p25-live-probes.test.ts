@@ -194,15 +194,25 @@ describe("P25 authoritative resize probe posture", () => {
 
 describe("P25 composed visual visibility evidence", () => {
   it("resolves bridge-relative body XPaths instead of misclassifying their overlays as source-less", () => {
-    const node = (tagName: string, children: unknown[] = []) => ({
+    const node = (
+      tagName: string,
+      children: unknown[] = [],
+      attributes: Record<string, string> = {},
+    ) => ({
       nodeType: 1,
       tagName: tagName.toUpperCase(),
       childNodes: children,
-      getAttribute: () => null,
+      getAttribute: (name: string) => attributes[name] ?? null,
+      hasAttribute: (name: string) => Object.hasOwn(attributes, name),
     });
     const paragraph = node("p");
     const main = node("main", [paragraph]);
-    const body = node("body", [main]);
+    const navigation = node("nav");
+    const pageHeader = node("div", [navigation]);
+    const suppressedModal = node("div", [node("button")], {
+      "data-uf-consent-hidden": "true",
+    });
+    const body = node("body", [suppressedModal, pageHeader, main]);
     const html = node("html", [body]);
     const document = {
       documentElement: html,
@@ -212,6 +222,7 @@ describe("P25 composed visual visibility evidence", () => {
 
     expect(resolveBridgeXpath("/body[1]/main[1]/p[1]", { document })).toBe(paragraph);
     expect(resolveBridgeXpath("/html[1]/body[1]/main[1]", { document })).toBe(main);
+    expect(resolveBridgeXpath("/html[1]/body[1]/div[1]/nav[1]", { document })).toBe(navigation);
     expect(resolveBridgeXpath("/body[2]/main[1]", { document })).toBeNull();
   });
 
