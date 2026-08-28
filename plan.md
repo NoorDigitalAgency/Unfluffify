@@ -442,6 +442,11 @@ headed-validation gates.
   one-pixel inset corners; zero-area boundary contact is rejected. A regression
   covers both top- and bottom-clipped sources whose in-viewport pixels are all
   covered.
+- The corrected sampler left one bottom navigation with exactly one CSS pixel
+  inside the viewport. Because its exclusion border is wider than its visible
+  source area, the renderer now requires more than one CSS pixel of paint extent
+  on both axes before admitting a rectangle. The regression also proves that a
+  physically hit-reachable one-pixel sliver remains unpainted.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

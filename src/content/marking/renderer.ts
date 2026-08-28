@@ -142,7 +142,10 @@ function rectIsPaintReachable(element: Element, rect: RectLike, document: Docume
   const top = Math.max(0, rect.top);
   const right = Math.min(viewportWidth, rect.left + rect.width);
   const bottom = Math.min(viewportHeight, rect.top + rect.height);
-  if (!(right > left && bottom > top)) {
+  // A one-pixel viewport sliver is not a usable marking target, while the
+  // overlay border itself is wider and would make otherwise invisible content
+  // conspicuous. Require paint area on both axes before hit-testing it.
+  if (!(right - left > 1 && bottom - top > 1)) {
     return false;
   }
   const insetX = Math.min(1, (right - left) / 2);

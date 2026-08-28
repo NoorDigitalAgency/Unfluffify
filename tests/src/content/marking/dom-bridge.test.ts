@@ -1701,17 +1701,24 @@ describe("P6 DOM bridge", () => {
     const root = new FakeElement("MAIN", rect(0, 0, 300, 100));
     const clippedAbove = new FakeElement("IMG", rect(10, -10, 80, 20));
     const clippedBelow = new FakeElement("IMG", rect(10, 90, 80, 20));
-    for (const element of [root, clippedAbove, clippedBelow]) {
+    const onePixelSliver = new FakeElement("IMG", rect(110, 99, 80, 20));
+    for (const element of [root, clippedAbove, clippedBelow, onePixelSliver]) {
       element.ownerDocument = doc;
     }
     doc.documentElement.ownerDocument = doc;
     doc.documentElement.appendChild(root);
     root.appendChild(clippedAbove);
     root.appendChild(clippedBelow);
+    root.appendChild(onePixelSliver);
     // Out-of-bounds probes produce no native hits. Every point in the actual
     // viewport intersection is covered by the root and must therefore reject
     // both immutable-source rectangles.
-    doc.pointHits = (_x, y) => y >= 0 && y < 100 ? [root] : [];
+    doc.pointHits = (x, y) => {
+      if (x >= 110 && y >= 99 && y < 100) {
+        return [onePixelSliver, root];
+      }
+      return y >= 0 && y < 100 ? [root] : [];
+    };
     const engine = createMarkingEngine(root as unknown as Element);
 
     engine.renderReadOnly();
