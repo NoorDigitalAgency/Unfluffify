@@ -7,6 +7,7 @@ import {
   collapseConsentSweepRoots,
   hideConsentOverlays,
   hideConsentOverlaysInRoots,
+  hideConsentOverlaysOnRoots,
   restoreConsentOverlays,
 } from "../../../src/content/consent";
 
@@ -278,6 +279,23 @@ describe("consent overlay hiding", () => {
     expect(banner.hasAttribute(CONSENT_HIDDEN_ATTR)).toBe(true);
     expect(nestedDialog.closeCalls).toBe(1);
     expect(banner.queryCalls).toEqual([CONSENT_OVERLAY_SELECTORS.join(",")]);
+  });
+
+  it("checks attribute-mutated roots without scanning unchanged descendants", () => {
+    const banner = new FakeElement("DIV", [COOKIE_BANNER]);
+    const nestedDialog = new FakeElement("DIALOG", [DIALOG]);
+    nestedDialog.open = true;
+    banner.append(nestedDialog);
+    const fake = fakeDocument([banner, nestedDialog]);
+
+    expect(hideConsentOverlaysOnRoots(fake.document, [banner])).toEqual({
+      hidden: 1,
+      bypassInstalled: true,
+    });
+    expect(banner.queryCalls).toEqual([]);
+    expect(banner.hasAttribute(CONSENT_HIDDEN_ATTR)).toBe(true);
+    expect(nestedDialog.hasAttribute(CONSENT_HIDDEN_ATTR)).toBe(false);
+    expect(nestedDialog.closeCalls).toBe(0);
   });
 
   it("queries the complete document taxonomy in one native selector-list pass", () => {

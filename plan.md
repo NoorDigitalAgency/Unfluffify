@@ -577,13 +577,16 @@ headed-validation gates.
 - That exact-source run found a new intermittent gesture performance blocker:
   every semantic outcome passed, but five 55–73 ms Long Tasks appeared. Two
   production CPU profiles assigned roughly 313–326 ms of a one-second gesture
-  flow to `hideConsentOverlaysInRoots`, which queried the same changed subtree
-  separately for all 28 taxonomy selectors after legitimate page mutations.
-  Consent suppression now performs one native selector-list traversal and falls
-  back to individual selectors only when the engine rejects the combined query.
-  The taxonomy and hide/restore contract are unchanged. Focused regression tests
-  prove one document/subtree query and unsupported-selector fallback; rebuild,
-  push, and rerun the same headed gesture window before proceeding to AI.
+  flow to `hideConsentOverlaysInRoots`. A combined selector-list query removed 27
+  redundant native traversals, but the next build still exposed one 138 ms Long
+  Task. The source-mapped follow-up profile assigned 290 ms to an attribute-only
+  mutation being sent through the subtree scanner. Consent lifecycle mutation
+  queues are now split by semantics: attribute records check only their exact
+  target, added nodes retain subtree discovery, and document-root additions retain
+  the full sweep. The corrected headed diagnostic passed all six gestures with
+  zero Long Tasks, 16.8 ms rAF p95, and a 33.4 ms worst frame. Focused regressions,
+  type checks, and lint pass; commit/push and repeat the immutable headed stage
+  before proceeding to AI. The taxonomy and hide/restore contract are unchanged.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

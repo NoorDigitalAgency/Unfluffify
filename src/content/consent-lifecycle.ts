@@ -1,6 +1,7 @@
 import {
   hideConsentOverlays,
   hideConsentOverlaysInRoots,
+  hideConsentOverlaysOnRoots,
   restoreConsentOverlays,
   type ConsentElement,
   type ConsentDocument,
@@ -70,6 +71,7 @@ export type ConsentLifecycleOptions = Readonly<{
   createObserver?: (callback: (records?: readonly MutationRecord[]) => void) => ConsentObserver | null;
   hide?: (document: ConsentDocument) => ConsentSweepResult;
   hideRoots?: (document: ConsentDocument, roots: readonly ConsentElement[]) => ConsentSweepResult;
+  hideExactRoots?: (document: ConsentDocument, roots: readonly ConsentElement[]) => ConsentSweepResult;
   restore?: (document: ConsentDocument) => number;
   onHidden?: (count: number) => void;
 }>;
@@ -138,6 +140,7 @@ export function createConsentLifecycle(options: ConsentLifecycleOptions): Consen
   const createObserver = options.createObserver ?? defaultObserver;
   const hide = options.hide ?? hideConsentOverlays;
   const hideRoots = options.hideRoots ?? hideConsentOverlaysInRoots;
+  const hideExactRoots = options.hideExactRoots ?? hideConsentOverlaysOnRoots;
   const restore = options.restore ?? restoreConsentOverlays;
   let authority: ConsentPropertyAuthority | null = null;
   let observer: ConsentObserver | null = null;
@@ -145,6 +148,7 @@ export function createConsentLifecycle(options: ConsentLifecycleOptions): Consen
   let terminalGeneration = 0;
   let resumeAttempt: ResumeAttempt | null = null;
   let pendingRoots = new Set<ConsentElement>();
+  let pendingExactRoots = new Set<ConsentElement>();
   let pendingFullSweep = false;
   let sweepScheduled = false;
   let sweepGeneration = 0;
@@ -158,6 +162,7 @@ export function createConsentLifecycle(options: ConsentLifecycleOptions): Consen
   const stopObserver = (): void => {
     sweepGeneration += 1;
     pendingRoots = new Set();
+    pendingExactRoots = new Set();
     pendingFullSweep = false;
     sweepScheduled = false;
     observer?.disconnect();
@@ -183,7 +188,7 @@ export function createConsentLifecycle(options: ConsentLifecycleOptions): Consen
         if (record.type === "attributes") {
           if ((record.target as Node).nodeType === 1) {
             if (!isExtensionOwnedMutationNode(record.target)) {
-              pendingRoots.add(record.target as unknown as ConsentElement);
+              pendingExactRoots.add(record.target as unknown as ConsentElement);
             }
           } else {
             pendingFullSweep = true;
@@ -208,7 +213,7 @@ export function createConsentLifecycle(options: ConsentLifecycleOptions): Consen
           }
         }
       }
-      if (!pendingFullSweep && pendingRoots.size === 0) {
+      if (!pendingFullSweep && pendingRoots.size === 0 && pendingExactRoots.size === 0) {
         return;
       }
       if (sweepScheduled) {
@@ -224,16 +229,29 @@ export function createConsentLifecycle(options: ConsentLifecycleOptions): Consen
         const current = getDocument();
         if (!current) {
           pendingRoots = new Set();
+          pendingExactRoots = new Set();
           pendingFullSweep = false;
           return;
         }
         const roots = [...pendingRoots];
+        const exactRoots = [...pendingExactRoots].filter((exactRoot) => !roots.some(
+          (root) => root === exactRoot || root.contains?.(exactRoot) === true,
+        ));
         const full = pendingFullSweep;
         pendingRoots = new Set();
+        pendingExactRoots = new Set();
         pendingFullSweep = false;
-        const result = full || roots.length === 0 ? hide(current) : hideRoots(current, roots);
-        if (result.hidden > 0) {
-          options.onHidden?.(result.hidden);
+        if (full) {
+          const result = hide(current);
+          if (result.hidden > 0) {
+            options.onHidden?.(result.hidden);
+          }
+          return;
+        }
+        const subtreeHidden = roots.length > 0 ? hideRoots(current, roots).hidden : 0;
+        const exactHidden = exactRoots.length > 0 ? hideExactRoots(current, exactRoots).hidden : 0;
+        if (subtreeHidden + exactHidden > 0) {
+          options.onHidden?.(subtreeHidden + exactHidden);
         }
       });
     });

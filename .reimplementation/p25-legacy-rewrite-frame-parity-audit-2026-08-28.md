@@ -575,21 +575,26 @@ preserves the stronger architecture.
     click, resolves focus text through the visible overlay underlay, and clicks
     visible overlay geometry through the interaction shield. Dynamic DOM
     insertion can no longer create a false two-way failure.
-101. **Remediated, headed verification pending P0 — each ordinary page mutation
-    ran 28 separate consent-selector subtree traversals during marking input.** A
-    clean production run preserved all six gesture outcomes but recorded five
-    55–73 ms Long Tasks. Two independent sampling profiles attributed about
-    313–326 ms per one-second flow to native `querySelectorAll` called by
-    `hideConsentOverlaysInRoots`; marking evaluation and paint remained only a
-    few milliseconds. The lifecycle already excluded extension-owned mutations,
-    but legitimate Ledigajobb mutations still paid one full subtree traversal per
-    taxonomy selector. Consent matching now uses one native comma-separated
-    selector-list query for the unchanged 28-selector taxonomy, with the original
-    per-selector behavior retained only as a compatibility fallback if an engine
-    rejects the combined query. Root-self matching, deduplication, precision,
-    hiding, restoration, and payload exclusion are unchanged. Focused tests prove
-    single-pass document/subtree queries and unsupported-selector fallback; a
-    fresh exact-source headed gesture stage must close the performance finding.
+101. **Remediated, clean-commit verification pending P0 — consent mutation work
+    crossed the marking-input frame boundary.** A clean production run preserved
+    all six gesture outcomes but recorded five 55–73 ms Long Tasks. The first two
+    sampling profiles attributed about 313–326 ms per one-second flow to native
+    `querySelectorAll` called by `hideConsentOverlaysInRoots`; marking evaluation
+    and paint remained only a few milliseconds. One native comma-separated query
+    removed 27 redundant traversals, but the next exact build still recorded a
+    138 ms Long Task. A source-mapped 100-microsecond CPU profile then proved that
+    290 ms remained under `consent-lifecycle.ts:219`: attribute-only mutations
+    were being routed through the added-subtree scanner. That is unnecessary—an
+    attribute mutation can only make its target start matching; unchanged
+    descendants cannot acquire a consent attribute. The lifecycle now keeps
+    separate exact-node and added-subtree queues, deduplicates exact roots already
+    covered by a new subtree, and reserves full-document sweeps for the existing
+    document-root boundary. A same-browser headed diagnostic of the corrected
+    build passed all six semantic gestures with zero Long Tasks, 16.8 ms rAF p95,
+    and a 33.4 ms worst frame (previously 66.7 ms p95 and 138 ms). Exact-node and
+    subtree regressions pass, while the unchanged taxonomy, initial/full sweep,
+    late subtree discovery, hiding, restoration, and payload exclusion contracts
+    remain intact. The immutable clean-commit stage is the remaining closure gate.
 
 ## Confirmed parity or stronger rewrite behavior
 

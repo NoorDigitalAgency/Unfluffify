@@ -403,6 +403,35 @@ export function hideConsentOverlaysInRoots(
   return { hidden, bypassInstalled };
 }
 
+/** Attribute mutations can only change whether the mutated element itself
+ * matches the consent taxonomy. They cannot make an unchanged descendant start
+ * matching, so scanning the element's complete subtree would add work without
+ * adding coverage. Child-list mutations continue to use
+ * `hideConsentOverlaysInRoots`, which deliberately inspects new descendants. */
+export function hideConsentOverlaysOnRoots(
+  document: ConsentDocument,
+  roots: readonly ConsentElement[],
+): ConsentSweepResult {
+  let hidden = 0;
+  let matched = false;
+  const visited = new Set<ConsentElement>();
+  for (const root of roots) {
+    if (root.isConnected === false || visited.has(root)) {
+      continue;
+    }
+    visited.add(root);
+    if (!rootMatchesConsentOverlay(root)) {
+      continue;
+    }
+    matched = true;
+    if (hideElement(root)) {
+      hidden += 1;
+    }
+  }
+  const bypassInstalled = matched ? injectBypassStyle(document) : false;
+  return { hidden, bypassInstalled };
+}
+
 /** Hides every consent overlay currently in the document. Safe to call repeatedly:
  *  already-hidden elements are skipped, so a MutationObserver can drive it. */
 export function hideConsentOverlays(document: ConsentDocument): ConsentSweepResult {

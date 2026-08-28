@@ -166,6 +166,32 @@ describe("content consent lifecycle", () => {
     expect(harness.onHidden).toHaveBeenLastCalledWith(1);
   });
 
+  it("checks attribute mutations exactly without rescanning their descendants", async () => {
+    const root = {
+      nodeType: 1,
+      isConnected: true,
+      parentElement: null,
+      getAttribute: () => null,
+      hasAttribute: () => false,
+    } as unknown as ConsentElement;
+    const hideRoots = vi.fn(() => ({ hidden: 0, bypassInstalled: false }));
+    const hideExactRoots = vi.fn(() => ({ hidden: 1, bypassInstalled: true }));
+    const harness = createHarness({ hideRoots, hideExactRoots });
+    harness.lifecycle.adoptProperty(PROPERTY_A);
+
+    harness.observers[0]?.callback([{
+      type: "attributes",
+      target: root,
+      attributeName: "class",
+    } as unknown as MutationRecord]);
+    await Promise.resolve();
+
+    expect(hideRoots).not.toHaveBeenCalled();
+    expect(hideExactRoots).toHaveBeenCalledOnce();
+    expect(hideExactRoots).toHaveBeenCalledWith(harness.document, [root]);
+    expect(harness.onHidden).toHaveBeenLastCalledWith(1);
+  });
+
   it("does not rescan consent selectors for extension-owned DOM mutations", async () => {
     const extensionRoot = {
       nodeType: 1,
