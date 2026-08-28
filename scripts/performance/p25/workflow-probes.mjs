@@ -427,6 +427,8 @@ export function validateFullWorkflowEvidence(workflow) {
   requireValue(workflow?.contentList?.rowCount > 0, "content-list-empty");
   requireValue(workflow?.contentList?.rowToPage?.trustedKeyboard === true && workflow.contentList.rowToPage.targetCorresponds === true, "content-list-row-to-page");
   requireValue(workflow?.contentList?.pageToRow?.trustedPointer === true && workflow.contentList.pageToRow.rowFocused === true && workflow.contentList.pageToRow.targetCorresponds === true, "content-list-page-to-row");
+  requireValue(workflow?.initialAi?.success === true, "initial-ai-terminal-success");
+  requireValue(workflow?.freshAi?.success === true, "fresh-ai-terminal-success");
   requireValue(workflow?.initialAi?.requestCount === 1 && workflow?.freshAi?.requestCount === 1, "ai-single-request-per-run");
   requireValue(workflow?.freshness?.projectedWithinMs >= 0 && workflow.freshness.projectedWithinMs <= 1_000, "post-ai-freshness");
   requireValue(workflow?.freshness?.saveBlockedReason === "requires-ai-run" && workflow.freshness?.previewBlockedReason === "requires-ai-run", "post-ai-block-reasons");

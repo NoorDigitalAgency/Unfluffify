@@ -547,6 +547,18 @@ headed-validation gates.
   remains open through the entire action plus a settled tail, while Long Tasks
   use the action's explicit page-clock bounds. A fresh exact-source run must now
   prove both the corrected evidence boundary and the real ≤50 ms input budget.
+- On the corrected gate, every gesture passed with zero input Long Tasks and the
+  formerly blocking scroll path passed. The next two boundaries exposed new
+  evidence and product blockers: a 412→388→412 physical resize produced one 629
+  ms page-main-thread task, while the first AI action remained inside
+  `ai-preflight` for the full 180-second timeout. Resize had accidentally been
+  omitted from the stage and aggregate input-task budget, and a thrown AI
+  failure discarded the popup transition/request evidence needed to locate its
+  phase. Resize is now included in the unchanged 50 ms budget. Failed initial or
+  fresh AI runs return partial terminal evidence so acceptance still fails but
+  retains activation, transitions, network, popup, and phase. The next
+  diagnostic run uses a bounded AI timeout and CPU attribution around resize;
+  neither observed blocker is classified as external or closed yet.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

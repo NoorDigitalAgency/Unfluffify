@@ -366,6 +366,15 @@ describe("P25 live-comparison stage and aggregate contract", () => {
       .toMatchObject({ pass: false });
   });
 
+  it.each(["marking-resize", "silent-resize"])("rejects a Long Task in the %s input stage", (stage) => {
+    const run = aggregate();
+    const frame = run.frames.find((candidate) => candidate.stage === stage)!;
+    frame.worstLongTaskMs = 51;
+    const validation = validateRunAggregate(run);
+    expect(validation.checks.find((check) => check.id === "input-long-tasks"))
+      .toMatchObject({ pass: false });
+  });
+
   it("allows exact non-candidate evidence without turning candidate-only work into a pass", () => {
     const runIdentity = identity("rewrite", "bigbag");
     const disposition = resolveCandidateDisposition({ label: "bigbag", url: runIdentity.expectedUrl, runtimeEligibility: "unavailable" });

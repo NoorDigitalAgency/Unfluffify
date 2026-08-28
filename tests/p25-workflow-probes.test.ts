@@ -239,8 +239,8 @@ describe("P25 exact marking gesture acceptance", () => {
 
 function completeWorkflowEvidence() {
   return {
-    initialAi: { requestCount: 1 },
-    freshAi: { requestCount: 1 },
+    initialAi: { success: true, requestCount: 1 },
+    freshAi: { success: true, requestCount: 1 },
     contentList: {
       openActivation: { method: "ai-auto-open" },
       firstPaintMs: 120,
@@ -291,6 +291,8 @@ describe("P25 full workflow fail-closed acceptance", () => {
     ["Content List first paint", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.contentList.firstPaintMs = 1_001; }, "content-list-first-paint"],
     ["Content List AI auto-open", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.contentList.openActivation.method = "pointer"; }, "content-list-ai-auto-open"],
     ["page-to-row route", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.contentList.pageToRow.rowFocused = false; }, "content-list-page-to-row"],
+    ["initial AI terminal success", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.initialAi.success = false; }, "initial-ai-terminal-success"],
+    ["fresh AI terminal success", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.freshAi.success = false; }, "fresh-ai-terminal-success"],
     ["duplicate AI request", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.freshAi.requestCount = 2; }, "ai-single-request-per-run"],
     ["freshness", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.freshness.projectedWithinMs = 1_001; }, "post-ai-freshness"],
     ["duplicate Save", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.save.requestCount = 2; }, "save-authoritative-single-request"],

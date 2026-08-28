@@ -1090,7 +1090,17 @@ async function runDiscardWorkflow(popup) {
 
 async function runMeasuredFullWorkflow({ popup, site, guard, identity, options }) {
   const initialAi = await runCurrentAi(popup, guard, options);
-  if (!initialAi.success) throw new Error(initialAi.failure ?? "Initial AI run failed");
+  if (!initialAi.success) {
+    // Return the terminal evidence instead of throwing it away. Stage
+    // acceptance still fails closed, but the exact popup transitions, control
+    // activation, network boundary, and failure reason remain inspectable.
+    return {
+      initialAi,
+      freshAi: null,
+      failurePhase: "initial-ai",
+      failure: initialAi.failure ?? "Initial AI run failed",
+    };
+  }
   const contentList = await runContentListWorkflow(popup, site, initialAi);
 
   const freshnessStarted = performance.now();
@@ -1101,7 +1111,19 @@ async function runMeasuredFullWorkflow({ popup, site, guard, identity, options }
   const saveEdit = await withSiteSession(site, performPhysicalShiftExclusion);
   await waitForDirtyFreshnessProjection(popup, performance.now());
   const freshAi = await runCurrentAi(popup, guard, options);
-  if (!freshAi.success) throw new Error(freshAi.failure ?? "Fresh AI rerun failed");
+  if (!freshAi.success) {
+    return {
+      initialAi,
+      freshAi,
+      contentList,
+      dirtyEdit,
+      freshness,
+      discard,
+      saveEdit,
+      failurePhase: "fresh-ai",
+      failure: freshAi.failure ?? "Fresh AI rerun failed",
+    };
+  }
   const freshPreviewState = await captureWorkflowPopupState(popup);
   const freshPreviewExit = freshPreviewState.preview.open
     ? await physicalActivatePopupControl(popup, "preview-exit", "pointer", ".preview-sidebar__dismiss")
@@ -1231,6 +1253,7 @@ function stageAcceptanceFailures(id, action) {
     requireValue(data.resize?.repositioned === true, "Overlay rectangle signatures did not change during the resize probe");
     requireValue(data.resize?.beforePosture?.matches === true, `Resize probe did not begin in the authoritative ${id.startsWith("marking-") ? "marking-mobile" : "silent-desktop"} posture`);
     requireValue(data.resize?.afterPosture?.matches === true && data.resize?.appliedRestore?.matches === true && data.resize?.postureRestored === true, `Resize probe did not restore the exact authoritative ${id.startsWith("marking-") ? "marking-mobile" : "silent-desktop"} posture`);
+    requireValue((data.resize?.frames?.requestAnimationFrame?.worstLongTaskMs ?? Infinity) <= 50, `Resize input Long Task reached ${data.resize?.frames?.requestAnimationFrame?.worstLongTaskMs ?? "unknown"} ms`);
     if (id.startsWith("silent-")) requireValue(silentPosturePass(data.silentPosture), "Silent resize did not preserve the exact desktop shield/highlight posture");
   }
   if (id === "workflow-summary") {

@@ -463,7 +463,15 @@ export function validateRunAggregate(aggregate) {
       (frame.compositorFrames ?? 0) > 0 &&
       finiteNonNegative(frame.worstLongTaskMs))
   ), frames);
-  pushCheck(checks, "input-long-tasks", disposition?.parityEligible === false || frames.filter((frame) => ["marking-gestures", "marking-scroll-fade", "silent-scroll-fade"].includes(frame.stage)).every((frame) => frame.worstLongTaskMs <= 50), frames.filter((frame) => frame.worstLongTaskMs > 50));
+  const inputFrameStages = new Set([
+    "marking-gestures",
+    "marking-scroll-fade",
+    "marking-resize",
+    "silent-scroll-fade",
+    "silent-resize",
+  ]);
+  const inputFrames = frames.filter((frame) => inputFrameStages.has(frame.stage));
+  pushCheck(checks, "input-long-tasks", disposition?.parityEligible === false || inputFrames.every((frame) => frame.worstLongTaskMs <= 50), inputFrames.filter((frame) => frame.worstLongTaskMs > 50));
   pushCheck(checks, "activation-network", disposition?.parityEligible === false || (Array.isArray(aggregate?.network?.activation) && aggregate.network.activation.length > 0), aggregate?.network?.activation?.length ?? null);
   pushCheck(checks, "publication-fence", (disposition?.parityEligible === false || aggregate?.publicationFence?.installedBeforeActivation === true) && aggregate?.publicationFence?.finalPublishForbidden === true, aggregate?.publicationFence ?? null);
   pushCheck(checks, "zero-publish-attempts", aggregate?.publicationFence?.attemptCount === 0, aggregate?.publicationFence?.attemptCount ?? null);

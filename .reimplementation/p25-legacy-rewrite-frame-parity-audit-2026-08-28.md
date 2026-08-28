@@ -538,6 +538,21 @@ preserves the stronger architecture.
     gesture Long Tasks are filtered to explicit page-clock action bounds. No
     product performance waiver was introduced: the next clean run must still
     prove every real input task at or below 50 ms.
+98. **Open P0 plus closed evidence gaps — resize blocked for 629 ms and AI never
+    terminalized.** On exact pushed source after finding 97, Ledigajobb passed
+    both render modes, activation, visual cardinality, all six gestures, scroll
+    fade, and posture restoration. Gestures completed in 944 ms with zero Long
+    Tasks; scroll also had zero. The physical mobile resize then recorded a 629
+    ms Long Task and 433.3 ms rAF p95 during 412→388→412, despite restoring every
+    emulation component. The following Run AI remained under
+    `operator-action-pending` for 180082 ms and never opened Content List or
+    showed a terminal failure. Two harness holes obscured these failures: resize
+    was omitted from the ≤50 ms input-task checks, and throwing on AI failure
+    discarded its transition and request evidence. Resize is now checked at the
+    stage and aggregate boundaries; incomplete initial/fresh AI workflows retain
+    their exact partial evidence while still failing full acceptance. CPU
+    ownership and the retained AI phase/network trace are required before either
+    product blocker can be remediated or classified.
 
 ## Confirmed parity or stronger rewrite behavior
 
