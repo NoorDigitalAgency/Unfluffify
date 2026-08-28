@@ -46,6 +46,7 @@ test("live browser launcher targets the WXT output and canonical pnpm command", 
   );
   assert.match(launcher, /arg !== "--remote-debugging-pipe"/);
   assert.match(launcher, /"--disable-field-trial-config"/);
+  assert.match(launcher, /"--enable-automation"/);
   assert.match(launcher, /await openActualSidePanel\(boundUrl, tabId\)/);
   assert.match(launcher, /await closeCdpTarget\(popupTarget\)/);
   assert.match(launcher, /async function waitForCdpTargetClosed\(targetId/);

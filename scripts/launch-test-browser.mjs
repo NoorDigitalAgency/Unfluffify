@@ -741,6 +741,7 @@ function spawnManagedChromium(executable, launchArgs, pageUrl) {
     "--remote-allow-origins=*",
     `--user-data-dir=${PROFILE_DIR}`,
     "--disable-field-trial-config",
+    "--enable-automation",
     "--no-first-run",
     "--no-default-browser-check",
     "--disable-session-crashed-bubble",
