@@ -617,6 +617,16 @@ preserves the stronger architecture.
     dispatch; feedback is measured from that input boundary. The workflow gate
     now enforces the same ≤100 ms requirement for both initial and post-edit AI
     runs. This changes evidence authority only, not product timing.
+104. **Remediated, headed verification pending harness P0 — the workflow probe
+    omitted its new desktop-preview dependency.** Immutable run
+    `2026-08-28T23-41-31-894Z-a070f39f-rewrite-ledigajobb` physically enabled
+    the real preference and the popup visibly reached silent, idle, checked state,
+    but activation failed closed after 45 seconds because
+    `captureWorkflowPopupState` did not include `desktop-preview-enabled` in its
+    serialized control set. The shared probe now records that control, and a
+    source-contract regression prevents the activation predicate from becoming
+    impossible again. No marking action or final publication occurred in the
+    failed run.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -688,7 +698,7 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 103, but P25 remains
+Implementation remediation is code-complete through finding 104, but P25 remains
 open until the committed source passes clean automated gates and every valid candidate completes an
 observer-free headed rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,

@@ -365,6 +365,7 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).toContain("viewportMatches(data.markingPosture, 412, 960)");
     expect(harness).toContain("data.workflow.freshAi.feedbackMs <= 100");
     const probes = readFileSync(resolve(process.cwd(), "scripts/performance/p25/workflow-probes.mjs"), "utf8");
+    expect(probes).toContain("'toggle-enabled','desktop-preview-enabled','compute'");
     expect(probes).toContain('#unfluffify-overlay [data-layer="ai-content"] .uf-rect');
     expect(probes).toContain("'[data-uf-interaction-shield=\"true\"], #unfluffify-overlay'");
   });

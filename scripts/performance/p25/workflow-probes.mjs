@@ -234,7 +234,7 @@ export async function captureWorkflowPopupState(session) {
       view: document.querySelector('main[data-view]')?.getAttribute('data-view') ?? null,
       busy: Boolean(document.querySelector('[data-transient-surface="popup-busy-curtain"]')),
       silentAcknowledged: document.querySelector('[data-silent-mode="active"]') !== null || (toggle instanceof HTMLInputElement && !toggle.checked && document.getElementById('preview-latest') !== null),
-      controls: ['toggle-enabled','compute','marking-preview','page-save','page-revert','preview-exit','preview-latest','save-excludes','discard-confirm','lynx-checklist-cancel','lynx-checklist-send'].map(control),
+      controls: ['toggle-enabled','desktop-preview-enabled','compute','marking-preview','page-save','page-revert','preview-exit','preview-latest','save-excludes','discard-confirm','lynx-checklist-cancel','lynx-checklist-send'].map(control),
       preview: {
         open: previewRoot !== null,
         rowCount: rowButtons.length,

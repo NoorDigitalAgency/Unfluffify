@@ -603,6 +603,13 @@ headed-validation gates.
   dispatch instead of including CDP foreground/hit-test round trips, and the
   ≤100 ms gate now applies to both initial and fresh AI runs. Focused P25 tests,
   type checks, and lint pass; repeat the clean full run before matrix expansion.
+- Immutable retry `2026-08-28T23-41-31-894Z-a070f39f-rewrite-ledigajobb`
+  exposed one fail-closed harness omission before marking: the real desktop
+  preference became checked, but the workflow probe did not serialize that
+  control, making its own terminal predicate impossible. Include
+  `desktop-preview-enabled` in the shared workflow snapshot and lock the
+  dependency with a regression before starting another immutable run. The failed
+  run was finalized with zero publication attempts.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 
