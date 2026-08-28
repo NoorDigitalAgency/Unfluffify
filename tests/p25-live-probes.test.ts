@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "./file-kit.ts";
 import {
   AUTHORITATIVE_RESIZE_POSTURES,
   appliedResizePostureMatches,
@@ -54,6 +55,13 @@ class FakeElement {
     return this.root;
   }
 }
+
+describe("P25 live site-session visibility", () => {
+  it("foregrounds the candidate before frame and physical-input probes", () => {
+    const source = readFileSync(new URL("../scripts/performance/p25/live-probes.mjs", import.meta.url), "utf8");
+    expect(source).toMatch(/async function withSiteSession[\s\S]*?Page\.enable[\s\S]*?Page\.bringToFront[\s\S]*?callback\(session\)/);
+  });
+});
 
 function fakeEnvironment(elementsFromPoint: () => FakeElement[] = () => []) {
   return {

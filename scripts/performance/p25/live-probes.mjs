@@ -1116,6 +1116,10 @@ export async function withSiteSession(target, callback) {
   try {
     await session.send("Runtime.enable");
     await session.send("Page.enable");
+    // Physical input and requestAnimationFrame evidence are meaningful only on
+    // the foreground candidate. The popup is controlled over its own CDP
+    // session, so foregrounding the site does not compromise popup actions.
+    await session.send("Page.bringToFront");
     return await callback(session);
   } finally {
     session.close();
