@@ -6,7 +6,7 @@
 side-by-side audit found 54 product gaps, adversarial run-plan review found 30
 additional lifecycle, input, evidence, and release-gate gaps, and final
 precommit review plus the clean headed campaign extended the register through
-finding 100. The current P25 implementation addresses every classified finding without weakening the
+finding 101. The current P25 implementation addresses every classified finding without weakening the
 rewrite's locked contracts. This document remains the finding register rather
 than a PASS claim:
 the clean-source P25 gate and observer-free candidate matrix are the acceptance
@@ -575,6 +575,21 @@ preserves the stronger architecture.
     click, resolves focus text through the visible overlay underlay, and clicks
     visible overlay geometry through the interaction shield. Dynamic DOM
     insertion can no longer create a false two-way failure.
+101. **Remediated, headed verification pending P0 — each ordinary page mutation
+    ran 28 separate consent-selector subtree traversals during marking input.** A
+    clean production run preserved all six gesture outcomes but recorded five
+    55–73 ms Long Tasks. Two independent sampling profiles attributed about
+    313–326 ms per one-second flow to native `querySelectorAll` called by
+    `hideConsentOverlaysInRoots`; marking evaluation and paint remained only a
+    few milliseconds. The lifecycle already excluded extension-owned mutations,
+    but legitimate Ledigajobb mutations still paid one full subtree traversal per
+    taxonomy selector. Consent matching now uses one native comma-separated
+    selector-list query for the unchanged 28-selector taxonomy, with the original
+    per-selector behavior retained only as a compatibility fallback if an engine
+    rejects the combined query. Root-self matching, deduplication, precision,
+    hiding, restoration, and payload exclusion are unchanged. Focused tests prove
+    single-pass document/subtree queries and unsupported-selector fallback; a
+    fresh exact-source headed gesture stage must close the performance finding.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -646,7 +661,7 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 100, but P25 remains
+Implementation remediation is code-complete through finding 101, but P25 remains
 open until the committed source passes clean automated gates and every valid candidate completes an
 observer-free headed rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,

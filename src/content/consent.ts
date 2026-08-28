@@ -304,6 +304,51 @@ export type ConsentSweepResult = Readonly<{
   bypassInstalled: boolean;
 }>;
 
+const CONSENT_OVERLAY_SELECTOR_QUERY = CONSENT_OVERLAY_SELECTORS.join(",");
+
+/** Native selector lists let the browser traverse a changed subtree once even
+ * when an element can match any of the consent taxonomy's selectors. Retain the
+ * individual-query fallback for engines that reject one selector in the list;
+ * correctness must not depend on every selector being supported. */
+function queryConsentOverlayDescendants(
+  root: Pick<ConsentDocument, "querySelectorAll"> | Pick<ConsentElement, "querySelectorAll">,
+): ConsentElement[] {
+  const querySelectorAll = root.querySelectorAll;
+  if (!querySelectorAll) {
+    return [];
+  }
+  try {
+    return toArray(querySelectorAll.call(root, CONSENT_OVERLAY_SELECTOR_QUERY));
+  } catch {
+    const matches: ConsentElement[] = [];
+    for (const selector of CONSENT_OVERLAY_SELECTORS) {
+      try {
+        matches.push(...toArray(querySelectorAll.call(root, selector)));
+      } catch {
+        // Keep the remaining high-confidence selectors active.
+      }
+    }
+    return matches;
+  }
+}
+
+function rootMatchesConsentOverlay(root: ConsentElement): boolean {
+  try {
+    return root.matches?.(CONSENT_OVERLAY_SELECTOR_QUERY) === true;
+  } catch {
+    for (const selector of CONSENT_OVERLAY_SELECTORS) {
+      try {
+        if (root.matches?.(selector)) {
+          return true;
+        }
+      } catch {
+        // Keep testing the remaining high-confidence selectors.
+      }
+    }
+    return false;
+  }
+}
+
 function consentRootContains(ancestor: ConsentElement, descendant: ConsentElement): boolean {
   if (ancestor === descendant) {
     return true;
@@ -339,27 +384,18 @@ export function hideConsentOverlaysInRoots(
   let matched = false;
   const visited = new Set<ConsentElement>();
   for (const root of collapseConsentSweepRoots(roots)) {
-    for (const selector of CONSENT_OVERLAY_SELECTORS) {
-      let matches: ConsentElement[] = [];
-      try {
-        if (root.matches?.(selector)) {
-          matches.push(root);
-        }
-        if (root.querySelectorAll) {
-          matches = matches.concat(toArray(root.querySelectorAll(selector)));
-        }
-      } catch {
+    const matches = [
+      ...(rootMatchesConsentOverlay(root) ? [root] : []),
+      ...(root.querySelectorAll ? queryConsentOverlayDescendants(root) : []),
+    ];
+    for (const element of matches) {
+      if (visited.has(element)) {
         continue;
       }
-      for (const element of matches) {
-        if (visited.has(element)) {
-          continue;
-        }
-        visited.add(element);
-        matched = true;
-        if (hideElement(element)) {
-          hidden += 1;
-        }
+      visited.add(element);
+      matched = true;
+      if (hideElement(element)) {
+        hidden += 1;
       }
     }
   }
@@ -373,23 +409,14 @@ export function hideConsentOverlays(document: ConsentDocument): ConsentSweepResu
   let hidden = 0;
   let matched = false;
   const visited = new Set<ConsentElement>();
-  for (const selector of CONSENT_OVERLAY_SELECTORS) {
-    let matches: ConsentElement[];
-    try {
-      matches = toArray(document.querySelectorAll(selector));
-    } catch {
-      // A browser that rejects one selector must not cost us the other 27.
+  for (const element of queryConsentOverlayDescendants(document)) {
+    if (visited.has(element)) {
       continue;
     }
-    for (const element of matches) {
-      if (visited.has(element)) {
-        continue;
-      }
-      visited.add(element);
-      matched = true;
-      if (hideElement(element)) {
-        hidden += 1;
-      }
+    visited.add(element);
+    matched = true;
+    if (hideElement(element)) {
+      hidden += 1;
     }
   }
   const bypassInstalled = matched ? injectBypassStyle(document) : false;

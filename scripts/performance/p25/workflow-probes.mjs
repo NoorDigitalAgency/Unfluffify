@@ -330,7 +330,7 @@ export async function physicalActivatePreviewRow(session, index = 0) {
     };
   })()`);
   if (!before?.focused) throw new Error(`Preview row ${index} is unavailable for trusted keyboard activation`);
-  let witness = null;
+  let witness;
   try {
     await session.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: " ", code: "Space", windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32 });
     await session.send("Input.dispatchKeyEvent", { type: "keyUp", key: " ", code: "Space", windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32 });

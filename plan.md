@@ -574,6 +574,16 @@ headed-validation gates.
 - The next exact-source Ledigajobb run uses the full AI deadline and must finish
   fresh AI, post-edit freshness, Save, Discard, silent posture, payload, and
   checklist stages before the remaining candidate matrix begins.
+- That exact-source run found a new intermittent gesture performance blocker:
+  every semantic outcome passed, but five 55–73 ms Long Tasks appeared. Two
+  production CPU profiles assigned roughly 313–326 ms of a one-second gesture
+  flow to `hideConsentOverlaysInRoots`, which queried the same changed subtree
+  separately for all 28 taxonomy selectors after legitimate page mutations.
+  Consent suppression now performs one native selector-list traversal and falls
+  back to individual selectors only when the engine rejects the combined query.
+  The taxonomy and hide/restore contract are unchanged. Focused regression tests
+  prove one document/subtree query and unsupported-selector fallback; rebuild,
+  push, and rerun the same headed gesture window before proceeding to AI.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

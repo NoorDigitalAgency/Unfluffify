@@ -42,15 +42,17 @@ class FakeElement {
   open?: boolean;
   closeCalls = 0;
   closeThrows = false;
+  readonly queryCalls: string[] = [];
   constructor(readonly tagName = "DIV", readonly selectors: readonly string[] = []) {}
   append(child: FakeElement): void {
     child.parentElement = this;
     this.children.push(child);
   }
   matches(selector: string): boolean {
-    return this.selectors.includes(selector);
+    return selector.split(",").some((part) => this.selectors.includes(part));
   }
   querySelectorAll(selector: string): FakeElement[] {
+    this.queryCalls.push(selector);
     return this.children.flatMap((child) => [
       ...(child.matches(selector) ? [child] : []),
       ...child.querySelectorAll(selector),
@@ -104,13 +106,14 @@ function fakeDocument(elements: readonly FakeElement[], options: { rejectSelecto
     },
     document: {
       querySelectorAll(selector: string) {
-        if (options.rejectSelector === selector) {
+        const selectors = selector.split(",");
+        if (options.rejectSelector && selectors.includes(options.rejectSelector)) {
           throw new Error(`unsupported selector: ${selector}`);
         }
         if (selector === `[${CONSENT_HIDDEN_ATTR}]`) {
           return elements.filter((element) => element.hasAttribute(CONSENT_HIDDEN_ATTR));
         }
-        return elements.filter((element) => element.selectors.includes(selector));
+        return elements.filter((element) => selectors.some((part) => element.selectors.includes(part)));
       },
       getElementById(id: string) {
         return byId.get(id);
@@ -274,6 +277,23 @@ describe("consent overlay hiding", () => {
     });
     expect(banner.hasAttribute(CONSENT_HIDDEN_ATTR)).toBe(true);
     expect(nestedDialog.closeCalls).toBe(1);
+    expect(banner.queryCalls).toEqual([CONSENT_OVERLAY_SELECTORS.join(",")]);
+  });
+
+  it("queries the complete document taxonomy in one native selector-list pass", () => {
+    const queries: string[] = [];
+    const document = {
+      querySelectorAll(selector: string) {
+        queries.push(selector);
+        return [];
+      },
+      getElementById() { return undefined; },
+      createElement() { return { id: "", textContent: "" }; },
+      head: null,
+    };
+
+    expect(hideConsentOverlays(document)).toEqual({ hidden: 0, bypassInstalled: false });
+    expect(queries).toEqual([CONSENT_OVERLAY_SELECTORS.join(",")]);
   });
 
   it("keeps sweeping when one selector is unsupported", () => {
