@@ -188,9 +188,11 @@ function nearestDescendantRects(
     return [];
   }
   const queue = composedElementChildren(element);
+  let cursor = 0;
   let inspected = 0;
-  while (queue.length > 0 && inspected < 200) {
-    const candidate = queue.shift();
+  while (cursor < queue.length && inspected < 200) {
+    const candidate = queue[cursor];
+    cursor += 1;
     inspected += 1;
     if (!candidate || !isCurrentlyVisuallyVisible(candidate)) {
       continue;

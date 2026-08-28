@@ -754,8 +754,33 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
   const controlId = implementation === "legacy"
     ? renderMode === "with-javascript" ? "render-mode-inspect-with-javascript" : "render-mode-inspect-without-javascript"
     : renderMode === "with-javascript" ? "render-mode-with-js" : "render-mode-without-js";
-  const before = await capturePopupState(popup);
-  const control = before.controls.find((candidate) => candidate.id === controlId);
+  let before = await capturePopupState(popup);
+  let control = before.controls.find((candidate) => candidate.id === controlId);
+  if (!control || control.visible === false) {
+    const openerId = implementation === "legacy" ? "render-mode-open-view" : "render-mode-open";
+    const toggleId = implementation === "legacy" ? "config-toggle" : "header-kebab-toggle";
+    let opener = before.controls.find((candidate) => candidate.id === openerId);
+    if (!opener || opener.visible === false) {
+      const toggle = before.controls.find((candidate) => candidate.id === toggleId);
+      if (!toggle || toggle.disabled || toggle.visible === false) {
+        throw new Error(`Render Inspection menu toggle #${toggleId} is unavailable: ${JSON.stringify(toggle)}`);
+      }
+      await physicalActivatePopupControl(popup, toggleId, "pointer");
+      before = await capturePopupState(popup);
+      opener = before.controls.find((candidate) => candidate.id === openerId);
+    }
+    if (!opener || opener.disabled || opener.visible === false) {
+      throw new Error(`Render Inspection opener #${openerId} is unavailable: ${JSON.stringify(opener)}`);
+    }
+    await physicalActivatePopupControl(popup, openerId, "pointer");
+    const viewDeadline = Date.now() + Math.min(timeoutMs, 10_000);
+    while (Date.now() < viewDeadline) {
+      before = await capturePopupState(popup);
+      control = before.controls.find((candidate) => candidate.id === controlId);
+      if (control && !control.disabled && control.visible !== false) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
   if (!control || control.disabled) throw new Error(`Render Inspection control #${controlId} is unavailable: ${JSON.stringify(control)}`);
   const startedAt = new Date().toISOString();
   const controlActivation = await physicalActivatePopupControl(popup, controlId, "pointer");
@@ -831,10 +856,11 @@ async function runCurrentAi(popup, guard, options) {
   let lastSignature = "";
   let feedbackMs = null;
   let operationObserved = false;
+  let idleWithoutResultSince = null;
   let contentListOpenedAtMs = null;
   let contentListFirstPaintMs = null;
   const controlActivation = await physicalActivatePopupControl(popup, "compute", "pointer");
-  const deadline = started + integerOption(options, "ai-timeout-ms", 510_000);
+  const deadline = started + integerOption(options, "ai-timeout-ms", 180_000);
   let terminal = null;
   while (Date.now() < deadline) {
     const state = await capturePopupState(popup);
@@ -863,9 +889,18 @@ async function runCurrentAi(popup, guard, options) {
       if (previewState.preview.rowCount > 0) contentListFirstPaintMs = Math.max(0, compact.elapsedMs - contentListOpenedAtMs);
     }
     const visibleFailure = /Run AI failed|AI[^\n]{0,80}(?:failed|error)|Content message timed out/i.test(state.bodyLead);
-    if (operationObserved && !state.busy && (previewReady || visibleFailure)) {
-      terminal = { state, previewReady, visibleFailure };
-      break;
+    if (operationObserved && !state.busy) {
+      if (previewReady || visibleFailure) {
+        terminal = { state, previewReady, visibleFailure, idleWithoutResult: false };
+        break;
+      }
+      idleWithoutResultSince ??= Date.now();
+      if (Date.now() - idleWithoutResultSince >= 750) {
+        terminal = { state, previewReady: false, visibleFailure: false, idleWithoutResult: true };
+        break;
+      }
+    } else {
+      idleWithoutResultSince = null;
     }
     await new Promise((resolve) => setTimeout(resolve, Date.now() - started < 2_500 ? 25 : 150));
   }
@@ -893,7 +928,13 @@ async function runCurrentAi(popup, guard, options) {
       firstPaintMs: contentListFirstPaintMs,
     },
     terminal: terminal ? compactPopupTransition(terminal.state, started) : null,
-    failure: !terminal ? `AI did not terminalize within ${durationMs} ms` : terminal.visibleFailure ? terminal.state.bodyLead.slice(-600) : null,
+    failure: !terminal
+      ? `AI did not terminalize within ${durationMs} ms`
+      : terminal.visibleFailure
+        ? terminal.state.bodyLead.slice(-600)
+        : terminal.idleWithoutResult
+          ? "AI returned to idle without opening a usable Content List or showing a failure"
+          : null,
     controlActivation,
   };
 }

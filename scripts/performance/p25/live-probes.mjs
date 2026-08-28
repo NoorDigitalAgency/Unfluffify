@@ -6,26 +6,15 @@ import { normalizeLiveUrl, sha256, summarizeTiming } from "./live-comparison-con
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-async function waitForPresentationOpportunity(session, { frameCount = 1, timeoutMs = 120 } = {}) {
+export async function waitForPresentationOpportunity(session, { frameCount = 1, timeoutMs = 120 } = {}) {
   const count = Math.max(1, Math.trunc(frameCount));
-  const fallbackMs = Math.max(16, Math.trunc(timeoutMs));
-  return session.evaluate(`new Promise((resolve) => {
-    let settled = false;
-    let observed = 0;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(fallback);
-      resolve(performance.now());
-    };
-    const onFrame = () => {
-      observed += 1;
-      if (observed >= ${count}) finish();
-      else requestAnimationFrame(onFrame);
-    };
-    const fallback = setTimeout(finish, ${fallbackMs});
-    requestAnimationFrame(onFrame);
-  })`, { timeoutMs: Math.max(2_000, fallbackMs * 4) });
+  const maximumWaitMs = Math.max(16, Math.trunc(timeoutMs));
+  // Reveal/freeze is allowed to suspend page-owned timers and animation
+  // callbacks. The headed observer must therefore yield on its own clock,
+  // then take a synchronous timestamp from the page, or a correct freeze can
+  // deadlock the very gesture probe intended to measure it.
+  await sleep(Math.min(maximumWaitMs, Math.max(16, count * 17)));
+  return session.evaluate("performance.now()", { awaitPromise: false, timeoutMs: 2_000 });
 }
 
 export function resolveLiveTargets(targets, expectedUrl) {
@@ -130,12 +119,18 @@ export async function capturePopupState(session) {
     view: document.querySelector('main[data-view]')?.getAttribute('data-view') ??
       (document.querySelector('.preview-sidebar') ? 'preview' : null),
     bodyLead: (document.body?.innerText ?? '').slice(0, 1600),
-    controls: [...document.querySelectorAll('button,input')].map((element) => ({
-      id: element.id || null,
-      label: element.getAttribute('aria-label') || element.textContent?.trim() || null,
-      disabled: Boolean(element.disabled),
-      checked: 'checked' in element ? Boolean(element.checked) : null,
-    })),
+    controls: [...document.querySelectorAll('button,input')].map((element) => {
+      const rect = element.getBoundingClientRect();
+      const style = getComputedStyle(element);
+      return {
+        id: element.id || null,
+        label: element.getAttribute('aria-label') || element.textContent?.trim() || null,
+        disabled: Boolean(element.disabled),
+        checked: 'checked' in element ? Boolean(element.checked) : null,
+        visible: !element.hidden && style.display !== 'none' && style.visibility !== 'hidden' &&
+          Number(style.opacity || '1') > 0 && rect.width > 0 && rect.height > 0,
+      };
+    }),
     renderChoiceRaw: checkedChoice,
     renderInspectionViewRaw: inspectionView,
     busy: Boolean(document.querySelector('[data-transient-surface="popup-busy-curtain"]')),
@@ -384,15 +379,75 @@ export function classifyVisualSourcePaint({ painted, sourceExpected, sourceResol
   };
 }
 
+export function resolveBridgeXpath(xpath, environment = globalThis) {
+  const document = environment?.document;
+  if (!document || typeof xpath !== "string") return null;
+  const parseSegment = (value) => {
+    const match = value.match(/^([A-Za-z][A-Za-z0-9:_-]*)\[([1-9]\d*)\]$/);
+    return match ? { tag: match[1].toLowerCase(), index: Number(match[2]) } : null;
+  };
+  const segments = xpath.split("/").filter(Boolean).map(parseSegment);
+  if (segments.length === 0 || segments.some((segment) => segment === null)) return null;
+  const isExtensionUi = (node) => node?.nodeType === 1 && node.getAttribute?.("data-uf-extension-ui") === "true";
+  const isSlot = (node) => node?.nodeType === 1 && String(node.tagName).toUpperCase() === "SLOT";
+  const slotReplacements = (slot, assigned) => {
+    let assignedNodes;
+    try {
+      assignedNodes = typeof slot.assignedNodes === "function" ? slot.assignedNodes({ flatten: true }) : [];
+    } catch {
+      assignedNodes = [];
+    }
+    if (assignedNodes.length > 0) {
+      for (const node of assignedNodes) assigned?.add(node);
+      return assignedNodes;
+    }
+    return Array.from(slot.childNodes ?? []);
+  };
+  const expandDirectSlot = (node, assigned) => isSlot(node) ? slotReplacements(node, assigned) : [node];
+  const composedElementChildren = (element) => {
+    const shadowRoot = element?.shadowRoot;
+    if (!shadowRoot) {
+      return Array.from(element?.childNodes ?? [])
+        .flatMap((node) => expandDirectSlot(node))
+        .filter((node) => node?.nodeType === 1 && !isExtensionUi(node));
+    }
+    const assigned = new Set();
+    const collectAssigned = (node) => {
+      if (isSlot(node)) {
+        slotReplacements(node, assigned);
+        return;
+      }
+      if (node?.nodeType === 1) {
+        for (const child of Array.from(node.childNodes ?? [])) collectAssigned(child);
+      }
+    };
+    for (const node of Array.from(shadowRoot.childNodes ?? [])) collectAssigned(node);
+    return [
+      ...Array.from(shadowRoot.childNodes ?? []).flatMap((node) => expandDirectSlot(node, assigned)),
+      ...Array.from(element.childNodes ?? []).filter((node) => !assigned.has(node)),
+    ].filter((node) => node?.nodeType === 1 && !isExtensionUi(node));
+  };
+  const first = segments[0];
+  const roots = [document.documentElement, document.body, ...Array.from(document.querySelectorAll?.(first.tag) ?? [])]
+    .filter((node, index, all) => node && all.indexOf(node) === index)
+    .filter((node) => !isExtensionUi(node) && String(node.tagName).toLowerCase() === first.tag);
+  let cursor = roots[first.index - 1] ?? null;
+  if (!cursor) return null;
+  for (const segment of segments.slice(1)) {
+    const candidates = composedElementChildren(cursor)
+      .filter((child) => String(child.tagName).toLowerCase() === segment.tag);
+    cursor = candidates[segment.index - 1] ?? null;
+    if (!cursor) return null;
+  }
+  return cursor;
+}
+
 const VISUAL_SNAPSHOT_EXPRESSION = `(() => {
   const composedVisibilityEvidence = (${composedVisibilityEvidence.toString()});
   const topHitPaintEvidence = (${topHitPaintEvidence.toString()});
   const classifyVisualSourcePaint = (${classifyVisualSourcePaint.toString()});
   const visible = (element) => composedVisibilityEvidence(element).visible;
-  const xpathNode = (xpath) => {
-    try { return document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue; }
-    catch { return null; }
-  };
+  const xpathNode = (${resolveBridgeXpath.toString()});
   const sourceId = (element) => element.getAttribute('data-uf-overlay-xpath') ||
     element.getAttribute('data-uf-silent-highlight') || element.getAttribute('data-xpath') ||
     (element.getAttribute('data-mc-mark-id') ? 'mark:' + element.getAttribute('data-mc-mark-id') : null);
@@ -424,6 +479,7 @@ const VISUAL_SNAPSHOT_EXPRESSION = `(() => {
   let composedInvisibleSourcePaintCount = 0;
   let coveredSourcePaintCount = 0;
   let unresolvedSourcePaintCount = 0;
+  const unresolvedSourceIds = [];
   for (const overlay of overlays) {
     const style = getComputedStyle(overlay);
     const rect = overlay.getBoundingClientRect();
@@ -445,6 +501,9 @@ const VISUAL_SNAPSHOT_EXPRESSION = `(() => {
     if (sourceEvidence.composedInvisible) composedInvisibleSourcePaintCount += 1;
     if (sourceEvidence.covered) coveredSourcePaintCount += 1;
     if (sourceEvidence.unresolved) unresolvedSourcePaintCount += 1;
+    if (sourceEvidence.unresolved && id && unresolvedSourceIds.length < 12 && !unresolvedSourceIds.includes(id)) {
+      unresolvedSourceIds.push(id);
+    }
     if (sourceEvidence.reachable) physicalHitCount += 1;
     const borderKey = JSON.stringify({
       width: style.borderWidth,
@@ -517,6 +576,7 @@ const VISUAL_SNAPSHOT_EXPRESSION = `(() => {
     composedInvisibleSourcePaintCount,
     coveredSourcePaintCount,
     unresolvedSourcePaintCount,
+    unresolvedSourceIds,
     consentSuppressedCount: document.querySelectorAll('[data-uf-consent-hidden]').length,
     extensionRootCount: extensionRoots.length,
     borders: [...borders].map(([key, count]) => ({ ...JSON.parse(key), count })).sort((left, right) => right.count - left.count),

@@ -11,6 +11,8 @@ import {
   filterLongTasksToCollectorWindow,
   snapshotMatchesAuthoritativePosture,
   topHitPaintEvidence,
+  waitForPresentationOpportunity,
+  resolveBridgeXpath,
 } from "../scripts/performance/p25/live-probes.mjs";
 
 type FakeStyle = Readonly<{
@@ -60,6 +62,22 @@ describe("P25 live site-session visibility", () => {
   it("foregrounds the candidate before frame and physical-input probes", () => {
     const source = readFileSync(new URL("../scripts/performance/p25/live-probes.mjs", import.meta.url), "utf8");
     expect(source).toMatch(/async function withSiteSession[\s\S]*?Page\.enable[\s\S]*?Page\.bringToFront[\s\S]*?callback\(session\)/);
+  });
+
+  it("waits on the observer clock and never depends on page timers or animation frames", async () => {
+    const evaluations: Array<{ expression: string; options: unknown }> = [];
+    const value = await waitForPresentationOpportunity({
+      async evaluate(expression: string, options: unknown) {
+        evaluations.push({ expression, options });
+        return 42;
+      },
+    }, { frameCount: 2, timeoutMs: 16 });
+
+    expect(value).toBe(42);
+    expect(evaluations).toEqual([{
+      expression: "performance.now()",
+      options: { awaitPromise: false, timeoutMs: 2_000 },
+    }]);
   });
 });
 
@@ -175,6 +193,28 @@ describe("P25 authoritative resize probe posture", () => {
 });
 
 describe("P25 composed visual visibility evidence", () => {
+  it("resolves bridge-relative body XPaths instead of misclassifying their overlays as source-less", () => {
+    const node = (tagName: string, children: unknown[] = []) => ({
+      nodeType: 1,
+      tagName: tagName.toUpperCase(),
+      childNodes: children,
+      getAttribute: () => null,
+    });
+    const paragraph = node("p");
+    const main = node("main", [paragraph]);
+    const body = node("body", [main]);
+    const html = node("html", [body]);
+    const document = {
+      documentElement: html,
+      body,
+      querySelectorAll: (tag: string) => tag === "body" ? [body] : tag === "html" ? [html] : [],
+    };
+
+    expect(resolveBridgeXpath("/body[1]/main[1]/p[1]", { document })).toBe(paragraph);
+    expect(resolveBridgeXpath("/html[1]/body[1]/main[1]", { document })).toBe(main);
+    expect(resolveBridgeXpath("/body[2]/main[1]", { document })).toBeNull();
+  });
+
   it("rejects a geometrically visible source hidden by a composed ancestor", () => {
     const host = new FakeElement();
     host.style = { ...host.style, opacity: "0" };

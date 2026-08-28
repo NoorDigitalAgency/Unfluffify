@@ -3,8 +3,9 @@
 **Status:** Phases 0–7 are implemented and clean-source automated acceptance is
 green. The approved plan package was committed and pushed first as `6db3433a`;
 the product closure landed in `9b162bfb`, and the clean-browser regression repair
-landed in `f5c82960`. The observer-free headed matrix remains. P25 stays open
-until that matrix is complete and the final evidence commit is synchronized.
+landed in `f5c82960`. Headed-launch and evidence hardening landed through
+`ce8494eb`; the observer-free headed matrix is in progress. P25 stays open until
+that matrix is complete and the final evidence commit is synchronized.
 
 The complete finding register is
 `.reimplementation/p25-legacy-rewrite-frame-parity-audit-2026-08-28.md`.
@@ -376,7 +377,7 @@ headed-validation gates.
   a real legacy launch reached CDP, loaded the candidate, bound the side panel,
   and enabled controls under that posture.
 
-### Phase 8 — Full headed frame-by-frame legacy/rewrite matrix — pending
+### Phase 8 — Full headed frame-by-frame legacy/rewrite matrix — in progress
 
 - Use the repository `live-browser`, `live-round`, and `live-watch` skills only.
   Run one implementation/profile at a time. Keep website observers detached while
@@ -398,6 +399,23 @@ headed-validation gates.
   semantic selector diffs, payload artifacts, and screenshots. Compare only
   equivalent document generations and flag site drift explicitly.
 - Do not issue the final Lynx publication request.
+- Ledigajobb now has one complete pinned-legacy reference with all 13 physical
+  stages and zero publish attempts. Its failing controls, frame starvation,
+  scroll/resize posture, AI availability, and silent posture are retained as
+  measured legacy behavior rather than rewritten into a synthetic pass.
+- The first rewrite Ledigajobb pass proved activation and resize posture, then
+  exposed observer defects before a comparable result could be claimed:
+  render-mode controls were judged while their real menu was closed; gesture
+  waits depended on page-owned timers that reveal/freeze may suspend; a terminal
+  AI return to idle was allowed to wait for the full outer timeout; and
+  bridge-relative `/body[1]/…` source identities were incorrectly resolved as
+  document-global XPath. These are now fail-closed, regression-covered harness
+  contracts. The partial run remains recovery evidence only and will not enter
+  the comparison denominator.
+- The same pass measured one 174 ms post-scroll geometry task on a 724-candidate
+  document. The renderer no longer performs a queue-shifting breadth-first scan
+  in that path; the clean rerun must still prove the strict no-long-task budget
+  before the optimization is accepted as sufficient.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 
