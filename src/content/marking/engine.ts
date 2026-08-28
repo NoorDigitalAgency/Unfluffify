@@ -608,6 +608,7 @@ export function createMarkingEngine(
   let observerCleanup: (() => void) | null = null;
   let renderScheduled = false;
   let renderFrameHandle = 0;
+  let disposed = false;
   let revealMarkingAfterRender = false;
   type RenderWork = "geometry" | "silent-geometry" | "structural";
   let scheduledWork: RenderWork | null = null;
@@ -1255,6 +1256,24 @@ export function createMarkingEngine(
       renderer.clearSilentHighlights();
       renderCurrent();
     },
+    settlePresentation(): Promise<void> {
+      return new Promise((resolve) => {
+        // Activation follows a long reveal/restore walk. Page-owned sticky
+        // headers commonly commit their restored-scroll posture in the next
+        // animation frame, after the synchronous marking paint has sampled the
+        // old hit stack. Reconcile geometry in that frame, then acknowledge on
+        // the following frame so callers cannot expose a transient stale box.
+        presentationClock.requestFrame(() => {
+          if (disposed) {
+            resolve();
+            return;
+          }
+          hoverResolution = null;
+          renderer.reposition(byXpathElements(), { generation: bridgeGeneration });
+          presentationClock.requestFrame(() => resolve());
+        });
+      });
+    },
     resolveAtPoint(
       x: number,
       y: number,
@@ -1634,6 +1653,7 @@ export function createMarkingEngine(
       renderer.detach();
     },
     dispose(): void {
+      disposed = true;
       if (deferredBranchRenderHandle !== null) {
         presentationClock.cancelFrame(deferredBranchRenderHandle);
         deferredBranchRenderHandle = null;

@@ -2254,6 +2254,56 @@ describe("P6 DOM bridge", () => {
     }
   });
 
+  it("paint-fences activation geometry after restored-scroll sticky UI settles", async () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const animationFrames: Array<() => void> = [];
+      Object.assign(doc.defaultView, {
+        requestAnimationFrame(callback: () => void) {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+      const paragraph = new FakeElement("P", rect(10, 10, 120, 20), "First");
+      const stickyHeader = new FakeElement("HEADER", rect(0, 0, 300, 60));
+      for (const element of [root, paragraph, stickyHeader]) {
+        element.ownerDocument = doc;
+      }
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(stickyHeader);
+      doc.documentElement.appendChild(root);
+      root.appendChild(paragraph);
+      doc.pointHits = () => [paragraph, root];
+      const engine = createMarkingEngine(root as unknown as Element, { render: true });
+      const boxesForParagraph = (): FakeElement[] => engine.overlayRoot().children
+        .flatMap((layer) => layer.children)
+        .filter((overlay) => overlay.getAttribute("data-uf-overlay-xpath") === "/main[1]/p[1]");
+      expect(boxesForParagraph()).not.toHaveLength(0);
+
+      // The page commits its sticky restored-scroll posture one frame after the
+      // synchronous activation render.
+      doc.pointHits = () => [stickyHeader];
+      let acknowledged = false;
+      const settled = engine.settlePresentation().then(() => {
+        acknowledged = true;
+      });
+      expect(animationFrames).toHaveLength(1);
+      animationFrames.shift()?.();
+      expect(boxesForParagraph()).toHaveLength(0);
+      await Promise.resolve();
+      expect(acknowledged).toBe(false);
+
+      animationFrames.shift()?.();
+      await settled;
+      expect(acknowledged).toBe(true);
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("retains and repositions a silent-only engine on the next scroll frame", () => {
     vi.useFakeTimers();
     try {

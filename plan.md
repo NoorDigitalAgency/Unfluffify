@@ -455,6 +455,15 @@ headed-validation gates.
   control/label, and only then dispatch trusted input. Activation evidence now
   fails within 45 seconds instead of waiting three minutes for a click that
   never started a lifecycle.
+- The next clean rewrite activation exposed a one-frame restored-scroll race.
+  Ledigajobb's sticky header committed its final hit-test posture after the
+  synchronous marking render, so one correctly classified include border could
+  remain visible beneath the header until the ordinary scroll debounce repainted
+  it. Marking activation now waits one extension-owned presentation frame,
+  reconciles every retained rectangle against the current hit stack, and waits
+  one further paint frame before acknowledging readiness. The captured clock's
+  bounded fallback preserves hidden/frozen-document liveness, and a regression
+  proves the stale box is removed before the activation acknowledgement resolves.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

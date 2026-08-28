@@ -2322,6 +2322,7 @@ describe("C4 rewrite content entrypoints", () => {
     const engine = {
       refresh: vi.fn(),
       renderMarking: vi.fn(),
+      settlePresentation: vi.fn(async () => undefined),
       renderReadOnly: vi.fn(),
       dispose: vi.fn(),
       resolveAtPoint: vi.fn(() => ({ xpath: "/html[1]/body[1]/p[1]" })),
@@ -2554,6 +2555,7 @@ describe("C4 rewrite content entrypoints", () => {
     expect(engine.lastInitializationSeededSelectors).toHaveBeenCalledTimes(1);
     expect(engine.refresh).not.toHaveBeenCalled();
     expect(engine.renderMarking).toHaveBeenCalledOnce();
+    expect(engine.settlePresentation).toHaveBeenCalledTimes(2);
     expect(engine.renderReadOnly).not.toHaveBeenCalled();
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
     expect(getURL).toHaveBeenCalledWith("cursors/exclude.svg");

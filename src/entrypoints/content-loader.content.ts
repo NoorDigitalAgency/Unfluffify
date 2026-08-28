@@ -3873,6 +3873,11 @@ async function activateContentMain(payload: unknown): Promise<Record<string, unk
     lastContentSurfaceSignature = "";
     renderContentSurface();
     clearPersistedShieldPosture("silent-cleared");
+    // Do not acknowledge activation while the reveal/restore scroll can still
+    // leave one frame of page-owned sticky-header geometry ahead of the marking
+    // layer. The engine uses its extension-captured presentation clock and a
+    // bounded fallback, so a starved page cannot hang this acknowledgement.
+    await markingEngine.settlePresentation?.();
     armNavigationGate();
     return {
       ok: interactions.ready,
