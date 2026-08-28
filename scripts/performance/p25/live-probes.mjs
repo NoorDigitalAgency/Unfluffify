@@ -1002,8 +1002,9 @@ export async function executeResizePerturbation(session, posture, resizedWidth, 
   return { applied: { probe, restored }, actionError, restoreError };
 }
 
-const markingTargetExpression = `(() => {
+const markingTargetExpression = (skippedXpaths = []) => `(() => {
   const bridgeXpathForElement = ${bridgeXpathForElement.toString()};
+  const skippedXpaths = new Set(${JSON.stringify(skippedXpaths)});
   const xpath = (element) => {
     const parts = [];
     for (let node = element; node instanceof Element; node = node.parentElement) {
@@ -1038,7 +1039,7 @@ const markingTargetExpression = `(() => {
   });
   const clean = eligible.filter((candidate) => {
     const targetXpath = candidateXpath(candidate);
-    return typeof targetXpath === 'string' && !explicitlyOwned(targetXpath);
+    return typeof targetXpath === 'string' && !skippedXpaths.has(targetXpath) && !explicitlyOwned(targetXpath);
   });
   const visible = (candidate) => {
     const rect = candidate.getBoundingClientRect();
@@ -1067,15 +1068,57 @@ const markingTargetExpression = `(() => {
   };
 })()`;
 
+const shiftedHoverOwnerExpression = `(() => {
+  const overlay = document.querySelector('[data-uf-overlay-hover], [data-layer="hover"] [data-mc-mark-id]');
+  if (!(overlay instanceof Element)) return null;
+  const direct = overlay.getAttribute('data-uf-overlay-hover');
+  if (direct) return direct;
+  const markId = overlay.getAttribute('data-mc-mark-id');
+  const source = markId ? document.querySelector('[data-uf-mark-id="' + CSS.escape(markId) + '"]') : null;
+  if (!(source instanceof Element)) return null;
+  const parts = [];
+  for (let node = source; node instanceof Element; node = node.parentElement) {
+    let index = 1;
+    for (let sibling = node.previousElementSibling; sibling; sibling = sibling.previousElementSibling) if (sibling.tagName === node.tagName) index += 1;
+    parts.unshift(node.tagName.toLowerCase() + '[' + index + ']');
+    if (node === document.documentElement) break;
+  }
+  return '/' + parts.join('/');
+})()`;
+
+async function resolveShiftedHoverOwner(session, target) {
+  await session.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16, modifiers: 8 });
+  try {
+    await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y, modifiers: 8 });
+    await waitForPresentationOpportunity(session, { frameCount: 2 });
+    return await session.evaluate(shiftedHoverOwnerExpression);
+  } finally {
+    await session.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16, modifiers: 0 });
+    await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y, modifiers: 0 });
+  }
+}
+
 async function selectCleanMarkingTarget(session) {
   // The previous stage may leave the document at an explicitly excluded
   // boundary (commonly a footer). The first evaluation is allowed to move a
   // clean candidate into view; after the scroll presentation settles, resolve
   // once more against the freshly painted explicit-owner index.
-  const initial = await session.evaluate(markingTargetExpression);
-  if (!initial) return null;
-  await waitForPresentationOpportunity(session, { frameCount: 2 });
-  return session.evaluate(markingTargetExpression);
+  const skippedXpaths = [];
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const initial = await session.evaluate(markingTargetExpression(skippedXpaths));
+    if (!initial) return null;
+    await waitForPresentationOpportunity(session, { frameCount: 2 });
+    const target = await session.evaluate(markingTargetExpression(skippedXpaths));
+    if (!target) return null;
+    await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y, modifiers: 0 });
+    await waitForPresentationOpportunity(session);
+    const shiftedOwnerXpath = await resolveShiftedHoverOwner(session, target);
+    if (typeof shiftedOwnerXpath === "string" && shiftedOwnerXpath !== target.xpath) {
+      return { ...target, shiftedOwnerXpath };
+    }
+    skippedXpaths.push(target.xpath);
+  }
+  return null;
 }
 
 async function dispatchPhysicalGesture(session, target, { shift = false, alt = false, button = "left" }) {
@@ -1279,28 +1322,7 @@ export async function probeMarkingGestures(session) {
   await operate("shift-expand", { shift: true });
   await operate("plain-exact-unmark", {});
   await operate("alt-include", { alt: true });
-  await session.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16, modifiers: 8 });
-  await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y, modifiers: 8 });
-  await waitForPresentationOpportunity(session, { frameCount: 2 });
-  const shiftedHoverOwner = await session.evaluate(`(() => {
-    const overlay = document.querySelector('[data-uf-overlay-hover], [data-layer="hover"] [data-mc-mark-id]');
-    if (!(overlay instanceof Element)) return null;
-    const direct = overlay.getAttribute('data-uf-overlay-hover');
-    if (direct) return direct;
-    const markId = overlay.getAttribute('data-mc-mark-id');
-    const source = markId ? document.querySelector('[data-uf-mark-id="' + CSS.escape(markId) + '"]') : null;
-    if (!(source instanceof Element)) return null;
-    const parts = [];
-    for (let node = source; node instanceof Element; node = node.parentElement) {
-      let index = 1;
-      for (let sibling = node.previousElementSibling; sibling; sibling = sibling.previousElementSibling) if (sibling.tagName === node.tagName) index += 1;
-      parts.unshift(node.tagName.toLowerCase() + '[' + index + ']');
-      if (node === document.documentElement) break;
-    }
-    return '/' + parts.join('/');
-  })()`);
-  await session.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16, modifiers: 0 });
-  await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y, modifiers: 0 });
+  const shiftedHoverOwner = await resolveShiftedHoverOwner(session, target);
   const contextStartedAt = await session.evaluate("performance.now()");
   const contextOperation = await operate("context-menu", { button: "right" });
   const contextDeadline = Date.now() + 1_500;

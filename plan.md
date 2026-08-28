@@ -519,6 +519,15 @@ headed-validation gates.
   just-entered/exited targets. The full-map progressive path remains the bounded
   fallback when native intersection authority is unavailable. This must be
   re-proven by the same exact gesture, scroll, and resize stages.
+- The following exact run proved Alt, context-menu state, and both explicit
+  clear paths after the viewport fix. Its only gesture failure was a harness
+  precondition error: the clean-target chooser selected a heading for which the
+  approved widening contract intentionally returns the same meaningful node,
+  while the stage unconditionally required an ancestor/breadth increase. Target
+  selection now probes the real Shift hover result without mutating state,
+  releases the modifier in `finally`, skips non-widenable candidates, and adopts
+  only an exact clean target whose resolved Shift owner is a different ancestor.
+  This preserves both the meaningful-boundary rule and a genuine expansion test.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

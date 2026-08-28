@@ -506,6 +506,15 @@ preserves the stronger architecture.
     must cover every current target before it becomes authoritative; bridge
     refresh disconnects and rebinds the corpus. The deterministic full-map
     chunker remains a fallback, not the ordinary Chrome path.
+95. **Closed harness P0 — the exact Shift stage could select a target that the
+    contract says must not widen.** After finding 94, the next run proved Alt,
+    context-menu disabled states, exclusion clear, and inclusion clear, but its
+    chosen `H3` was already the Shift hover owner. Product correctly created an
+    exact exclusion under the meaningful-boundary rule; the harness incorrectly
+    demanded an ancestor and larger breadth for every clean node. Candidate
+    selection now uses the physical Shift-hover path as a read-only preflight,
+    always releases the modifier, skips same-owner nodes, and adopts only a
+    candidate with a distinct ancestor owner before asserting expansion.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -577,7 +586,7 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 94, but P25 remains
+Implementation remediation is code-complete through finding 95, but P25 remains
 open until the committed source passes clean automated gates and every valid candidate completes an
 observer-free headed rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,
