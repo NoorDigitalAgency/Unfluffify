@@ -648,6 +648,12 @@ export function createMarkingEngine(
   let deferredBranchTargets = new Map<string, OverlayRenderTarget>();
   let progressiveGeometryRenderHandle: number | null = null;
   let progressiveGeometryCycle = 0;
+  let targetIntersectionObserver: IntersectionObserver | null = null;
+  let intersectionSnapshotReady = false;
+  let intersectionByElement = new WeakMap<Element, boolean>();
+  const pendingIntersectionElements = new Set<Element>();
+  const intersectingXpaths = new Set<string>();
+  const intersectionDirtyXpaths = new Set<string>();
   let previewRevision = 0;
   let previewTextMetadata = new WeakMap<Element, PreviewTextMetadata>();
   let toggleInProgress = false;
@@ -667,6 +673,43 @@ export function createMarkingEngine(
     return true;
   };
 
+  const rebindIntersectionTargets = (): void => {
+    if (!targetIntersectionObserver) {
+      return;
+    }
+    targetIntersectionObserver.disconnect();
+    intersectionSnapshotReady = false;
+    intersectionByElement = new WeakMap<Element, boolean>();
+    pendingIntersectionElements.clear();
+    intersectingXpaths.clear();
+    intersectionDirtyXpaths.clear();
+    for (const target of overlayTargets.values()) {
+      pendingIntersectionElements.add(target.element);
+      targetIntersectionObserver.observe(target.element);
+    }
+  };
+
+  const viewportGeometryTargets = (): ReadonlyMap<string, OverlayRenderTarget> => {
+    if (!intersectionSnapshotReady) {
+      return byXpathElements();
+    }
+    const targets = new Map<string, OverlayRenderTarget>();
+    for (const xpath of intersectingXpaths) {
+      const target = overlayTargets.get(xpath);
+      if (target) {
+        targets.set(xpath, target);
+      }
+    }
+    for (const xpath of intersectionDirtyXpaths) {
+      const target = overlayTargets.get(xpath);
+      if (target) {
+        targets.set(xpath, target);
+      }
+    }
+    intersectionDirtyXpaths.clear();
+    return targets;
+  };
+
   const rebuildBridgeIndexes = (): void => {
     bridgeGeneration += 1;
     previewTextMetadata = buildPreviewTextMetadata(rootElement);
@@ -682,6 +725,7 @@ export function createMarkingEngine(
     }
     const evaluation = store.currentEvaluation();
     candidateByXpath = buildCandidateIndex(bridge.root, evaluation.overlay, store.canonicalSet().rows);
+    rebindIntersectionTargets();
     reportWorkStage("candidate-index");
   };
 
@@ -997,7 +1041,7 @@ export function createMarkingEngine(
         }
         return;
       }
-      const byXpath = byXpathElements();
+      const byXpath = viewportGeometryTargets();
       const progressive = interactiveMarkingRendered &&
         byXpath.size > PROGRESSIVE_GEOMETRY_TARGET_THRESHOLD;
       if (nextWork === "silent-geometry" && silentHighlightsArmed) {
@@ -1235,9 +1279,45 @@ export function createMarkingEngine(
       cleanups.push(() => observer.disconnect());
     }
     if (view?.IntersectionObserver) {
-      const observer = new view.IntersectionObserver(() => stabilizeGeometry("geometry"));
-      observer.observe(rootElement);
-      cleanups.push(() => observer.disconnect());
+      targetIntersectionObserver = new view.IntersectionObserver((entries) => {
+        let changed = false;
+        for (const entry of entries) {
+          const bridgeEntry = bridge.byElement.get(entry.target);
+          if (!bridgeEntry) {
+            continue;
+          }
+          pendingIntersectionElements.delete(entry.target);
+          const xpath = bridgeEntry.evaluationNode.xpath;
+          const intersects = entry.isIntersecting && entry.intersectionRatio > 0;
+          const previous = intersectionByElement.get(entry.target);
+          intersectionByElement.set(entry.target, intersects);
+          if (intersects) {
+            intersectingXpaths.add(xpath);
+          } else {
+            intersectingXpaths.delete(xpath);
+          }
+          if (previous !== undefined && previous !== intersects) {
+            intersectionDirtyXpaths.add(xpath);
+            changed = true;
+          }
+        }
+        if (pendingIntersectionElements.size === 0) {
+          intersectionSnapshotReady = true;
+        }
+        if (changed) {
+          scheduleRender("geometry");
+        }
+      });
+      rebindIntersectionTargets();
+      cleanups.push(() => {
+        targetIntersectionObserver?.disconnect();
+        targetIntersectionObserver = null;
+        intersectionSnapshotReady = false;
+        intersectionByElement = new WeakMap<Element, boolean>();
+        pendingIntersectionElements.clear();
+        intersectingXpaths.clear();
+        intersectionDirtyXpaths.clear();
+      });
     }
     let viewportScrollHandle: ReturnType<typeof setTimeout> | null = null;
     const finishViewportScroll = (): void => {

@@ -507,6 +507,18 @@ headed-validation gates.
   park, clear, or dispose cancels stale work. The failed run remains recovery
   evidence; acceptance requires a fresh exact-source scroll and resize pass with
   no input task above 50 ms.
+- The first exact-source rerun of that chunked implementation exposed a
+  responsiveness interaction before reaching scroll: a page-owned geometry
+  change could start a 31-frame full-bridge reconciliation between Alt include
+  and the following context/plain-clear input. While that transaction was
+  correctly faded, explicit-owner routing was intentionally unavailable, so the
+  menu advertised Exclude instead of Widen and the next plain click could not
+  clear the visible inclusion. Geometry work now uses a bridge-bound
+  `IntersectionObserver` corpus: the first complete observation snapshot is
+  required, and subsequent passes reconcile only currently intersecting plus
+  just-entered/exited targets. The full-map progressive path remains the bounded
+  fallback when native intersection authority is unavailable. This must be
+  re-proven by the same exact gesture, scroll, and resize stages.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

@@ -494,6 +494,18 @@ preserves the stronger architecture.
     Cancellation covers subsequent scroll, bridge replacement, clear, park, and
     disposal. The strict 50 ms budget is unchanged; a fresh headed scroll and
     resize run must close this item.
+94. **Remediated, headed verification pending P0 — the first chunking fix could
+    temporarily withdraw explicit-owner input during unrelated page geometry.**
+    The next clean run passed through marking visuals, then a page-owned layout
+    change started a full 737-target, 31-frame faded reconciliation between the
+    Alt inclusion and its context/plain-clear checks. The visible inclusion
+    remained canonical, but owner routing was generation-safed off: Context Menu
+    exposed Exclude instead of Widen and the plain click did not clear. Rewrite
+    geometry now consumes a bridge-bound native intersection snapshot and
+    measures only current plus boundary-crossing targets. Initial observation
+    must cover every current target before it becomes authoritative; bridge
+    refresh disconnects and rebinds the corpus. The deterministic full-map
+    chunker remains a fallback, not the ordinary Chrome path.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -565,7 +577,7 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 93, but P25 remains
+Implementation remediation is code-complete through finding 94, but P25 remains
 open until the committed source passes clean automated gates and every valid candidate completes an
 observer-free headed rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,
