@@ -334,14 +334,14 @@ export function topHitPaintEvidence(element, environment = globalThis) {
   if (!(right > left && bottom > top)) {
     return { reachable: false, sampledPointCount: 0, reachablePointCount: 0, reason: "outside-viewport" };
   }
-  const xValues = [0.2, 0.5, 0.8].map((ratio) => left + (right - left) * ratio);
-  const yValues = [0.2, 0.5, 0.8].map((ratio) => top + (bottom - top) * ratio);
+  const insetX = Math.min(1, (right - left) / 2);
+  const insetY = Math.min(1, (bottom - top) / 2);
   const points = [
-    [xValues[1], yValues[1]],
-    [xValues[0], yValues[0]],
-    [xValues[2], yValues[0]],
-    [xValues[0], yValues[2]],
-    [xValues[2], yValues[2]],
+    [left + (right - left) / 2, top + (bottom - top) / 2],
+    [left + insetX, top + insetY],
+    [right - insetX, top + insetY],
+    [left + insetX, bottom - insetY],
+    [right - insetX, bottom - insetY],
   ];
   let sampledPointCount = 0;
   let reachablePointCount = 0;

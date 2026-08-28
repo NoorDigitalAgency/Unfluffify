@@ -434,6 +434,14 @@ headed-validation gates.
   production bridge intentionally excludes all of them. The resolver now uses
   the production exclusion rules and has a hidden-same-tag-sibling regression;
   no product visibility rule or consent suppression behavior was weakened.
+- With source resolution corrected, the next run isolated seven real edge-paint
+  defects. Reachability sampled the full source rectangle after only an overlap
+  check, so corners above or below the viewport produced empty hit stacks that
+  were accepted as permissive paint proof. Reachability and the live observer
+  now sample only the strict viewport intersection using the same center and
+  one-pixel inset corners; zero-area boundary contact is rejected. A regression
+  covers both top- and bottom-clipped sources whose in-viewport pixels are all
+  covered.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

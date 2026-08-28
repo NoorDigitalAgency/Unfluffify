@@ -125,22 +125,33 @@ function rectInViewport(rect: RectLike, document: Document): boolean {
   const viewportHeight = document.defaultView?.innerHeight ?? Number.POSITIVE_INFINITY;
   return rect.width > 0
     && rect.height > 0
-    && rect.left + rect.width >= 0
-    && rect.top + rect.height >= 0
-    && rect.left <= viewportWidth
-    && rect.top <= viewportHeight;
+    && rect.left + rect.width > 0
+    && rect.top + rect.height > 0
+    && rect.left < viewportWidth
+    && rect.top < viewportHeight;
 }
 
 function rectIsPaintReachable(element: Element, rect: RectLike, document: Document): boolean {
-  const right = rect.left + rect.width;
-  const bottom = rect.top + rect.height;
-  const insetX = Math.min(1, rect.width / 2);
-  const insetY = Math.min(1, rect.height / 2);
+  const viewportWidth = document.defaultView?.innerWidth
+    ?? document.documentElement?.clientWidth
+    ?? Number.POSITIVE_INFINITY;
+  const viewportHeight = document.defaultView?.innerHeight
+    ?? document.documentElement?.clientHeight
+    ?? Number.POSITIVE_INFINITY;
+  const left = Math.max(0, rect.left);
+  const top = Math.max(0, rect.top);
+  const right = Math.min(viewportWidth, rect.left + rect.width);
+  const bottom = Math.min(viewportHeight, rect.top + rect.height);
+  if (!(right > left && bottom > top)) {
+    return false;
+  }
+  const insetX = Math.min(1, (right - left) / 2);
+  const insetY = Math.min(1, (bottom - top) / 2);
   const points: ReadonlyArray<readonly [number, number]> = [
-    [rect.left + rect.width / 2, rect.top + rect.height / 2],
-    [rect.left + insetX, rect.top + insetY],
-    [right - insetX, rect.top + insetY],
-    [rect.left + insetX, bottom - insetY],
+    [left + (right - left) / 2, top + (bottom - top) / 2],
+    [left + insetX, top + insetY],
+    [right - insetX, top + insetY],
+    [left + insetX, bottom - insetY],
     [right - insetX, bottom - insetY],
   ];
   return points.some(([x, y]) => isPaintReachableAt(element, x, y, document));

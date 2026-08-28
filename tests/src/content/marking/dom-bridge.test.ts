@@ -1695,6 +1695,33 @@ describe("P6 DOM bridge", () => {
     expect(firstBoxes[1]?.parentElement).toBeNull();
   });
 
+  it("never admits empty hit stacks from outside the viewport as paint proof", () => {
+    const doc = new FakeDocument();
+    Object.assign(doc.defaultView, { innerHeight: 100 });
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 100));
+    const clippedAbove = new FakeElement("IMG", rect(10, -10, 80, 20));
+    const clippedBelow = new FakeElement("IMG", rect(10, 90, 80, 20));
+    for (const element of [root, clippedAbove, clippedBelow]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(clippedAbove);
+    root.appendChild(clippedBelow);
+    // Out-of-bounds probes produce no native hits. Every point in the actual
+    // viewport intersection is covered by the root and must therefore reject
+    // both immutable-source rectangles.
+    doc.pointHits = (_x, y) => y >= 0 && y < 100 ? [root] : [];
+    const engine = createMarkingEngine(root as unknown as Element);
+
+    engine.renderReadOnly();
+
+    expect(engine.overlayRoot().children.flatMap((layer) => layer.children).filter((overlay) =>
+      overlay.getAttribute("data-uf-overlay-xpath")?.startsWith("/main[1]/img[")
+    )).toHaveLength(0);
+    engine.dispose();
+  });
+
   it("keeps visible explicit includes through transient covers and ghosts hidden retained includes", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
