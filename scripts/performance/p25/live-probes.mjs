@@ -6,6 +6,28 @@ import { normalizeLiveUrl, sha256, summarizeTiming } from "./live-comparison-con
 
 const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
+async function waitForPresentationOpportunity(session, { frameCount = 1, timeoutMs = 120 } = {}) {
+  const count = Math.max(1, Math.trunc(frameCount));
+  const fallbackMs = Math.max(16, Math.trunc(timeoutMs));
+  return session.evaluate(`new Promise((resolve) => {
+    let settled = false;
+    let observed = 0;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(fallback);
+      resolve(performance.now());
+    };
+    const onFrame = () => {
+      observed += 1;
+      if (observed >= ${count}) finish();
+      else requestAnimationFrame(onFrame);
+    };
+    const fallback = setTimeout(finish, ${fallbackMs});
+    requestAnimationFrame(onFrame);
+  })`, { timeoutMs: Math.max(2_000, fallbackMs * 4) });
+}
+
 export function resolveLiveTargets(targets, expectedUrl) {
   const normalized = normalizeLiveUrl(expectedUrl);
   const sites = targets.filter((target) => {
@@ -961,7 +983,7 @@ async function waitForGestureAcknowledgement(session, target, before, id, starte
   const deadline = Date.now() + timeoutMs;
   let last = before;
   while (Date.now() < deadline) {
-    const frame = await session.evaluate("new Promise((resolve) => requestAnimationFrame(() => resolve(performance.now())))");
+    const frame = await waitForPresentationOpportunity(session);
     last = await session.evaluate(markingDecisionExpression(target.xpath));
     const delta = markingDelta(before, last);
     const assertion = markingAssertion(id, before, last, delta);
@@ -980,7 +1002,7 @@ export async function performPhysicalShiftExclusion(session) {
   const target = await session.evaluate(markingTargetExpression);
   if (!target) throw new Error("No visible non-consent marking target is available for the dirty-state probe");
   await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y });
-  await session.evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+  await waitForPresentationOpportunity(session, { frameCount: 2 });
   const before = await session.evaluate(markingDecisionExpression(target.xpath));
   const inputStartedAt = await session.evaluate("performance.now()");
   const dispatchLatencyMs = await dispatchPhysicalGesture(session, target, { shift: true });
@@ -993,7 +1015,7 @@ export async function probeMarkingGestures(session) {
   const target = await session.evaluate(markingTargetExpression);
   if (!target) throw new Error("No visible non-consent marking target is available");
   await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y });
-  await session.evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+  await waitForPresentationOpportunity(session, { frameCount: 2 });
   const operations = [];
   const operate = async (id, gesture) => {
     const before = await session.evaluate(markingDecisionExpression(target.xpath));
@@ -1030,7 +1052,7 @@ export async function probeMarkingGestures(session) {
   await operate("alt-include", { alt: true });
   await session.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16, modifiers: 8 });
   await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y, modifiers: 8 });
-  await session.evaluate("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+  await waitForPresentationOpportunity(session, { frameCount: 2 });
   const shiftedHoverOwner = await session.evaluate(`(() => {
     const overlay = document.querySelector('[data-uf-overlay-hover], [data-layer="hover"] [data-mc-mark-id]');
     if (!(overlay instanceof Element)) return null;
@@ -1069,7 +1091,7 @@ export async function probeMarkingGestures(session) {
       contextAcknowledgedAt = observed.atPerformanceMs;
       break;
     }
-    await session.evaluate("new Promise((resolve) => requestAnimationFrame(resolve))");
+    await waitForPresentationOpportunity(session);
   }
   contextOperation.acknowledged = contextMenu.length > 0;
   contextOperation.acknowledgementLatencyMs = contextAcknowledgedAt === null ? null : Math.max(0, contextAcknowledgedAt - contextStartedAt);

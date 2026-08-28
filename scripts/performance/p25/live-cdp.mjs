@@ -117,11 +117,15 @@ export class CdpSession {
       const pending = this.pending.get(message.id);
       if (!pending) return;
       this.pending.delete(message.id);
+      clearTimeout(pending.timeout);
       if (message.error) pending.reject(new Error(message.error.message));
       else pending.resolve(message.result);
     });
     this.socket.addEventListener("close", () => {
-      for (const pending of this.pending.values()) pending.reject(new Error("CDP session closed"));
+      for (const pending of this.pending.values()) {
+        clearTimeout(pending.timeout);
+        pending.reject(new Error("CDP session closed"));
+      }
       this.pending.clear();
       this.connected = false;
       for (const listener of this.closeListeners) {
@@ -144,23 +148,27 @@ export class CdpSession {
     return () => this.closeListeners.delete(listener);
   }
 
-  send(method, params = {}, sessionId = undefined) {
+  send(method, params = {}, sessionId = undefined, timeoutMs = 30_000) {
     if (!this.connected) return Promise.reject(new Error(`CDP session is not connected for ${method}`));
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timeout = setTimeout(() => {
+        if (!this.pending.delete(id)) return;
+        reject(new Error(`CDP command ${method} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      this.pending.set(id, { resolve, reject, timeout });
       this.socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
     });
   }
 
-  async evaluate(expression, { awaitPromise = true, userGesture = false, contextId = undefined } = {}) {
+  async evaluate(expression, { awaitPromise = true, userGesture = false, contextId = undefined, timeoutMs = 30_000 } = {}) {
     const response = await this.send("Runtime.evaluate", {
       expression,
       awaitPromise,
       returnByValue: true,
       userGesture,
       ...(contextId === undefined ? {} : { contextId }),
-    });
+    }, undefined, timeoutMs);
     if (response.exceptionDetails) {
       throw new Error(response.exceptionDetails.exception?.description ?? response.exceptionDetails.text ?? "Runtime.evaluate failed");
     }

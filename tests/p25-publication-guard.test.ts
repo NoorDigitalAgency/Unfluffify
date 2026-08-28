@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  CdpSession,
   classifyExtensionRequest,
   ExtensionTrafficGuard,
   inspectRequestPayloadHygiene,
@@ -98,6 +99,16 @@ afterEach(() => {
 });
 
 describe("P25 persistent publication guard", () => {
+  it("bounds unanswered CDP commands and releases their pending entry", async () => {
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    FakeWebSocket.deferredMethods.add("Runtime.evaluate");
+    const session = await new CdpSession({ webSocketDebuggerUrl: "ws://browser" }).connect();
+    await expect(session.send("Runtime.evaluate", { expression: "1" }, undefined, 10))
+      .rejects.toThrow("CDP command Runtime.evaluate timed out after 10ms");
+    expect(session.pending.size).toBe(0);
+    session.close();
+  });
+
   it("derives payload hygiene and current-page envelope facts without retaining payload text", () => {
     const clean = inspectRequestPayloadHygiene(JSON.stringify({
       page: { pageKey: "/candidate?one=1", renderedHtml: "<main>Candidate</main>" },
