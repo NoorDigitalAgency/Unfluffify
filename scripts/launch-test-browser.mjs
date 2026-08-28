@@ -156,11 +156,26 @@ function commandExists(command) {
   return probe.error?.code !== "ENOENT";
 }
 
+function hasUsableX11Display() {
+  if (!process.env.DISPLAY) return false;
+  const probe = spawnSync("xrandr", ["--current"], {
+    encoding: "utf8",
+    env: process.env,
+  });
+  // If xrandr is unavailable, retain the historical DISPLAY-based behavior.
+  // A present but zero-sized RandR display is different: Chromium reaches the
+  // GPU/bootstrap boundary and either stalls on Wayland DRM or exits SIGTRAP.
+  if (probe.error?.code === "ENOENT") return true;
+  if (probe.status !== 0) return false;
+  const dimensions = String(probe.stdout ?? "").match(/current\s+(\d+)\s+x\s+(\d+)/i);
+  if (!dimensions) return true;
+  return Number(dimensions[1]) > 0 && Number(dimensions[2]) > 0;
+}
+
 function shouldWrapWithXvfb() {
   return (
    process.platform === "linux" &&
-   !process.env.DISPLAY &&
-   !process.env.WAYLAND_DISPLAY &&
+   !hasUsableX11Display() &&
    process.env[XVFB_WRAP_ENV] !== "1"
   );
 }
@@ -170,11 +185,11 @@ async function maybeWrapWithXvfb() {
    return;
   }
   if (!commandExists("xvfb-run")) {
-   console.warn("[launch] no DISPLAY or WAYLAND_DISPLAY detected.");
+   console.warn("[launch] no usable X11 display detected.");
    console.warn(`[launch] headless Linux runs need xvfb-run. Re-run as: ${MANUAL_XVFB_COMMAND}`);
    process.exit(1);
   }
-  console.log("[launch] no display detected; relaunching inside xvfb-run...");
+  console.log("[launch] no usable X11 display detected; relaunching inside xvfb-run...");
   const child = spawn(
    "xvfb-run",
    [

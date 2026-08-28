@@ -10,6 +10,7 @@
       ],
       "args": [
         "--no-sandbox",
+        "--ozone-platform=x11",
         "--load-extension=__UNFLUFFIFY_REPO_ROOT__/.output/chrome-mv3",
         "--disable-extensions-except=__UNFLUFFIFY_REPO_ROOT__/.output/chrome-mv3"
       ]

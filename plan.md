@@ -1,10 +1,10 @@
 # P25 root-cause legacy parity closure
 
-**Status:** Phases 0–7 implemented and locally verified; clean-source automated
-acceptance and the observer-free headed matrix remain. The approved plan package
-was committed and pushed first as `6db3433a`, and run-plan is continuing without
-another approval. P25 remains open until the clean headed matrix and every
-automated gate pass.
+**Status:** Phases 0–7 are implemented and clean-source automated acceptance is
+green. The approved plan package was committed and pushed first as `6db3433a`;
+the product closure landed in `9b162bfb`, and the clean-browser regression repair
+landed in `f5c82960`. The observer-free headed matrix remains. P25 stays open
+until that matrix is complete and the final evidence commit is synchronized.
 
 The complete finding register is
 `.reimplementation/p25-legacy-rewrite-frame-parity-audit-2026-08-28.md`.
@@ -348,7 +348,7 @@ headed-validation gates.
 - One current-page Save request; incomplete coverage emits zero final publish;
   an unknown atomic outcome reuses the same idempotency identity.
 
-### Phase 7 — Automated and performance acceptance — full verify green; clean aggregate pending
+### Phase 7 — Automated and performance acceptance — complete
 
 - Add focused regression tests with each implementation slice, then run
   `pnpm lint`, `pnpm check`, focused Vitest, full `pnpm test`, `pnpm build`,
@@ -365,10 +365,16 @@ headed-validation gates.
   authority, Todo, shortcuts, checklist phases, and credentials retention.
 - A gate failure is fixed at its owning layer. Budgets are not widened to accept a
   regression, and observer-contaminated evidence is discarded.
-- Current pre-commit authority: `pnpm verify` passes 140 files / 1,376 tests;
-  repaired P14, P17, P18, P20, and P23 browser smokes pass 48/48, 19/19,
-  14/14, 4/4, and 25/25 respectively. The aggregate remains pending until these
-  exact sources are committed and rerun with `cleanSourceSet: true`.
+- Clean-source authority at `f5c82960`: `pnpm verify` passes 140 files / 1,376
+  tests; P14, P17, P18, P20, and P23 browser smokes pass 48/48, 19/19, 14/14,
+  4/4, and 25/25. The checked-in P25 aggregate validates P14, P15, P16, P17,
+  P18, P20, and P23 with `cleanSourceSet: true`; all 16 strict p95 comparisons
+  and long-task budgets pass.
+- The first headed launch exposed a host Wayland/DRM stall followed by a
+  zero-sized XWayland SIGTRAP. The repository launcher now pins X11 and falls
+  back to its headed 1280×900 Xvfb display when RandR has no usable dimensions;
+  a real legacy launch reached CDP, loaded the candidate, bound the side panel,
+  and enabled controls under that posture.
 
 ### Phase 8 — Full headed frame-by-frame legacy/rewrite matrix — pending
 

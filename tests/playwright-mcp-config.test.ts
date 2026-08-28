@@ -24,6 +24,7 @@ test("repo MCP specs stay placeholdered (non-launchable) and keep no-sandbox lau
   // for both the repo root and the (launcher-dropped) Chromium executable path.
   assert.match(browserConfig, /"chromiumSandbox": false/);
   assert.match(browserConfig, /"--no-sandbox"/);
+  assert.match(browserConfig, /"--ozone-platform=x11"/);
   assert.match(browserConfig, /"executablePath": "__CHROMIUM_EXECUTABLE_PATH__"/);
   assert.match(browserConfig, /--load-extension=__UNFLUFFIFY_REPO_ROOT__\/\.output\/chrome-mv3/);
   assert.match(browserConfig, /--disable-extensions-except=__UNFLUFFIFY_REPO_ROOT__\/\.output\/chrome-mv3/);
@@ -53,6 +54,9 @@ test("live browser launcher targets the WXT output and canonical pnpm command", 
   assert.match(launcher, /Could not find the actual Unfluffify side panel/);
   assert.match(launcher, /const XVFB_WRAP_ENV = "UNFLUFFIFY_BROWSER_LIVE_XVFB_WRAPPED";/);
   assert.match(launcher, /const XVFB_RUN_ARGS = \["-a", "--server-args=-screen 0 1280x900x24"\];/);
+  assert.match(launcher, /function hasUsableX11Display\(\)/);
+  assert.match(launcher, /spawnSync\("xrandr", \["--current"\]/);
+  assert.match(launcher, /Number\(dimensions\[1\]\) > 0 && Number\(dimensions\[2\]\) > 0/);
   assert.match(launcher, /spawn\(\s*"xvfb-run"/);
   assert.match(launcher, /headless Linux runs need xvfb-run\. Re-run as:/);
   assert.match(launcher, /process\.exit\(1\);/);
