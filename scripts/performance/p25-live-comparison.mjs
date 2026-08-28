@@ -1316,7 +1316,7 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
       const afterAuthorityRefresh = await capturePopupState(popup);
       const started = performance.now();
       const controlActivation = await physicalActivatePopupControl(popup, "toggle-enabled", "pointer");
-      const after = await waitForPopupToggle(popup, true, integerOption(options, "activation-timeout-ms", 180_000));
+      const after = await waitForPopupToggle(popup, true, integerOption(options, "activation-timeout-ms", 45_000));
       const durationMs = performance.now() - started;
       const document = await withSiteSession(targets.site, (session) => captureDocumentIdentity(session, identity.expectedUrl));
       const screenshots = await captureStageScreenshots({ ...targets, runDirectory, id });

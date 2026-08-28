@@ -259,13 +259,31 @@ export async function captureWorkflowPopupState(session) {
 }
 
 export async function physicalActivatePopupControl(session, id, method = "pointer", fallbackSelector = null) {
+  await session.send("Page.enable");
+  await session.send("Page.bringToFront");
   const before = await session.evaluate(`(() => {
     const element = document.getElementById(${JSON.stringify(id)}) || (${JSON.stringify(fallbackSelector)} ? document.querySelector(${JSON.stringify(fallbackSelector)}) : null);
     if (!(element instanceof HTMLElement)) return null;
+    element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     const rect = element.getBoundingClientRect();
-    return { id: element.id, tag: element.tagName, disabled: Boolean(element.disabled), checked: 'checked' in element ? Boolean(element.checked) : null, rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height } };
+    const x = rect.left + rect.width / 2;
+    const y = rect.top + rect.height / 2;
+    const hit = document.elementFromPoint(x, y);
+    const label = element.closest('label') || ('labels' in element ? element.labels?.[0] : null);
+    const hitMatches = hit === element || Boolean(hit && element.contains(hit)) || Boolean(hit && label?.contains(hit));
+    return {
+      id: element.id,
+      tag: element.tagName,
+      disabled: Boolean(element.disabled),
+      checked: 'checked' in element ? Boolean(element.checked) : null,
+      rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+      viewport: { width: innerWidth, height: innerHeight },
+      hitMatches,
+      hit: hit instanceof HTMLElement ? { id: hit.id, tag: hit.tagName, className: hit.className } : null,
+    };
   })()`);
   if (!before || before.disabled || before.rect.width <= 0 || before.rect.height <= 0) throw new Error(`Real popup control #${id} is unavailable: ${JSON.stringify(before)}`);
+  if (!before.hitMatches) throw new Error(`Real popup control #${id} is not the physical hit target: ${JSON.stringify(before)}`);
   if (method === "keyboard") {
     await session.evaluate(`(document.getElementById(${JSON.stringify(id)}) || (${JSON.stringify(fallbackSelector)} ? document.querySelector(${JSON.stringify(fallbackSelector)}) : null))?.focus()`);
     await session.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });

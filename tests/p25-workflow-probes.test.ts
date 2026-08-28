@@ -6,12 +6,53 @@ import {
   adoptCandidateDisposition,
   createCandidateDispositionRecord,
   evaluateCandidateValidity,
+  physicalActivatePopupControl,
   proveRequestedRenderMode,
   readableTextsCorrespond,
   validateCandidateDispositionRecord,
   validateExactMarkingGestureEvidence,
   validateFullWorkflowEvidence,
 } from "../scripts/performance/p25/workflow-probes.mjs";
+
+describe("P25 physical popup activation", () => {
+  it("foregrounds, centers, and hit-verifies the real side-panel control before pointer input", async () => {
+    const sends: Array<{ method: string; params?: unknown }> = [];
+    const expressions: string[] = [];
+    const session = {
+      async evaluate(expression: string) {
+        expressions.push(expression);
+        return {
+          id: "toggle-enabled",
+          tag: "INPUT",
+          disabled: false,
+          checked: false,
+          rect: { x: 20, y: 30, width: 16, height: 16 },
+          viewport: { width: 400, height: 700 },
+          hitMatches: true,
+          hit: { id: "toggle-enabled", tag: "INPUT", className: "" },
+        };
+      },
+      async send(method: string, params?: unknown) {
+        sends.push({ method, params });
+      },
+    };
+
+    const evidence = await physicalActivatePopupControl(session, "toggle-enabled", "pointer");
+
+    expect(expressions[0]).toContain("scrollIntoView");
+    expect(expressions[0]).toContain("elementFromPoint");
+    expect(sends.slice(0, 2).map(({ method }) => method)).toEqual([
+      "Page.enable",
+      "Page.bringToFront",
+    ]);
+    expect(sends.slice(2).map(({ method }) => method)).toEqual([
+      "Input.dispatchMouseEvent",
+      "Input.dispatchMouseEvent",
+      "Input.dispatchMouseEvent",
+    ]);
+    expect(evidence.before.hitMatches).toBe(true);
+  });
+});
 
 const validSignals = {
   expectedNormalizedUrl: "https://www.aleris.se/kirurgi/brack/aderbrack",

@@ -447,6 +447,14 @@ headed-validation gates.
   source area, the renderer now requires more than one CSS pixel of paint extent
   on both axes before admitting a rectangle. The regression also proves that a
   physically hit-reachable one-pixel sliver remains unpainted.
+- A subsequent run exposed an independent physical-control race before marking
+  activation: the site target remained foregrounded after render inspection, so
+  CDP mouse coordinates sent to the side panel could be ignored while its DOM
+  still reported an enabled checkbox. Popup actions now foreground the real
+  side-panel target, center the control, prove `elementFromPoint` reaches the
+  control/label, and only then dispatch trusted input. Activation evidence now
+  fails within 45 seconds instead of waiting three minutes for a click that
+  never started a lifecycle.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 
