@@ -284,18 +284,26 @@ export async function physicalActivatePopupControl(session, id, method = "pointe
   })()`);
   if (!before || before.disabled || before.rect.width <= 0 || before.rect.height <= 0) throw new Error(`Real popup control #${id} is unavailable: ${JSON.stringify(before)}`);
   if (!before.hitMatches) throw new Error(`Real popup control #${id} is not the physical hit target: ${JSON.stringify(before)}`);
+  let dispatchedAtEpochMs;
   if (method === "keyboard") {
     await session.evaluate(`(document.getElementById(${JSON.stringify(id)}) || (${JSON.stringify(fallbackSelector)} ? document.querySelector(${JSON.stringify(fallbackSelector)}) : null))?.focus()`);
+    dispatchedAtEpochMs = Date.now();
     await session.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
     await session.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
   } else {
     const x = before.rect.x + before.rect.width / 2;
     const y = before.rect.y + before.rect.height / 2;
     await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+    dispatchedAtEpochMs = Date.now();
     await session.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 });
     await session.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 });
   }
-  return { method, before, dispatchedAt: new Date().toISOString() };
+  return {
+    method,
+    before,
+    dispatchedAtEpochMs,
+    dispatchedAt: new Date(dispatchedAtEpochMs).toISOString(),
+  };
 }
 
 export async function physicalActivatePreviewRow(session, index = 0) {

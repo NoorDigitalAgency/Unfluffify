@@ -575,7 +575,7 @@ preserves the stronger architecture.
     click, resolves focus text through the visible overlay underlay, and clicks
     visible overlay geometry through the interaction shield. Dynamic DOM
     insertion can no longer create a false two-way failure.
-101. **Remediated, clean-commit verification pending P0 — consent mutation work
+101. **Closed P0 — consent mutation work
     crossed the marking-input frame boundary.** A clean production run preserved
     all six gesture outcomes but recorded five 55–73 ms Long Tasks. The first two
     sampling profiles attributed about 313–326 ms per one-second flow to native
@@ -594,7 +594,29 @@ preserves the stronger architecture.
     and a 33.4 ms worst frame (previously 66.7 ms p95 and 138 ms). Exact-node and
     subtree regressions pass, while the unchanged taxonomy, initial/full sweep,
     late subtree discovery, hiding, restoration, and payload exclusion contracts
-    remain intact. The immutable clean-commit stage is the remaining closure gate.
+    remain intact. Clean commit `1ee034b7` repeated the decisive stage with all
+    six gestures correct, zero Long Tasks, 16.8 ms rAF p95, and a 33.4 ms worst
+    frame, closing the input-frame blocker.
+102. **Remediated, headed verification pending harness P0 — the silent gate
+    demanded desktop posture without enabling the desktop-preview preference.**
+    The clean Ledigajobb workflow passed through Save and authoritative silent
+    acknowledgement, then the runner rejected its valid retained 412×960 mobile
+    preference as though it were the required 1920×1080 desktop case. Physical
+    activation of the real desktop-preview control immediately proved product
+    correctness: 1920×1080, 24 visible silent highlights, and an opaque,
+    interactive 1905×1080 scrollbar-aware shield. Activation setup now uses that
+    real control, waits for the terminal page viewport, records the initial silent
+    posture, and only then enables marking and proves 412×960. The post-Save
+    silent stage therefore measures the intended desktop→mobile→desktop contract
+    rather than relying on an unstated profile preference.
+103. **Remediated, headed verification pending harness P1 — AI feedback latency
+    included CDP setup and dispatch round trips.** The fresh AI run reported 107
+    ms while the first reported 35 ms, but the clock started before foregrounding,
+    hit verification, mouse movement, press, and release. The physical activation
+    witness now records the host epoch immediately before trusted key/pointer
+    dispatch; feedback is measured from that input boundary. The workflow gate
+    now enforces the same ≤100 ms requirement for both initial and post-edit AI
+    runs. This changes evidence authority only, not product timing.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -666,7 +688,7 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 101, but P25 remains
+Implementation remediation is code-complete through finding 103, but P25 remains
 open until the committed source passes clean automated gates and every valid candidate completes an
 observer-free headed rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,

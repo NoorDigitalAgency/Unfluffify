@@ -53,6 +53,8 @@ describe("P25 physical popup activation", () => {
       "Input.dispatchMouseEvent",
     ]);
     expect(evidence.before.hitMatches).toBe(true);
+    expect(evidence.dispatchedAtEpochMs).toEqual(expect.any(Number));
+    expect(evidence.dispatchedAt).toBe(new Date(evidence.dispatchedAtEpochMs).toISOString());
   });
 
   it("proves native semantic preview-row activation with a trusted Space click", async () => {
@@ -357,7 +359,11 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).toContain('integerOption(options, "ai-timeout-ms", AI_WORKFLOW_TIMEOUT_MS)');
     expect(harness).toContain("const initialInspectionView = before.renderInspectionView");
     expect(harness).toContain("last.renderInspectionView === renderMode && initialInspectionView !== renderMode");
-    expect(harness).toContain("const before = await ensurePopupSessionView(popup, identity.implementation)");
+    expect(harness).toContain("const initialBefore = await ensurePopupSessionView(popup, identity.implementation)");
+    expect(harness).toContain('physicalActivatePopupControl(popup, "desktop-preview-enabled", "pointer")');
+    expect(harness).toContain("viewportMatches(data.silentDesktopSetup?.posture, 1920, 1080)");
+    expect(harness).toContain("viewportMatches(data.markingPosture, 412, 960)");
+    expect(harness).toContain("data.workflow.freshAi.feedbackMs <= 100");
     const probes = readFileSync(resolve(process.cwd(), "scripts/performance/p25/workflow-probes.mjs"), "utf8");
     expect(probes).toContain('#unfluffify-overlay [data-layer="ai-content"] .uf-rect');
     expect(probes).toContain("'[data-uf-interaction-shield=\"true\"], #unfluffify-overlay'");

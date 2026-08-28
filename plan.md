@@ -587,6 +587,22 @@ headed-validation gates.
   zero Long Tasks, 16.8 ms rAF p95, and a 33.4 ms worst frame. Focused regressions,
   type checks, and lint pass; commit/push and repeat the immutable headed stage
   before proceeding to AI. The taxonomy and hide/restore contract are unchanged.
+- Clean commit `1ee034b7` closed that blocker: all six gestures passed with zero
+  Long Tasks, 16.8 ms rAF p95, and a 33.4 ms worst frame. Scroll fade and resize
+  also passed. The complete workflow then passed initial AI, both Content List
+  directions, 542 ms dirty projection, confirmed Discard, fresh AI, one
+  current-page Save, authoritative adoption, silent transition, and three clean
+  payloads.
+- Its following silent-visual failure was a runner precondition defect, not a
+  product emulation defect. The runner demanded 1920×1080 while leaving the real
+  desktop-preview preference off; the valid retained mobile posture was 412×960.
+  Physical activation of that preference proved 1920×1080, 24 highlights, and a
+  full scrollbar-aware shield. Activation now establishes and records silent
+  desktop first, then records exact 412×960 marking, so Save must restore the
+  retained desktop posture. AI feedback timing also starts at trusted input
+  dispatch instead of including CDP foreground/hit-test round trips, and the
+  ≤100 ms gate now applies to both initial and fresh AI runs. Focused P25 tests,
+  type checks, and lint pass; repeat the clean full run before matrix expansion.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

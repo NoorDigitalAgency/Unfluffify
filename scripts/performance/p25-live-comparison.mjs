@@ -755,6 +755,40 @@ async function waitForPopupToggle(popup, expectedChecked, timeoutMs) {
   throw new Error(`Timed out waiting for marking toggle=${expectedChecked}; last popup state: ${JSON.stringify(last)}`);
 }
 
+async function waitForSiteWorkflowPosture(target, predicate, timeoutMs) {
+  return await withSiteSession(target, async (session) => {
+    const deadline = Date.now() + timeoutMs;
+    let last = null;
+    let lastError = null;
+    while (Date.now() < deadline) {
+      try {
+        last = await captureSiteWorkflowPosture(session);
+        lastError = null;
+        if (predicate(last)) return last;
+      } catch (error) {
+        // An emulation change may reload the document between CDP evaluations.
+        // Keep the tab session and wait for its replacement execution context.
+        lastError = error instanceof Error ? error.message : String(error);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error(`Site workflow posture did not terminalize: ${JSON.stringify({ last, lastError })}`);
+  });
+}
+
+function viewportMatches(posture, width, height) {
+  return posture?.viewport?.width === width && posture?.viewport?.height === height;
+}
+
+function silentPosturePass(posture) {
+  const viewport = posture?.viewport;
+  const shield = posture?.shield?.find((candidate) => candidate.connected && candidate.pointerEvents === "auto" && candidate.opacity === 1);
+  return viewportMatches(posture, 1920, 1080) &&
+    shield && shield.rect[0] <= 1 && shield.rect[1] <= 1 &&
+    shield.rect[2] >= viewport.width - 2 && shield.rect[3] >= viewport.height - 2 &&
+    posture.silentHighlightCount > 0;
+}
+
 async function runRenderInspection(popup, { implementation, renderMode, timeoutMs }) {
   const controlId = implementation === "legacy"
     ? renderMode === "with-javascript" ? "render-mode-inspect-with-javascript" : "render-mode-inspect-without-javascript"
@@ -893,6 +927,7 @@ async function runCurrentAi(popup, guard, options) {
   let contentListOpenedAtMs = null;
   let contentListFirstPaintMs = null;
   const controlActivation = await physicalActivatePopupControl(popup, "compute", "pointer");
+  const feedbackStartedAt = controlActivation.dispatchedAtEpochMs ?? started;
   const deadline = started + integerOption(options, "ai-timeout-ms", AI_WORKFLOW_TIMEOUT_MS);
   let terminal = null;
   while (Date.now() < deadline) {
@@ -912,7 +947,7 @@ async function runCurrentAi(popup, guard, options) {
       lastSignature = signature;
     }
     if (feedbackMs === null && (state.busy || compact.compute?.disabled === true || state.spinnerText)) {
-      feedbackMs = compact.elapsedMs;
+      feedbackMs = Math.max(0, Date.now() - feedbackStartedAt);
     }
     operationObserved ||= state.busy || compact.compute?.disabled === true || Boolean(state.spinnerText);
     const previewReady = state.view === "preview";
@@ -1195,18 +1230,10 @@ async function runMeasuredFullWorkflow({ popup, site, guard, identity, options }
   };
 }
 
-function stageAcceptanceFailures(id, action) {
+function stageAcceptanceFailures(id, action, implementation) {
   const failures = [];
   const requireValue = (condition, message) => { if (!condition) failures.push(message); };
   const data = action?.data ?? {};
-  const silentPosturePass = (posture) => {
-    const viewport = posture?.viewport;
-    const shield = posture?.shield?.find((candidate) => candidate.connected && candidate.pointerEvents === "auto" && candidate.opacity === 1);
-    return viewport?.width === 1920 && viewport?.height === 1080 &&
-      shield && shield.rect[0] <= 1 && shield.rect[1] <= 1 &&
-      shield.rect[2] >= viewport.width - 2 && shield.rect[3] >= viewport.height - 2 &&
-      posture.silentHighlightCount > 0;
-  };
   requireValue(data.publicationFence?.attemptCount === 0, "A final /publish request was attempted; it was blocked before transmission but the contract requires zero attempts");
   requireValue((data.publicationFence?.errors?.length ?? 0) === 0, `The publication/request guard reported ${data.publicationFence?.errors?.length ?? "unknown"} interception error(s)`);
   if (id === "preflight") {
@@ -1226,6 +1253,11 @@ function stageAcceptanceFailures(id, action) {
   if (id === "activation-network") {
     requireValue((data.activationNetwork?.length ?? 0) > 0, "Activation emitted no retained extension network evidence");
     requireValue(data.legacyLoad?.installedBeforeActivation === true, "Extension traffic guard was not installed before activation");
+    if (implementation === "rewrite") {
+      requireValue(data.silentDesktopSetup?.terminalChecked === true, "Activation did not establish the retained silent desktop preference");
+      requireValue(viewportMatches(data.silentDesktopSetup?.posture, 1920, 1080), "Activation did not begin from exact 1920x1080 silent desktop posture");
+      requireValue(viewportMatches(data.markingPosture, 412, 960), "Activation did not terminalize in exact 412x960 marking posture");
+    }
   }
   if (id === "marking-visual") {
     requireValue(Number.isInteger(data.visual?.sourceCount), "Source cardinality was not captured");
@@ -1269,6 +1301,10 @@ function stageAcceptanceFailures(id, action) {
     const workflow = validateFullWorkflowEvidence(data.workflow);
     requireValue(workflow.pass, `Full real-control workflow failed: ${workflow.failures.join(", ")}`);
     requireValue(data.workflow?.freshAi?.success === true && data.workflow?.freshAi?.requestCount > 0, "Post-edit fresh AI rerun did not succeed with a retained selector request");
+    requireValue(
+      typeof data.workflow?.freshAi?.feedbackMs === "number" && data.workflow.freshAi.feedbackMs <= 100,
+      `Post-edit fresh AI feedback took ${data.workflow?.freshAi?.feedbackMs ?? "unknown"} ms`,
+    );
     requireValue(data.workflow?.save?.currentPageOnly === true, "Save payload was not exact current-page-only evidence");
   }
   if (id === "publication-fence") {
@@ -1329,7 +1365,35 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
     const popup = await new CdpSession(targets.popup).connect();
     try {
       await popup.send("Runtime.enable");
-      const before = await ensurePopupSessionView(popup, identity.implementation);
+      const initialBefore = await ensurePopupSessionView(popup, identity.implementation);
+      let silentDesktopSetup = null;
+      if (identity.implementation === "rewrite") {
+        const initialDesktopControl = workflowControl(initialBefore, "desktop-preview-enabled");
+        if (!initialDesktopControl) throw new Error("Silent desktop preview control is missing");
+        const controlActivation = initialDesktopControl.checked
+          ? null
+          : await physicalActivatePopupControl(popup, "desktop-preview-enabled", "pointer");
+        const terminal = await waitForWorkflowPopupState(
+          popup,
+          (state) => state.view === "silent" &&
+            state.busy === false &&
+            workflowControl(state, "desktop-preview-enabled")?.checked === true,
+          integerOption(options, "activation-timeout-ms", 45_000),
+        );
+        const posture = await waitForSiteWorkflowPosture(
+          targets.site,
+          (state) => viewportMatches(state, 1920, 1080),
+          integerOption(options, "activation-timeout-ms", 45_000),
+        );
+        silentDesktopSetup = {
+          alreadyEnabled: initialDesktopControl.checked === true,
+          controlActivation,
+          terminal,
+          terminalChecked: workflowControl(terminal, "desktop-preview-enabled")?.checked === true,
+          posture,
+        };
+      }
+      const before = await capturePopupState(popup);
       const toggle = before.controls.find((control) => control.id === "toggle-enabled");
       if (!toggle) throw new Error("Enable marking toggle is missing");
       if (toggle.checked) throw new Error("Activation evidence requires marking to be disabled before the stage; disable it and retry in a fresh run");
@@ -1345,6 +1409,13 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
       const started = performance.now();
       const controlActivation = await physicalActivatePopupControl(popup, "toggle-enabled", "pointer");
       const after = await waitForPopupToggle(popup, true, integerOption(options, "activation-timeout-ms", 45_000));
+      const markingPosture = identity.implementation === "rewrite"
+        ? await waitForSiteWorkflowPosture(
+          targets.site,
+          (state) => viewportMatches(state, 412, 960),
+          integerOption(options, "activation-timeout-ms", 45_000),
+        )
+        : null;
       const durationMs = performance.now() - started;
       const document = await withSiteSession(targets.site, (session) => captureDocumentIdentity(session, identity.expectedUrl));
       const screenshots = await captureStageScreenshots({ ...targets, runDirectory, id });
@@ -1353,10 +1424,13 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
       const activation = guard.evidenceSince(boundary);
       return {
         data: {
+          initialBefore,
           before,
+          silentDesktopSetup,
           afterAuthorityRefresh,
           refreshTriggered,
           after,
+          markingPosture,
           durationMs,
           controlActivation,
           activationNetwork: activation,
@@ -1550,7 +1624,7 @@ async function captureStage(options) {
       ...(action.data ?? {}),
       publicationFence: guard.publicationFenceEvidence(),
     };
-    const acceptanceFailures = stageAcceptanceFailures(id, action);
+    const acceptanceFailures = stageAcceptanceFailures(id, action, identity.implementation);
     if (acceptanceFailures.length) {
       exitCode = 1;
       status = "failed";
