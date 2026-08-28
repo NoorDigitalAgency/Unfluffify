@@ -2673,6 +2673,30 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
+  it("resolves an Alt-created explicit inclusion for plain-key unmarking", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 200));
+    const paragraph = new FakeElement("P", rect(20, 20, 180, 24), "Included copy");
+    for (const element of [root, paragraph]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(paragraph);
+    doc.hits = [paragraph];
+    const engine = createMarkingEngine(root as unknown as Element);
+    const include = engine.resolveAtPoint(40, 30, "include", false);
+    expect(include?.xpath).toBe("/main[1]/p[1]");
+    expect(engine.toggle(include!, "include")).toBe(true);
+    expect(engine.hasExplicitMark(include!)).toBe(true);
+
+    const plainOwner = engine.resolveAtPoint(40, 30, "exclude", false);
+    expect(plainOwner?.xpath).toBe("/main[1]/p[1]");
+    expect(engine.clear(plainOwner!)).toBe(true);
+    expect(engine.hasExplicitMark(plainOwner!)).toBe(false);
+    engine.dispose();
+  });
+
   it("uses visible expanded-owner geometry when an overlapping sibling replaces the native hit", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 400, 400));
@@ -3387,7 +3411,7 @@ describe("P6 DOM bridge", () => {
     expect(host.getAttribute("data-uf-closed-shadow-host")).toBe("true");
   });
 
-  it("keeps closed explicit include descendants untargetable in the engine", () => {
+  it("keeps closed explicit include descendants creation-proof but plain-clearable", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("SECTION", rect(0, 0, 300, 300), "Boundary");
     const child = new FakeElement("P", rect(0, 0, 100, 20), "Child");
@@ -3401,6 +3425,10 @@ describe("P6 DOM bridge", () => {
     engine.toggle(engine.resolveAtPoint(10, 10, "include")!, "include");
     doc.hits = [child, root];
 
-    expect(engine.resolveAtPoint(10, 10, "exclude")).toBeNull();
+    const plainOwner = engine.resolveAtPoint(10, 10, "exclude");
+    expect(plainOwner?.xpath).toBe("/section[1]");
+    expect(engine.clear(plainOwner!)).toBe(true);
+    expect(engine.hasExplicitMark(plainOwner!)).toBe(false);
+    engine.dispose();
   });
 });

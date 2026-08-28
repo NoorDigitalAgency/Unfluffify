@@ -12,6 +12,7 @@ import {
   snapshotMatchesAuthoritativePosture,
   topHitPaintEvidence,
   waitForPresentationOpportunity,
+  bridgeXpathForElement,
   resolveBridgeXpath,
 } from "../scripts/performance/p25/live-probes.mjs";
 
@@ -224,6 +225,9 @@ describe("P25 composed visual visibility evidence", () => {
     expect(resolveBridgeXpath("/html[1]/body[1]/main[1]", { document })).toBe(main);
     expect(resolveBridgeXpath("/html[1]/body[1]/div[1]/nav[1]", { document })).toBe(navigation);
     expect(resolveBridgeXpath("/body[2]/main[1]", { document })).toBeNull();
+    expect(bridgeXpathForElement(navigation, { document })).toBe("/html[1]/body[1]/div[1]/nav[1]");
+    expect(bridgeXpathForElement(main, { document })).toBe("/html[1]/body[1]/main[1]");
+    expect(bridgeXpathForElement(suppressedModal, { document })).toBeNull();
   });
 
   it("rejects a geometrically visible source hidden by a composed ancestor", () => {

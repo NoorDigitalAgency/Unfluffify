@@ -464,6 +464,15 @@ headed-validation gates.
   one further paint frame before acknowledging readiness. The captured clock's
   bounded fallback preserves hidden/frozen-document liveness, and a regression
   proves the stale box is removed before the activation acknowledgement resolves.
+- The following exact-key gesture gate separated one harness error from one real
+  contract defect. Its target used native sibling ordinals while rewrite marks
+  use the flattened bridge, so a consent-suppressed preceding sibling made every
+  correct gesture look unrelated. P25 now derives and resolves target identity
+  with the same consent/extension/shadow/slot flattening as the product. The run
+  also proved that plain input could clear exclusions but not Alt-created
+  inclusions. The renderer now indexes every painted explicit owner, plain input
+  resolves that owner before an exclusion, and the content handler commits a
+  semantic clear. Shift remains required to create/widen exclusions.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

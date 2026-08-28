@@ -452,6 +452,84 @@ export function resolveBridgeXpath(xpath, environment = globalThis) {
   return cursor;
 }
 
+export function bridgeXpathForElement(target, environment = globalThis) {
+  const document = environment?.document;
+  const root = document?.documentElement;
+  if (!root || target?.nodeType !== 1) return null;
+  const isBridgeExcluded = (node) => {
+    if (node?.nodeType !== 1) return false;
+    const id = node.getAttribute?.("id") ?? "";
+    return node.hasAttribute?.("data-uf-consent-hidden")
+      || node.hasAttribute?.("data-wxt-shadow-root")
+      || node.getAttribute?.("data-uf-extension-ui") === "true"
+      || String(node.tagName).toLowerCase() === "browser-mcp-container"
+      || id === "browser-mcp-container"
+      || id === "uf-consent-bypass"
+      || id.startsWith("unfluffify-");
+  };
+  const immutableTags = new Set([
+    "IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT",
+    "TEMPLATE", "IFRAME", "VIDEO", "SVG",
+  ]);
+  const isSlot = (node) => node?.nodeType === 1 && String(node.tagName).toUpperCase() === "SLOT";
+  const slotReplacements = (slot, assigned) => {
+    let assignedNodes;
+    try {
+      assignedNodes = typeof slot.assignedNodes === "function" ? slot.assignedNodes({ flatten: true }) : [];
+    } catch {
+      assignedNodes = [];
+    }
+    if (assignedNodes.length > 0) {
+      for (const node of assignedNodes) assigned?.add(node);
+      return assignedNodes;
+    }
+    return Array.from(slot.childNodes ?? []);
+  };
+  const expandDirectSlot = (node, assigned) => isSlot(node) ? slotReplacements(node, assigned) : [node];
+  const composedElementChildren = (element) => {
+    const shadowRoot = element?.shadowRoot;
+    if (!shadowRoot) {
+      return Array.from(element?.childNodes ?? [])
+        .flatMap((node) => expandDirectSlot(node))
+        .filter((node) => node?.nodeType === 1 && !isBridgeExcluded(node));
+    }
+    const assigned = new Set();
+    const collectAssigned = (node) => {
+      if (isSlot(node)) {
+        slotReplacements(node, assigned);
+        return;
+      }
+      if (node?.nodeType === 1) {
+        for (const child of Array.from(node.childNodes ?? [])) collectAssigned(child);
+      }
+    };
+    for (const node of Array.from(shadowRoot.childNodes ?? [])) collectAssigned(node);
+    return [
+      ...Array.from(shadowRoot.childNodes ?? []).flatMap((node) => expandDirectSlot(node, assigned)),
+      ...Array.from(element.childNodes ?? []).filter((node) => !assigned.has(node)),
+    ].filter((node) => node?.nodeType === 1 && !isBridgeExcluded(node));
+  };
+  if (isBridgeExcluded(root)) return null;
+  const rootXpath = `/${String(root.tagName).toLowerCase()}[1]`;
+  const stack = [{ element: root, xpath: rootXpath }];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (current.element === target) return current.xpath;
+    if (immutableTags.has(String(current.element.tagName).toUpperCase())) continue;
+    const seenTags = new Map();
+    const children = composedElementChildren(current.element).map((element) => {
+      const tag = String(element.tagName).toLowerCase();
+      const index = (seenTags.get(tag) ?? 0) + 1;
+      seenTags.set(tag, index);
+      return { element, xpath: `${current.xpath}/${tag}[${index}]` };
+    });
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      stack.push(children[index]);
+    }
+  }
+  return null;
+}
+
 const VISUAL_SNAPSHOT_EXPRESSION = `(() => {
   const composedVisibilityEvidence = (${composedVisibilityEvidence.toString()});
   const topHitPaintEvidence = (${topHitPaintEvidence.toString()});
@@ -898,6 +976,7 @@ export async function executeResizePerturbation(session, posture, resizedWidth, 
 }
 
 const markingTargetExpression = `(() => {
+  const bridgeXpathForElement = ${bridgeXpathForElement.toString()};
   const xpath = (element) => {
     const parts = [];
     for (let node = element; node instanceof Element; node = node.parentElement) {
@@ -918,8 +997,14 @@ const markingTargetExpression = `(() => {
   const element = eligible.find((candidate) => candidate.matches('h1,h2,h3,p') && !candidate.closest('nav,header,footer')) || eligible[0];
   if (!element) return null;
   const rect = element.getBoundingClientRect();
+  const domXpath = xpath(element);
+  const bridgeXpath = document.querySelector('.uf-marking-layer-root[data-uf-extension-ui="true"]')
+    ? bridgeXpathForElement(element, { document })
+    : null;
   return {
-    xpath: xpath(element),
+    xpath: bridgeXpath || domXpath,
+    domXpath,
+    xpathMode: bridgeXpath ? 'bridge' : 'dom',
     tag: element.tagName,
     text: (element.textContent ?? '').trim().replace(/\\s+/g, ' ').slice(0, 120),
     x: Math.max(2, Math.min(innerWidth - 2, rect.left + Math.min(rect.width / 2, 80))),
@@ -941,8 +1026,12 @@ async function dispatchPhysicalGesture(session, target, { shift = false, alt = f
   return performance.now() - started;
 }
 
-const markingDecisionExpression = (targetXpath) => `(() => {
-  const targetXpath = ${JSON.stringify(targetXpath)};
+const markingDecisionExpression = (targetEvidence) => `(() => {
+  const resolveBridgeXpath = ${resolveBridgeXpath.toString()};
+  const targetEvidence = ${JSON.stringify(targetEvidence)};
+  const targetXpath = targetEvidence.xpath;
+  const targetDomXpath = targetEvidence.domXpath || targetXpath;
+  const bridgeMode = targetEvidence.xpathMode === 'bridge';
   const xpathFor = (element) => {
     const parts = [];
     for (let node = element; node instanceof Element; node = node.parentElement) {
@@ -960,7 +1049,7 @@ const markingDecisionExpression = (targetXpath) => `(() => {
   const relation = (ownerXpath) => ownerXpath === targetXpath ? 'exact'
     : targetXpath.startsWith(ownerXpath + '/') ? 'ancestor'
       : ownerXpath.startsWith(targetXpath + '/') ? 'descendant' : 'unrelated';
-  const target = nodeForXpath(targetXpath);
+  const target = nodeForXpath(targetDomXpath);
   const records = new Map();
   const overlays = [...document.querySelectorAll('[data-uf-overlay-xpath], [data-mc-mark-id]')];
   for (const overlay of overlays) {
@@ -975,7 +1064,11 @@ const markingDecisionExpression = (targetXpath) => `(() => {
     if (!ownerXpath) continue;
     const kind = /include/i.test(layer + ' ' + classes + ' ' + classification) ? 'explicit-inclusion'
       : /exclude|exception/i.test(layer + ' ' + classes + ' ' + classification) ? 'explicit-exclusion' : 'unknown';
-    const owner = source instanceof Element ? source : nodeForXpath(ownerXpath);
+    const owner = source instanceof Element
+      ? source
+      : bridgeMode
+        ? resolveBridgeXpath(ownerXpath, { document })
+        : nodeForXpath(ownerXpath);
     const key = ownerXpath + '\\u0000' + kind + '\\u0000' + layer;
     const record = records.get(key) || {
       ownerXpath,
@@ -1054,7 +1147,7 @@ async function waitForGestureAcknowledgement(session, target, before, id, starte
   let last = before;
   while (Date.now() < deadline) {
     const frame = await waitForPresentationOpportunity(session);
-    last = await session.evaluate(markingDecisionExpression(target.xpath));
+    last = await session.evaluate(markingDecisionExpression(target));
     const delta = markingDelta(before, last);
     const assertion = markingAssertion(id, before, last, delta);
     const correct = id === "plain-no-create" ? assertion.noTargetMutation === true
@@ -1073,7 +1166,7 @@ export async function performPhysicalShiftExclusion(session) {
   if (!target) throw new Error("No visible non-consent marking target is available for the dirty-state probe");
   await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y });
   await waitForPresentationOpportunity(session, { frameCount: 2 });
-  const before = await session.evaluate(markingDecisionExpression(target.xpath));
+  const before = await session.evaluate(markingDecisionExpression(target));
   const inputStartedAt = await session.evaluate("performance.now()");
   const dispatchLatencyMs = await dispatchPhysicalGesture(session, target, { shift: true });
   const acknowledgement = await waitForGestureAcknowledgement(session, target, before, "shift-expand", inputStartedAt);
@@ -1088,13 +1181,13 @@ export async function probeMarkingGestures(session) {
   await waitForPresentationOpportunity(session, { frameCount: 2 });
   const operations = [];
   const operate = async (id, gesture) => {
-    const before = await session.evaluate(markingDecisionExpression(target.xpath));
+    const before = await session.evaluate(markingDecisionExpression(target));
     const inputStartedAt = await session.evaluate("performance.now()");
     const dispatchLatencyMs = await dispatchPhysicalGesture(session, target, gesture);
     const acknowledgement = id === "context-menu"
       ? null
       : await waitForGestureAcknowledgement(session, target, before, id, inputStartedAt);
-    const after = acknowledgement?.after ?? await session.evaluate(markingDecisionExpression(target.xpath));
+    const after = acknowledgement?.after ?? await session.evaluate(markingDecisionExpression(target));
     const targetDelta = acknowledgement?.targetDelta ?? markingDelta(before, after);
     const beforeFingerprint = sha256(JSON.stringify(before.canonical));
     const afterFingerprint = sha256(JSON.stringify(after.canonical));

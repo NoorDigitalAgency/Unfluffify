@@ -1286,10 +1286,16 @@ export function createMarkingEngine(
         : null;
       prefetchedPointHits = null;
       if (mode === "exclude" && !shiftActive) {
-        // The renderer owns the exact, paint-proven client fragments. Query its
-        // generation-fenced spatial index instead of rescanning every canonical
-        // exclusion and approximating fragmented elements with one bounding box.
-        const paintedOwnerXpath = renderer.paintedExclusionOwnerAtPoint(
+        // Plain input is unmark-only. Prefer any exact explicit mark (including
+        // an Alt-created inclusion), then fall back to the painted exclusion
+        // owner. Both lookups use the renderer's generation-fenced fragments,
+        // so clearing never relies on a stale bounding-box approximation.
+        const paintedOwnerXpath = renderer.paintedExplicitOwnerAtPoint(
+          x,
+          y,
+          bridgeGeneration,
+          hint?.overlayXpath,
+        ) ?? renderer.paintedExclusionOwnerAtPoint(
           x,
           y,
           bridgeGeneration,
@@ -1492,7 +1498,12 @@ export function createMarkingEngine(
         cachedResolution.generation === bridgeGeneration &&
         (!cachedResolution.node || currentNodeForHint(cachedResolution.node.xpath) === cachedResolution.node);
       if (reusable && mode === "exclude" && !shiftActive && cachedResolution.node) {
-        const ownerXpath = renderer.paintedExclusionOwnerAtPoint(x, y, bridgeGeneration, overlayXpath);
+        const ownerXpath = renderer.paintedExplicitOwnerAtPoint(
+          x,
+          y,
+          bridgeGeneration,
+          overlayXpath,
+        ) ?? renderer.paintedExclusionOwnerAtPoint(x, y, bridgeGeneration, overlayXpath);
         if (ownerXpath === cachedResolution.node.xpath) {
           hoverResolution = { ...cachedResolution, x, y, overlayXpath };
           return;

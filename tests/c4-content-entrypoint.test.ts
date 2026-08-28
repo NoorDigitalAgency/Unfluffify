@@ -2328,6 +2328,8 @@ describe("C4 rewrite content entrypoints", () => {
       resolveAtPoint: vi.fn(() => ({ xpath: "/html[1]/body[1]/p[1]" })),
       acknowledge: vi.fn(() => true),
       toggle: vi.fn(),
+      clear: vi.fn(() => true),
+      hasExplicitMark: vi.fn(() => false),
       setPassthrough: vi.fn(),
       setInputTransparent: vi.fn(),
       setSuspended: vi.fn(),
@@ -2874,6 +2876,35 @@ describe("C4 rewrite content entrypoints", () => {
       dirty: true,
       markedCount: 2,
       markingToggleSeq: 3,
+    });
+    engine.hasExplicitMark.mockReturnValueOnce(true);
+    documentListeners.get("click")?.({
+      clientX: 12,
+      clientY: 22,
+      altKey: false,
+      shiftKey: false,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as Event);
+    await waitForMockCalls(engine.acknowledge, 4);
+    expect(engine.acknowledge).toHaveBeenNthCalledWith(
+      4,
+      { xpath: "/html[1]/body[1]/p[1]" },
+      "clear",
+    );
+    await waitForMockCalls(engine.clear, 1);
+    expect(engine.clear).toHaveBeenCalledWith({ xpath: "/html[1]/body[1]/p[1]" });
+    await waitForCondition(() => sendMessage.mock.calls
+      .map(([frame]) => frame as {
+        name?: string;
+        payload?: { sensation?: { reason?: string } };
+      })
+      .filter((frame) => frame.name === "fact.reported" && frame.payload?.sensation?.reason === "marking-toggle")
+      .length >= 4);
+    expect((await dispatchContentCommand(listener, "getContentMainStatus")).data).toMatchObject({
+      dirty: true,
+      markedCount: 3,
+      markingToggleSeq: 4,
     });
     engine.resolveAtPoint.mockReturnValueOnce(null);
     const unresolvedClick = {

@@ -43,6 +43,7 @@ type PaintedOwnerFragment = Readonly<{
   xpath: string;
   rect: RectLike;
   explicit: boolean;
+  exclusion: boolean;
   paintOrder: number;
   depth: number;
 }>;
@@ -332,6 +333,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   let renderGeneration = 0;
   let paintOrder = 0;
   let explicitExclusionXpaths = new Set<string>();
+  let explicitMarkXpaths = new Set<string>();
   let ownerIndexGeneration = -1;
   let ownerFragmentsByCell = new Map<string, PaintedOwnerFragment[]>();
   // Marking and silent layers are rendered synchronously from the same DOM
@@ -375,13 +377,16 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   const rebuildPaintedOwnerIndex = (generation: number): void => {
     const next = new Map<string, PaintedOwnerFragment[]>();
     for (const record of classificationBoxes.values()) {
-      if (record.classification !== "exception") {
+      const exclusion = record.classification === "exception";
+      const explicit = explicitMarkXpaths.has(record.xpath);
+      if (!exclusion && !explicit) {
         continue;
       }
       const fragment: PaintedOwnerFragment = {
         xpath: record.xpath,
         rect: record.rect,
-        explicit: explicitExclusionXpaths.has(record.xpath),
+        explicit,
+        exclusion,
         paintOrder: record.paintOrder,
         depth: record.xpath.split("/").length,
       };
@@ -404,6 +409,9 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   };
 
   const adoptEvaluationMetadata = (evaluation: EvaluationResult): void => {
+    explicitMarkXpaths = new Set(evaluation.rows
+      .filter((row) => row.explicit === true)
+      .map((row) => row.xpath));
     explicitExclusionXpaths = new Set(evaluation.rows
       .filter((row) => row.excluded === true && row.explicit === true)
       .map((row) => row.xpath));
@@ -850,7 +858,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         return null;
       }
       const matches = (ownerFragmentsByCell.get(ownerCellKey(x, y)) ?? [])
-        .filter((fragment) => pointInRect(fragment.rect, x, y));
+        .filter((fragment) => fragment.exclusion && pointInRect(fragment.rect, x, y));
       const preferred = preferredXpath
         ? matches.find((fragment) => fragment.xpath === preferredXpath)
         : undefined;
@@ -861,6 +869,28 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         Number(right.explicit) - Number(left.explicit) ||
         right.paintOrder - left.paintOrder ||
         right.depth - left.depth
+      );
+      return matches[0]?.xpath ?? null;
+    },
+    paintedExplicitOwnerAtPoint(
+      x: number,
+      y: number,
+      generation: number,
+      preferredXpath = "",
+    ): string | null {
+      if (scrolling || generation !== ownerIndexGeneration) {
+        return null;
+      }
+      const matches = (ownerFragmentsByCell.get(ownerCellKey(x, y)) ?? [])
+        .filter((fragment) => fragment.explicit && pointInRect(fragment.rect, x, y));
+      const preferred = preferredXpath
+        ? matches.find((fragment) => fragment.xpath === preferredXpath)
+        : undefined;
+      if (preferred) {
+        return preferred.xpath;
+      }
+      matches.sort((left, right) =>
+        right.paintOrder - left.paintOrder || right.depth - left.depth
       );
       return matches[0]?.xpath ?? null;
     },

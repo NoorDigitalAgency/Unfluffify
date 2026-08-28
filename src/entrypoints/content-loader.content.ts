@@ -3339,7 +3339,10 @@ function ensureMarkingListeners(): void {
       });
       return;
     }
-    commit(physicalIdFor(event), target, mode, event.clientX, event.clientY);
+    const mutationMode = mode === "exclude" && !event.shiftKey && markingEngine.hasExplicitMark?.(target)
+      ? "clear"
+      : mode;
+    commit(physicalIdFor(event), target, mutationMode, event.clientX, event.clientY);
   };
   const handlePointerDown = (event: PointerEvent): void => {
     if (!isTrustedMarkingInput(event)) {
