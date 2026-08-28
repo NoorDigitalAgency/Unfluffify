@@ -5,8 +5,8 @@
 **Implementation closure complete; clean headed acceptance pending.** The initial
 side-by-side audit found 54 product gaps, adversarial run-plan review found 30
 additional lifecycle, input, evidence, and release-gate gaps, and final
-precommit review found eight more launcher and live-evidence authority gaps. The
-current P25 implementation addresses all 92 findings without weakening the
+precommit review plus the clean headed campaign extended the register through
+finding 100. The current P25 implementation addresses every classified finding without weakening the
 rewrite's locked contracts. This document remains the finding register rather
 than a PASS claim:
 the clean-source P25 gate and observer-free candidate matrix are the acceptance
@@ -482,7 +482,7 @@ preserves the stronger architecture.
     attestation, permitting only the numeric manifest launch counter. Tampered
     files, manifests, or heads fail; unavailable pinned-legacy debug evidence is
     explicitly N/A and cannot become a parity pass.
-93. **Remediated, headed verification pending P0 — post-scroll marking geometry
+93. **Closed P0 — post-scroll marking geometry
     was one monolithic main-thread transaction.** On the exact clean rewrite,
     Ledigajobb passed render, activation, visual, and gesture stages before a
     640 px wheel produced a 142 ms Long Task approximately 250 ms after input.
@@ -492,9 +492,10 @@ preserves the stronger architecture.
     generation-fenced 24-target presentation-frame chunks; only the final chunk
     rebuilds explicit-owner routing and reveals the completed generation.
     Cancellation covers subsequent scroll, bridge replacement, clear, park, and
-    disposal. The strict 50 ms budget is unchanged; a fresh headed scroll and
-    resize run must close this item.
-94. **Remediated, headed verification pending P0 — the first chunking fix could
+    disposal. A later exact-source physical scroll completed with zero JavaScript
+    Long Tasks and correct fade/reposition/restore. The strict 50 ms budget was
+    not widened.
+94. **Closed P0 — the first chunking fix could
     temporarily withdraw explicit-owner input during unrelated page geometry.**
     The next clean run passed through marking visuals, then a page-owned layout
     change started a full 737-target, 31-frame faded reconciliation between the
@@ -505,7 +506,9 @@ preserves the stronger architecture.
     measures only current plus boundary-crossing targets. Initial observation
     must cover every current target before it becomes authoritative; bridge
     refresh disconnects and rebinds the corpus. The deterministic full-map
-    chunker remains a fallback, not the ordinary Chrome path.
+    chunker remains a fallback, not the ordinary Chrome path. The clean headed
+    rerun completed all six plain/Shift/Alt/context/clear gestures in 944 ms with
+    zero input Long Tasks, proving owner routing remained live.
 95. **Closed harness P0 — the exact Shift stage could select a target that the
     contract says must not widen.** After finding 94, the next run proved Alt,
     context-menu disabled states, exclusion clear, and inclusion clear, but its
@@ -538,21 +541,40 @@ preserves the stronger architecture.
     gesture Long Tasks are filtered to explicit page-clock action bounds. No
     product performance waiver was introduced: the next clean run must still
     prove every real input task at or below 50 ms.
-98. **Open P0 plus closed evidence gaps — resize blocked for 629 ms and AI never
-    terminalized.** On exact pushed source after finding 97, Ledigajobb passed
-    both render modes, activation, visual cardinality, all six gestures, scroll
-    fade, and posture restoration. Gestures completed in 944 ms with zero Long
-    Tasks; scroll also had zero. The physical mobile resize then recorded a 629
-    ms Long Task and 433.3 ms rAF p95 during 412→388→412, despite restoring every
-    emulation component. The following Run AI remained under
-    `operator-action-pending` for 180082 ms and never opened Content List or
-    showed a terminal failure. Two harness holes obscured these failures: resize
-    was omitted from the ≤50 ms input-task checks, and throwing on AI failure
-    discarded its transition and request evidence. Resize is now checked at the
-    stage and aggregate boundaries; incomplete initial/fresh AI workflows retain
-    their exact partial evidence while still failing full acceptance. CPU
-    ownership and the retained AI phase/network trace are required before either
-    product blocker can be remediated or classified.
+98. **Closed misclassification plus closed evidence gaps — resize and AI were
+    reported against the wrong authorities.** On exact pushed source after
+    finding 97, Ledigajobb passed both render modes, activation, visual
+    cardinality, all six gestures, scroll fade, and posture restoration. The
+    original run then reported a 629 ms resize task and timed AI out at 180
+    seconds. Resize is now checked at both stage and aggregate boundaries, and a
+    failed AI run retains its transitions and requests. The clean diagnostic
+    replay recorded zero JavaScript Long Tasks during resize; sampling attributed
+    about 460.6 ms to Chromium `(program)`/layout/render and only 6.55 ms to
+    extension JavaScript. Its 433.3 ms rAF p95 is faster than pinned legacy's
+    516.7 ms p95 (0.84×), so the presentation pause is not a rewrite-relative
+    regression. Run AI painted feedback in 62 ms, entered capture in 239 ms,
+    began polling in 432 ms, and emitted exactly one 1,116,106-byte
+    `/get_selectors` POST that returned 202 in 538 ms. Job
+    `8abe8cf7-1244-4c42-94c1-1d15cec2691c` completed in about 238 seconds and
+    automatically opened a 96-row Content List. The audit's override was shorter
+    than the product's authoritative eight-minute deadline; the default live gate
+    now waits through that deadline plus a bounded evidence-drain allowance.
+99. **Closed harness P0 — rewrite AI payload hygiene was falsely rejected.** The
+    guard recognized only legacy `page`/`pageMarkings` envelopes and treated
+    intentionally empty script/style/noscript shells as executable source. It
+    now recognizes rewrite `pages[]`, normalizes every page identity, and rejects
+    only non-empty executable-source bodies. The retained Ledigajobb request has
+    one current page, no extension/freeze artifact, and no executable body.
+100. **Closed harness P0 — Content List two-way interaction was correlated through
+    stale absolute XPath rather than visible geometry.** Ledigajobb inserted
+    `#mailtoui-modal` after projection, shifting body ordinals while retained
+    overlay geometry and engine element references remained valid. Direct trusted
+    pointer input proved page→row and row→page; trusted Space produced native
+    keydown, keyup, and click and focused the corresponding page occurrence. The
+    formal probe now foregrounds the panel, witnesses the semantic native Space
+    click, resolves focus text through the visible overlay underlay, and clicks
+    visible overlay geometry through the interaction shield. Dynamic DOM
+    insertion can no longer create a false two-way failure.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -624,7 +646,7 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 96, but P25 remains
+Implementation remediation is code-complete through finding 100, but P25 remains
 open until the committed source passes clean automated gates and every valid candidate completes an
 observer-free headed rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,

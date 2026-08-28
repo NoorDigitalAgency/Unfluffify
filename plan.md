@@ -547,18 +547,33 @@ headed-validation gates.
   remains open through the entire action plus a settled tail, while Long Tasks
   use the action's explicit page-clock bounds. A fresh exact-source run must now
   prove both the corrected evidence boundary and the real ≤50 ms input budget.
-- On the corrected gate, every gesture passed with zero input Long Tasks and the
-  formerly blocking scroll path passed. The next two boundaries exposed new
-  evidence and product blockers: a 412→388→412 physical resize produced one 629
-  ms page-main-thread task, while the first AI action remained inside
-  `ai-preflight` for the full 180-second timeout. Resize had accidentally been
-  omitted from the stage and aggregate input-task budget, and a thrown AI
-  failure discarded the popup transition/request evidence needed to locate its
-  phase. Resize is now included in the unchanged 50 ms budget. Failed initial or
-  fresh AI runs return partial terminal evidence so acceptance still fails but
-  retains activation, transitions, network, popup, and phase. The next
-  diagnostic run uses a bounded AI timeout and CPU attribution around resize;
-  neither observed blocker is classified as external or closed yet.
+- On the corrected gate, every gesture passed in 944 ms with zero input Long
+  Tasks and the formerly blocking scroll path passed with zero Long Tasks. A
+  bounded diagnostic replay then separated two false diagnoses from product
+  behavior. The 412→388→412 resize restored exact posture with zero JavaScript
+  Long Tasks; its 433.3 ms rAF p95 was faster than pinned legacy's 516.7 ms, and
+  sampling attributed the gap to Chromium layout/render rather than extension
+  JavaScript. Run AI painted feedback in 62 ms, posted exactly once and received
+  202 in 538 ms, then legitimately polled until the backend completed in about
+  238 seconds and auto-opened a 96-row Content List. The harness's 180-second
+  override was shorter than the product's eight-minute authority deadline; its
+  default now waits through that deadline plus evidence drain.
+- The same retained request exposed a payload-audit false positive: rewrite uses
+  a `pages[]` envelope, and sanitation intentionally retains empty executable-tag
+  shells while removing their bodies. The guard now recognizes the rewrite
+  envelope and rejects only non-empty script/style/noscript bodies. The request
+  is one-page, current-URL-only, and clean of extension/freeze artifacts.
+- Content List was also functionally correct while its first formal probe was
+  not. A late `#mailtoui-modal` insertion shifted absolute body-index XPaths,
+  but the extension's retained element references and visible overlay geometry
+  remained valid. Trusted Space generated native keydown/keyup/click and routed
+  row→page; a trusted pointer click through the shield routed page→row. The gate
+  now foregrounds and witnesses the semantic button activation, correlates focus
+  through the visible overlay underlay, and clicks overlay geometry rather than
+  requiring a stale XPath to resolve. Focused regressions cover both paths.
+- The next exact-source Ledigajobb run uses the full AI deadline and must finish
+  fresh AI, post-edit freshness, Save, Discard, silent posture, payload, and
+  checklist stages before the remaining candidate matrix begins.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

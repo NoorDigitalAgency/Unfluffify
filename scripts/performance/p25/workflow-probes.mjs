@@ -299,55 +299,115 @@ export async function physicalActivatePopupControl(session, id, method = "pointe
 }
 
 export async function physicalActivatePreviewRow(session, index = 0) {
+  await session.send("Page.enable");
+  await session.send("Page.bringToFront");
   const before = await session.evaluate(`(() => {
     const element = document.querySelectorAll('.preview-sidebar__item-button')[${Number(index)}];
     if (!(element instanceof HTMLButtonElement) || element.disabled) return null;
+    element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
     element.focus();
+    const token = String(Date.now()) + ':' + Math.random().toString(36).slice(2);
+    const events = [];
+    const record = (event) => {
+      if (event.target !== element) return;
+      events.push({ type: event.type, trusted: event.isTrusted, key: event.key || null, detail: Number(event.detail || 0) });
+    };
+    for (const type of ['keydown', 'keyup', 'click']) document.addEventListener(type, record, true);
+    globalThis.__ufP25PreviewKeyboardWitness = {
+      token,
+      events,
+      cleanup: () => {
+        for (const type of ['keydown', 'keyup', 'click']) document.removeEventListener(type, record, true);
+      },
+    };
     return {
       name: element.getAttribute('aria-label') || element.getAttribute('title') || element.textContent?.replace(/\\s+/g, ' ').trim() || null,
-      readableText: element.querySelector('.preview-sidebar__item-text')?.textContent?.replace(/\\s+/g, ' ').trim() || element.textContent?.replace(/\\s+/g, ' ').trim() || null,
+      readableText: element.querySelector('.preview-sidebar__item-copy')?.textContent?.replace(/\\s+/g, ' ').trim() || element.querySelector('.preview-sidebar__item-text')?.textContent?.replace(/\\s+/g, ' ').trim() || element.textContent?.replace(/\\s+/g, ' ').trim() || null,
       title: element.getAttribute('title'),
       focused: document.activeElement === element,
+      semanticButton: element.tagName === 'BUTTON' && element.getAttribute('type') === 'button',
+      token,
     };
   })()`);
   if (!before?.focused) throw new Error(`Preview row ${index} is unavailable for trusted keyboard activation`);
-  await session.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
-  await session.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
-  return { trustedKeyboard: true, before, dispatchedAt: new Date().toISOString() };
+  let witness = null;
+  try {
+    await session.send("Input.dispatchKeyEvent", { type: "rawKeyDown", key: " ", code: "Space", windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32 });
+    await session.send("Input.dispatchKeyEvent", { type: "keyUp", key: " ", code: "Space", windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32 });
+  } finally {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    witness = await session.evaluate(`(() => {
+      const witness = globalThis.__ufP25PreviewKeyboardWitness;
+      if (!witness) return null;
+      const matches = witness.token === ${JSON.stringify(before.token)};
+      witness.cleanup?.();
+      delete globalThis.__ufP25PreviewKeyboardWitness;
+      return { events: witness.events, tokenMatches: matches };
+    })()`);
+  }
+  const eventTypes = new Set((witness?.events ?? []).filter((event) => event.trusted === true).map((event) => event.type));
+  const trustedKeyboard = before.semanticButton === true && witness?.tokenMatches === true && ['keydown', 'keyup', 'click'].every((type) => eventTypes.has(type));
+  if (!trustedKeyboard) throw new Error(`Preview row ${index} did not produce a trusted native Space activation: ${JSON.stringify(witness)}`);
+  return { trustedKeyboard, activationKey: "Space", before, witness, dispatchedAt: new Date().toISOString() };
 }
 
 export async function physicalActivatePreviewPageTarget(session) {
   const target = await session.evaluate(`(() => {
     const xpathNode = (xpath) => { try { return document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue; } catch { return null; } };
+    const describe = (source) => (source?.getAttribute?.('aria-label') || source?.getAttribute?.('title') || source?.getAttribute?.('alt') || source?.getAttribute?.('placeholder') || source?.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 400);
+    const xpathTerminalTag = (xpath) => xpath?.match(/\\/([a-z][a-z0-9-]*)\\[\\d+\\]$/i)?.[1]?.toLocaleLowerCase('en') || '';
+    const pageUnderlayAt = (x, y) => {
+      const elements = document.elementsFromPoint(x, y).filter((element) =>
+        element instanceof Element && !element.closest('[data-uf-extension-ui="true"]'));
+      const depth = elements.findIndex((element) => describe(element).length > 0);
+      return { exact: elements[0] || null, source: depth >= 0 ? elements[depth] : elements[0] || null, depth: depth >= 0 ? depth : 0 };
+    };
     const candidates = [];
     const focusedXpaths = new Set([...document.querySelectorAll('[data-uf-overlay-focus]')].map((element) => element.getAttribute('data-uf-overlay-focus')).filter(Boolean));
     const focusedMarkIds = new Set([...document.querySelectorAll('[data-layer="focus"] [data-mc-mark-id]')].map((element) => element.getAttribute('data-mc-mark-id')).filter(Boolean));
     for (const source of document.querySelectorAll('[data-uf-ai-preview-clickable="on"]')) {
-      if (!source.classList.contains('uf-ai-preview-focus-target')) candidates.push({ source, identity: source.getAttribute('title') || source.tagName });
+      if (!source.classList.contains('uf-ai-preview-focus-target')) candidates.push({ geometry: source, source, identity: source.getAttribute('title') || source.tagName, sourceKind: 'legacy-source' });
     }
     for (const overlay of document.querySelectorAll('[data-uf-overlay-xpath], [data-uf-silent-highlight], [data-mc-mark-id]')) {
       const xpath = overlay.getAttribute('data-uf-overlay-xpath') || overlay.getAttribute('data-uf-silent-highlight');
       const markId = overlay.getAttribute('data-mc-mark-id');
       if (focusedXpaths.has(xpath) || focusedMarkIds.has(markId)) continue;
-      const source = xpath ? xpathNode(xpath) : markId ? document.querySelector('[data-uf-mark-id="' + CSS.escape(markId) + '"]') : null;
-      if (source instanceof Element && !source.matches('.uf-ai-preview-focus-target')) candidates.push({ source, identity: xpath || markId });
+      const resolved = xpath ? xpathNode(xpath) : markId ? document.querySelector('[data-uf-mark-id="' + CSS.escape(markId) + '"]') : null;
+      if (!(resolved instanceof Element) || !resolved.matches('.uf-ai-preview-focus-target')) {
+        const rect = overlay.getBoundingClientRect();
+        const x = Math.max(2, Math.min(innerWidth - 2, rect.left + Math.min(rect.width / 2, 80)));
+        const y = Math.max(2, Math.min(innerHeight - 2, rect.top + Math.min(rect.height / 2, 40)));
+        const underlay = pageUnderlayAt(x, y);
+        const identity = xpath || markId;
+        const readableText = describe(underlay.exact) || xpathTerminalTag(xpath) || describe(underlay.source || resolved);
+        candidates.push({ geometry: overlay, source: underlay.source || resolved, readableText, underlayDepth: underlay.depth, identity, sourceKind: resolved instanceof Element ? 'resolved-overlay' : 'visible-overlay-underlay' });
+      }
     }
-    const candidate = candidates.find(({ source }) => {
-      const rect = source.getBoundingClientRect();
-      if (rect.width <= 0 || rect.height <= 0) return false;
+    const visibleCandidates = candidates.map((candidate) => {
+      const { geometry, source } = candidate;
+      const rect = geometry.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return null;
       const x = Math.max(2, Math.min(innerWidth - 2, rect.left + Math.min(rect.width / 2, 80)));
       const y = Math.max(2, Math.min(innerHeight - 2, rect.top + Math.min(rect.height / 2, 40)));
       const hit = document.elementFromPoint(x, y);
-      return hit === source || source.contains(hit) || Boolean(hit?.closest?.('[data-uf-interaction-shield="true"]'));
-    });
+      const readableText = candidate.readableText || describe(source);
+      if (!readableText || !(hit === geometry || geometry.contains(hit) || Boolean(hit?.closest?.('[data-uf-interaction-shield="true"]')))) return null;
+      const sourceRect = source?.getBoundingClientRect?.();
+      const geometryArea = Math.max(1, rect.width * rect.height);
+      const sourceArea = sourceRect ? Math.max(1, sourceRect.width * sourceRect.height) : geometryArea;
+      return { ...candidate, readableText, geometryArea, sourceArea };
+    }).filter(Boolean);
+    const candidate = visibleCandidates.find(({ readableText, underlayDepth = 0, sourceArea, geometryArea }) =>
+      readableText.length <= 160 && underlayDepth <= 1 && sourceArea <= geometryArea * 16) || visibleCandidates[0];
     if (!candidate) return null;
-    const { source, identity } = candidate;
-    const rect = source.getBoundingClientRect();
+    const { geometry, identity, sourceKind, readableText } = candidate;
+    const rect = geometry.getBoundingClientRect();
     return {
       x: Math.max(2, Math.min(innerWidth - 2, rect.left + Math.min(rect.width / 2, 80))),
       y: Math.max(2, Math.min(innerHeight - 2, rect.top + Math.min(rect.height / 2, 40))),
       identity,
-      readableText: (source.getAttribute('aria-label') || source.getAttribute('title') || source.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 400),
+      readableText,
+      sourceKind,
     };
   })()`);
   if (!target) throw new Error("No real preview page target is available");
@@ -371,14 +431,26 @@ export async function waitForWorkflowPopupState(session, predicate, timeoutMs = 
 export async function captureSiteWorkflowPosture(session) {
   return session.evaluate(`(() => {
     const xpathNode = (xpath) => { try { return document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue; } catch { return null; } };
+    const describe = (source) => (source?.getAttribute?.('aria-label') || source?.getAttribute?.('title') || source?.getAttribute?.('alt') || source?.getAttribute?.('placeholder') || source?.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 400);
+    const xpathTerminalTag = (xpath) => xpath?.match(/\\/([a-z][a-z0-9-]*)\\[\\d+\\]$/i)?.[1]?.toLocaleLowerCase('en') || '';
+    const pageUnderlayFor = (overlay) => {
+      const rect = overlay.getBoundingClientRect();
+      const x = Math.max(2, Math.min(innerWidth - 2, rect.left + rect.width / 2));
+      const y = Math.max(2, Math.min(innerHeight - 2, rect.top + rect.height / 2));
+      const elements = document.elementsFromPoint(x, y).filter((element) =>
+        element instanceof Element && !element.closest('[data-uf-extension-ui="true"]'));
+      const depth = elements.findIndex((element) => describe(element).length > 0);
+      return { exact: elements[0] || null, source: depth >= 0 ? elements[depth] : elements[0] || null };
+    };
     const targets = [];
-    const append = (source, owner) => {
+    const append = (source, owner, readableText = null) => {
       if (!(source instanceof Element) || targets.some((target) => target.source === source)) return;
-      targets.push({ source, owner });
+      targets.push({ source, owner, readableText });
     };
     for (const overlay of document.querySelectorAll('[data-uf-overlay-focus]')) {
       const xpath = overlay.getAttribute('data-uf-overlay-focus');
-      append(xpath ? xpathNode(xpath) : null, xpath);
+      const underlay = pageUnderlayFor(overlay);
+      append(underlay.source || (xpath ? xpathNode(xpath) : null), xpath, describe(underlay.exact) || xpathTerminalTag(xpath) || describe(underlay.source));
     }
     for (const source of document.querySelectorAll('.uf-ai-preview-focus-target')) append(source, source.getAttribute('title') || 'legacy-focus');
     for (const overlay of document.querySelectorAll('[data-layer="focus"] [data-mc-mark-id]')) {
@@ -396,7 +468,7 @@ export async function captureSiteWorkflowPosture(session) {
     focusOwners: targets.map((target) => target.owner),
     focusTargets: targets.map((target) => ({
       owner: target.owner,
-      readableText: (target.source.getAttribute('aria-label') || target.source.getAttribute('title') || target.source.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 400),
+      readableText: target.readableText || describe(target.source),
     })),
   }); })()`);
 }

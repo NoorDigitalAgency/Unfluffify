@@ -137,6 +137,22 @@ describe("P25 persistent publication guard", () => {
       pageKeysSha256: rewrite.pageKeysSha256,
     });
 
+    const rewriteAi = inspectRequestPayloadHygiene(JSON.stringify({
+      baseUrl: "https://example.com",
+      pages: [{
+        url: "https://example.com/candidate?one=1#section",
+        renderedHtml: "<style></style><main>Candidate</main><script src=\"/runtime.js\"></script>",
+      }],
+    }));
+    expect(rewriteAi).toMatchObject({
+      pass: true,
+      pageEnvelopeKind: "rewrite-ai-pages",
+      hasSinglePageEnvelope: true,
+      pageKeyCount: 1,
+      pageKeysSha256: rewrite.pageKeysSha256,
+      forbiddenMarkers: [],
+    });
+
     const contaminated = inspectRequestPayloadHygiene(JSON.stringify({
       page: { pageKey: "/", renderedHtml: "<script>bad()</script><div data-uf-consent-hidden>cookie</div>" },
     }));

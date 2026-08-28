@@ -7,6 +7,8 @@ import {
   createCandidateDispositionRecord,
   evaluateCandidateValidity,
   physicalActivatePopupControl,
+  physicalActivatePreviewPageTarget,
+  physicalActivatePreviewRow,
   proveRequestedRenderMode,
   readableTextsCorrespond,
   validateCandidateDispositionRecord,
@@ -51,6 +53,84 @@ describe("P25 physical popup activation", () => {
       "Input.dispatchMouseEvent",
     ]);
     expect(evidence.before.hitMatches).toBe(true);
+  });
+
+  it("proves native semantic preview-row activation with a trusted Space click", async () => {
+    const sends: Array<{ method: string; params?: Record<string, unknown> }> = [];
+    let evaluation = 0;
+    const session = {
+      async evaluate() {
+        evaluation += 1;
+        if (evaluation === 1) {
+          return {
+            name: "2. Main story. Included",
+            readableText: "Main story",
+            title: null,
+            focused: true,
+            semanticButton: true,
+            token: "keyboard-token",
+          };
+        }
+        return {
+          tokenMatches: true,
+          events: [
+            { type: "keydown", trusted: true, key: " ", detail: 0 },
+            { type: "keyup", trusted: true, key: " ", detail: 0 },
+            { type: "click", trusted: true, key: null, detail: 0 },
+          ],
+        };
+      },
+      async send(method: string, params?: Record<string, unknown>) {
+        sends.push({ method, params });
+      },
+    };
+
+    const evidence = await physicalActivatePreviewRow(session, 1);
+
+    expect(evidence).toMatchObject({ trustedKeyboard: true, activationKey: "Space" });
+    expect(sends.map(({ method }) => method)).toEqual([
+      "Page.enable",
+      "Page.bringToFront",
+      "Input.dispatchKeyEvent",
+      "Input.dispatchKeyEvent",
+    ]);
+    expect(sends[2]?.params).toMatchObject({ type: "rawKeyDown", key: " ", code: "Space" });
+    expect(sends[3]?.params).toMatchObject({ type: "keyUp", key: " ", code: "Space" });
+  });
+
+  it("clicks visible preview overlay geometry even when its absolute XPath is stale", async () => {
+    const sends: Array<{ method: string; params?: Record<string, unknown> }> = [];
+    let expression = "";
+    const session = {
+      async evaluate(value: string) {
+        expression = value;
+        return {
+          x: 120,
+          y: 240,
+          identity: "/html[1]/body[1]/main[1]/h2[1]",
+          readableText: "Candidate heading",
+          sourceKind: "visible-overlay-underlay",
+        };
+      },
+      async send(method: string, params?: Record<string, unknown>) {
+        sends.push({ method, params });
+      },
+    };
+
+    const evidence = await physicalActivatePreviewPageTarget(session);
+
+    expect(expression).toContain("document.elementsFromPoint");
+    expect(expression).toContain("geometry: overlay");
+    expect(expression).toContain("visible-overlay-underlay");
+    expect(evidence).toMatchObject({
+      trustedPointer: true,
+      target: { x: 120, y: 240, readableText: "Candidate heading" },
+    });
+    expect(sends.map(({ method }) => method)).toEqual([
+      "Input.dispatchMouseEvent",
+      "Input.dispatchMouseEvent",
+      "Input.dispatchMouseEvent",
+    ]);
   });
 });
 
@@ -274,7 +354,7 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).toContain('implementation === "legacy" ? "config-toggle" : "header-kebab-toggle"');
     expect(harness).toContain('implementation === "legacy" ? "render-mode-open-view" : "render-mode-open"');
     expect(harness).toContain('"AI returned to idle without opening a usable Content List or showing a failure"');
-    expect(harness).toContain('integerOption(options, "ai-timeout-ms", 180_000)');
+    expect(harness).toContain('integerOption(options, "ai-timeout-ms", AI_WORKFLOW_TIMEOUT_MS)');
     expect(harness).toContain("const initialInspectionView = before.renderInspectionView");
     expect(harness).toContain("last.renderInspectionView === renderMode && initialInspectionView !== renderMode");
     expect(harness).toContain("const before = await ensurePopupSessionView(popup, identity.implementation)");

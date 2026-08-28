@@ -85,6 +85,10 @@ const ARTIFACT_ROOT = resolve(REPO_ROOT, P25_LIVE_ARTIFACT_ROOT);
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const PUBLICATION_GUARD_HEARTBEAT_MS = 250;
 const PUBLICATION_GUARD_STALE_MS = 2_000;
+// Product AI authority owns an eight-minute terminal deadline. The live audit
+// waits through that boundary plus a small evidence-drain allowance instead of
+// misclassifying a legitimate asynchronous backend job as a client hang.
+const AI_WORKFLOW_TIMEOUT_MS = 8 * 60_000 + 20_000;
 const PINNED_LEGACY_ATTESTATION_PATH = join(REPO_ROOT, "scripts/performance/p25/pinned-legacy-bundle-attestation.json");
 const BROWSER_LIVE_PROVENANCE_PATH = join(REPO_ROOT, BROWSER_LIVE_PROVENANCE_RELATIVE_PATH);
 
@@ -889,7 +893,7 @@ async function runCurrentAi(popup, guard, options) {
   let contentListOpenedAtMs = null;
   let contentListFirstPaintMs = null;
   const controlActivation = await physicalActivatePopupControl(popup, "compute", "pointer");
-  const deadline = started + integerOption(options, "ai-timeout-ms", 180_000);
+  const deadline = started + integerOption(options, "ai-timeout-ms", AI_WORKFLOW_TIMEOUT_MS);
   let terminal = null;
   while (Date.now() < deadline) {
     const state = await capturePopupState(popup);

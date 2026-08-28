@@ -209,14 +209,24 @@ const FORBIDDEN_PAYLOAD_MARKERS = Object.freeze([
   ["extension-overlay", /unfluffify-(?:overlay|silent-highlight-overlay)/i],
   ["extension-url", /chrome-extension:\/\//i],
   ["extension-runtime-state", /__unfluffify|uf-marking-layer-root|popup-busy-curtain/i],
-  ["executable-source", /<(?:script|style|noscript)\b/i],
 ]);
+
+function containsExecutableSourceBody(body) {
+  const sourceElement = /<(script|style|noscript)\b[^>]*>([\s\S]*?)<\/\1\s*>/gi;
+  let match = sourceElement.exec(body);
+  while (match) {
+    if (match[2].trim().length > 0) return true;
+    match = sourceElement.exec(body);
+  }
+  return false;
+}
 
 export function inspectRequestPayloadHygiene(postData) {
   const body = typeof postData === "string" ? postData : "";
   const forbiddenMarkers = FORBIDDEN_PAYLOAD_MARKERS
     .filter(([, pattern]) => pattern.test(body))
     .map(([id]) => id);
+  if (containsExecutableSourceBody(body)) forbiddenMarkers.push("executable-source");
   let json = false;
   let pageKeys = [];
   let pageEnvelopeKind = null;
@@ -240,6 +250,11 @@ export function inspectRequestPayloadHygiene(postData) {
             pageEnvelopeKind = "rewrite-page";
             pageKeys = [pageKey];
           }
+        } else if (Array.isArray(parsed.pages)) {
+          pageEnvelopeKind = "rewrite-ai-pages";
+          pageKeys = parsed.pages
+            .map((page) => normalizePageKey(page?.url ?? page?.pageKey))
+            .filter(Boolean);
         } else if (parsed.pageMarkings && typeof parsed.pageMarkings === "object" && !Array.isArray(parsed.pageMarkings)) {
           pageEnvelopeKind = "legacy-page-markings";
           pageKeys = Object.keys(parsed.pageMarkings).map(normalizePageKey).filter(Boolean);
