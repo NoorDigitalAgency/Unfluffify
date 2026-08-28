@@ -20,7 +20,8 @@ function deferred<T>() {
 
 function createHarness(overrides: Partial<ConsentLifecycleOptions> = {}) {
   const order: string[] = [];
-  const document = {} as ConsentDocument;
+  const documentElement = {};
+  const document = { documentElement } as unknown as ConsentDocument;
   const observers: Array<{
     callback: (records?: readonly MutationRecord[]) => void;
     observe: ReturnType<typeof vi.fn>;
@@ -60,6 +61,7 @@ function createHarness(overrides: Partial<ConsentLifecycleOptions> = {}) {
   return {
     lifecycle,
     document,
+    documentElement,
     getDocument,
     hide,
     restore,
@@ -162,6 +164,74 @@ describe("content consent lifecycle", () => {
     expect(hideRoots).toHaveBeenCalledOnce();
     expect(hideRoots).toHaveBeenCalledWith(harness.document, [root]);
     expect(harness.onHidden).toHaveBeenLastCalledWith(1);
+  });
+
+  it("does not rescan consent selectors for extension-owned DOM mutations", async () => {
+    const extensionRoot = {
+      nodeType: 1,
+      tagName: "DIV",
+      isConnected: true,
+      parentElement: null,
+      getAttribute: (name: string) => name === "data-uf-extension-ui" ? "true" : null,
+      hasAttribute: () => false,
+    } as unknown as ConsentElement;
+    const extensionChild = {
+      nodeType: 1,
+      tagName: "DIV",
+      isConnected: true,
+      parentElement: extensionRoot,
+      getAttribute: () => null,
+      hasAttribute: () => false,
+    } as unknown as ConsentElement;
+    const hideRoots = vi.fn(() => ({ hidden: 0, bypassInstalled: false }));
+    const harness = createHarness({ hideRoots });
+    harness.lifecycle.adoptProperty(PROPERTY_A);
+    const hidesAfterAdoption = harness.hide.mock.calls.length;
+
+    harness.observers[0]?.callback([{
+      type: "childList",
+      target: harness.documentElement,
+      addedNodes: [extensionRoot],
+      removedNodes: [],
+    } as unknown as MutationRecord, {
+      type: "childList",
+      target: extensionRoot,
+      addedNodes: [extensionChild],
+      removedNodes: [],
+    } as unknown as MutationRecord, {
+      type: "attributes",
+      target: extensionChild,
+      attributeName: "class",
+    } as unknown as MutationRecord]);
+    await Promise.resolve();
+
+    expect(harness.hide).toHaveBeenCalledTimes(hidesAfterAdoption);
+    expect(hideRoots).not.toHaveBeenCalled();
+  });
+
+  it("retains a full sweep for genuine page additions at the document root", async () => {
+    const pageRoot = {
+      nodeType: 1,
+      tagName: "DIALOG",
+      isConnected: true,
+      parentElement: null,
+      getAttribute: () => null,
+      hasAttribute: () => false,
+    } as unknown as ConsentElement;
+    const hideRoots = vi.fn(() => ({ hidden: 0, bypassInstalled: false }));
+    const harness = createHarness({ hideRoots });
+    harness.lifecycle.adoptProperty(PROPERTY_A);
+
+    harness.observers[0]?.callback([{
+      type: "childList",
+      target: harness.documentElement,
+      addedNodes: [pageRoot],
+      removedNodes: [],
+    } as unknown as MutationRecord]);
+    await Promise.resolve();
+
+    expect(harness.hide).toHaveBeenCalledTimes(2);
+    expect(hideRoots).not.toHaveBeenCalled();
   });
 
   it("switches properties by disconnecting and restoring before the new sweep", () => {

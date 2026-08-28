@@ -484,6 +484,16 @@ headed-validation gates.
   same run retained one independent 58 ms Long Task during Alt inclusion; use a
   debug-work-stage pass to attribute and remove that production cost before the
   clean gate is repeated.
+- A production CPU profile attributed that cost outside marking evaluation and
+  paint: extension-owned acknowledgement/classification nodes woke the consent
+  observer, whose empty-work path still scheduled a full sweep and whose root
+  path ran all consent selectors inside the overlay subtree. Native
+  `querySelectorAll` consumed about 150 ms around one Alt gesture. Consent
+  lifecycle observation now rejects extension-owned attribute/child mutations,
+  walks ancestry for unannotated descendants, and does not schedule a sweep
+  when no eligible page mutation remains. Genuine page additions directly under
+  the document root still force the full suppression sweep, with regressions for
+  both sides of that boundary.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

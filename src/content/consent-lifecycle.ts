@@ -109,6 +109,26 @@ function defaultObserver(callback: (records?: readonly MutationRecord[]) => void
   };
 }
 
+function isExtensionOwnedMutationNode(value: unknown): boolean {
+  let element = value as (ConsentElement & Readonly<{ id?: string }>) | null | undefined;
+  while (element?.nodeType === 1) {
+    const id = element.getAttribute?.("id") ?? element.id ?? "";
+    const tagName = String(element.tagName ?? "").toLowerCase();
+    if (
+      element.getAttribute?.("data-uf-extension-ui") === "true" ||
+      element.hasAttribute?.("data-wxt-shadow-root") === true ||
+      tagName === "browser-mcp-container" ||
+      id === "browser-mcp-container" ||
+      id === "uf-consent-bypass" ||
+      id.startsWith("unfluffify-")
+    ) {
+      return true;
+    }
+    element = element.parentElement;
+  }
+  return false;
+}
+
 /**
  * Owns content-document consent suppression state. Page/document generations,
  * background authority, and shield coordination remain injected by the loader.
@@ -162,17 +182,24 @@ export function createConsentLifecycle(options: ConsentLifecycleOptions): Consen
       for (const record of records ?? []) {
         if (record.type === "attributes") {
           if ((record.target as Node).nodeType === 1) {
-            pendingRoots.add(record.target as unknown as ConsentElement);
+            if (!isExtensionOwnedMutationNode(record.target)) {
+              pendingRoots.add(record.target as unknown as ConsentElement);
+            }
           } else {
             pendingFullSweep = true;
           }
           continue;
         }
         if (record.type === "childList") {
+          let pageElementAdded = false;
           for (const node of record.addedNodes) {
-            if (node.nodeType === 1) {
+            if (node.nodeType === 1 && !isExtensionOwnedMutationNode(node)) {
               pendingRoots.add(node as unknown as ConsentElement);
+              pageElementAdded = true;
             }
+          }
+          if (!pageElementAdded) {
+            continue;
           }
           const document = getDocument();
           const mutationTarget: unknown = record.target;
@@ -180,6 +207,9 @@ export function createConsentLifecycle(options: ConsentLifecycleOptions): Consen
             pendingFullSweep = true;
           }
         }
+      }
+      if (!pendingFullSweep && pendingRoots.size === 0) {
+        return;
       }
       if (sweepScheduled) {
         return;
