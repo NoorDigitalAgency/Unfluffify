@@ -783,6 +783,7 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
   }
   if (!control || control.disabled) throw new Error(`Render Inspection control #${controlId} is unavailable: ${JSON.stringify(control)}`);
   const startedAt = new Date().toISOString();
+  const initialInspectionView = before.renderInspectionView;
   const controlActivation = await physicalActivatePopupControl(popup, controlId, "pointer");
   const deadline = Date.now() + timeoutMs;
   let sawBusy = false;
@@ -793,7 +794,9 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
     const currentControl = last.controls.find((candidate) => candidate.id === controlId);
     sawBusy ||= last.busy === true;
     sawControlDisabled ||= currentControl?.disabled === true;
-    const transitionObserved = sawBusy || sawControlDisabled || last.renderInspectionView === renderMode || last.renderChoice === renderMode;
+    const transitionObserved = sawBusy || sawControlDisabled || (
+      last.renderInspectionView === renderMode && initialInspectionView !== renderMode
+    );
     const terminal = transitionObserved && last.busy === false && currentControl?.disabled === false;
     const { modeProven, proofSource } = proveRequestedRenderMode(last, renderMode);
     if (terminal && modeProven) {
@@ -806,6 +809,7 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
         finishedAt: new Date().toISOString(),
         sawBusy,
         sawControlDisabled,
+        initialInspectionView,
         modeProven,
         proofSource,
         terminal: true,
@@ -816,6 +820,30 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(`Timed out waiting for ${renderMode} Render Inspection; last=${JSON.stringify(last)}`);
+}
+
+async function ensurePopupSessionView(popup, implementation, timeoutMs = 30_000) {
+  let state = await capturePopupState(popup);
+  let toggle = state.controls.find((control) => control.id === "toggle-enabled");
+  if (toggle && toggle.visible !== false) return state;
+  const exitIds = implementation === "legacy"
+    ? ["render-mode-edit", "render-mode-cancel"]
+    : ["render-mode-cancel"];
+  const exit = exitIds
+    .map((id) => state.controls.find((control) => control.id === id))
+    .find((control) => control && !control.disabled && control.visible !== false);
+  if (!exit?.id) {
+    throw new Error(`Cannot return from ${state.view ?? "unknown"} to the marking session: ${JSON.stringify(exitIds)}`);
+  }
+  await physicalActivatePopupControl(popup, exit.id, "pointer");
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    state = await capturePopupState(popup);
+    toggle = state.controls.find((control) => control.id === "toggle-enabled");
+    if (toggle && toggle.visible !== false && state.busy === false) return state;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Timed out returning to the marking session; last=${JSON.stringify(state)}`);
 }
 
 function compactPopupTransition(state, started) {
@@ -1273,7 +1301,7 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
     const popup = await new CdpSession(targets.popup).connect();
     try {
       await popup.send("Runtime.enable");
-      const before = await capturePopupState(popup);
+      const before = await ensurePopupSessionView(popup, identity.implementation);
       const toggle = before.controls.find((control) => control.id === "toggle-enabled");
       if (!toggle) throw new Error("Enable marking toggle is missing");
       if (toggle.checked) throw new Error("Activation evidence requires marking to be disabled before the stage; disable it and retry in a fresh run");

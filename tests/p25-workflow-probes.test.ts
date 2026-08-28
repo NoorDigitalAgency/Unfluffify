@@ -234,6 +234,9 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).toContain('implementation === "legacy" ? "render-mode-open-view" : "render-mode-open"');
     expect(harness).toContain('"AI returned to idle without opening a usable Content List or showing a failure"');
     expect(harness).toContain('integerOption(options, "ai-timeout-ms", 180_000)');
+    expect(harness).toContain("const initialInspectionView = before.renderInspectionView");
+    expect(harness).toContain("last.renderInspectionView === renderMode && initialInspectionView !== renderMode");
+    expect(harness).toContain("const before = await ensurePopupSessionView(popup, identity.implementation)");
     const probes = readFileSync(resolve(process.cwd(), "scripts/performance/p25/workflow-probes.mjs"), "utf8");
     expect(probes).toContain('#unfluffify-overlay [data-layer="ai-content"] .uf-rect');
     expect(probes).toContain("'[data-uf-interaction-shield=\"true\"], #unfluffify-overlay'");
