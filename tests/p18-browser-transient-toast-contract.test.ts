@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -115,5 +116,18 @@ describe("P18 real-browser transient-surface and toast gate contract", () => {
     expect(content).toContain('data-p18-mark-target="primary"');
     expect(content).toContain('data-p18-mark-target="replacement"');
     expect(content).toContain('id="p18-page-action"');
+    expect(content).toContain('"RECONCILE"');
+    expect(content).toContain('payload: { ...pageWorld }');
+  });
+
+  it("keeps the nested candidate-confirmation fixture on the pending-session branch", () => {
+    const runtime = readFileSync(new URL("../scripts/performance/p18/popup-runtime.tsx", import.meta.url), "utf8");
+    expect(runtime).toContain('sessionPending: scenario === "nested"');
+  });
+
+  it("polls asynchronous content authority from the controller instead of treating a Promise as ready", () => {
+    const controller = readFileSync(new URL("../scripts/performance/p18/playwright-controller.js", import.meta.url), "utf8");
+    expect(controller).toContain("waitForContentSnapshot");
+    expect(controller).not.toContain("waitForFunction(async");
   });
 });

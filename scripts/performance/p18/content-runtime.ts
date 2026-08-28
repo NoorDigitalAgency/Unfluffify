@@ -23,6 +23,15 @@ type PageState = {
   clicks: number;
   contextMenus: number;
   pageWorldCommands: number;
+  pageWorldCommandNames: string[];
+  scrollEvents: Array<{ readonly at: number; readonly y: number }>;
+  mutations: Array<{
+    readonly at: number;
+    readonly type: string;
+    readonly target: string;
+    readonly added: readonly string[];
+    readonly removed: readonly string[];
+  }>;
 };
 
 type SelectorSet = Readonly<{
@@ -397,7 +406,13 @@ function createRuntimeApi() {
       // decisions, so this second authority edge consumes the real brain signal
       // through the shipping content organ instead of mutating its state here.
       const settledLock = await dispatch("lock.state.changed", lockPayload);
-      return { lock, activation, signal, settledLock };
+      return {
+        lock,
+        activation,
+        signal,
+        settledLock,
+        pageState: clone(window.__p18PageState),
+      };
     },
     invalidate(): void {
       invalidationCallback?.();

@@ -49,9 +49,9 @@ import {
   isComposedCaptureExcluded,
   resolveViewportScrollOwner,
   runReveal,
+  smoothScrollOwnerTo,
   type RevealRunResult,
   waitForRevealQuiet,
-  waitForScrollEnd,
 } from "../content/stabilization";
 import type { BrainSignal } from "../domain/schema/signals";
 import type { LockActionKind } from "../domain/schema/facts";
@@ -1283,12 +1283,12 @@ async function runActivationStabilization(pageUrl: string): Promise<RevealRunRes
                   return { reached: false, progressed: anyProgress };
                 }
                 const beforeOffset = origin.owner.currentOffset();
-                origin.owner.scrollTo(origin.top, "smooth", origin.left);
-                const scroll = await waitForScrollEnd(
+                const scroll = await smoothScrollOwnerTo(
                   origin.owner,
                   origin.top,
                   isStale,
                   window,
+                  origin.left,
                 );
                 const afterOffset = origin.owner.currentOffset();
                 allReached = allReached && scroll.reached;
@@ -1312,15 +1312,15 @@ async function runActivationStabilization(pageUrl: string): Promise<RevealRunRes
               : position === "lazy-threshold"
                 ? Math.round(bottomOffset * 0.5)
                   : bottomOffset;
-            // This is intentionally visible operator feedback. The bounded
-            // scroll-end proof below keeps hostile or throttled pages from
-            // hanging while retaining the latest legacy's smooth visit.
-            resolvedOwner.scrollTo(
+            // The visible walk is driven by bounded extension-owned frames.
+            // Native smooth scrolling can remain queued after freeze, while a
+            // one-shot auto write would recreate the old mechanical teleport.
+            const scroll = await smoothScrollOwnerTo(
+              resolvedOwner,
               targetOffset,
-              "smooth",
-              resolvedOwner.currentInlineOffset(),
+              isStale,
+              window,
             );
-            const scroll = await waitForScrollEnd(resolvedOwner, targetOffset, isStale, window);
             const afterOffset = resolvedOwner.currentOffset();
             const progressed = scroll.reached || Math.abs(afterOffset - beforeOffset) > 2;
             if (position !== "bottom") {

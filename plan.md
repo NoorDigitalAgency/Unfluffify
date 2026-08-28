@@ -348,7 +348,7 @@ headed-validation gates.
 - One current-page Save request; incomplete coverage emits zero final publish;
   an unknown atomic outcome reuses the same idempotency identity.
 
-### Phase 7 — Automated and performance acceptance — implementation complete; clean gate pending
+### Phase 7 — Automated and performance acceptance — full verify green; clean aggregate pending
 
 - Add focused regression tests with each implementation slice, then run
   `pnpm lint`, `pnpm check`, focused Vitest, full `pnpm test`, `pnpm build`,
@@ -365,6 +365,10 @@ headed-validation gates.
   authority, Todo, shortcuts, checklist phases, and credentials retention.
 - A gate failure is fixed at its owning layer. Budgets are not widened to accept a
   regression, and observer-contaminated evidence is discarded.
+- Current pre-commit authority: `pnpm verify` passes 140 files / 1,376 tests;
+  repaired P14, P17, P18, P20, and P23 browser smokes pass 48/48, 19/19,
+  14/14, 4/4, and 25/25 respectively. The aggregate remains pending until these
+  exact sources are committed and rerun with `cleanSourceSet: true`.
 
 ### Phase 8 — Full headed frame-by-frame legacy/rewrite matrix — pending
 

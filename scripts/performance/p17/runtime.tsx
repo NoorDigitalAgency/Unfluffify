@@ -421,7 +421,10 @@ function targetSnapshot(fixtureId: string) {
   const row = rowForFixture(fixtureId);
   const composedReference = (target as Element & { shadowRoot?: ShadowRoot | null } | null)
     ?.shadowRoot?.querySelector("[data-p17-fixture-id='implicit-shadow']") ?? null;
-  const hoverBoxes = Array.from(document.querySelectorAll<HTMLElement>("[data-uf-overlay-hover]"));
+  // Preview pointer hover and keyboard focus intentionally share the retained
+  // focus layer. The marking-only hover layer belongs to target discovery and
+  // must not be used as evidence for Content List emphasis.
+  const hoverBoxes = Array.from(document.querySelectorAll<HTMLElement>("[data-uf-overlay-focus]"));
   return {
     fixtureId,
     row: row ? jsonClone(row) : null,
@@ -432,7 +435,7 @@ function targetSnapshot(fixtureId: string) {
     scrollY,
     viewportCenterY: innerHeight / 2,
     hoverBoxes: hoverBoxes.map((box) => ({
-      xpath: box.getAttribute("data-uf-overlay-hover"),
+      xpath: box.getAttribute("data-uf-overlay-focus"),
       rect: rectSnapshot(box),
     })),
     decoyRect: rectSnapshot(document.querySelector("[data-p17-mutation-decoy='true']")),

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -78,5 +79,11 @@ describe("P20 integrated browser gate contract", () => {
     expect(validateCheckCatalog([...passing, passing[0]!])).toMatchObject({ pass: false, duplicates: [REQUIRED_CHECK_IDS[0]] });
     expect(validateCheckCatalog([...passing, { id: "unexpected", pass: true }])).toMatchObject({ pass: false, unexpected: ["unexpected"] });
     expect(validateCheckCatalog(passing.map((entry, index) => ({ ...entry, pass: index !== 1 }))).pass).toBe(false);
+  });
+
+  it("polls asynchronous content authority outside the browser predicate", () => {
+    const controller = readFileSync(new URL("../scripts/performance/p20/playwright-controller.js", import.meta.url), "utf8");
+    expect(controller).toContain("waitForContentSnapshot");
+    expect(controller).not.toContain("waitForFunction(async");
   });
 });

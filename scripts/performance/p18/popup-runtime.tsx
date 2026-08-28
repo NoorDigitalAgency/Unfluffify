@@ -143,6 +143,9 @@ function diagnostics(): PopupDiagnostics {
     configurationComplete: true,
     contentActive: scenario !== "configuration",
     contentReachable: true,
+    // Candidate navigation only needs confirmation while local session work is
+    // pending. Keep the nested-surface fixture on that real production branch.
+    sessionPending: scenario === "nested",
     settingsLoaded: true,
     settingsSaved: true,
     stageBaseSet: true,

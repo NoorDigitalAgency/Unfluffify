@@ -383,7 +383,13 @@ export type MarkingPointResolutionHint = Readonly<{
 }>;
 
 const DEFERRED_BRANCH_RENDER_TARGET_THRESHOLD = 200;
-const STRUCTURAL_MUTATION_QUIET_MS = 150;
+// Newly inserted or removed content needs to become markable on roughly the
+// same cadence as the legacy renderer. Presentation attributes are noisier
+// (carousels commonly emit them in short trains), so retain the longer quiet
+// window for those records without making authoritative child-list changes pay
+// that latency on every refresh.
+const STRUCTURAL_CHILD_LIST_QUIET_MS = 100;
+const STRUCTURAL_PRESENTATION_QUIET_MS = 150;
 const STRUCTURAL_MUTATION_IDLE_TIMEOUT_MS = 1_200;
 
 /**
@@ -979,7 +985,7 @@ export function createMarkingEngine(
     let structuralQuietHandle: ReturnType<typeof setTimeout> | null = null;
     let structuralFallbackHandle: ReturnType<typeof setTimeout> | null = null;
     let structuralRenderInFlight = false;
-    let structuralTrailing = false;
+    let structuralTrailingQuietMs: number | null = null;
     const cancelStructuralDispatch = (): void => {
       if (structuralIdleHandle !== null) {
         idleView?.cancelIdleCallback?.(structuralIdleHandle);
@@ -999,16 +1005,17 @@ export function createMarkingEngine(
       structuralRenderInFlight = true;
       structuralRenderSettled = () => {
         structuralRenderInFlight = false;
-        if (structuralTrailing) {
-          structuralTrailing = false;
-          scheduleStructuralRefresh();
+        const trailingQuietMs = structuralTrailingQuietMs;
+        structuralTrailingQuietMs = null;
+        if (trailingQuietMs !== null) {
+          scheduleStructuralRefresh(trailingQuietMs);
         }
       };
       scheduleRender("structural");
     };
-    const scheduleStructuralRefresh = (): void => {
+    const scheduleStructuralRefresh = (quietMs: number): void => {
       if (structuralRenderInFlight) {
-        structuralTrailing = true;
+        structuralTrailingQuietMs = Math.min(structuralTrailingQuietMs ?? quietMs, quietMs);
         return;
       }
       // A carousel or reactive shell can emit a long train of attribute and DOM
@@ -1028,7 +1035,7 @@ export function createMarkingEngine(
           return;
         }
         dispatchStructuralRefresh();
-      }, STRUCTURAL_MUTATION_QUIET_MS);
+      }, quietMs);
     };
     const isExtractionIrrelevantNode = (node: Node): boolean => {
       const element = node.nodeType === 1 ? node as Element : node.parentElement;
@@ -1103,7 +1110,9 @@ export function createMarkingEngine(
         if (relevantRecords.length === 0) {
           return;
         }
-        scheduleStructuralRefresh();
+        scheduleStructuralRefresh(relevantRecords.some((record) => record.type === "childList")
+          ? STRUCTURAL_CHILD_LIST_QUIET_MS
+          : STRUCTURAL_PRESENTATION_QUIET_MS);
       });
       observer.observe(rootElement, {
         childList: true,
@@ -1185,7 +1194,7 @@ export function createMarkingEngine(
     visualViewport?.addEventListener?.("resize", scheduleResizeRender);
     cleanups.push(() => {
       cancelStructuralDispatch();
-      structuralTrailing = false;
+      structuralTrailingQuietMs = null;
       structuralRenderInFlight = false;
       structuralRenderSettled = null;
       if (viewportScrollHandle !== null) {

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -113,5 +114,12 @@ describe("P17 real-browser canonical preview gate contract", () => {
       expect(page).toContain('data-uf-closed-shadow-host="true"');
       expect(page).toContain('id="p17-after-spacer"');
     }
+  });
+
+  it("observes Content List emphasis through the shared focus layer, not marking hover", () => {
+    const runtime = readFileSync(new URL("../scripts/performance/p17/runtime.tsx", import.meta.url), "utf8");
+    expect(runtime).toContain('querySelectorAll<HTMLElement>("[data-uf-overlay-focus]")');
+    expect(runtime).toContain('box.getAttribute("data-uf-overlay-focus")');
+    expect(runtime).not.toContain('querySelectorAll<HTMLElement>("[data-uf-overlay-hover]")');
   });
 });

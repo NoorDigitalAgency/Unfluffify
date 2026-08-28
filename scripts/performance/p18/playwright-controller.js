@@ -52,6 +52,21 @@ async (page) => {
     ({ methodName, methodArgs }) => window.__p18ContentRuntime[methodName](...methodArgs),
     { methodName: method, methodArgs: args },
   );
+  const waitForContentSnapshot = async (target, accepts, timeoutMs = 15_000) => {
+    const deadline = Date.now() + timeoutMs;
+    let latest = null;
+    while (Date.now() < deadline) {
+      try {
+        latest = await contentCall(target, "snapshot");
+        if (accepts(latest)) return latest;
+      } catch {
+        // The shipping runtime can be registered one task after its bundle has
+        // evaluated. Keep the bounded controller-side poll authoritative.
+      }
+      await target.waitForTimeout(50);
+    }
+    throw new Error(`Timed out waiting for P18 content state: ${JSON.stringify(latest)}`);
+  };
   const waitForPopup = async (target, variant) => {
     await target.waitForFunction(
       () => window.__p18PopupRuntime?.readyState() !== "booting",
@@ -90,14 +105,7 @@ async (page) => {
       "P18 content fixture drifted",
       ready,
     );
-    await target.waitForFunction(async () => {
-      try {
-        const snapshot = await window.__p18ContentRuntime.snapshot();
-        return snapshot.status !== null;
-      } catch {
-        return false;
-      }
-    }, undefined, { timeout: 15_000 });
+    await waitForContentSnapshot(target, (snapshot) => snapshot.status !== null);
     return ready;
   };
   const outsidePoint = async (target) => {
@@ -348,6 +356,12 @@ async (page) => {
     await contentPage.goto(contentUrl, { waitUntil: "load" });
     const contentReady = await waitForContent(contentPage);
     const activation = await contentCall(contentPage, "activateMarking");
+    assertion(
+      activation?.activation?.ok === true &&
+        activation?.activation?.data?.interactionsReady === true,
+      "P18 marking activation did not acknowledge ready interactions",
+      activation,
+    );
     await contentPage.waitForFunction(
       () => window.__p18PageState.pageWorldCommands >= 1,
       undefined,
@@ -414,11 +428,10 @@ async (page) => {
       assertion(exclude && exclude.label === "Exclude" && !exclude.disabled, "Canonical Exclude action was not enabled", menu);
       await contentPage.locator('[data-uf-marking-menu-action="exclude"]').click();
       await contentPage.waitForSelector('[data-uf-marking-menu="true"]', { state: "hidden" });
-      await contentPage.waitForFunction(async () => {
-        const snapshot = await window.__p18ContentRuntime.snapshot();
-        return snapshot.status?.data?.dirty === true && snapshot.status?.data?.markedCount === 1;
-      });
-      const after = await contentCall(contentPage, "snapshot");
+      const after = await waitForContentSnapshot(
+        contentPage,
+        (snapshot) => snapshot.status?.data?.dirty === true && snapshot.status?.data?.markedCount === 1,
+      );
       const afterTargetRow = after.status?.data?.contentRows?.find((row) => row.xpath === targetXpath);
       assertion(after.status?.data?.active === true && after.status?.data?.dirty === true, "Canonical action did not update the real content controller", after.status);
       assertion(after.status.data.markedCount === 1, "One physical menu action did not commit exactly once", after.status);
@@ -467,11 +480,10 @@ async (page) => {
 
       const markedBefore = afterDismissal.status?.data?.markedCount;
       const resumedPoint = await physicalClick(contentPage, "#p18-second-mark-target", "left", ["Shift"]);
-      await contentPage.waitForFunction(
-        (previous) => window.__p18ContentRuntime.snapshot().then((snapshot) => snapshot.status?.data?.markedCount === previous + 1),
-        markedBefore,
+      const afterInteraction = await waitForContentSnapshot(
+        contentPage,
+        (snapshot) => snapshot.status?.data?.markedCount === markedBefore + 1,
       );
-      const afterInteraction = await contentCall(contentPage, "snapshot");
       assertion(afterInteraction.status.data.active === true && afterInteraction.status.data.markedCount === markedBefore + 1, "Marking interaction did not resume after menu dismissal", { markedBefore, afterInteraction });
       return { firstPoint, replacementPoint, dismissalPoint, resumedPoint, first, firstConnectedAfterReplace, replacement, pageClicksBefore, afterDismissal, afterInteraction };
     });

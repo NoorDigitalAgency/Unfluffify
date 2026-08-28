@@ -37,6 +37,20 @@ async (page) => {
     ({ methodName, methodArgs }) => window.__p18ContentRuntime[methodName](...methodArgs),
     { methodName: method, methodArgs: args },
   );
+  const waitForContentSnapshot = async (target, accepts, timeoutMs = 15_000) => {
+    const deadline = Date.now() + timeoutMs;
+    let latest = null;
+    while (Date.now() < deadline) {
+      try {
+        latest = await contentCall(target, "snapshot");
+        if (accepts(latest)) return latest;
+      } catch {
+        // Registration can land one task after bundle evaluation.
+      }
+      await target.waitForTimeout(50);
+    }
+    throw new Error(`Timed out waiting for P20 content state: ${JSON.stringify(latest)}`);
+  };
   const popupCall = (target, method, ...args) => target.evaluate(
     ({ methodName, methodArgs }) => window.__p20PopupRuntime[methodName](...methodArgs),
     { methodName: method, methodArgs: args },
@@ -49,13 +63,7 @@ async (page) => {
       fixture: window.__p18Fixture,
     }));
     assertion(ready.state === "ready", "P20 content runtime failed", ready);
-    await target.waitForFunction(async () => {
-      try {
-        return (await window.__p18ContentRuntime.snapshot()).status !== null;
-      } catch {
-        return false;
-      }
-    }, undefined, { timeout: 15_000 });
+    await waitForContentSnapshot(target, (snapshot) => snapshot.status !== null);
     return ready;
   };
   const waitForPopup = async (target, variant) => {
@@ -102,6 +110,12 @@ async (page) => {
     await contentPage.goto(`${origin}/content?variant=production`, { waitUntil: "load" });
     const contentReady = await waitForContent(contentPage);
     const activation = await contentCall(contentPage, "activateMarking");
+    assertion(
+      activation?.activation?.ok === true &&
+        activation?.activation?.data?.interactionsReady === true,
+      "P20 marking activation did not acknowledge ready interactions",
+      activation,
+    );
     await contentPage.waitForFunction(() => window.__p18PageState.pageWorldCommands >= 1, undefined, { timeout: 5_000 });
     const readinessStarted = Date.now();
     await contentPage.waitForFunction(() => {
@@ -153,12 +167,14 @@ async (page) => {
         history.pushState({}, "", `${location.pathname}?p20-spa=1`);
         window.dispatchEvent(new PopStateEvent("popstate"));
       });
-      await contentPage.waitForFunction(async () => {
-        const snapshot = await window.__p18ContentRuntime.snapshot();
-        return snapshot.status?.data?.active === false &&
-          !document.documentElement.classList.contains("uf-cursor-passthrough") &&
-          !document.querySelector(".uf-marking-layer-root");
-      }, undefined, { timeout: 5_000 });
+      await waitForContentSnapshot(
+        contentPage,
+        (snapshot) => snapshot.status?.data?.active === false,
+        5_000,
+      );
+      await contentPage.waitForFunction(() =>
+        !document.documentElement.classList.contains("uf-cursor-passthrough") &&
+        !document.querySelector(".uf-marking-layer-root"), undefined, { timeout: 5_000 });
       const navigation = await spaceSnapshot(contentPage);
       await contentPage.keyboard.up("Space");
 

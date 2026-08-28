@@ -80,6 +80,14 @@ export const MARKING_OVERLAY_STYLES = `
 .uf-marking-layer-root.uf-page-inspection-active .uf-layer {
   opacity: 0;
 }
+.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="silent-immutable"],
+.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="silent-content"],
+.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="silent-excluded"] {
+  /* Silent-only scrolling repositions on the next presentation frame. Hide
+     its stale coordinate snapshot synchronously, then let the base transition
+     restore the retained layers after current geometry has been committed. */
+  transition-duration: 0s;
+}
 .uf-marking-layer-root.uf-marking-temporarily-disabled .uf-layer {
   opacity: 0.28;
   filter: grayscale(0.75) saturate(0.55);

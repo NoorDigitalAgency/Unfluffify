@@ -518,11 +518,19 @@ describe("P6 content marking engine", () => {
     const fadeSelectors = MARKING_OVERLAY_STYLES.match(
       /(\.uf-marking-layer-root\.uf-scrolling[\s\S]+?)\{\n {2}opacity: 0;\n\}/,
     )?.[1];
+    const immediateSilentFadeSelectors = MARKING_OVERLAY_STYLES.match(
+      /(\.uf-marking-layer-root\.uf-scrolling \.uf-layer\[data-layer="silent-immutable"\][\s\S]+?)\{\n[\s\S]+?transition-duration: 0s;\n\}/,
+    )?.[1];
 
     expect(fadeSelectors).toBeDefined();
+    expect(immediateSilentFadeSelectors).toBeDefined();
     for (const layer of ["silent-immutable", "silent-content", "silent-excluded"]) {
       expect(fadeSelectors).toContain(`.uf-layer[data-layer="${layer}"]`);
+      expect(immediateSilentFadeSelectors).toContain(`.uf-layer[data-layer="${layer}"]`);
     }
+    // Removing uf-scrolling restores the shared 150 ms transition; only the
+    // stale-geometry edge is synchronous.
+    expect(MARKING_OVERLAY_STYLES).toContain("transition: opacity 0.15s ease");
   });
 
   it("retains silent highlights with the shared visibility policy", () => {

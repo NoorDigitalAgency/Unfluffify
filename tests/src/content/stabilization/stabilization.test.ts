@@ -20,6 +20,7 @@ import {
   invalidateViewportScrollOwnerProofs,
   resolveViewportScrollOwner,
   runReveal,
+  smoothScrollOwnerTo,
   waitForRevealQuiet,
   waitForWindowScrollEnd,
   type ViewportScrollOwner,
@@ -171,6 +172,103 @@ describe("P5 page stabilization", () => {
       for (const timer of frameTimers) clearTimeout(timer);
       vi.useRealTimers();
       vi.unstubAllGlobals();
+    }
+  });
+
+  it("drives a smooth reveal through bounded extension-owned frame steps", async () => {
+    vi.useFakeTimers();
+    let currentTop = 0;
+    let currentLeft = 24;
+    const scrollCalls: Array<{ top: number; behavior?: ScrollBehavior; left?: number }> = [];
+    const frameTimers = new Set<ReturnType<typeof setTimeout>>();
+    const eventTarget = {
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as EventTarget;
+    const owner: ViewportScrollOwner = {
+      kind: "element",
+      element: { isConnected: true } as HTMLElement,
+      eventTarget,
+      currentOffset: () => currentTop,
+      currentInlineOffset: () => currentLeft,
+      maximumOffset: () => 4_000,
+      viewportExtent: () => 960,
+      scrollTo(top, behavior, left = currentLeft) {
+        currentTop = top;
+        currentLeft = left;
+        scrollCalls.push({ top, behavior, left });
+      },
+    };
+    const win = {
+      requestAnimationFrame(callback: FrameRequestCallback) {
+        const timer = setTimeout(() => callback(Date.now()), 16);
+        frameTimers.add(timer);
+        return timer;
+      },
+      cancelAnimationFrame(timer: ReturnType<typeof setTimeout>) {
+        clearTimeout(timer);
+        frameTimers.delete(timer);
+      },
+    } as unknown as Window;
+    try {
+      const waiting = smoothScrollOwnerTo(owner, 1_200, () => false, win, 60);
+      await vi.runAllTimersAsync();
+      await expect(waiting).resolves.toEqual({
+        reached: true,
+        timedOut: false,
+        stale: false,
+        stalled: false,
+      });
+      expect(scrollCalls.length).toBeGreaterThan(4);
+      expect(scrollCalls[0].top).toBeGreaterThan(0);
+      expect(scrollCalls[0].top).toBeLessThan(1_200);
+      expect(scrollCalls.at(-1)).toEqual({ top: 1_200, behavior: "auto", left: 60 });
+      expect(scrollCalls.every((call) => call.behavior === "auto")).toBe(true);
+      expect(scrollCalls.every((call, index) => index === 0 || call.top >= scrollCalls[index - 1].top)).toBe(true);
+    } finally {
+      for (const timer of frameTimers) clearTimeout(timer);
+      vi.useRealTimers();
+    }
+  });
+
+  it("continues the owned smooth walk when animation frames starve", async () => {
+    vi.useFakeTimers();
+    let currentTop = 0;
+    const scrollCalls: number[] = [];
+    const requestAnimationFrame = vi.fn(() => 73);
+    const cancelAnimationFrame = vi.fn();
+    const owner: ViewportScrollOwner = {
+      kind: "document",
+      element: { isConnected: true } as HTMLElement,
+      eventTarget: {
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      } as unknown as EventTarget,
+      currentOffset: () => currentTop,
+      currentInlineOffset: () => 0,
+      maximumOffset: () => 4_000,
+      viewportExtent: () => 960,
+      scrollTo(top) {
+        currentTop = top;
+        scrollCalls.push(top);
+      },
+    };
+    const win = { requestAnimationFrame, cancelAnimationFrame } as unknown as Window;
+    try {
+      const waiting = smoothScrollOwnerTo(owner, 900, () => false, win);
+      await vi.runAllTimersAsync();
+      await expect(waiting).resolves.toEqual({
+        reached: true,
+        timedOut: false,
+        stale: false,
+        stalled: false,
+      });
+      expect(scrollCalls.length).toBeGreaterThan(4);
+      expect(scrollCalls[0]).toBeGreaterThan(0);
+      expect(scrollCalls.at(-1)).toBe(900);
+      expect(cancelAnimationFrame).toHaveBeenCalledWith(73);
+    } finally {
+      vi.useRealTimers();
     }
   });
 
@@ -863,6 +961,66 @@ describe("P5 page stabilization", () => {
       expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(51);
       await expect(adjacentProof).resolves.toEqual({ quiet: true, stale: false, timedOut: false });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignores extension-only child-list churn at an ordinary document parent", async () => {
+    vi.useFakeTimers();
+    let mutationCallback: MutationCallback = () => undefined;
+    const root = {
+      nodeType: 1, parentElement: null,
+      getAttribute: () => null, hasAttribute: () => false,
+    } as unknown as Element;
+    const extensionSurface = {
+      nodeType: 1, parentElement: root,
+      getAttribute: (name: string) => name === "data-uf-extension-ui" ? "true" : null,
+      hasAttribute: (name: string) => name === "data-uf-extension-ui",
+    } as unknown as Element;
+    const adjacentPageNode = {
+      nodeType: 1, parentElement: root,
+      getAttribute: () => null, hasAttribute: () => false,
+    } as unknown as Element;
+    const startProof = () => waitForRevealQuiet({
+      document: { documentElement: root } as unknown as Document,
+      window: {} as Window,
+      measureExtent: () => 1_000,
+      isStale: () => false,
+      quietMs: 250,
+      timeoutMs: 1_000,
+      createMutationObserver(callback) {
+        mutationCallback = callback;
+        return { observe: vi.fn(), disconnect: vi.fn() };
+      },
+    });
+    try {
+      const extensionOnly = startProof();
+      await vi.advanceTimersByTimeAsync(200);
+      mutationCallback([{
+        target: root,
+        type: "childList",
+        addedNodes: [extensionSurface],
+        removedNodes: [],
+      } as unknown as MutationRecord], {} as MutationObserver);
+      await vi.advanceTimersByTimeAsync(50);
+      await expect(extensionOnly).resolves.toEqual({ quiet: true, stale: false, timedOut: false });
+
+      const pageMutation = startProof();
+      await vi.advanceTimersByTimeAsync(200);
+      mutationCallback([{
+        target: root,
+        type: "childList",
+        addedNodes: [adjacentPageNode],
+        removedNodes: [],
+      } as unknown as MutationRecord], {} as MutationObserver);
+      await vi.advanceTimersByTimeAsync(249);
+      let settled = false;
+      void pageMutation.then(() => { settled = true; });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(pageMutation).resolves.toEqual({ quiet: true, stale: false, timedOut: false });
     } finally {
       vi.useRealTimers();
     }

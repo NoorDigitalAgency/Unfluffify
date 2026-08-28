@@ -91,7 +91,42 @@ export function renderContentFixturePage({ variant = "production" } = {}) {
   <div id="p18-content-scroll-sentinel" aria-hidden="true">scroll sentinel</div>
 </main>
 <script>
-  window.__p18PageState = { clicks: 0, contextMenus: 0, pageWorldCommands: 0 };
+  window.__p18PageState = {
+    clicks: 0,
+    contextMenus: 0,
+    pageWorldCommands: 0,
+    pageWorldCommandNames: [],
+    scrollEvents: [],
+    mutations: [],
+  };
+  const mutationLabel = (node) => node?.nodeType === 1
+    ? [node.tagName, node.id, node.getAttribute?.("data-uf-extension-ui")].filter(Boolean).join("#")
+    : node?.nodeName || "unknown";
+  new MutationObserver((records) => {
+    for (const record of records) {
+      if (window.__p18PageState.mutations.length >= 64) break;
+      window.__p18PageState.mutations.push({
+        at: performance.now(),
+        type: record.type,
+        target: mutationLabel(record.target),
+        added: [...record.addedNodes].map(mutationLabel),
+        removed: [...record.removedNodes].map(mutationLabel),
+      });
+    }
+  }).observe(document.documentElement, { childList: true, subtree: true });
+  window.addEventListener("scroll", () => {
+    if (window.__p18PageState.scrollEvents.length < 64) {
+      window.__p18PageState.scrollEvents.push({ at: performance.now(), y: scrollY });
+    }
+  }, { passive: true });
+  const pageWorld = {
+    armed: false,
+    paused: false,
+    lazySuppressed: false,
+    sessionNonce: "",
+    phase: "idle",
+    initialDiscoveryComplete: false,
+  };
   window.addEventListener("message", (event) => {
     const request = event.data;
     if (
@@ -99,16 +134,42 @@ export function renderContentFixturePage({ variant = "production" } = {}) {
       !request ||
       request.kind !== "uf-page-bus/1" ||
       request.type !== "request" ||
-      !["ARM", "SET_LAZY_LOADING_SUPPRESSED", "SET_MOTION_PAUSED", "DESTROY"].includes(request.command)
+      !["ARM", "RECONCILE", "SET_LAZY_LOADING_SUPPRESSED", "SET_MOTION_PAUSED", "DESTROY"].includes(request.command)
     ) return;
     window.__p18PageState.pageWorldCommands += 1;
+    window.__p18PageState.pageWorldCommandNames.push(request.command);
+    if (request.command === "ARM") {
+      Object.assign(pageWorld, {
+        armed: true,
+        paused: false,
+        lazySuppressed: false,
+        sessionNonce: request.nonce,
+        phase: "armed",
+        initialDiscoveryComplete: false,
+      });
+    } else if (request.command === "SET_LAZY_LOADING_SUPPRESSED") {
+      pageWorld.lazySuppressed = request.payload?.suppressed === true;
+    } else if (request.command === "SET_MOTION_PAUSED") {
+      pageWorld.paused = request.payload?.paused === true;
+      pageWorld.phase = pageWorld.paused ? "frozen" : "armed";
+      if (pageWorld.paused) pageWorld.initialDiscoveryComplete = true;
+    } else if (request.command === "RECONCILE" || request.command === "DESTROY") {
+      Object.assign(pageWorld, {
+        armed: false,
+        paused: false,
+        lazySuppressed: false,
+        sessionNonce: "",
+        phase: "idle",
+        initialDiscoveryComplete: false,
+      });
+    }
     window.postMessage({
       kind: "uf-page-bus/1",
       type: "response",
       nonce: request.nonce,
       command: request.command,
       ok: true,
-      payload: {},
+      payload: { ...pageWorld },
     }, "*");
   });
   document.querySelector("#p18-page-action").addEventListener("click", () => {

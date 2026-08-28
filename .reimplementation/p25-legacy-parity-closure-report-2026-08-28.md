@@ -75,13 +75,36 @@ The final dirty-tree verification before the clean acceptance commit passed:
 | ESLint | PASS |
 | Generated page-world parity | PASS |
 | WXT prepare + all TypeScript projects | PASS |
-| Vitest | PASS — 140 files, 1,369 tests |
+| Vitest | PASS — 140 files, 1,376 tests |
 | Production WXT build | PASS |
 | Generated manifest permissions | PASS — 7 checks |
 | Debug WXT build | PASS |
 
 The authoritative clean P14–P25 result and retained artifact paths will be added
 after the implementation commit.
+
+The first clean aggregate exposed five real acceptance-boundary defects rather
+than being waived: marking structural stabilization missed the strict parity
+budget, the P17 gate inspected the marking-only hover layer instead of the shared
+Content List focus layer, P18/P20 fixtures did not implement the stateful page-
+world command contract, P23 let silent geometry move during its opacity
+transition, and native smooth scrolling could remain queued indefinitely during
+reveal/restore. The repaired dirty-tree browser smokes now pass:
+
+| Browser gate | Current repaired result |
+| --- | --- |
+| P14 marking/performance | PASS — 48/48 scenarios; zero semantic, budget, activation, mutation-pressure, or input-long-task failures |
+| P17 Content List/preview | PASS — 19/19 checks |
+| P18 transient/toast/physical marking | PASS — 14/14 checks |
+| P20 integrated recovery/copy | PASS — 4/4 checks |
+| P23 frozen presentation | PASS — 25/25 checks |
+
+Reveal now uses bounded extension-owned animation frames rather than relying on
+Chromium's native smooth-scroll queue. The P18 browser trace proves the ordered
+top, midpoint, two true-bottom passes, freeze acknowledgement, and smooth return
+to the original position before marking interaction is released. Extension-only
+surface mutations no longer reset the capture quiet proof, while adjacent page
+content still does.
 
 ## Candidate disposition
 

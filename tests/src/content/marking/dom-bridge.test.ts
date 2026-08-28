@@ -1949,9 +1949,9 @@ describe("P6 DOM bridge", () => {
       addedNodes: [third],
       removedNodes: [],
     } as unknown as MutationRecord]);
-    vi.advanceTimersByTime(75);
+    vi.advanceTimersByTime(99);
     expect(animationFrames).toHaveLength(0);
-    vi.advanceTimersByTime(75);
+    vi.advanceTimersByTime(1);
     expect(animationFrames).toHaveLength(1);
     animationFrames[0]?.();
     expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[2]", excluded: false });

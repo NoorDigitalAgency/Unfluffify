@@ -4,6 +4,10 @@ const SCROLL_EPSILON_PX = 2;
 const SCROLL_START_GRACE_MS = 300;
 const SCROLL_STALL_MS = 650;
 const SCROLL_PROGRESS_SAMPLE_MS = 50;
+const OWNED_SMOOTH_SCROLL_MIN_MS = 280;
+const OWNED_SMOOTH_SCROLL_MAX_MS = 1_200;
+const OWNED_SMOOTH_SCROLL_PX_PER_MS = 3;
+const OWNED_SMOOTH_SCROLL_FRAME_FALLBACK_MS = 34;
 const REVEAL_QUIET_MS = 250;
 const REVEAL_QUIET_TIMEOUT_MS = 1_500;
 const REVEAL_QUIET_SAMPLE_MS = 50;
@@ -514,7 +518,7 @@ export function resolveViewportScrollOwner(
   return documentOwner;
 }
 
-/** Waits for a smooth scroll without ever replacing it with an instant jump. */
+/** Waits for a scroll without ever replacing a stalled operation with a jump. */
 export function waitForScrollEnd(
   owner: ViewportScrollOwner,
   targetOffset: number,
@@ -589,6 +593,89 @@ export function waitForScrollEnd(
   });
 }
 
+function waitForOwnedScrollFrame(win: Window): Promise<void> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let rafHandle: number | null = null;
+    const fallbackHandle = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      if (rafHandle !== null && typeof win.cancelAnimationFrame === "function") {
+        win.cancelAnimationFrame(rafHandle);
+      }
+      resolve();
+    }, OWNED_SMOOTH_SCROLL_FRAME_FALLBACK_MS);
+    const onFrame = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(fallbackHandle);
+      resolve();
+    };
+    try {
+      if (typeof win.requestAnimationFrame === "function") {
+        rafHandle = win.requestAnimationFrame(onFrame);
+      }
+    } catch {
+      // The bounded timer already owns forward progress when a hostile realm
+      // exposes a throwing animation-frame implementation.
+    }
+  });
+}
+
+/**
+ * Performs the visible reveal walk with extension-owned frames. Native smooth
+ * scrolling can remain queued indefinitely while a page is frozen or while a
+ * document is background-throttled. Small `auto` steps keep the motion painted
+ * and deterministic without introducing the old one-shot teleport fallback.
+ */
+export async function smoothScrollOwnerTo(
+  owner: ViewportScrollOwner,
+  targetOffset: number,
+  isStale: () => boolean,
+  win: Window = window,
+  targetInlineOffset: number = owner.currentInlineOffset(),
+): Promise<ScrollEndResult> {
+  if (isStale()) {
+    return { reached: false, timedOut: false, stale: true, stalled: false };
+  }
+  const startOffset = owner.currentOffset();
+  const startInlineOffset = owner.currentInlineOffset();
+  const target = Math.max(0, Math.min(targetOffset, owner.maximumOffset()));
+  const targetInline = Math.max(0, finite(targetInlineOffset));
+  const distance = Math.abs(target - startOffset);
+  const inlineDistance = Math.abs(targetInline - startInlineOffset);
+  if (distance <= SCROLL_EPSILON_PX && inlineDistance <= SCROLL_EPSILON_PX) {
+    return waitForScrollEnd(owner, target, isStale, win);
+  }
+
+  const durationMs = Math.max(
+    OWNED_SMOOTH_SCROLL_MIN_MS,
+    Math.min(OWNED_SMOOTH_SCROLL_MAX_MS, distance / OWNED_SMOOTH_SCROLL_PX_PER_MS),
+  );
+  const startedAt = Date.now();
+  while (true) {
+    await waitForOwnedScrollFrame(win);
+    if (isStale()) {
+      return { reached: false, timedOut: false, stale: true, stalled: false };
+    }
+    const progress = Math.min(1, Math.max(0, (Date.now() - startedAt) / durationMs));
+    const eased = -(Math.cos(Math.PI * progress) - 1) / 2;
+    const nextOffset = progress >= 1
+      ? target
+      : startOffset + (target - startOffset) * eased;
+    const nextInline = progress >= 1
+      ? targetInline
+      : startInlineOffset + (targetInline - startInlineOffset) * eased;
+    try {
+      owner.scrollTo(nextOffset, "auto", nextInline);
+    } catch {
+      return { reached: false, timedOut: false, stale: false, stalled: true };
+    }
+    if (progress >= 1) break;
+  }
+  return waitForScrollEnd(owner, target, isStale, win);
+}
+
 export type RevealQuietResult = Readonly<{
   quiet: boolean;
   stale: boolean;
@@ -638,6 +725,19 @@ export function waitForRevealQuiet(options: RevealQuietOptions): Promise<RevealQ
       if (!node) return null;
       return node.nodeType === 1 ? node as Element : node.parentElement;
     };
+    const childListChangedCaptureContent = (record: MutationRecord): boolean => {
+      const changedNodes = [
+        ...Array.from(record.addedNodes ?? []),
+        ...Array.from(record.removedNodes ?? []),
+      ];
+      // Synthetic/focused tests may provide only the record target. Treat that
+      // as a real structural change so an incomplete record cannot prove quiet.
+      if (changedNodes.length === 0) return true;
+      return changedNodes.some((node) => {
+        const element = mutationElement(node);
+        return !element || !isComposedCaptureExcluded(element);
+      });
+    };
     const createObserver = options.createMutationObserver ?? ((callback: MutationCallback) => {
       const Observer = (options.window as Window & { MutationObserver?: typeof MutationObserver })
         .MutationObserver ?? globalThis.MutationObserver;
@@ -658,7 +758,7 @@ export function waitForRevealQuiet(options: RevealQuietOptions): Promise<RevealQ
         if (records.some((record) => {
           const element = mutationElement(record.target);
           if (element && isComposedCaptureExcluded(element)) return false;
-          return record.type === "childList" || Boolean(
+          return (record.type === "childList" && childListChangedCaptureContent(record)) || Boolean(
             options.resetOnCaptureMutation &&
             (record.type === "characterData" || record.type === "attributes")
           );
@@ -714,9 +814,9 @@ export function waitForRevealQuiet(options: RevealQuietOptions): Promise<RevealQ
       if (options.isStale()) return finish({ quiet: false, stale: true, timedOut: false });
       const now = Date.now();
       const state = measureState();
-      const changed = state.some((value, index) => index === 0
+      const changed = state.some((value, index) => (index === 0
         ? Math.abs(finite(value) - finite(lastState[index])) > SCROLL_EPSILON_PX
-        : !Object.is(value, lastState[index]));
+        : !Object.is(value, lastState[index])));
       if (changed) {
         lastState = state;
         lastChangeAt = now;
