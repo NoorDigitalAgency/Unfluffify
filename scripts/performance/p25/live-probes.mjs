@@ -1086,17 +1086,36 @@ const shiftedHoverOwnerExpression = `(() => {
   return '/' + parts.join('/');
 })()`;
 
-async function resolveShiftedHoverOwner(session, target) {
-  await session.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16, modifiers: 8 });
+async function resolveModifiedHoverOwner(session, target, modifier) {
+  await session.send("Input.dispatchKeyEvent", { type: "keyDown", ...modifier });
   try {
-    await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y, modifiers: 8 });
+    await session.send("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: target.x,
+      y: target.y,
+      modifiers: modifier.modifiers,
+    });
     await waitForPresentationOpportunity(session, { frameCount: 2 });
     return await session.evaluate(shiftedHoverOwnerExpression);
   } finally {
-    await session.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16, modifiers: 0 });
+    await session.send("Input.dispatchKeyEvent", { type: "keyUp", ...modifier, modifiers: 0 });
     await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y, modifiers: 0 });
   }
 }
+
+const resolveShiftedHoverOwner = (session, target) => resolveModifiedHoverOwner(session, target, {
+  key: "Shift",
+  code: "ShiftLeft",
+  windowsVirtualKeyCode: 16,
+  modifiers: 8,
+});
+
+const resolveIncludedHoverOwner = (session, target) => resolveModifiedHoverOwner(session, target, {
+  key: "Alt",
+  code: "AltLeft",
+  windowsVirtualKeyCode: 18,
+  modifiers: 1,
+});
 
 async function selectCleanMarkingTarget(session) {
   // The previous stage may leave the document at an explicitly excluded
@@ -1112,9 +1131,14 @@ async function selectCleanMarkingTarget(session) {
     if (!target) return null;
     await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y, modifiers: 0 });
     await waitForPresentationOpportunity(session);
+    const includedOwnerXpath = await resolveIncludedHoverOwner(session, target);
     const shiftedOwnerXpath = await resolveShiftedHoverOwner(session, target);
-    if (typeof shiftedOwnerXpath === "string" && shiftedOwnerXpath !== target.xpath) {
-      return { ...target, shiftedOwnerXpath };
+    if (
+      includedOwnerXpath === target.xpath &&
+      typeof shiftedOwnerXpath === "string" &&
+      target.xpath.startsWith(`${shiftedOwnerXpath}/`)
+    ) {
+      return { ...target, includedOwnerXpath, shiftedOwnerXpath };
     }
     skippedXpaths.push(target.xpath);
   }

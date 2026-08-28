@@ -528,6 +528,13 @@ headed-validation gates.
   releases the modifier in `finally`, skips non-widenable candidates, and adopts
   only an exact clean target whose resolved Shift owner is a different ancestor.
   This preserves both the meaningful-boundary rule and a genuine expansion test.
+- That preflight then exposed one more identity condition: a candidate heading
+  could be geometrically covered by its child anchor, so both Alt and Shift
+  correctly resolved the descendant even though its XPath merely differed from
+  the candidate XPath. Target adoption now requires the physical Alt-hover owner
+  to equal the candidate exactly and the physical Shift-hover owner to be a
+  strict bridge ancestor. Descendant, sibling, stale, and same-owner resolutions
+  are skipped before the stage mutates any mark.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

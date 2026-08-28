@@ -515,6 +515,13 @@ preserves the stronger architecture.
     selection now uses the physical Shift-hover path as a read-only preflight,
     always releases the modifier, skips same-owner nodes, and adopts only a
     candidate with a distinct ancestor owner before asserting expansion.
+96. **Closed harness P0 — “different Shift owner” did not prove ancestor or
+    exact Alt identity.** A selected `H2` was physically covered by its child
+    anchor; the product correctly created both marks on that descendant, while
+    the target-keyed probe compared them against the heading. The chooser now
+    requires Alt hover to resolve the exact candidate XPath and Shift hover to
+    resolve a strict bridge ancestor. Descendants, siblings, same-owner results,
+    and stale/no-hover results are rejected before any mark mutation.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -586,7 +593,7 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 95, but P25 remains
+Implementation remediation is code-complete through finding 96, but P25 remains
 open until the committed source passes clean automated gates and every valid candidate completes an
 observer-free headed rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,
