@@ -549,6 +549,24 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     finalizeClassification(used);
   };
 
+  const drawCurrentClassificationBranch = (
+    byXpath: ReadonlyMap<string, OverlayRenderTarget>,
+  ): void => {
+    const affected = new Set(byXpath.keys());
+    const used = new Set<string>();
+    for (const [xpath, target] of byXpath) {
+      const classification = classificationByXpath.get(xpath);
+      if (!classification || (
+        classification === "exception" &&
+        hasProjectedExceptionAncestor(xpath, classificationByXpath)
+      )) {
+        continue;
+      }
+      drawClassification(xpath, classification, target, used);
+    }
+    finalizeClassification(used, affected);
+  };
+
   const drawSilent = (
     byXpath: ReadonlyMap<string, OverlayRenderTarget>,
     affected?: ReadonlySet<string>,
@@ -816,6 +834,45 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         drawHover();
         drawFocus();
         rebuildPaintedOwnerIndex(renderOptions.generation ?? renderGeneration);
+      } finally {
+        endGeometryBatch();
+      }
+    },
+    repositionBranch(
+      byXpath: ReadonlyMap<string, OverlayRenderTarget>,
+      renderOptions: Readonly<{
+        completeXpaths?: ReadonlySet<string>;
+        final?: boolean;
+        includeSilent?: boolean;
+        generation?: number;
+      }> = {},
+    ): void {
+      beginGeometryBatch();
+      try {
+        updateClientArea();
+        drawCurrentClassificationBranch(byXpath);
+        if (renderOptions.includeSilent !== false) {
+          drawSilent(byXpath, new Set(byXpath.keys()), true);
+        }
+        if (renderOptions.final === true) {
+          if (renderOptions.completeXpaths) {
+            for (const [key, record] of classificationBoxes) {
+              if (!renderOptions.completeXpaths.has(record.xpath)) {
+                record.overlay.remove();
+                classificationBoxes.delete(key);
+              }
+            }
+            for (const [key, record] of silentBoxes) {
+              if (!renderOptions.completeXpaths.has(record.xpath)) {
+                record.overlay.remove();
+                silentBoxes.delete(key);
+              }
+            }
+          }
+          drawHover();
+          drawFocus();
+          rebuildPaintedOwnerIndex(renderOptions.generation ?? renderGeneration);
+        }
       } finally {
         endGeometryBatch();
       }

@@ -383,6 +383,13 @@ export type MarkingPointResolutionHint = Readonly<{
 }>;
 
 const DEFERRED_BRANCH_RENDER_TARGET_THRESHOLD = 200;
+// Geometry reconciliation is layout- and paint-reachability-heavy on large
+// documents. Keep each presentation task below one frame's useful work while
+// the retained overlay root is faded, then publish the complete generation in
+// one atomic reveal. This is deliberately target-count bounded rather than
+// timing based so production and deterministic test clocks follow one path.
+const PROGRESSIVE_GEOMETRY_TARGET_THRESHOLD = 96;
+const PROGRESSIVE_GEOMETRY_CHUNK_SIZE = 24;
 // Newly inserted or removed content needs to become markable on roughly the
 // same cadence as the legacy renderer. Presentation attributes are noisier
 // (carousels commonly emit them in short trains), so retain the longer quiet
@@ -639,6 +646,8 @@ export function createMarkingEngine(
   let deferredBranchRenderHandle: number | null = null;
   let deferredBranchRenderGeneration = 0;
   let deferredBranchTargets = new Map<string, OverlayRenderTarget>();
+  let progressiveGeometryRenderHandle: number | null = null;
+  let progressiveGeometryCycle = 0;
   let previewRevision = 0;
   let previewTextMetadata = new WeakMap<Element, PreviewTextMetadata>();
   let toggleInProgress = false;
@@ -647,6 +656,16 @@ export function createMarkingEngine(
   let currentPreviewProjection: PreviewProjection | null = null;
   const generationByNode = new WeakMap<EvaluationNode, number>();
   const fingerprintByNode = new WeakMap<EvaluationNode, string>();
+
+  const cancelProgressiveGeometryRender = (): boolean => {
+    progressiveGeometryCycle += 1;
+    if (progressiveGeometryRenderHandle === null) {
+      return false;
+    }
+    presentationClock.cancelFrame(progressiveGeometryRenderHandle);
+    progressiveGeometryRenderHandle = null;
+    return true;
+  };
 
   const rebuildBridgeIndexes = (): void => {
     bridgeGeneration += 1;
@@ -751,6 +770,7 @@ export function createMarkingEngine(
   };
 
   const refreshBridge = (refreshOptions: MarkingEngineRefreshOptions = {}): boolean => {
+    const progressiveGeometryCancelled = cancelProgressiveGeometryRender();
     if (deferredBranchRenderHandle !== null) {
       presentationClock.cancelFrame(deferredBranchRenderHandle);
       deferredBranchRenderHandle = null;
@@ -769,6 +789,10 @@ export function createMarkingEngine(
     reconcilePreviewEmphasis();
     if (refreshOptions.render) {
       renderCurrent();
+    }
+    if (progressiveGeometryCancelled) {
+      revealMarkingAfterRender = false;
+      renderer.setScrolling(false);
     }
     return next.selectorsSeeded;
   };
@@ -898,6 +922,48 @@ export function createMarkingEngine(
     });
     deferredBranchRenderHandle = deferredHandle || null;
   };
+  const renderGeometryProgressively = (
+    byXpath: ReadonlyMap<string, OverlayRenderTarget>,
+    includeSilent: boolean,
+  ): void => {
+    cancelProgressiveGeometryRender();
+    const cycle = progressiveGeometryCycle;
+    const generation = bridgeGeneration;
+    const entries = [...byXpath];
+    const completeXpaths = new Set(byXpath.keys());
+    let offset = 0;
+    renderer.setScrolling(true);
+
+    const renderNextChunk = (): void => {
+      progressiveGeometryRenderHandle = null;
+      if (
+        disposed ||
+        cycle !== progressiveGeometryCycle ||
+        generation !== bridgeGeneration
+      ) {
+        return;
+      }
+      const end = Math.min(offset + PROGRESSIVE_GEOMETRY_CHUNK_SIZE, entries.length);
+      const chunk = new Map(entries.slice(offset, end));
+      offset = end;
+      const final = offset >= entries.length;
+      renderer.repositionBranch(chunk, {
+        completeXpaths: final ? completeXpaths : undefined,
+        final,
+        includeSilent,
+        generation,
+      });
+      if (final) {
+        revealMarkingAfterRender = false;
+        renderer.setScrolling(false);
+        return;
+      }
+      const handle = presentationClock.requestFrame(renderNextChunk);
+      progressiveGeometryRenderHandle = handle || null;
+    };
+
+    renderNextChunk();
+  };
   const scheduleRender = (work: RenderWork): void => {
     hoverResolution = null;
     const priority: Readonly<Record<RenderWork, number>> = {
@@ -932,13 +998,21 @@ export function createMarkingEngine(
         return;
       }
       const byXpath = byXpathElements();
+      const progressive = interactiveMarkingRendered &&
+        byXpath.size > PROGRESSIVE_GEOMETRY_TARGET_THRESHOLD;
       if (nextWork === "silent-geometry" && silentHighlightsArmed) {
         renderSilent();
-        renderer.reposition(byXpath, { includeSilent: false, generation: bridgeGeneration });
+        if (progressive) {
+          renderGeometryProgressively(byXpath, false);
+        } else {
+          renderer.reposition(byXpath, { includeSilent: false, generation: bridgeGeneration });
+        }
+      } else if (progressive) {
+        renderGeometryProgressively(byXpath, true);
       } else {
         renderer.reposition(byXpath, { generation: bridgeGeneration });
       }
-      if (revealMarkingAfterRender) {
+      if (!progressive && revealMarkingAfterRender) {
         revealMarkingAfterRender = false;
         renderer.setScrolling(false);
       }
@@ -1195,6 +1269,7 @@ export function createMarkingEngine(
         }
         revealMarkingAfterRender = false;
         renderer.setScrolling(true);
+        cancelProgressiveGeometryRender();
         if (viewportScrollHandle !== null) {
           clearTimeout(viewportScrollHandle);
         }
@@ -1641,6 +1716,9 @@ export function createMarkingEngine(
       return renderSilent();
     },
     clearOverlays(): void {
+      if (cancelProgressiveGeometryRender()) {
+        renderer.setScrolling(false);
+      }
       if (deferredBranchRenderHandle !== null) {
         presentationClock.cancelFrame(deferredBranchRenderHandle);
         deferredBranchRenderHandle = null;
@@ -1652,6 +1730,9 @@ export function createMarkingEngine(
       renderer.clear();
     },
     parkPresentation(): void {
+      if (cancelProgressiveGeometryRender()) {
+        renderer.setScrolling(false);
+      }
       if (deferredBranchRenderHandle !== null) {
         presentationClock.cancelFrame(deferredBranchRenderHandle);
         deferredBranchRenderHandle = null;
@@ -1665,6 +1746,7 @@ export function createMarkingEngine(
     },
     dispose(): void {
       disposed = true;
+      cancelProgressiveGeometryRender();
       if (deferredBranchRenderHandle !== null) {
         presentationClock.cancelFrame(deferredBranchRenderHandle);
         deferredBranchRenderHandle = null;

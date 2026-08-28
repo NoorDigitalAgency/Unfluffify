@@ -482,6 +482,18 @@ preserves the stronger architecture.
     attestation, permitting only the numeric manifest launch counter. Tampered
     files, manifests, or heads fail; unavailable pinned-legacy debug evidence is
     explicitly N/A and cannot become a parity pass.
+93. **Remediated, headed verification pending P0 — post-scroll marking geometry
+    was one monolithic main-thread transaction.** On the exact clean rewrite,
+    Ledigajobb passed render, activation, visual, and gesture stages before a
+    640 px wheel produced a 142 ms Long Task approximately 250 ms after input.
+    Frame and CPU evidence proved fade/reposition/restore correctness but showed
+    all 737 bridge targets being measured in one retained-overlay repaint. Large
+    interactive geometry updates now remain fully faded and reconcile in
+    generation-fenced 24-target presentation-frame chunks; only the final chunk
+    rebuilds explicit-owner routing and reveals the completed generation.
+    Cancellation covers subsequent scroll, bridge replacement, clear, park, and
+    disposal. The strict 50 ms budget is unchanged; a fresh headed scroll and
+    resize run must close this item.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -553,8 +565,8 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation closure is complete, but P25 remains open until the committed
-source passes clean automated gates and every valid candidate completes an
+Implementation remediation is code-complete through finding 93, but P25 remains
+open until the committed source passes clean automated gates and every valid candidate completes an
 observer-free headed rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,
 with no input long task over 50 ms; true bottom must reach at least 99.5% of the

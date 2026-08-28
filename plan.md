@@ -494,6 +494,19 @@ headed-validation gates.
   when no eligible page mutation remains. Genuine page additions directly under
   the document root still force the full suppression sweep, with regressions for
   both sides of that boundary.
+- The next clean production run passed both render modes, activation, marking
+  visuals, and every plain/Shift/Alt/clear gesture with zero input Long Tasks.
+  Its first 640 px wheel then isolated a different rewrite bottleneck: after the
+  correct 250 ms faded settle window, one geometry task synchronously reconciled
+  all 737 bridge targets and blocked the main thread for 142 ms. CPU evidence
+  attributes that task to retained classification repositioning, not the page or
+  consent lifecycle. Large interactive geometry reconciliation is therefore now
+  generation-fenced and split into deterministic 24-target presentation-frame
+  chunks. Retained layers stay faded until the final chunk atomically rebuilds
+  owner routing and reveals the exact generation; a new scroll, bridge refresh,
+  park, clear, or dispose cancels stale work. The failed run remains recovery
+  evidence; acceptance requires a fresh exact-source scroll and resize pass with
+  no input task above 50 ms.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

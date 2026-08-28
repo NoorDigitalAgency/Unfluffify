@@ -203,6 +203,7 @@ function createRendererTestSeam() {
   const branchRender = vi.fn();
   const silentRender = vi.fn();
   const silentBranchRender = vi.fn();
+  const geometryBranchRender = vi.fn();
   const hoverRender = vi.fn();
   const focusRender = vi.fn();
   const createRenderer = vi.fn((options: Parameters<typeof createOverlayRenderer>[0]) => {
@@ -225,6 +226,10 @@ function createRendererTestSeam() {
         silentBranchRender();
         renderer.renderSilentHighlightsBranch(...args);
       },
+      repositionBranch(...args: Parameters<typeof renderer.repositionBranch>): void {
+        geometryBranchRender(args[0].size, args[1]?.final === true);
+        renderer.repositionBranch(...args);
+      },
       setHover(...args: Parameters<typeof renderer.setHover>): void {
         hoverRender(...args);
         renderer.setHover(...args);
@@ -235,7 +240,16 @@ function createRendererTestSeam() {
       },
     };
   });
-  return { createRenderer, markingRender, branchRender, silentRender, silentBranchRender, hoverRender, focusRender };
+  return {
+    createRenderer,
+    markingRender,
+    branchRender,
+    silentRender,
+    silentBranchRender,
+    geometryBranchRender,
+    hoverRender,
+    focusRender,
+  };
 }
 
 describe("P6 DOM bridge", () => {
@@ -2248,6 +2262,71 @@ describe("P6 DOM bridge", () => {
       // A settled viewport scroll goes straight to its repaint. It must not
       // enqueue the general stabilizer's sampling frames first.
       expect(animationFrames).toHaveLength(0);
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reconciles a large marking document in bounded faded frame chunks", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const animationFrames: Array<() => void> = [];
+      const listeners = new Map<string, (event?: Event) => void>();
+      Object.assign(doc.defaultView, {
+        requestAnimationFrame(callback: () => void) {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+        addEventListener(type: string, listener: (event?: Event) => void) {
+          listeners.set(type, listener);
+        },
+        removeEventListener(type: string) {
+          listeners.delete(type);
+        },
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 3_000));
+      root.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      const paragraphs: FakeElement[] = [];
+      for (let index = 0; index < 120; index += 1) {
+        const paragraph = new FakeElement("P", rect(0, index * 22, 120, 20), `Row ${index}`);
+        paragraph.ownerDocument = doc;
+        root.appendChild(paragraph);
+        paragraphs.push(paragraph);
+      }
+      doc.pointHits = (_x, y) => {
+        const paragraph = paragraphs.find((candidate) =>
+          y >= candidate.rect.top && y <= candidate.rect.bottom
+        );
+        return paragraph ? [paragraph, root] : [root];
+      };
+      const renderer = createRendererTestSeam();
+      const engine = createMarkingEngine(root as unknown as Element, {
+        render: true,
+        instrumentation: { createRenderer: renderer.createRenderer },
+      });
+      renderer.geometryBranchRender.mockClear();
+
+      listeners.get("scroll")?.({ target: doc } as unknown as Event);
+      vi.advanceTimersByTime(250);
+      expect(animationFrames).toHaveLength(1);
+      animationFrames.shift()?.();
+
+      expect(renderer.geometryBranchRender).toHaveBeenCalledTimes(1);
+      expect(renderer.geometryBranchRender).toHaveBeenLastCalledWith(24, false);
+      expect(engine.overlayRoot().className).toContain("uf-scrolling");
+      expect(animationFrames).toHaveLength(1);
+
+      while (animationFrames.length > 0) {
+        animationFrames.shift()?.();
+      }
+      expect(renderer.geometryBranchRender.mock.calls.length).toBeGreaterThan(1);
+      expect(renderer.geometryBranchRender.mock.calls.every(([count]) => count <= 24)).toBe(true);
+      expect(renderer.geometryBranchRender).toHaveBeenLastCalledWith(expect.any(Number), true);
+      expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
       engine.dispose();
     } finally {
       vi.useRealTimers();
