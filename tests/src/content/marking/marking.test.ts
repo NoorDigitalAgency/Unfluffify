@@ -11,6 +11,7 @@ import {
   MARKING_OVERLAY_STYLES,
   overlayClassFor,
   resolveTarget,
+  shallowXpathBoundaries,
   type MarkingCandidate,
 } from "../../../../src/content/marking";
 import { stripUncapturableHtml } from "../../../../src/content/marking/submit";
@@ -513,6 +514,17 @@ describe("P6 content marking engine", () => {
     expect(MARKING_OVERLAY_STYLES).toContain('[data-uf-marking-menu="true"]');
   });
 
+  it("fades every silent layer while scroll geometry is stale", () => {
+    const fadeSelectors = MARKING_OVERLAY_STYLES.match(
+      /(\.uf-marking-layer-root\.uf-scrolling[\s\S]+?)\{\n {2}opacity: 0;\n\}/,
+    )?.[1];
+
+    expect(fadeSelectors).toBeDefined();
+    for (const layer of ["silent-immutable", "silent-content", "silent-excluded"]) {
+      expect(fadeSelectors).toContain(`.uf-layer[data-layer="${layer}"]`);
+    }
+  });
+
   it("retains silent highlights with the shared visibility policy", () => {
     const left = leaf("left", "/html[1]/body[1]/main[1]/p[1]");
     const root: EvaluationNode = {
@@ -545,6 +557,35 @@ describe("P6 content marking engine", () => {
 
     expect(buildSilentHighlights(evaluation, hiddenGeometry)).toEqual([
       "/html[1]/body[1]/main[1]/p[1]",
+    ]);
+  });
+
+  it("projects silent content shallowly while retaining explicit occurrences", () => {
+    const ancestor = "/html[1]/body[1]/main[1]/section[1]";
+    const implicitChild = `${ancestor}/p[1]`;
+    const explicitChild = `${ancestor}/p[2]`;
+    const evaluation = {
+      overlay: new Map(),
+      rows: [
+        { xpath: implicitChild, excluded: false },
+        { xpath: explicitChild, excluded: false, explicit: true },
+        { xpath: ancestor, excluded: false },
+      ],
+    };
+
+    expect(buildSilentHighlights(evaluation, new Map())).toEqual([ancestor, explicitChild]);
+  });
+
+  it("deduplicates descendant silent exclusions under the shallow owner", () => {
+    const ancestor = "/html[1]/body[1]/main[1]/section[1]";
+    expect(shallowXpathBoundaries([
+      `${ancestor}/p[1]/span[1]`,
+      ancestor,
+      `${ancestor}/p[1]`,
+      "/html[1]/body[1]/main[1]/aside[1]",
+    ])).toEqual([
+      ancestor,
+      "/html[1]/body[1]/main[1]/aside[1]",
     ]);
   });
 

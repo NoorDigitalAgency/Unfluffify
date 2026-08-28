@@ -175,7 +175,7 @@ describe("popup Preview controller", () => {
     expect(harness.notify).not.toHaveBeenCalled();
   });
 
-  it("fails closed and reprojects after a current stale-row response", async () => {
+  it("retains the last truthful list until a stale-row reprojection arrives", async () => {
     const emphasize = vi.fn(async () => ({ targeted: false }));
     const harness = createHarness({
       requestProjection: vi.fn()
@@ -189,7 +189,7 @@ describe("popup Preview controller", () => {
 
     await harness.controller.hover(OWNER, "row-stable-1", true);
 
-    expect(harness.setProjection.mock.calls[0]?.[0]).toBeNull();
+    expect(harness.setProjection.mock.calls.some(([value]) => value === null)).toBe(false);
     expect(harness.projection()?.revision).toBe(2);
     expect(emphasize).toHaveBeenCalledWith(expect.objectContaining({
       projectionId: "preview-occurrence-1",

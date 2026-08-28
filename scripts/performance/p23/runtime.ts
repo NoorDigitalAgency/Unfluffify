@@ -61,11 +61,11 @@ function scheduleHover(): void {
       return;
     }
     if (pointer.overlayXpath) {
-      engine.hoverAtPoint(pointer.x, pointer.y, "exclude", false, {
+      engine.hoverAtPoint(pointer.x, pointer.y, "exclude", true, {
         overlayXpath: pointer.overlayXpath,
       });
     } else {
-      engine.hoverAtPoint(pointer.x, pointer.y, "exclude", false);
+      engine.hoverAtPoint(pointer.x, pointer.y, "exclude", true);
     }
     lastHover = {
       xpath: hoverXpath(),
@@ -95,16 +95,49 @@ const silentTarget = targets.at(-1) ?? null;
 const silentXpath = silentTarget ? xpathForElement(silentTarget) : "";
 let initialSilentBox: HTMLElement | null = null;
 let initialSilentTop = "";
+let initialSilentBoxes: HTMLElement[] = [];
+let initialSilentGeometry = "";
 let silentObserver: MutationObserver | null = null;
+
+function silentBoxes(): HTMLElement[] {
+  return Array.from(document.querySelectorAll<HTMLElement>("[data-uf-silent-highlight]"));
+}
+
+function silentGeometry(boxes = silentBoxes()): string {
+  return JSON.stringify(boxes.map((box) => ({
+    xpath: box.getAttribute("data-uf-silent-highlight") ?? "",
+    left: box.style.left,
+    top: box.style.top,
+    width: box.style.width,
+    height: box.style.height,
+  })));
+}
+
+function retainedSilentLayers(): Array<Readonly<{
+  layer: string;
+  opacity: number;
+  children: number;
+}>> {
+  const root = document.querySelector<HTMLElement>(".uf-marking-layer-root");
+  if (!root) return [];
+  return Array.from(root.querySelectorAll<HTMLElement>('.uf-layer[data-layer^="silent-"]'))
+    .filter((layer) => layer.childElementCount > 0)
+    .map((layer) => ({
+      layer: layer.getAttribute("data-layer") ?? "",
+      opacity: Number(getComputedStyle(layer).opacity),
+      children: layer.childElementCount,
+    }));
+}
 
 function enterSilent(): void {
   silentObserver?.disconnect();
   engine.clearOverlays();
   engine.refresh({ render: false });
   engine.renderSilentHighlights();
-  initialSilentBox = Array.from(
-    document.querySelectorAll<HTMLElement>("[data-uf-silent-highlight]"),
-  ).find((box) => box.getAttribute("data-uf-silent-highlight") === silentXpath) ?? null;
+  initialSilentBoxes = silentBoxes();
+  initialSilentGeometry = silentGeometry(initialSilentBoxes);
+  initialSilentBox = initialSilentBoxes
+    .find((box) => box.getAttribute("data-uf-silent-highlight") === silentXpath) ?? null;
   initialSilentTop = initialSilentBox?.style.top ?? "";
   silentLatencyMs = null;
   silentObserver = initialSilentBox && typeof MutationObserver === "function"
@@ -144,16 +177,25 @@ const runtime = {
   },
   enterSilent,
   silentState() {
-    const current = Array.from(
-      document.querySelectorAll<HTMLElement>("[data-uf-silent-highlight]"),
-    ).find((box) => box.getAttribute("data-uf-silent-highlight") === silentXpath) ?? null;
+    const currentBoxes = silentBoxes();
+    const current = currentBoxes
+      .find((box) => box.getAttribute("data-uf-silent-highlight") === silentXpath) ?? null;
+    const layers = retainedSilentLayers();
+    const root = document.querySelector<HTMLElement>(".uf-marking-layer-root");
     return {
       xpath: silentXpath,
       initialTop: initialSilentTop,
       currentTop: current?.style.top ?? "",
       retained: current !== null && current === initialSilentBox && current.isConnected,
+      allBoxesRetained: currentBoxes.length === initialSilentBoxes.length &&
+        currentBoxes.every((box, index) => box === initialSilentBoxes[index] && box.isConnected),
+      geometryChanged: silentGeometry(currentBoxes) !== initialSilentGeometry,
       latencyMs: silentLatencyMs,
-      count: document.querySelectorAll("[data-uf-silent-highlight]").length,
+      count: currentBoxes.length,
+      rootScrolling: root?.classList.contains("uf-scrolling") ?? false,
+      layers,
+      allRetainedLayersTransparent: layers.length > 0 && layers.every((layer) => layer.opacity <= 0.01),
+      allRetainedLayersVisible: layers.length > 0 && layers.every((layer) => layer.opacity >= 0.99),
     };
   },
   semanticState() {

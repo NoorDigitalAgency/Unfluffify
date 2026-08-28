@@ -47,11 +47,32 @@ async (page) => {
   await page.evaluate(() => window.__p23Runtime.enterSilent());
   const silentBefore = await page.evaluate(() => window.__p23Runtime.silentState());
   await page.mouse.wheel(0, 240);
+  let silentDuring;
+  try {
+    await page.waitForFunction(
+      () => {
+        const state = window.__p23Runtime.silentState();
+        return state.retained && state.allBoxesRetained && !state.geometryChanged &&
+          state.rootScrolling && state.allRetainedLayersTransparent;
+      },
+      undefined,
+      { polling: 1, timeout: 500 },
+    );
+    silentDuring = await page.evaluate(() => window.__p23Runtime.silentState());
+  } catch (error) {
+    const state = await page.evaluate(() => window.__p23Runtime.silentState());
+    throw new Error(
+      "P23 silent layers did not fade before geometry reposition: " + JSON.stringify(state),
+      { cause: error },
+    );
+  }
   try {
     await page.waitForFunction(
       (initialTop) => {
         const state = window.__p23Runtime.silentState();
-        return state.retained && state.currentTop !== initialTop && state.latencyMs !== null;
+        return state.retained && state.allBoxesRetained && state.currentTop !== initialTop &&
+          state.geometryChanged && state.latencyMs !== null && !state.rootScrolling &&
+          state.allRetainedLayersVisible;
       },
       silentBefore.initialTop,
       { polling: 5, timeout: 500 },
@@ -79,6 +100,7 @@ async (page) => {
     targets,
     hovers,
     silentBefore,
+    silentDuring,
     silentAfter,
     semantic,
     scheduling,

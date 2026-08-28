@@ -32,8 +32,10 @@ import {
   normalizeSemanticSignature,
   semanticDifference,
   summarizeSamples,
+  validateInputLongTaskWindows,
 } from "./p14/contract.mjs";
 import { renderFixtureBody, renderFixturePage } from "./p14/fixture.mjs";
+import { classifyParitySourceStatus } from "./p25/source-identity.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "../..");
@@ -154,10 +156,7 @@ async function git(...args) {
 
 async function captureSourceIdentity() {
   const fullStatus = await git("status", "--porcelain=v1", "--untracked-files=all", "--", ".");
-  const status = fullStatus
-    .split("\n")
-    .filter(Boolean)
-    .filter((line) => !line.slice(3).startsWith("output/playwright/p14-marking-performance/"));
+  const classifiedStatus = classifyParitySourceStatus(fullStatus);
   const trackedDiff = (await run("git", ["diff", "--binary", "HEAD", "--", "."])).stdout;
   const manifestPaths = (await git(
     "ls-files",
@@ -170,12 +169,14 @@ async function captureSourceIdentity() {
     "pnpm-lock.yaml",
     "scripts/performance/p14-marking-browser-gate.mjs",
     "scripts/performance/p14",
+    "scripts/performance/p25/source-identity.mjs",
     "tests/p14-browser-performance-contract.test.ts",
   )).split("\n").filter(Boolean);
   return {
     headCommit: await git("rev-parse", "HEAD"),
-    cleanSourceSet: status.length === 0,
-    status,
+    cleanSourceSet: classifiedStatus.cleanSourceSet,
+    status: classifiedStatus.status,
+    artifactStatus: classifiedStatus.artifactStatus,
     trackedDiffSha256: sha256(trackedDiff),
     harnessManifest: await fileManifest(manifestPaths),
   };
@@ -944,6 +945,7 @@ async function main() {
     const sampleCardinality = validateSampleCardinality(browser.runs, summaries);
     const runPlanCheck = validateRunPlan(browser.runs);
     const timingCheck = validateRunTimings(browser.runs);
+    const inputLongTaskCheck = validateInputLongTaskWindows(browser.runs);
     const environmentCheck = validateBrowserEnvironment(browser.environment);
     const pageErrorsPass = Array.isArray(browser.pageErrors) && browser.pageErrors.length === 0;
     const semanticIdentityPass = semantics.every((check) => check.pass);
@@ -962,6 +964,7 @@ async function main() {
       && sampleCardinality.pass
       && runPlanCheck.pass
       && timingCheck.pass
+      && inputLongTaskCheck.pass
       && ephemeralCleanup.pass
       && environmentCheck.pass
       && pageErrorsPass
@@ -1001,6 +1004,12 @@ async function main() {
         alternatingOrder: true,
         paintedCompletion: "persistent semantic/target-overlay condition followed by two requestAnimationFrame callbacks",
         physicalInput: ["mousemove", "click", "wheel"],
+        inputLongTasks: {
+          source: "Chromium PerformanceObserver with entry type longtask",
+          windows: "Immediately before each physical-input arm/preparation through the operation's painted completion proof",
+          maximumDurationMs: inputLongTaskCheck.budgetMs,
+          budgetAppliesTo: "rewrite (legacy windows are retained as comparison evidence)",
+        },
         mutation: "childList append at scrollY=0 after the real settle/throttle paths quiesce",
         mutationPressure: "Large marking scenarios continuously mutate a late consent-suppressed subtree during physical hover/click; rewrite structural work must remain zero while the later included mutation still refreshes.",
         semanticClassification: "Every canonical row is projected against each runtime's internal classification map; an absent entry is the literal undetected state. Extra evaluator-only wrapper entries are counted but are outside the canonical row domain.",
@@ -1030,6 +1039,7 @@ async function main() {
         sampleCardinality,
         runPlan: runPlanCheck,
         timings: timingCheck,
+        inputLongTasks: inputLongTaskCheck,
         ephemeralCleanup,
         environment: environmentCheck,
         pageErrors: { pass: pageErrorsPass, values: browser.pageErrors ?? null },
@@ -1068,6 +1078,7 @@ async function main() {
       failedBudgetChecks: budgetChecks.filter((check) => !check.pass).length,
       failedActivationChecks: activationChecks.filter((check) => !check.pass).length,
       failedMutationPressureChecks: mutationPressureChecks.filter((check) => !check.pass).length,
+      failedInputLongTaskChecks: inputLongTaskCheck.checks.filter((check) => !check.pass).length,
       sampleCardinalityPass: sampleCardinality.pass,
       environmentPass: environmentCheck.pass,
     }, null, 2)}\n`);
@@ -1091,6 +1102,11 @@ main().catch(async (error) => {
   };
   const failurePath = join(outputDirectory, `failure-${artifactTimestamp}.json`);
   await writeArtifactAtomic(failurePath, `${JSON.stringify(failure, null, 2)}\n`).catch(() => undefined);
+  process.stdout.write(`${JSON.stringify({
+    pass: false,
+    artifact: relative(repositoryRoot, failurePath).replaceAll("\\", "/"),
+    fatalError: failure.fatalError,
+  }, null, 2)}\n`);
   console.error(error?.stack ?? error);
   process.exitCode = 1;
 });

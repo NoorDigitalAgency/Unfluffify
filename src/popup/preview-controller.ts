@@ -70,9 +70,21 @@ export function createPopupPreviewController(
   ports: PopupPreviewControllerPorts,
 ): PopupPreviewController {
   let requestEpoch = 0;
+  let indexedProjection: PreviewProjection | null = null;
+  let indexedRowIds = new Set<string>();
+
+  const projectionContains = (projection: PreviewProjection, rowId: string): boolean => {
+    if (indexedProjection !== projection) {
+      indexedProjection = projection;
+      indexedRowIds = new Set(projection.rows.map((row) => row.id));
+    }
+    return indexedRowIds.has(rowId);
+  };
 
   const retire = (): void => {
     requestEpoch += 1;
+    indexedProjection = null;
+    indexedRowIds = new Set();
   };
 
   const targetOccurrenceIsCurrent = (
@@ -132,6 +144,34 @@ export function createPopupPreviewController(
       return current;
     }
     ports.setProjection(projection);
+    indexedProjection = projection;
+    indexedRowIds = new Set(projection.rows.map((row) => row.id));
+    return projection;
+  };
+
+  const stageOpeningCandidate = (
+    candidate: PreviewProjectionCandidate,
+    owner: PopupPreviewOwner,
+  ): PreviewProjection | null => {
+    const { operationEpoch, projection } = candidate;
+    if (
+      projection.pageUrl !== owner.pageUrl ||
+      !ports.isCurrent(owner) ||
+      operationEpoch !== requestEpoch
+    ) {
+      return null;
+    }
+    const current = ports.currentProjection();
+    if (
+      current?.pageUrl === projection.pageUrl &&
+      current.projectionId === projection.projectionId &&
+      projection.revision <= current.revision
+    ) {
+      return current;
+    }
+    ports.setProjection(projection);
+    indexedProjection = projection;
+    indexedRowIds = new Set(projection.rows.map((row) => row.id));
     return projection;
   };
 
@@ -147,8 +187,8 @@ export function createPopupPreviewController(
     if (!targetOccurrenceIsCurrent(owner, staleProjectionId)) {
       return;
     }
-    // Remove stale controls before asking content for the exact current bridge.
-    ports.setProjection(null);
+    // Keep the last truthful list visible until its replacement is ready. A
+    // transient receiver delay must not flash a false empty-state to the user.
     await project(owner);
     ports.onChange();
   };
@@ -159,13 +199,15 @@ export function createPopupPreviewController(
     requestCandidate,
     adoptCandidate,
     adoptOpeningCandidate(candidate, owner) {
-      const adopted = adoptCandidate(candidate, owner);
+      const adopted = ports.isOpen()
+        ? adoptCandidate(candidate, owner)
+        : stageOpeningCandidate(candidate, owner);
       const current = ports.currentProjection();
       const candidateIsStillDisplayed =
         current?.pageUrl === candidate.projection.pageUrl &&
         current.projectionId === candidate.projection.projectionId &&
         current.revision === candidate.projection.revision;
-      const contextIsInvalid = !ports.isOpen() || !ports.isCurrent(owner);
+      const contextIsInvalid = !ports.isCurrent(owner);
       if (!adopted && candidateIsStillDisplayed && contextIsInvalid) {
         // A candidate that opened no current Preview must not survive. A newer
         // revision/occurrence is deliberately left untouched.
@@ -181,7 +223,7 @@ export function createPopupPreviewController(
         !ports.isOpen() ||
         !ports.isCurrent(owner) ||
         !projection ||
-        !projection.rows.some((row) => row.id === rowId)
+        !projectionContains(projection, rowId)
       ) {
         return;
       }
@@ -208,7 +250,7 @@ export function createPopupPreviewController(
         !ports.isOpen() ||
         !ports.isCurrent(owner) ||
         !projection ||
-        !projection.rows.some((row) => row.id === rowId)
+        !projectionContains(projection, rowId)
       ) {
         return;
       }

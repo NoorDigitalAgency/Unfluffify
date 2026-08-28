@@ -54,6 +54,22 @@ pnpm browser:live <target-url>
 
 Example: `pnpm browser:live https://bonliva.se`
 
+For a P25 pinned-legacy comparison only, select an already-built bundle with:
+
+```bash
+pnpm browser:live <target-url> --no-build --bundle-source .temp/p25-side-by-side/builds/legacy
+```
+
+`--bundle-source` never loads that path directly. The launcher transactionally
+backs up the generated `.output/chrome-mv3`, stages the selected bundle at that
+canonical path, records a recoverable marker, and restores the prior generated
+bundle when the launcher stops. This preserves the one canonical extension path,
+the deterministic extension id, and the existing `.wxt/browser-profile` state.
+The selected bundle must match the committed pinned-legacy attestation; arbitrary
+or modified bundle directories are rejected. A plain `--no-build` run likewise
+requires the launcher-generated trusted attestation for the exact current source
+and normalized canonical bundle inventory.
+
 That single command runs the entire proven flow (`scripts/launch-test-browser.mjs`):
 
 1. Resolves the active repo root for the current environment (no hardcoded
@@ -75,22 +91,30 @@ That single command runs the entire proven flow (`scripts/launch-test-browser.mj
    `--remote-debugging-port=9222` and `--remote-allow-origins=*` into the temp
    config so the same browser is controllable over CDP without opening a second
    profile.
-5. Ensures the MCP-managed Chromium is installed (idempotent).
-6. Starts that pinned package's managed Chromium directly with
+5. Acquires an exclusive repo/profile launch lock and performs initial proofs that
+   the Chromium profile is not owned through `SingletonLock` and port 9222 is free.
+6. Ensures the MCP-managed Chromium is installed (idempotent).
+7. Re-proves the profile and port immediately before dropping only the stale
+   service-worker registration, stamping the normalized-away manifest launch
+   counter, and starting that pinned package's managed Chromium directly with
    `--user-data-dir=<repoRoot>/.wxt/browser-profile`. No persistent Playwright
    session remains attached to the website tab, because that would occupy
    Chrome's single `chrome.debugger` owner and make Render Inspection fail.
-7. Opens `<target-url>` as the first tab.
-8. Resolves the loaded extension id from the service worker and cross-checks it
+8. Proves the CDP browser process id is the exact managed Chromium child, opens
+   `<target-url>` through CDP, and retains the returned target id through redirects.
+9. Resolves the loaded extension id from the service worker and requires it
    against the deterministic path-hash id (changes per environment — never
    hardcode it).
-9. Resolves the target page's Chrome tab id via the service worker.
-10. Opens a temporary helper tab
+10. Resolves the exact target page's Chrome tab id via the service worker.
+11. Opens a temporary helper tab
    `chrome-extension://<id>/popup.html?debugTabId=<pageTabId>` so the extension
    can request the real Chrome side panel for the target page (`<pageTabId>` is
    the page's tab, never the helper's). Once the exact production side-panel
    target exists, the launcher closes the helper so only one popup client polls
    configuration, lock, and signal authority.
+12. Atomically writes `.temp/browser-live-provenance.json` only after the owned
+   browser PID, instance, profile, canonical bundle inventory, deterministic
+   extension id, target id/tab id, and operator surface have all been proven.
 
 On success it prints the target URL, extension id, page tabId, the now-closed
 helper URL, and the live side-panel URL. It also starts a launcher-owned control
@@ -115,8 +139,8 @@ the ready banner appears, the launcher prints:
 If your host environment supports writing to the running shell session, use the
 launcher's stdin control channel with the same `shellId`:
 
-- `state` captures production-safe active-view, control, input, and disabled
-  state from the real side-panel DOM, plus a target-page summary and open page
+- `state` captures production-safe active-view, control, redacted input-presence,
+  and disabled state from the real side-panel DOM, plus the exact target-page summary and open page
   URLs. Debug builds additionally merge selected
   `window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState()` fields; production does not
   require or expose that hook.
@@ -163,17 +187,14 @@ closed. Keep CDP clients off the website target until the inspection is set or
 cancelled and the extension releases `chrome.debugger`; then restart
 observation.
 
-### 4. Reload after every rebuild
+### 4. Restart after every rebuild
 
-If you rebuild while the browser is open, the persisted profile can keep an older
-MV3 service worker alive even though files on disk changed. If removed debug logs
-or stale behavior still appear:
-
-- call `chrome.runtime.reload()` from the extension context, or
-- reload the extension on `chrome://extensions`,
-
-then wait for the new service worker before retesting. Re-running
-`pnpm browser:live` from a clean stop rebuilds and reloads from scratch.
+If you rebuild while the browser is open, stop that launcher cleanly and start a
+new `pnpm browser:live <target-url>` run. Never call `chrome.runtime.reload()` and
+never reload the unpacked extension on `chrome://extensions`: this managed
+Chromium has been measured unloading the extension entirely on runtime reload.
+The clean launcher restart drops only the dedicated profile's worker registration,
+stamps a launch counter, rebuilds, and emits fresh launch-bound provenance.
 
 ## Guardrails
 
@@ -186,6 +207,12 @@ then wait for the new service worker before retesting. Re-running
   relaunch, or otherwise interfere with the user's OS Chrome instances, windows,
   or default profile. Only stop the launcher's own managed-Chromium process.
 - Always load `.output/chrome-mv3`, never the source checkout root.
+- `--bundle-source` is the sole exception for choosing bundle contents: it must
+  be paired with `--no-build`, and the launcher still loads only the staged
+  canonical `.output/chrome-mv3` path and restores it on shutdown.
+- Never remove profile locks or kill by process-name pattern. The launcher refuses
+  an occupied CDP port, live `SingletonLock`, mismatched browser PID, or existing
+  repo launch owner. Stop only the exact launcher shell/PID you own.
 - Do not start a second browser or MCP server for the same profile and do not
   default to `orchestration/profiles/*` Playwright flows for simple live
   observation; those are for orchestration scenarios and can fail on
@@ -206,7 +233,7 @@ Playwright page session: either one reintroduces the Render Inspection conflict.
   `pnpm browser:live https://bonliva.se` in the background. It runs `pnpm build`,
   writes `.temp/browser-mcp.config.json`, launches the
   pinned MCP package's managed Chromium with `.wxt/browser-profile`, opens the
-  page in the first tab, resolves the extension id and page tabId, uses a
+  page as an exact CDP-identified target, resolves the extension id and page tabId, uses a
   temporary `popup.html?debugTabId=<pageTabId>` helper to open the actual side
   panel, and closes the helper after the panel is ready.
 - Wrong: launch without a user-instructed target page, run the OS Chrome binary

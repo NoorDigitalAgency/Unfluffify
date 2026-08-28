@@ -29,6 +29,7 @@ export function renderFixturePage({ variant = "production" } = {}) {
     #pre-shield-popover { position: fixed; ${pointStyle(FIXTURE_POINTS.topLayerBefore)}; }
     #late-shield-popover { position: fixed; ${pointStyle(FIXTURE_POINTS.topLayerAfter)}; pointer-events: auto; }
     #pre-shield-popover button, #late-shield-popover button { width: 100%; height: 100%; pointer-events: auto !important; }
+    #pre-shield-popover::backdrop, #late-shield-popover::backdrop { background: rgb(255 0 0) !important; opacity: 1 !important; }
   </style>
 </head>
 <body>
@@ -37,7 +38,7 @@ export function renderFixturePage({ variant = "production" } = {}) {
   <button id="page-button" class="target meaningful" type="button">Page click target</button>
   <a id="page-link" class="target meaningful" href="/escaped-navigation">Navigation target</a>
   <div id="shadow-host" class="target meaningful"></div>
-  <aside id="pre-shield-popover" popover="manual" style="pointer-events:auto!important"><button type="button">Pre-existing top-layer menu</button></aside>
+  <aside id="pre-shield-popover" popover="manual" style="display:grid!important;pointer-events:auto!important"><button type="button">Pre-existing top-layer menu</button></aside>
   <main>
     <p id="reload-scroll-target" class="meaningful">Reload-adopted highlight geometry target.</p>
     <p id="preview-target" class="meaningful">Preview row destination on the lower page.</p>
@@ -59,6 +60,7 @@ export function renderFixturePage({ variant = "production" } = {}) {
         windowCaptureClicks: 0,
         windowCaptureWheels: 0,
         windowCapturePointerEvents: 0,
+        windowCapturePointerCancels: 0,
         windowCaptureTouchEvents: 0,
         visualViewportResizeEvents: 0,
         visualViewportScrollEvents: 0,
@@ -73,6 +75,7 @@ export function renderFixturePage({ variant = "production" } = {}) {
       for (const type of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) {
         window.addEventListener(type, (event) => {
           state.windowCapturePointerEvents += 1;
+          if (type === "pointercancel") state.windowCapturePointerCancels += 1;
           if (event.pointerType === "touch") state.windowCaptureTouchEvents += 1;
         }, true);
       }
@@ -81,13 +84,15 @@ export function renderFixturePage({ variant = "production" } = {}) {
       const pageLink = document.querySelector("#page-link");
       const shadowHost = document.querySelector("#shadow-host");
       const shadow = shadowHost.attachShadow({ mode: "open" });
-      shadow.innerHTML = '<button id="shadow-button" type="button" style="width:100%;height:100%">Shadow click target</button>';
+      shadow.innerHTML = '<style>#shadow-popover{position:fixed;left:940px;top:565px;width:180px;height:90px}#shadow-popover::backdrop{background:rgb(255 0 0)!important;opacity:1!important}</style><button id="shadow-button" type="button" style="width:100%;height:100%">Shadow click target</button><aside id="shadow-popover" popover="manual" style="display:grid!important;pointer-events:auto!important"><button type="button" style="width:100%;height:100%">Shadow top-layer menu</button></aside>';
       for (const type of ["mouseenter", "mouseover", "mousemove", "pointerenter", "pointerover", "pointermove"]) {
         hover.addEventListener(type, () => { state.hoverEvents += 1; });
       }
       pageButton.addEventListener("click", () => { state.pageClicks += 1; });
       pageLink.addEventListener("click", () => { state.pageNavigations += 1; });
       shadow.querySelector("#shadow-button").addEventListener("click", () => { state.shadowClicks += 1; });
+      const shadowPopover = shadow.querySelector("#shadow-popover");
+      shadowPopover.querySelector("button").addEventListener("click", () => { state.topLayerClicks += 1; });
       const preShieldPopover = document.querySelector("#pre-shield-popover");
       preShieldPopover.querySelector("button").addEventListener("click", () => { state.topLayerClicks += 1; });
       document.body.addEventListener("wheel", () => { state.bodyWheelEvents += 1; });
@@ -105,6 +110,14 @@ export function renderFixturePage({ variant = "production" } = {}) {
       }
       window.visualViewport?.addEventListener("resize", () => { state.visualViewportResizeEvents += 1; });
       window.visualViewport?.addEventListener("scroll", () => { state.visualViewportScrollEvents += 1; });
+      const pageWorld = {
+        armed: false,
+        paused: false,
+        lazySuppressed: false,
+        sessionNonce: "",
+        phase: "idle",
+        initialDiscoveryComplete: false,
+      };
       window.addEventListener("message", (event) => {
         const request = event.data;
         if (
@@ -112,16 +125,41 @@ export function renderFixturePage({ variant = "production" } = {}) {
           !request ||
           request.kind !== "uf-page-bus/1" ||
           request.type !== "request" ||
-          !["ARM", "SET_LAZY_LOADING_SUPPRESSED", "SET_MOTION_PAUSED", "DESTROY"].includes(request.command)
+          !["ARM", "RECONCILE", "SET_LAZY_LOADING_SUPPRESSED", "SET_MOTION_PAUSED", "DESTROY"].includes(request.command)
         ) return;
         state.pageWorldCommandCount += 1;
+        if (request.command === "ARM") {
+          Object.assign(pageWorld, {
+            armed: true,
+            paused: false,
+            lazySuppressed: false,
+            sessionNonce: request.nonce,
+            phase: "armed",
+            initialDiscoveryComplete: false,
+          });
+        } else if (request.command === "SET_LAZY_LOADING_SUPPRESSED") {
+          pageWorld.lazySuppressed = request.payload?.suppressed === true;
+        } else if (request.command === "SET_MOTION_PAUSED") {
+          pageWorld.paused = request.payload?.paused === true;
+          pageWorld.phase = pageWorld.paused ? "frozen" : "armed";
+          if (pageWorld.paused) pageWorld.initialDiscoveryComplete = true;
+        } else if (request.command === "RECONCILE" || request.command === "DESTROY") {
+          Object.assign(pageWorld, {
+            armed: false,
+            paused: false,
+            lazySuppressed: false,
+            sessionNonce: "",
+            phase: "idle",
+            initialDiscoveryComplete: false,
+          });
+        }
         window.postMessage({
           kind: "uf-page-bus/1",
           type: "response",
           nonce: request.nonce,
           command: request.command,
           ok: true,
-          payload: {},
+          payload: { ...pageWorld },
         }, "*");
       });
       window.__p15Fixture = {
@@ -163,6 +201,7 @@ export function renderFixturePage({ variant = "production" } = {}) {
       spoofSurface.appendChild(spoofButton);
       document.documentElement.appendChild(spoofSurface);
       preShieldPopover.showPopover();
+      shadowPopover.showPopover();
     })();
   </script>
   <script src="${runtime}"></script>

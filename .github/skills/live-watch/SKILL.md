@@ -14,7 +14,7 @@ This skill composes two existing skills; do not improvise around them:
 
 - `live-browser` — the ONLY supported way to open the live Chromium with
   the unpacked extension loaded (`pnpm browser:live <url>`).
-- `live-round` — the `pnpm dev` + launcher lifecycle and recovery.
+- `live-round` — the `pnpm dev:no-browser` + launcher lifecycle and recovery.
 
 It adds the **observation + triage + routing loop** on top.
 
@@ -75,6 +75,14 @@ opens the popup bound to the page tab. Wait for the
 "live test browser ready" banner and record the printed extension id, page tabId,
 closed helper URL, and actual side-panel URL. Confirm binding with the launcher
 control command `state`; the helper must no longer appear in its open-page list.
+Also require the fresh `.temp/browser-live-provenance.json` path/nonce printed by
+the banner; it binds the actual source/bundle to the owned browser PID, profile,
+extension id, and exact target id.
+
+For an explicitly requested P25 pinned-legacy watch, use `--no-build
+--bundle-source .temp/p25-side-by-side/builds/legacy`. Per `live-browser`, this
+stages the bundle recoverably at canonical `.output/chrome-mv3`; it does not
+authorize loading a scratch path or opening another browser/profile.
 
 ## Step 5 — Attach the full-console / JS-stack observer
 
@@ -182,9 +190,10 @@ review-push**? Then act:
   run `review-push` to review, validate
   (`pnpm lint && pnpm check && pnpm test && pnpm build`), commit, and push.
 
-Re-validate core unflagged behavior live with `pnpm browser:live <url>` when a fix
-touches runtime behavior; reload the unpacked extension/service worker after any
-rebuild before re-observing (see `live-browser`).
+Re-validate core unflagged behavior live with a new `pnpm browser:live <url>` run
+when a fix touches runtime behavior. After any rebuild, stop the previous launcher
+cleanly and start a fresh launcher; never call `chrome.runtime.reload()` or reload
+the unpacked extension in `chrome://extensions` (see `live-browser`).
 
 ## Cleanup
 

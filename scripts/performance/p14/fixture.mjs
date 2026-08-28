@@ -39,9 +39,11 @@ export function renderFixtureBody(fixtureName) {
       <section id="p14-mutation-slot" data-p14-id="control-block">
         ${paragraph("seed-exclude", "Selector-seeded exclusion sentinel.", "data-p14-seed=\"exclude\"")}
         ${paragraph("seed-include", "Selector-seeded inclusion sentinel.", "data-p14-seed=\"include\"")}
-        ${paragraph("click-target", "Trusted physical click target for a committed explicit exclusion.")}
         ${paragraph("scroll-anchor", "Stable viewport anchor used to prove scroll repositioning.")}
         ${paragraph("mutation-anchor", "Stable mutation-slot anchor content.")}
+      </section>
+      <section data-p14-id="click-boundary">
+        ${paragraph("click-target", "Trusted physical click target for a committed explicit exclusion.")}
       </section>
       ${sections.join("")}
     </main>

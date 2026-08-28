@@ -23,6 +23,7 @@ import type { PopupState } from "../../popup/organ/machine";
 import { createPopupRootRecovery } from "../../popup/root-recovery";
 import type { BrainSignal } from "../../domain/schema/signals";
 import type { AiRunPayloadSnapshot } from "../../domain/schema/submission";
+import { sanitizeStaticConsentHtml } from "../../common/static-consent-html";
 import {
   browser,
   callBrowserApi,
@@ -151,11 +152,38 @@ function effectivePresentationSelectors(): { inclusionSelectors: string[]; exclu
 
 function operatorActionPresentation() {
   const presentation = store.getPresentation();
-  return overlayOperatorActionPresentation(
+  let actionPresentation = overlayOperatorActionPresentation(
     { ...presentation, selectors: effectivePresentationSelectors() },
     operatorActionController.current(),
     DEBUG_BUILD,
   );
+  if (contentDirty) {
+    actionPresentation = {
+      ...actionPresentation,
+      saveDisabled: true,
+      showPreviewDisabled: true,
+      saveBlockedReason: "requires-ai-run",
+      showPreviewBlockedReason: "requires-ai-run",
+    };
+  }
+  if (postSaveLocalRecovery === null) {
+    return actionPresentation;
+  }
+  return {
+    ...actionPresentation,
+    runAiDisabled: true,
+    saveDisabled: true,
+    discardDisabled: true,
+    showPreviewDisabled: true,
+    curtainVisible: true,
+    curtainText: "Reload the page to finish Save",
+    temporarilyDisabledOverlay: true,
+    blockedReason: "page-recovery-required",
+    runAiBlockedReason: "page-recovery-required",
+    saveBlockedReason: "page-recovery-required",
+    discardBlockedReason: "page-recovery-required",
+    showPreviewBlockedReason: "page-recovery-required",
+  };
 }
 
 function advanceOperatorAction(
@@ -206,6 +234,7 @@ const AUTHORITY_REFRESH_INTERVAL_MS = 15_000;
 let signalPollHandle: ReturnType<Window["setInterval"]> | null = null;
 let signalsAvailableUnsubscribe: (() => void) | null = null;
 let previewFocusedUnsubscribe: (() => void) | null = null;
+let previewFocusedRowId: string | null = null;
 const signalsAvailableRevisionByTab = new Map<number, number>();
 type SignalsAvailableWaiter = Readonly<{
   afterRevision: number;
@@ -218,6 +247,14 @@ let boundSignalPullInFlight: Promise<void> | null = null;
 let boundSignalPullQueued = false;
 let saveInFlight: Promise<void> | null = null;
 let postSaveAuthorityRefreshRequired = false;
+type PostSaveLocalRecovery = Readonly<{
+  binding: PopupBindingOccurrence;
+  pageUrl: string;
+  baseUrl: string;
+  savedSeq: number;
+  kind: "localizing" | "content-inactive-proof" | "reload-required";
+}>;
+let postSaveLocalRecovery: PostSaveLocalRecovery | null = null;
 const authorityRefreshQueue = createAuthorityRefreshQueue({
   intervalMs: AUTHORITY_REFRESH_INTERVAL_MS,
   isPaused: () => saveInFlight !== null,
@@ -241,7 +278,7 @@ let desktopPreviewEnabled = false;
 let appliedEmulationMode: "mobile" | "desktop" | null = null;
 let emulationApplyQueue: Promise<void> = Promise.resolve();
 let sessionTransitionQueue: Promise<void> = Promise.resolve();
-let sessionTransitionActive = false;
+let sessionTransitionPending = 0;
 /** Device size and JavaScript execution are independent axes; the legacy client
  *  conflated them here, so a desktop preview silently captured static HTML.
  *
@@ -411,6 +448,8 @@ function formatAiFailure(failure: PopupAiFailure): Readonly<{ copy: string; acti
     content_generation_mismatch: "The page did not adopt the current AI generation.",
     content_unreachable: "The page could not receive the AI start acknowledgement request.",
     content_sync_unsupported: "The loaded page uses an older AI acknowledgement contract; reload it and retry.",
+    content_clean_no_receiver: "The page could not receive the completed AI result. Reload the page and run AI again.",
+    content_clean_ack_failed: "The page did not accept the completed AI result as current. Reload the page and run AI again.",
     site_missing: "Property authority has no active site for this run.",
     environment_unconfigured: "The AI service environment is not configured.",
     invalid_page_scope: "The captured page no longer matches the current AI run scope.",
@@ -463,6 +502,7 @@ function safeOrigin(url: string): string {
  *  state changes within that binding still happen only through decided signals. */
 function replacePopupStore(): void {
   previewController.bindingChanged();
+  previewFocusedRowId = null;
   unsubscribeStore?.();
   store = createPopupStore({
     name: "silent",
@@ -558,6 +598,14 @@ function buildDiagnostics(): PopupDiagnostics {
   const maintenance = maintenanceController.snapshot();
   const configuration = configurationController.snapshot();
   const property = configuration.property;
+  const visibleState = state.name === "locked" ? state.priorState ?? "silent" : state.name;
+  const sessionPending = contentDirty || [
+    "running",
+    "post_ai_clean",
+    "preview_open",
+    "exit_restoring",
+    "reconciling",
+  ].includes(visibleState);
   return {
     stateName: state.name,
     pageUrl: boundTabUrl,
@@ -573,6 +621,7 @@ function buildDiagnostics(): PopupDiagnostics {
     renderModeSource: property.renderModeSource,
     contentActive,
     contentDirty,
+    sessionPending,
     contentReachable,
     runSessionId: activeRunSessionId ?? state.runSessionId ?? "",
     settingsLoaded: configuration.settingsLoaded,
@@ -763,6 +812,7 @@ function dispatchSignal(signal: BrainSignal): void {
     // occurrence. A delayed content reply must not repopulate the projection the
     // preview.exited transition just cleared.
     previewController.previewClosed();
+    previewFocusedRowId = null;
   }
   logEvent(
     signal.name,
@@ -840,6 +890,7 @@ function resetBoundSessionState(): void {
   lynxChecklist = EMPTY_LYNX_CHECKLIST_STATE;
   pendingPublicationRequest = null;
   silentSelectorsAppliedKey = null;
+  postSaveLocalRecovery = null;
 }
 
 /** A decided signal is consumed once, and the cursor is the only record of what
@@ -916,19 +967,14 @@ function ensureSignalPolling(): void {
       if (
         !previewStateIsOpen() ||
         projection?.pageUrl !== pageUrl ||
-        projection.projectionId !== projectionId ||
-        !projection.rows.some((row) => row.id === rowId)
+        projection.projectionId !== projectionId
       ) {
         return;
       }
+      // PreviewRowList owns the row-id index and bounded window. Publishing the
+      // requested stable ID avoids scanning or rendering the complete list.
+      previewFocusedRowId = rowId;
       render();
-      window.setTimeout(() => {
-        const rowIndex = projection.rows.findIndex((row) => row.id === rowId);
-        const buttons = document.querySelectorAll<HTMLElement>(".preview-sidebar__item-button");
-        const target = buttons.item(rowIndex);
-        target?.focus({ preventScroll: true });
-        target?.scrollIntoView({ block: "nearest" });
-      }, 0);
     });
   }
   if (signalsAvailableUnsubscribe === null) {
@@ -1141,12 +1187,18 @@ function closeLynxChecklist(): void {
   render();
 }
 
-async function navigateToCandidate(pageKey: string): Promise<void> {
+async function performCandidateNavigation(
+  pageKey: string,
+  action: OperatorActionOccurrence,
+): Promise<void> {
   if (candidateNavigationBusy) {
     return;
   }
+  advanceOperatorAction(action, "context");
   const context = await resolveTargetTabContext();
   if (!context) {
+    notifyEvent("Candidate navigation blocked", "no bound browser tab is available", "danger");
+    render();
     return;
   }
   const requestKey = await handleBoundContext(context);
@@ -1162,11 +1214,14 @@ async function navigateToCandidate(pageKey: string): Promise<void> {
   try {
     url = new URL(canonicalTarget, property.config?.baseUrl ?? context.url).toString();
   } catch {
+    notifyBoundEvent(binding, "Candidate navigation blocked", "the candidate URL could not be resolved", "warn");
+    render();
     return;
   }
   const restoreNeeded = contentActive || property.selectors !== null;
   candidateNavigationBusy = true;
   try {
+    advanceOperatorAction(action, "navigation");
     const result = await executeConfirmedCandidateNavigation({
       restoreNeeded,
       async inspect() {
@@ -1233,6 +1288,29 @@ async function navigateToCandidate(pageKey: string): Promise<void> {
     }
   } finally {
     candidateNavigationBusy = false;
+    render();
+  }
+}
+
+async function navigateToCandidate(pageKey: string): Promise<void> {
+  if (candidateNavigationBusy) return;
+  const action = operatorActionController.begin("candidate-navigation", {
+    bindingKey: boundTabKey,
+    bindingOccurrence: boundTabOccurrence,
+  });
+  if (!action) return;
+  render();
+  try {
+    await performCandidateNavigation(pageKey, action);
+  } catch (error: unknown) {
+    notifyEvent(
+      "Candidate navigation failed",
+      error instanceof Error ? error.message : "the candidate page could not be opened",
+      "danger",
+    );
+  } finally {
+    advanceOperatorAction(action, "terminal");
+    operatorActionController.clear(action);
     render();
   }
 }
@@ -1418,7 +1496,6 @@ async function pollFastSignalsOnce(): Promise<void> {
     // not rebuild geometry or touch remote authority.
     await ensurePreviewProjection(context, requestKey);
   }
-  render();
 }
 
 function queueBoundSignalPull(tabId: number): Promise<void> {
@@ -1480,6 +1557,13 @@ async function refreshAuthorityOnce(force: boolean): Promise<void> {
   await observeCurrentRenderInspection(context, requestKey, inspectionProperty);
   await maybeLoadPropertyConfig();
   await maybeResumeAiRun(context, requestKey);
+  if (postSaveLocalRecovery !== null) {
+    // A remote Save can commit just as the content realm loses the command that
+    // would normally enter silent mode. Keep the old engine fenced until a
+    // later status check proves it is gone; only then may the brain consume the
+    // successful Save and expose the ordinary silent surface again.
+    await reconcileContentStatus(context, requestKey);
+  }
   await refreshSilentSelectorPreview(context, requestKey);
   render();
 }
@@ -1559,7 +1643,31 @@ async function maybeResumeAiRun(context: TargetTabContext, requestKey = boundTab
     if (response.data.status === "fresh") {
       const dirtyDuringRun = store.getState().runDirtyDuringRun === true;
       if (!dirtyDuringRun) {
-        await sendContentMessage(context.tabId, { type: "markContentMainClean" });
+        const cleanAcknowledgement = await requestContentCleanAcknowledgement(context.tabId);
+        if (!cleanAcknowledgement.ok) {
+          contentDirty = true;
+          lastSubmissionSnapshot = null;
+          lastSubmissionKey = null;
+          notifyAiFailure(captureBindingOccurrence(requestKey), {
+            stage: "result",
+            reason: cleanAcknowledgement.reason,
+            status: cleanAcknowledgement.reason,
+            localRunId: response.data.clientRunId,
+            backendRunId: response.data.sessionId,
+          });
+          await reportPopupFactAndPull(context, "ai-run-resume-content-clean-failed", {
+            runPhase: "failed",
+            runSessionId: response.data.clientRunId,
+            runFailureReason: cleanAcknowledgement.reason.replaceAll("_", "-"),
+          }, requestKey);
+          await syncContentRunGeneration(
+            context,
+            brainSignals.consumedThrough(),
+            response.data.clientRunId,
+            "terminal",
+          );
+          return;
+        }
         contentDirty = false;
       }
       logEvent(
@@ -1573,6 +1681,9 @@ async function maybeResumeAiRun(context: TargetTabContext, requestKey = boundTab
         runAiSessionId: response.data.sessionId,
         runSelectors: response.data.selectors,
       }, requestKey);
+      if (!dirtyDuringRun && store.getState().name === "post_ai_clean") {
+        await showPreview();
+      }
       return;
     }
     if (response.data.status === "failed" || response.data.status === "stale") {
@@ -1767,6 +1878,24 @@ async function requestContentDelivery(
     console.error("[Unfluffify][rewrite] Unable to request content command", error);
     return { status: "failed", failure: error };
   }
+}
+
+type ContentCleanAcknowledgement =
+  | Readonly<{ ok: true }>
+  | Readonly<{ ok: false; reason: "content_clean_no_receiver" | "content_clean_ack_failed" }>;
+
+async function requestContentCleanAcknowledgement(tabId: number): Promise<ContentCleanAcknowledgement> {
+  const delivery = await requestContentDelivery(tabId, { type: "markContentMainClean" });
+  if (delivery.status === "no_receiver") {
+    return { ok: false, reason: "content_clean_no_receiver" };
+  }
+  if (delivery.status !== "delivered") {
+    return { ok: false, reason: "content_clean_ack_failed" };
+  }
+  const reply = delivery.data;
+  return reply && typeof reply === "object" && "ok" in reply && reply.ok === true
+    ? { ok: true }
+    : { ok: false, reason: "content_clean_ack_failed" };
 }
 
 type ContentActivationOutcome =
@@ -2022,14 +2151,14 @@ async function runSessionTransition<T>(operation: () => Promise<T>): Promise<T> 
     resolveResult = resolve;
     rejectResult = reject;
   });
+  sessionTransitionPending += 1;
   sessionTransitionQueue = sessionTransitionQueue.then(async () => {
-    sessionTransitionActive = true;
     try {
       resolveResult(await operation());
     } catch (error) {
       rejectResult(error);
     } finally {
-      sessionTransitionActive = false;
+      sessionTransitionPending -= 1;
     }
   });
   return result;
@@ -2060,6 +2189,7 @@ async function applySessionEmulationResult(
       // interaction shield has explicitly remeasured the confirmed viewport.
       await requestContentMessage(context.tabId, {
         type: "refreshInteractionShieldViewport",
+        repaintSilent: true,
       });
     }
   });
@@ -2100,6 +2230,7 @@ async function waitForEmulationReload(
   if (transition.status === "ready") {
     await requestContentMessage(transition.context.tabId, {
       type: "refreshInteractionShieldViewport",
+      repaintSilent: false,
     });
   }
   return transition;
@@ -2109,8 +2240,15 @@ async function waitForEmulationReload(
  *  already right — a page reload drops CDP overrides, so this has to be reachable
  *  from every path that follows one, but it must not re-attach on every poll. */
 async function ensureSessionEmulation(context: TargetTabContext): Promise<boolean> {
+  // A pending transition alone says nothing about which mode it will apply.
+  // Background restoration work fails visibly instead of treating an opposite
+  // transition as success; operator actions that require an exact target use
+  // ensureSessionEmulationTarget and serialize behind it.
+  if (sessionTransitionPending > 0) {
+    return false;
+  }
   const mode = desiredEmulationMode();
-  if (sessionTransitionActive || appliedEmulationMode === mode) {
+  if (appliedEmulationMode === mode) {
     return true;
   }
   return await applySessionEmulation(context, { mode, allowReload: !contentActive });
@@ -2120,13 +2258,12 @@ async function ensureSessionEmulationTarget(
   context: TargetTabContext,
   target: SessionEmulationTarget,
 ): Promise<boolean> {
-  if (sessionTransitionActive) {
-    await sessionTransitionQueue;
-  }
-  if (appliedEmulationMode === target.mode) {
-    return true;
-  }
-  return await applySessionEmulation(context, target);
+  return await runSessionTransition(async () => {
+    if (appliedEmulationMode === target.mode) {
+      return true;
+    }
+    return await applySessionEmulation(context, target);
+  });
 }
 
 async function clearSessionEmulation(context: TargetTabContext): Promise<void> {
@@ -2308,7 +2445,15 @@ async function captureSubmission(
     return null;
   }
   onXpathRefinement?.();
-  return await refineSubmissionXpaths(response.snapshot as AiRunPayloadSnapshot);
+  const refined = await refineSubmissionXpaths(response.snapshot as AiRunPayloadSnapshot);
+  if (refined.renderMode !== "static") return refined;
+  return {
+    ...refined,
+    pages: refined.pages.map((page) => ({
+      ...page,
+      rawHtml: sanitizeStaticConsentHtml(page.rawHtml ?? ""),
+    })),
+  };
 }
 
 function configFromSubmission(
@@ -2376,6 +2521,25 @@ async function reconcileContentStatus(context: TargetTabContext, requestKey = bo
   }
   contentActive = status.active === true;
   contentDirty = status.dirty === true;
+  const recovery = postSaveLocalRecovery;
+  if (
+    recovery !== null &&
+    recovery.kind === "content-inactive-proof" &&
+    bindingOccurrenceIsCurrent(recovery.binding) &&
+    recovery.pageUrl === context.url &&
+    status.active === false
+  ) {
+    const recovered = await reportPopupFactAndPull(context, "session-saved", {
+      savedSeq: recovery.savedSeq,
+      markingEnabled: false,
+      previewActive: false,
+    }, requestKey, () => store.getState().name === "silent");
+    if (recovered && postSaveLocalRecovery === recovery) {
+      postSaveLocalRecovery = null;
+      silentSelectorsAppliedKey = null;
+      notifyBoundEvent(recovery.binding, "Session saved", recovery.baseUrl, "success");
+    }
+  }
   if (status.active === true && store.getState().name === "silent") {
     await reportPopupFact(context, "content-reconciliation", { markingEnabled: true }, requestKey);
     await pullSignals(context.tabId, requestKey);
@@ -2685,11 +2849,13 @@ async function setMarkingEnabledOperation(
     }, transition.requestKey);
     await pullSignals(transition.context.tabId, transition.requestKey);
   } else {
+    advanceOperatorAction(action, "signals");
     const transition = await runSessionTransition(async () => {
       const contentDeactivated = await sendContentMessage(context.tabId, {
         type: "enterSilentContentMain",
         pageUrl: context.url,
       });
+      advanceOperatorAction(action, "activation");
       if (!contentDeactivated || !bindingOccurrenceIsCurrent(binding)) {
         return { contentDeactivated, emulationApplied: false };
       }
@@ -2699,6 +2865,7 @@ async function setMarkingEnabledOperation(
       contentActive = false;
       contentDirty = false;
       const mode = desiredEmulationMode();
+      advanceOperatorAction(action, "emulation");
       const emulationApplied = await applySessionEmulation(context, { mode, allowReload: true });
       return { contentDeactivated, emulationApplied };
     });
@@ -2723,11 +2890,7 @@ async function setMarkingEnabledOperation(
 }
 
 async function setMarkingEnabled(enabled: boolean): Promise<void> {
-  if (!enabled) {
-    await setMarkingEnabledOperation(false);
-    return;
-  }
-  const action = operatorActionController.begin("marking-preflight", {
+  const action = operatorActionController.begin(enabled ? "marking-preflight" : "marking-disable", {
     bindingKey: boundTabKey,
     bindingOccurrence: boundTabOccurrence,
   });
@@ -2736,11 +2899,11 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
   }
   render();
   try {
-    await setMarkingEnabledOperation(true, action);
+    await setMarkingEnabledOperation(enabled, action);
   } catch (error: unknown) {
     notifyEvent(
-      "Enable marking failed",
-      error instanceof Error ? error.message : "an unexpected activation failure occurred",
+      enabled ? "Enable marking failed" : "Disable marking failed",
+      error instanceof Error ? error.message : `an unexpected ${enabled ? "activation" : "deactivation"} failure occurred`,
       "danger",
     );
   } finally {
@@ -2985,20 +3148,42 @@ async function commitRenderMode(): Promise<void> {
     render();
     return;
   }
+  const previousMode = currentRenderMode();
+  const action = operatorActionController.begin("render-mode-set", {
+    bindingKey: boundTabKey,
+    bindingOccurrence: boundTabOccurrence,
+  });
+  if (!action) return;
   pendingRenderMode = null;
-  // Re-confirming the mode already in force is a no-op for setRenderMode, which
-  // is why leaving the view happens here rather than inside it. The view stays
-  // put until the replacement document has acknowledged a JavaScript-on paint.
-  setRenderMode(chosen);
   render();
-  if (!await restoreJavascriptView()) {
-    return;
+  try {
+    // The view stays put until the replacement document has acknowledged a
+    // JavaScript-on paint; only then is Set complete from the operator's view.
+    advanceOperatorAction(action, "persist");
+    await setRenderMode(chosen);
+    if (!await restoreJavascriptView()) {
+      return;
+    }
+    requestedView = null;
+    render();
+    await preparePageAfterRenderMode();
+    notifyEvent("Render mode set", chosen === "rendered" ? "Rendered page" : "Static HTML", "success");
+  } catch (error: unknown) {
+    if (previousMode === null) {
+      configurationController.clearConfirmedRenderMode();
+    } else {
+      configurationController.setConfirmedRenderMode(previousMode);
+    }
+    notifyEvent(
+      "Render mode failed",
+      error instanceof Error ? error.message : "the selection could not be committed",
+      "danger",
+    );
+  } finally {
+    advanceOperatorAction(action, "terminal");
+    operatorActionController.clear(action);
+    render();
   }
-  requestedView = null;
-  render();
-  // Order matters: restoration finished first, so the ritual runs on the
-  // document the operator will actually be marking.
-  await preparePageAfterRenderMode();
 }
 
 /** Only offered once a mode exists, so there is always something to fall back
@@ -3028,10 +3213,21 @@ async function setDesktopPreviewEnabled(enabled: boolean): Promise<void> {
   const binding = captureBindingOccurrence();
   // No armed-session requirement: this control lives on the silent view, which is
   // precisely where marking is off. Turning it off returns the tab to mobile.
-  if (!await runSessionTransition(() => applySessionEmulation(context, {
-    mode: enabled ? "desktop" : "mobile",
-    allowReload: true,
-  }))) {
+  const transitioned = await runSessionTransition(async () => {
+    const emulation = await applySessionEmulationResult(context, {
+      mode: enabled ? "desktop" : "mobile",
+      allowReload: true,
+    });
+    if (!emulation.active) {
+      return false;
+    }
+    if (!emulation.reloadExpected) {
+      return true;
+    }
+    const reload = await waitForEmulationReload(context);
+    return reload.status === "ready";
+  });
+  if (!transitioned) {
     notifyBoundEvent(binding, "Device preview failed", "emulation could not be applied", "warn");
   }
   render();
@@ -3119,37 +3315,41 @@ function renderModeSet(): boolean {
   return currentRenderMode() !== null;
 }
 
-function setRenderMode(mode: RenderMode): void {
-  if (!configurationController.setConfirmedRenderMode(mode)) {
-    return;
-  }
+async function setRenderMode(mode: RenderMode): Promise<void> {
+  configurationController.setConfirmedRenderMode(mode);
   logEvent("Render mode set", mode);
   render();
-  // The background decides whether this may be stored locally: only a property
-  // with no backend configuration qualifies.
+  // The background persists either the first-configuration choice or a
+  // revision-fenced draft that must join the next authoritative Save.
   if (activeSiteId !== null) {
-    void getPopupBus().request("renderMode.remember", { siteId: activeSiteId, renderMode: mode }, { target: "background" })
-      .then((response) => {
-        if (response.ok && !response.data.stored) {
-          logEvent("Render mode not stored locally", response.data.reason ?? "backend config present");
-        }
-      })
-      .catch((error: unknown) => {
-        console.error("[Unfluffify][rewrite] Unable to remember the render mode", error);
-      });
+    const response = await getPopupBus().request(
+      "renderMode.remember",
+      { siteId: activeSiteId, renderMode: mode },
+      { target: "background" },
+    );
+    if (!response.ok) {
+      throw new Error(response.failure.code);
+    }
+    if (!response.data.stored) {
+      throw new Error(response.data.reason ?? "render-mode-draft-not-stored");
+    }
+    if (response.data.reason === "pending-save") {
+      // Existing backend configurations remain authoritative. The durable,
+      // revision-fenced draft joins the next singular current-page Save.
+      notifyEvent(
+        "Render mode pending Save",
+        "The property already exists; run AI and Save the current page to persist this mode.",
+        "warn",
+      );
+    }
   }
   // The content script gates on the directive's render mode, so push it now
   // rather than waiting for the next poll tick.
-  void resolveTargetTabContext()
-    .then(async (context) => {
-      if (context !== null) {
-        await refreshLockDirective(context);
-      }
-      render();
-    })
-    .catch((error: unknown) => {
-      console.error("[Unfluffify][rewrite] Unable to publish the render mode", error);
-    });
+  const context = await resolveTargetTabContext();
+  if (context !== null) {
+    await refreshLockDirective(context);
+  }
+  render();
 }
 
 function renderInspectionOwner(
@@ -3522,7 +3722,40 @@ async function runAiOperation(action: OperatorActionOccurrence): Promise<void> {
     return;
   }
   if (response.data.selectors) {
-    await sendContentMessage(context.tabId, { type: "markContentMainClean" });
+    const cleanAcknowledgement = await requestContentCleanAcknowledgement(context.tabId);
+    if (!cleanAcknowledgement.ok) {
+      // The backend result is not fresh until the exact active content realm has
+      // adopted the clean generation. Do not let a missing receiver or rejected
+      // acknowledgement expose selectors, Save, or Content List until a new run
+      // can establish that proof.
+      contentDirty = true;
+      lastSubmissionSnapshot = null;
+      lastSubmissionKey = null;
+      const contentCleanFailureReason = cleanAcknowledgement.reason;
+      notifyAiFailure(binding, {
+        stage: "result",
+        reason: contentCleanFailureReason,
+        status: contentCleanFailureReason,
+        localRunId,
+        backendRunId: response.data.sessionId,
+      });
+      await reportPopupFactAndPull(context, "ai-run-content-clean-failed", {
+        runPhase: "failed",
+        runSessionId: localRunId,
+        runFailureReason: contentCleanFailureReason.replaceAll("_", "-"),
+      }, requestKey);
+      await syncContentRunGeneration(
+        context,
+        brainSignals.consumedThrough(),
+        localRunId,
+        "terminal",
+      );
+      if (activeRunSessionId === localRunId) {
+        activeRunSessionId = null;
+      }
+      render();
+      return;
+    }
     contentDirty = false;
     notifyBoundEvent(
       binding,
@@ -3542,6 +3775,10 @@ async function runAiOperation(action: OperatorActionOccurrence): Promise<void> {
       localRunId,
       "terminal",
     );
+    if (bindingOccurrenceIsCurrent(binding) && store.getState().name === "post_ai_clean") {
+      advanceOperatorAction(action, "preview");
+      await showPreview(action);
+    }
   } else {
     notifyAiFailure(binding, {
       stage: "result",
@@ -3624,20 +3861,41 @@ async function runAi(): Promise<void> {
 }
 
 async function saveSession(): Promise<void> {
+  if (postSaveLocalRecovery !== null) {
+    notifyEvent(
+      "Save already committed",
+      "the page did not enter silent mode; reload the page before continuing",
+      "danger",
+    );
+    render();
+    return;
+  }
   if (saveInFlight) {
     await saveInFlight;
     return;
   }
+  const action = operatorActionController.begin("save", {
+    bindingKey: boundTabKey,
+    bindingOccurrence: boundTabOccurrence,
+  });
+  if (!action) return;
+  render();
   const pendingPolls = [fastSignalPollInFlight, authorityRefreshQueue.current()]
     .filter((operation): operation is Promise<void> => operation !== null);
   const operation = (async () => {
     await Promise.allSettled(pendingPolls);
     postSaveAuthorityRefreshRequired = false;
-    await performSaveSession();
+    await performSaveSession(action);
   })();
   saveInFlight = operation;
   try {
     await operation;
+  } catch (error: unknown) {
+    notifyEvent(
+      "Save failed",
+      error instanceof Error ? error.message : "an unexpected preparation failure occurred",
+      "danger",
+    );
   } finally {
     saveInFlight = null;
     const refreshAfterSave = postSaveAuthorityRefreshRequired;
@@ -3648,10 +3906,14 @@ async function saveSession(): Promise<void> {
     if (refreshAfterSave || authorityRefreshQueue.hasQueued()) {
       void queueAuthorityRefresh(true);
     }
+    advanceOperatorAction(action, "terminal");
+    operatorActionController.clear(action);
+    render();
   }
 }
 
-async function performSaveSession(): Promise<void> {
+async function performSaveSession(action: OperatorActionOccurrence): Promise<void> {
+  advanceOperatorAction(action, "context");
   const context = await resolveTargetTabContext();
   if (context === null) {
     notifyEvent("Save blocked", "no bound browser tab is available", "danger");
@@ -3660,7 +3922,9 @@ async function performSaveSession(): Promise<void> {
   }
   const requestKey = await handleBoundContext(context);
   const binding = captureBindingOccurrence(requestKey);
+  advanceOperatorAction(action, "signals");
   await pullSignals(context.tabId, requestKey);
+  advanceOperatorAction(action, "lock");
   const lock = await refreshLockDirective(context, requestKey);
   if (!lock || !lockAllowsEditing(lock)) {
     notifyBoundEvent(
@@ -3698,6 +3962,7 @@ async function performSaveSession(): Promise<void> {
     render();
     return;
   }
+  advanceOperatorAction(action, "snapshot");
   const snapshot = lastSubmissionKey === requestKey && lastSubmissionSnapshot
     ? lastSubmissionSnapshot
     : await captureSubmission(context, lock.baseUrl);
@@ -3711,12 +3976,14 @@ async function performSaveSession(): Promise<void> {
     inclusionSelectors: [...currentSelectors.inclusionSelectors],
     exclusionSelectors: [...currentSelectors.exclusionSelectors],
   };
-  let interactionsPaused = false;
+  let resumeInteractionsAfterAbort = false;
   let reconciliationStarted = false;
   let reconciliationReason = "save-aborted";
+  let mutationCommitted = false;
+  let committedRecovery: PostSaveLocalRecovery | null = null;
   try {
-    interactionsPaused = await sendContentMessage(context.tabId, { type: "pauseContentMainInteractions" });
-    if (!interactionsPaused) {
+    resumeInteractionsAfterAbort = await sendContentMessage(context.tabId, { type: "pauseContentMainInteractions" });
+    if (!resumeInteractionsAfterAbort) {
       reconciliationReason = "content-pause-failed";
       notifyBoundEvent(binding, "Save blocked", "page interactions could not be paused", "danger");
       return;
@@ -3785,15 +4052,59 @@ async function performSaveSession(): Promise<void> {
       notifyBoundEvent(binding, "Save blocked", "authoritative lock or candidate page type is unavailable", "danger");
       return;
     }
+    advanceOperatorAction(action, "persist");
     const response = await getPopupBus().request("config.save", saveRequest, { target: "background" });
+    if (response.ok && response.data.status === "ok") {
+      // Hub success is the commit boundary. Fence the old engine before any
+      // later signal drain, identity check, configuration adoption or local
+      // transition can fail: none of those failures can roll back the remote
+      // mutation or make a second Save safe.
+      mutationCommitted = true;
+      reconciliationReason = "ok";
+      postSaveAuthorityRefreshRequired = true;
+      committedRecovery = {
+        binding,
+        pageUrl: context.url,
+        baseUrl: snapshot.baseUrl,
+        savedSeq: nextPopupFactSequence(),
+        kind: "localizing",
+      };
+      postSaveLocalRecovery = committedRecovery;
+      resumeInteractionsAfterAbort = false;
+      lastSubmissionSnapshot = null;
+      lastSubmissionKey = null;
+      if (bindingOccurrenceIsCurrent(binding) && response.data.config) {
+        configurationController.adoptAuthoritativeConfig(response.data.config, "ok");
+      }
+    }
     if (!bindingOccurrenceIsCurrent(binding)) {
-      reconciliationReason = "binding-changed";
+      reconciliationReason = mutationCommitted ? "save-committed-binding-changed" : "binding-changed";
+      if (mutationCommitted) {
+        if (committedRecovery && postSaveLocalRecovery === committedRecovery) {
+          postSaveLocalRecovery = { ...committedRecovery, kind: "reload-required" };
+        }
+        notifyEvent(
+          "Save committed; page review required",
+          "Hub accepted the Save, but the page identity changed before local cleanup. Reload the saved page before continuing.",
+          "danger",
+        );
+      }
       return;
     }
     await pullSignals(context.tabId, requestKey);
     if (store.getState().name === "reconciling" && store.getState().reconciliationDirty) {
-      reconciliationReason = "dirty-during-save";
-      notifyBoundEvent(binding, "Save needs review", "the page changed while Save was in flight", "warn");
+      reconciliationReason = mutationCommitted ? "save-committed-dirty-during-save" : "dirty-during-save";
+      if (mutationCommitted && committedRecovery && postSaveLocalRecovery === committedRecovery) {
+        postSaveLocalRecovery = { ...committedRecovery, kind: "reload-required" };
+      }
+      notifyBoundEvent(
+        binding,
+        mutationCommitted ? "Save committed; page review required" : "Save needs review",
+        mutationCommitted
+          ? "Hub accepted the Save, but the page changed while it was in flight. Marking remains paused; reload the page and review the saved result."
+          : "the page changed while Save was in flight",
+        mutationCommitted ? "danger" : "warn",
+      );
       return;
     }
     reconciliationReason = response.ok ? response.data.status : response.failure.code;
@@ -3812,20 +4123,33 @@ async function performSaveSession(): Promise<void> {
       notifyBoundEvent(binding, "Save failed", detail, "danger");
       return;
     }
-    if (response.data.config) {
-      configurationController.adoptAuthoritativeConfig(response.data.config, "ok");
+    if (!committedRecovery) {
+      throw new Error("Hub accepted Save without establishing local recovery authority");
     }
-    // From here on Hub has accepted the mutation. Even if a local posture or
-    // content acknowledgement fails, the paused slow lane must reconcile the
-    // authoritative property exactly once after cleanup.
-    postSaveAuthorityRefreshRequired = true;
     const enteredSilent = await sendContentMessage(context.tabId, {
       type: "enterSilentContentMain",
       pageUrl: context.url,
     });
-    interactionsPaused = !enteredSilent;
-    lastSubmissionSnapshot = null;
-    lastSubmissionKey = null;
+    if (!enteredSilent) {
+      // The Hub mutation is definitive, so never retry or roll it back. The old
+      // marking engine is still paused from the pre-request fence: retain that
+      // fence, expose an explicit recovery state, and withhold session.saved
+      // until a later content status proves that the active engine is gone.
+      resumeInteractionsAfterAbort = false;
+      reconciliationReason = "save-committed-local-transition-failed";
+      if (postSaveLocalRecovery === committedRecovery) {
+        postSaveLocalRecovery = { ...committedRecovery, kind: "content-inactive-proof" };
+      }
+      silentSelectorsAppliedKey = null;
+      notifyBoundEvent(
+        binding,
+        "Save committed; page recovery required",
+        "Hub accepted the Save, but the page did not enter silent mode. Marking remains paused; reload the page before continuing.",
+        "danger",
+      );
+      return;
+    }
+    resumeInteractionsAfterAbort = false;
     contentActive = false;
     contentDirty = false;
     const lockEnvironmentKey = mutationLock.environmentKey ?? mutationLock.authority?.environmentKey ?? null;
@@ -3849,45 +4173,135 @@ async function performSaveSession(): Promise<void> {
       }
       return await waitForEmulationReload(context, expectedProperty);
     });
-    notifyBoundEvent(binding, "Session saved", snapshot.baseUrl, "success");
     if (silentTransition.status !== "ready") {
+      reconciliationReason = `save-committed-silent-posture-${silentTransition.status}`;
+      if (postSaveLocalRecovery === committedRecovery) {
+        postSaveLocalRecovery = { ...committedRecovery, kind: "reload-required" };
+      }
       notifyBoundEvent(
         binding,
-        "Device posture failed",
+        "Save committed; page recovery required",
         silentTransition.status === "identity_changed"
-          ? "the property identity changed while restoring the silent device posture"
+          ? "Hub accepted the Save, but the property identity changed while restoring the silent device posture. Reload the saved page before continuing."
           : silentTransition.status === "timed_out"
-            ? "the replacement page did not become ready after Save"
-            : "the silent device posture could not be applied",
+            ? "Hub accepted the Save, but the replacement page did not become ready in the exact silent device posture. Reload the saved page before continuing."
+            : "Hub accepted the Save, but the silent device posture could not be applied. Reload the page before continuing.",
+        "danger",
+      );
+      return;
+    }
+    const saveObserved = await reportPopupFactAndPull(context, "session-saved", {
+      savedSeq: committedRecovery.savedSeq,
+      markingEnabled: false,
+      previewActive: false,
+    }, requestKey, () => store.getState().name === "silent");
+    if (saveObserved && postSaveLocalRecovery === committedRecovery) {
+      postSaveLocalRecovery = null;
+      notifyBoundEvent(binding, "Session saved", snapshot.baseUrl, "success");
+    } else if (postSaveLocalRecovery === committedRecovery) {
+      reconciliationReason = "save-committed-popup-ack-failed";
+      postSaveLocalRecovery = { ...committedRecovery, kind: "content-inactive-proof" };
+      notifyBoundEvent(
+        binding,
+        "Save committed; popup recovery required",
+        "the page is silent, but the Save acknowledgement did not arrive; Refresh before continuing",
         "danger",
       );
     }
-    await reportPopupFactAndPull(context, "session-saved", {
-      savedSeq: nextPopupFactSequence(),
-      markingEnabled: false,
-      previewActive: false,
-    }, requestKey);
     silentSelectorsAppliedKey = null;
     // Save owns the mutation and authoritative response adoption. Context,
     // Todo, lock, configuration and silent-selector reconciliation resume once
     // through the paused slow-lane queue after every cleanup path completes.
   } catch (error: unknown) {
-    reconciliationReason = "save-request-failed";
-    notifyBoundEvent(
-      binding,
-      "Save failed",
-      error instanceof Error ? error.message : "an unexpected request failure occurred",
-      "danger",
-    );
+    if (mutationCommitted) {
+      resumeInteractionsAfterAbort = false;
+      reconciliationReason = "save-committed-local-transition-failed";
+      postSaveAuthorityRefreshRequired = true;
+      if (committedRecovery && postSaveLocalRecovery === committedRecovery) {
+        postSaveLocalRecovery = { ...committedRecovery, kind: "reload-required" };
+      }
+      const detail = `Hub accepted the Save, but local recovery failed${
+        error instanceof Error && error.message ? `: ${error.message}` : ""
+      }. Reload the page before continuing.`;
+      if (bindingOccurrenceIsCurrent(binding)) {
+        notifyBoundEvent(binding, "Save committed; page recovery required", detail, "danger");
+      } else {
+        notifyEvent("Save committed; page recovery required", detail, "danger");
+      }
+    } else {
+      reconciliationReason = "save-request-failed";
+      notifyBoundEvent(
+        binding,
+        "Save failed",
+        error instanceof Error ? error.message : "an unexpected request failure occurred",
+        "danger",
+      );
+    }
   } finally {
-    if (interactionsPaused && bindingOccurrenceIsCurrent(binding)) {
+    if (resumeInteractionsAfterAbort && bindingOccurrenceIsCurrent(binding)) {
       await sendContentMessage(context.tabId, { type: "resumeContentMainInteractions" });
     }
+    // A committed mutation has exactly two local terminal states: the complete
+    // silent acknowledgement clears recovery, while every incomplete path
+    // leaves a specifically classified recovery fence. Never let a newly added
+    // await/return path strand the state in the non-terminal localizing phase.
+    if (
+      mutationCommitted &&
+      postSaveLocalRecovery !== null &&
+      postSaveLocalRecovery.kind === "localizing"
+    ) {
+      postSaveLocalRecovery = { ...postSaveLocalRecovery, kind: "reload-required" };
+      postSaveAuthorityRefreshRequired = true;
+      const detail = "Hub accepted the Save, but local completion was not acknowledged. Reload the saved page before continuing.";
+      if (bindingOccurrenceIsCurrent(binding)) {
+        notifyBoundEvent(binding, "Save committed; page recovery required", detail, "danger");
+      } else {
+        notifyEvent("Save committed; page recovery required", detail, "danger");
+      }
+    }
     if (reconciliationStarted && bindingOccurrenceIsCurrent(binding)) {
-      await reportPopupFactAndPull(context, "save-reconciliation-ended", {
-        reconciliationPending: false,
-        reconciliationReason,
-      }, requestKey, () => store.getState().name !== "reconciling");
+      try {
+        const reconciliationEnded = await reportPopupFactAndPull(context, "save-reconciliation-ended", {
+          reconciliationPending: false,
+          reconciliationReason,
+        }, requestKey, () => store.getState().name !== "reconciling");
+        if (!reconciliationEnded) {
+          postSaveAuthorityRefreshRequired ||= mutationCommitted;
+          if (!mutationCommitted) {
+            notifyBoundEvent(
+              binding,
+              "Save cleanup incomplete",
+              "page reconciliation did not finish; Refresh before continuing",
+              "danger",
+            );
+          } else if (postSaveLocalRecovery === null) {
+            notifyBoundEvent(
+              binding,
+              "Session saved; Refresh required",
+              "the Save completed, but the final reconciliation acknowledgement did not arrive",
+              "warn",
+            );
+          }
+        }
+      } catch (error: unknown) {
+        postSaveAuthorityRefreshRequired ||= mutationCommitted;
+        console.error("[Unfluffify][rewrite] Save reconciliation cleanup failed", error);
+        if (!mutationCommitted) {
+          notifyBoundEvent(
+            binding,
+            "Save cleanup incomplete",
+            "page reconciliation could not be finalized; Refresh before continuing",
+            "danger",
+          );
+        } else if (postSaveLocalRecovery === null) {
+          notifyBoundEvent(
+            binding,
+            "Session saved; Refresh required",
+            "the Save completed, but local reconciliation cleanup failed",
+            "warn",
+          );
+        }
+      }
     }
     render();
   }
@@ -3910,10 +4324,23 @@ async function ensurePreviewProjection(
   return await previewController.project(previewOwner(context, requestKey));
 }
 
-async function showPreview(): Promise<void> {
+async function showPreview(existingAction: OperatorActionOccurrence | null = null): Promise<boolean> {
+  const ownedAction = existingAction === null
+    ? operatorActionController.begin("preview-open", {
+      bindingKey: boundTabKey,
+      bindingOccurrence: boundTabOccurrence,
+    })
+    : null;
+  const action = existingAction ?? ownedAction;
+  if (!action) return false;
+  render();
+  try {
+  advanceOperatorAction(action, "context");
   const context = await resolveTargetTabContext();
   if (context === null) {
-    return;
+    notifyEvent("Preview unavailable", "no bound browser tab is available", "danger");
+    render();
+    return false;
   }
   const requestKey = await handleBoundContext(context);
   const binding = captureBindingOccurrence(requestKey);
@@ -3928,31 +4355,56 @@ async function showPreview(): Promise<void> {
     renderModeSet: renderModeSet(),
   }).preview;
   if (previewButton.disabled) {
+    notifyBoundEvent(binding, "Preview unavailable", previewButton.blockedReason || "the content list is not ready", "warn");
     render();
-    return;
+    return false;
   }
   const origin = store.getState().name === "silent" ? "silent" : "post_ai";
   const selectors = store.getPresentation().selectors;
   if (origin === "silent" && selectors.inclusionSelectors.length + selectors.exclusionSelectors.length === 0) {
+    notifyBoundEvent(binding, "Preview unavailable", "no saved selectors are available for this page", "warn");
     render();
-    return;
+    return false;
   }
   const owner = previewOwner(context, requestKey);
+  advanceOperatorAction(action, "rows");
   const candidate = await previewController.requestCandidate(owner);
   if (!candidate) {
     notifyBoundEvent(binding, "Preview unavailable", "detected content could not be read", "warn");
     render();
-    return;
+    return false;
   }
-  await reportPopupFactAndPull(context, "preview-opened", {
+  // Stage the exact projection before exposing the Preview state. This removes
+  // the old one-commit false empty flash while retaining occurrence fencing.
+  if (!previewController.adoptOpeningCandidate(candidate, owner)) {
+    notifyBoundEvent(binding, "Preview unavailable", "the detected-content revision changed", "warn");
+    render();
+    return false;
+  }
+  advanceOperatorAction(action, "preview");
+  const opened = await reportPopupFactAndPull(context, "preview-opened", {
     previewActive: true,
     previewOrigin: origin,
     // Every preview cycle has its own rising exit-request edge. Clearing the
     // prior cycle here makes a second open/exit pair observable to the brain.
     previewExitRequested: false,
-  }, requestKey);
-  previewController.adoptOpeningCandidate(candidate, owner);
+  }, requestKey, previewStateIsOpen);
+  if (!opened || !bindingOccurrenceIsCurrent(binding)) {
+    previewController.previewClosed();
+    store.setPreviewProjection(null);
+    notifyBoundEvent(binding, "Preview unavailable", "the Preview acknowledgement did not arrive", "warn");
+    render();
+    return false;
+  }
   render();
+  return true;
+  } finally {
+    if (ownedAction) {
+      advanceOperatorAction(ownedAction, "terminal");
+      operatorActionController.clear(ownedAction);
+      render();
+    }
+  }
 }
 
 function previewStateIsOpen(): boolean {
@@ -4002,14 +4454,17 @@ async function activatePreviewRow(rowId: string): Promise<void> {
   }
 }
 
-async function discardMarkings(): Promise<void> {
+async function performDiscardMarkings(action: OperatorActionOccurrence): Promise<void> {
+  advanceOperatorAction(action, "context");
   const context = await resolveTargetTabContext();
   if (context === null) {
-    console.error("[Unfluffify][rewrite] Unable to resolve an active tab for discard");
+    notifyEvent("Discard failed", "no bound browser tab is available", "danger");
+    render();
     return;
   }
   const requestKey = await handleBoundContext(context);
   const binding = captureBindingOccurrence(requestKey);
+  advanceOperatorAction(action, "lock");
   const lock = await refreshLockDirective(context, requestKey);
   if (!bindingOccurrenceIsCurrent(binding)) {
     return;
@@ -4024,6 +4479,7 @@ async function discardMarkings(): Promise<void> {
     render();
     return;
   }
+  advanceOperatorAction(action, "activation");
   const reset = await sendContentMessage(context.tabId, {
     type: "resetContentMain",
     // The observed page may be an alias (for example www vs apex). Data-
@@ -4040,7 +4496,24 @@ async function discardMarkings(): Promise<void> {
     return;
   }
   contentDirty = false;
-  await ensureSessionEmulation(context);
+  advanceOperatorAction(action, "emulation");
+  const postureReady = await ensureSessionEmulationTarget(context, {
+    mode: "mobile",
+    allowReload: false,
+  });
+  if (!bindingOccurrenceIsCurrent(binding)) {
+    return;
+  }
+  if (!postureReady) {
+    notifyBoundEvent(
+      binding,
+      "Discard needs device recovery",
+      "the markings were cleared, but the required mobile session posture could not be restored; Refresh before continuing",
+      "danger",
+    );
+    render();
+    return;
+  }
   logEvent("Markings discarded", context.url);
   const discardObserved = await reportPopupFactAndPull(context, "session-discarded", {
     discardedSeq: nextPopupFactSequence(),
@@ -4053,8 +4526,32 @@ async function discardMarkings(): Promise<void> {
       "the discard acknowledgement did not arrive; retry Discard",
       "danger",
     );
+  } else if (discardObserved) {
+    notifyBoundEvent(binding, "Markings discarded", "The clean session baseline has been restored.", "success");
   }
   render();
+}
+
+async function discardMarkings(): Promise<void> {
+  const action = operatorActionController.begin("discard", {
+    bindingKey: boundTabKey,
+    bindingOccurrence: boundTabOccurrence,
+  });
+  if (!action) return;
+  render();
+  try {
+    await performDiscardMarkings(action);
+  } catch (error: unknown) {
+    notifyEvent(
+      "Discard failed",
+      error instanceof Error ? error.message : "an unexpected reset failure occurred",
+      "danger",
+    );
+  } finally {
+    advanceOperatorAction(action, "terminal");
+    operatorActionController.clear(action);
+    render();
+  }
 }
 
 function getDebugViewState(): Record<string, unknown> {
@@ -4143,6 +4640,7 @@ function render(): void {
       onExitPreview={() => { void exitPreview(); }}
       onPreviewRowHover={(rowId, active) => { void hoverPreviewRow(rowId, active); }}
       onPreviewRowActivate={(rowId) => { void activatePreviewRow(rowId); }}
+      focusedPreviewRowId={previewFocusedRowId}
       onRefresh={() => { void refreshPopup(); }}
       onLockAction={(action) => { void dispatchLockAction(action); }}
       onSettingsChange={(field, value) => { configurationController.updateSettings(field, value); }}

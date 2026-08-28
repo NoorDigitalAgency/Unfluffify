@@ -19,8 +19,10 @@ import { shouldBlockPageInput } from "../content/input-firewall";
 import {
   createInteractionShield,
   MAXIMUM_DOCUMENT_Z_INDEX,
+  OPEN_SHADOW_ATTACHED_EVENT,
   type InteractionShieldController,
 } from "../content/interaction-shield";
+import { normalizedDocumentPageUrl, sameDocumentPageUrl } from "../content/page-url";
 import {
   createRenderInspectionCurtain,
   type AdoptedRenderInspectionSession,
@@ -43,10 +45,13 @@ import {
   createFreezeController,
   createRevealVisitController,
   createSpaGuard,
-  hydrateExistingLazyMedia,
+  createViewportScrollRestorationLedger,
+  isComposedCaptureExcluded,
+  resolveViewportScrollOwner,
   runReveal,
   type RevealRunResult,
-  waitForWindowScrollEnd,
+  waitForRevealQuiet,
+  waitForScrollEnd,
 } from "../content/stabilization";
 import type { BrainSignal } from "../domain/schema/signals";
 import type { LockActionKind } from "../domain/schema/facts";
@@ -121,6 +126,16 @@ let navigationWatcherInstalled = false;
 let lastKnownPageUrl = typeof location !== "undefined" ? location.href : "";
 let contentBus: RewriteSignalBus | null = null;
 let pageWorldSessionNonce = "";
+let pageWorldLifecycleEpoch = 0;
+let pageWorldDestroyInFlight: Readonly<{
+  nonce: string;
+  epoch: number;
+  promise: Promise<void>;
+}> | null = null;
+let pageWorldCleanupFenceNonce = "";
+let pageWorldDestroyRetryNonce = "";
+let pageWorldDestroyRetryAttempt = 0;
+let pageWorldDestroyRetryHandle: ReturnType<Window["setTimeout"]> | null = null;
 let contentState: ContentState = INITIAL_CONTENT_STATE;
 let contentPresentation: ContentPresentation = memoryForContent(contentState);
 let contentAuthority: ContentAuthorityState = createDefaultContentAuthority(lastKnownPageUrl);
@@ -134,6 +149,9 @@ const MARKING_CURSOR_CLASSES = [
   "uf-cursor-passthrough",
   "uf-cursor-disabled",
 ] as const;
+/** Chrome may discard a decoded cursor whose only Image wrapper has already
+ * been collected. Retain both preload objects for this content-realm lifetime. */
+const markingCursorPreloads: HTMLImageElement[] = [];
 type MarkingCursorMode = "exclude" | "include" | "passthrough" | "disabled";
 /** Selectors seed a clean session once and then stop mattering; this guards the
  *  "once" across re-activations of the same session. */
@@ -188,6 +206,8 @@ let pendingPageVisitRitual: PendingPageVisitRitual | null = null;
 /** How long to wait for a load event before walking anyway. */
 const RITUAL_READY_TIMEOUT_MS = 8000;
 let contentSurfaceRoot: HTMLElement | null = null;
+let contentSurfaceInputBoundaryActive = false;
+const contentSurfacePrivilegedTargets = new Set<HTMLElement>();
 let lastContentSurfaceSignature = "";
 let contentTransientSurfaces: ContentTransientSurfaces | null = null;
 let contentLockConfirmation: TransientSurfaceHandle | null = null;
@@ -197,6 +217,8 @@ const contentToasts = createContentToastLifecycle();
 let interactionShield: InteractionShieldController | null = null;
 let renderInspectionCurtain: RenderInspectionCurtainController | null = null;
 let renderInspectionAdoptionGeneration = 0;
+let pendingRenderInspectionAdoptionGeneration: number | null = null;
+let provisionalBfcacheRenderInspectionFence = false;
 const RENDER_INSPECTION_DOCUMENT_NONCE = globalThis.crypto?.randomUUID?.()
   ?? `render-inspection-${Date.now()}-${Math.random()}`;
 // Fail closed until page.context establishes a managed property or re-adopts a
@@ -224,6 +246,8 @@ const PREVIEW_SHIELD_REASON = "preview";
 const BLOCKED_ORGAN_SHIELD_REASON = "blocked-organ";
 const DURABLE_POSTURE_SHIELD_REASON = "durable-posture";
 const RENDER_INSPECTION_SHIELD_REASON = "render-inspection";
+const BF_CACHE_RENDER_INSPECTION_SHIELD_REASON = "bfcache-render-inspection";
+const PAGE_VISIT_INSPECTION_SHIELD_REASON = "page-visit-inspection";
 
 const CONTENT_LOCK_ACTION_LABEL: Readonly<Record<LockActionKind, string>> = {
   "continue-here": "Continue here",
@@ -364,6 +388,7 @@ html.uf-cursor-disabled * { cursor: progress !important; }
     for (const url of [excludeUrl, includeUrl]) {
       const image = new ImageConstructor();
       image.src = url;
+      markingCursorPreloads.push(image);
       void image.decode?.().catch(() => undefined);
     }
   }
@@ -490,7 +515,7 @@ function adoptAuthoritativeRenderInspection(
 ): boolean {
   if (
     session.phase !== "adopted" ||
-    session.pageUrl !== currentPageUrl() ||
+    !sameDocumentPageUrl(session.pageUrl, currentPageUrl()) ||
     session.documentNonce !== RENDER_INSPECTION_DOCUMENT_NONCE
   ) {
     return false;
@@ -513,7 +538,7 @@ function reconcileRenderInspectionMutation(
   if (
     response.session?.phase === "adopted" &&
     response.session.documentNonce === RENDER_INSPECTION_DOCUMENT_NONCE &&
-    response.session.pageUrl === currentPageUrl()
+    sameDocumentPageUrl(response.session.pageUrl, currentPageUrl())
   ) {
     adoptAuthoritativeRenderInspection(response.session);
     return;
@@ -544,7 +569,7 @@ async function acknowledgeRenderInspectionPaint(
     return;
   }
   const pageUrl = session.pageUrl;
-  if (pageUrl !== currentPageUrl()) {
+  if (!sameDocumentPageUrl(pageUrl, currentPageUrl())) {
     await reportRenderInspectionFailure(session, "same-document-navigation");
     renderInspectionCurtain?.failOpenMatching(identity);
     return;
@@ -562,7 +587,7 @@ async function acknowledgeRenderInspectionPaint(
       !isCurrentRenderInspection(identity) ||
       lifecycleGeneration !== contentLifecycleGeneration ||
       routeGeneration !== documentLifecycleGeneration ||
-      pageUrl !== currentPageUrl()
+      !sameDocumentPageUrl(pageUrl, currentPageUrl())
     ) {
       return;
     }
@@ -615,9 +640,12 @@ async function reportRenderInspectionFailure(
 async function adoptRenderInspectionSession(): Promise<void> {
   const pageUrl = currentPageUrl();
   if (!pageUrl) {
+    provisionalBfcacheRenderInspectionFence = false;
+    syncInteractionShield();
     return;
   }
   const adoptionGeneration = ++renderInspectionAdoptionGeneration;
+  pendingRenderInspectionAdoptionGeneration = adoptionGeneration;
   const lifecycleGeneration = contentLifecycleGeneration;
   const routeGeneration = documentLifecycleGeneration;
   let response;
@@ -627,18 +655,33 @@ async function adoptRenderInspectionSession(): Promise<void> {
       documentNonce: RENDER_INSPECTION_DOCUMENT_NONCE,
     }, { target: "background" });
   } catch {
+    if (pendingRenderInspectionAdoptionGeneration === adoptionGeneration) {
+      pendingRenderInspectionAdoptionGeneration = null;
+    }
+    if (adoptionGeneration === renderInspectionAdoptionGeneration) {
+      provisionalBfcacheRenderInspectionFence = false;
+      syncInteractionShield();
+    }
     return;
   }
   if (
     adoptionGeneration !== renderInspectionAdoptionGeneration ||
     lifecycleGeneration !== contentLifecycleGeneration ||
     routeGeneration !== documentLifecycleGeneration ||
-    pageUrl !== currentPageUrl()
+    !sameDocumentPageUrl(pageUrl, currentPageUrl())
   ) {
+    if (pendingRenderInspectionAdoptionGeneration === adoptionGeneration) {
+      pendingRenderInspectionAdoptionGeneration = null;
+    }
     return;
+  }
+  if (pendingRenderInspectionAdoptionGeneration === adoptionGeneration) {
+    pendingRenderInspectionAdoptionGeneration = null;
   }
   if (response.ok && response.data.status === "adopt") {
     adoptAuthoritativeRenderInspection(response.data.session);
+    provisionalBfcacheRenderInspectionFence = false;
+    syncInteractionShield();
     return;
   }
   const current = renderInspectionCurtain?.current() ?? null;
@@ -649,15 +692,24 @@ async function adoptRenderInspectionSession(): Promise<void> {
     // a later adoption because adoptionGeneration fences the continuation.
     renderInspectionCurtain?.failOpenMatching(identity);
   }
+  provisionalBfcacheRenderInspectionFence = false;
+  syncInteractionShield();
 }
 
 function releaseLocalRenderInspectionForPageHide(): void {
   // A BFCache hide keeps this content realm alive, so invalidate both an
   // in-flight adoption response and the curtain controller's queued paint
   // callbacks before the hidden document can be restored later.
-  renderInspectionAdoptionGeneration += 1;
   const current = renderInspectionCurtain?.current() ?? null;
   const identity = current ? renderInspectionIdentity(current) : null;
+  // The retained realm knows synchronously that this document owned an active
+  // inspection. Preserve a shield-only provisional lease across BFCache while
+  // the fresh background adoption is pending; the curtain itself remains
+  // absent until exact document authority is re-proven.
+  provisionalBfcacheRenderInspectionFence = provisionalBfcacheRenderInspectionFence ||
+    identity !== null || pendingRenderInspectionAdoptionGeneration !== null;
+  pendingRenderInspectionAdoptionGeneration = null;
+  renderInspectionAdoptionGeneration += 1;
   if (identity) {
     renderInspectionCurtain?.failOpenMatching(identity);
   }
@@ -813,8 +865,29 @@ function ensureContentSignalPolling(): void {
   }, CONTENT_SIGNAL_POLL_MS);
 }
 
-type StabilizationPageCommand = "ARM" | "SET_LAZY_LOADING_SUPPRESSED" | "SET_MOTION_PAUSED";
+type StabilizationPageCommand =
+  | "ARM"
+  | "RECONCILE"
+  | "SET_LAZY_LOADING_SUPPRESSED"
+  | "SET_MOTION_PAUSED"
+  | "DESTROY";
+type StabilizationPageCommandError = Error & Readonly<{
+  command: StabilizationPageCommand;
+  requestNonce: string;
+}>;
 let stabilizationPageRequestSequence = 0;
+
+function stabilizationCommandError(
+  command: StabilizationPageCommand,
+  requestNonce: string,
+  message: string,
+): StabilizationPageCommandError {
+  return Object.assign(new Error(message), { command, requestNonce });
+}
+
+function stabilizationCommandTimeout(command: StabilizationPageCommand): number {
+  return command === "SET_MOTION_PAUSED" ? 15_000 : command === "DESTROY" ? 5_000 : 3_000;
+}
 
 async function requestStabilizationPageCommand(
   command: StabilizationPageCommand,
@@ -867,7 +940,11 @@ async function requestStabilizationPageCommand(
         return;
       }
       if (!response.ok) {
-        finish(undefined, new Error(response.failure?.message ?? `Page-world command failed: ${command}`));
+        finish(undefined, stabilizationCommandError(
+          command,
+          nonce,
+          response.failure?.message ?? `Page-world command failed: ${command}`,
+        ));
         return;
       }
       finish({
@@ -878,30 +955,235 @@ async function requestStabilizationPageCommand(
       });
     };
     const timeoutHandle = setTimeout(() => {
-      finish(undefined, new Error(`Page-world command timed out: ${command}`));
-    }, 3_000);
+      finish(undefined, stabilizationCommandError(
+        command,
+        nonce,
+        `Page-world command timed out: ${command}`,
+      ));
+    }, stabilizationCommandTimeout(command));
     window.addEventListener("message", handleMessage);
     window.postMessage?.({
       kind: "uf-page-bus/1",
       type: "request",
       nonce,
-      sessionNonce: command === "ARM" ? undefined : sessionNonce,
+      sessionNonce: command === "ARM" || command === "RECONCILE" ? undefined : sessionNonce,
       command,
       payload,
     }, "*");
   });
 }
 
-function currentDocumentScrollHeight(): number {
-  if (typeof document === "undefined") {
+function requireStabilizationPageState(
+  command: StabilizationPageCommand,
+  response: Readonly<{ nonce: string; payload: Record<string, unknown> }>,
+  expected: Readonly<Record<string, unknown>>,
+): void {
+  for (const [key, value] of Object.entries(expected)) {
+    if (response.payload[key] !== value) {
+      throw stabilizationCommandError(
+        command,
+        response.nonce,
+        `Page-world ${command} acknowledgement did not prove ${key}=${String(value)}`,
+      );
+    }
+  }
+}
+
+function currentViewportScrollExtent(): number {
+  if (typeof document === "undefined" || typeof window === "undefined") {
     return 0;
   }
-  return Math.max(
-    document.documentElement?.scrollHeight ?? 0,
-    document.body?.scrollHeight ?? 0,
-    document.documentElement?.offsetHeight ?? 0,
-    document.body?.offsetHeight ?? 0,
-  );
+  const owner = resolveViewportScrollOwner(document, window);
+  return owner.maximumOffset() + owner.viewportExtent();
+}
+
+function revealRectSignature(owner: ReturnType<typeof resolveViewportScrollOwner> | null): string {
+  if (typeof document === "undefined" || typeof window === "undefined") return "";
+  const elements: Element[] = [];
+  const seen = new Set<Element>();
+  const include = (element: Element | null | undefined): void => {
+    if (!element || seen.has(element) || isComposedCaptureExcluded(element)) return;
+    seen.add(element);
+    elements.push(element);
+  };
+  include(owner?.element);
+  include(document.documentElement);
+  include(document.body);
+  try {
+    for (const [x, y] of [
+      [window.innerWidth * 0.5, window.innerHeight * 0.5],
+      [window.innerWidth * 0.15, window.innerHeight * 0.15],
+      [window.innerWidth * 0.85, window.innerHeight * 0.15],
+      [window.innerWidth * 0.15, window.innerHeight * 0.85],
+      [window.innerWidth * 0.85, window.innerHeight * 0.85],
+    ] as const) {
+      for (const element of document.elementsFromPoint?.(x, y) ?? []) include(element);
+    }
+  } catch {
+    // Geometry proof retains the owner/root probes in restricted documents.
+  }
+  const quarter = (value: number): number => Math.round(value * 4) / 4;
+  return elements.slice(0, 24).map((element) => {
+    try {
+      const rect = element.getBoundingClientRect();
+      return [rect.left, rect.top, rect.right, rect.bottom].map(quarter).join(",");
+    } catch {
+      return "unmeasurable";
+    }
+  }).join("|");
+}
+
+function revealResourceSignature(): string {
+  if (typeof document === "undefined") return "";
+  let hash = 2_166_136_261;
+  const mix = (value: unknown): void => {
+    const text = String(value ?? "");
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16_777_619);
+    }
+  };
+  const images = document.images;
+  let imageCount = 0;
+  let completeImages = 0;
+  for (let index = 0; index < images.length; index += 1) {
+    const image = images.item(index);
+    if (!image || isComposedCaptureExcluded(image)) continue;
+    imageCount += 1;
+    if (image.complete) completeImages += 1;
+    mix(image.currentSrc || image.src);
+    mix(image.complete);
+    mix(image.naturalWidth);
+    mix(image.naturalHeight);
+  }
+  let mediaCount = 0;
+  try {
+    for (const node of document.querySelectorAll<HTMLMediaElement | HTMLSourceElement>(
+      "video, audio, source",
+    )) {
+      if (isComposedCaptureExcluded(node)) continue;
+      mediaCount += 1;
+      mix(node.getAttribute("src"));
+      mix(node.getAttribute("srcset"));
+      mix("readyState" in node ? node.readyState : "");
+    }
+  } catch {
+    // Image and performance evidence remains available.
+  }
+  // Do not fold the process-global PerformanceResourceTiming count into this
+  // proof. Analytics and application polling are allowed to continue while a
+  // capture-relevant image/media set is stable; a monotonic request count would
+  // make those properties impossible to settle.
+  return `${imageCount}:${completeImages}:${mediaCount}:${hash >>> 0}`;
+}
+
+function revealMotionSignature(includeTimeline: boolean): string {
+  if (typeof document === "undefined" || typeof document.getAnimations !== "function") return "0";
+  try {
+    const states: string[] = [];
+    for (const animation of document.getAnimations()) {
+      const target = (animation.effect as KeyframeEffect | null)?.target;
+      if (target instanceof Element && isComposedCaptureExcluded(target)) continue;
+      // A carousel/spinner is expected to advance during the visible top/middle
+      // reveal walk. Its clock is proof only after the page-world freeze has
+      // acknowledged; before that boundary, membership/play state is stable
+      // evidence and clock progression must not starve the ritual.
+      const timeline = includeTimeline
+        ? typeof animation.currentTime === "number"
+          ? `:${Math.round(animation.currentTime)}`
+          : `:${String(animation.currentTime ?? "")}`
+        : "";
+      states.push(`${animation.playState}${timeline}`);
+    }
+    return `${states.length}:${states.sort().join("|")}`;
+  } catch {
+    return "unknown";
+  }
+}
+
+function revealRowSignature(includeCaptureContent: boolean): string {
+  if (typeof document === "undefined" || !document.documentElement) return "0:0:0";
+  const maximumElements = 2_048;
+  const stack: Element[] = [document.documentElement];
+  let visited = 0;
+  let shadowRoots = 0;
+  let hash = 2_166_136_261;
+  const mix = (value: unknown): void => {
+    const text = String(value ?? "");
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16_777_619);
+    }
+  };
+  while (stack.length > 0 && visited < maximumElements) {
+    const element = stack.pop()!;
+    if (isComposedCaptureExcluded(element)) continue;
+    visited += 1;
+    mix(element.localName || element.tagName);
+    mix(element.childElementCount);
+    mix(element.getAttribute?.("hidden") !== null);
+    mix(element.getAttribute?.("aria-hidden"));
+    mix(element.getAttribute?.("open") !== null);
+    mix(element.getAttribute?.("src"));
+    mix(element.getAttribute?.("srcset"));
+    if (includeCaptureContent) {
+      // After freeze, prove the capture-bearing row content—not merely its
+      // shape. Bound both attributes and direct text so a very large article
+      // cannot turn the 50 ms sampler into a full serialization pass.
+      for (const attribute of Array.from(element.attributes ?? []).slice(0, 16)) {
+        mix(attribute.name);
+        mix(attribute.value.slice(0, 256));
+      }
+      for (const child of Array.from(element.childNodes ?? [])) {
+        if (child.nodeType === 3) {
+          mix((child.nodeValue ?? "").slice(0, 512));
+        }
+      }
+    }
+    const shadow = element.shadowRoot;
+    if (shadow) {
+      shadowRoots += 1;
+      const shadowChildren = Array.from(shadow.children);
+      for (let index = shadowChildren.length - 1; index >= 0; index -= 1) {
+        stack.push(shadowChildren[index]!);
+      }
+    }
+    const children = Array.from(element.children);
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      stack.push(children[index]!);
+    }
+  }
+  return `${visited}:${shadowRoots}:${stack.length > 0 ? "bounded" : "complete"}:${hash >>> 0}`;
+}
+
+function revealAccessibleShadowRoots(): ShadowRoot[] {
+  if (typeof document === "undefined" || !document.documentElement) return [];
+  const result: ShadowRoot[] = [];
+  const roots: ParentNode[] = [document];
+  const seen = new Set<ShadowRoot>();
+  while (roots.length > 0) {
+    const root = roots.shift()!;
+    let walker: TreeWalker;
+    try {
+      walker = document.createTreeWalker(root, 1);
+    } catch {
+      continue;
+    }
+    let node = walker.nextNode();
+    while (node) {
+      const element = node as Element;
+      if (!isComposedCaptureExcluded(element)) {
+        const shadow = element.shadowRoot;
+        if (shadow && shadow.mode === "open" && !seen.has(shadow)) {
+          seen.add(shadow);
+          result.push(shadow);
+          roots.push(shadow);
+        }
+      }
+      node = walker.nextNode();
+    }
+  }
+  return result;
 }
 
 async function runActivationStabilization(pageUrl: string): Promise<RevealRunResult | null> {
@@ -913,82 +1195,198 @@ async function runActivationStabilization(pageUrl: string): Promise<RevealRunRes
       const lifecycleGeneration = contentLifecycleGeneration;
       const routeGeneration = documentLifecycleGeneration;
       spaGuard.arm(pageUrl);
-      destroyPageWorldSession();
+      await reconcilePageWorldSessionAndWait();
       pageInspectionActive = true;
       lastContentSurfaceSignature = "";
       renderContentSurface();
-      const initialScrollY = typeof window !== "undefined" ? window.scrollY : 0;
+      const scrollRestoration = createViewportScrollRestorationLedger();
+      const initialScrollOwner = typeof window !== "undefined" && typeof document !== "undefined"
+        ? scrollRestoration.observe(resolveViewportScrollOwner(document, window))
+        : null;
+      let scrollOwner = initialScrollOwner;
+      const refreshScrollOwner = (): typeof scrollOwner => {
+        if (typeof window === "undefined" || typeof document === "undefined") {
+          return scrollOwner;
+        }
+        scrollOwner = scrollRestoration.observe(resolveViewportScrollOwner(document, window));
+        return scrollOwner;
+      };
       const isStale = (): boolean => !interactionShieldAuthorityActive ||
         lifecycleGeneration !== contentLifecycleGeneration ||
         routeGeneration !== documentLifecycleGeneration ||
-        pageUrl !== (typeof location !== "undefined" ? location.href : pageUrl);
-      const waitForSettle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 250));
+        !sameDocumentPageUrl(
+          pageUrl,
+          typeof location !== "undefined" ? location.href : pageUrl,
+        );
+      const waitForSettle = async (phase: "step" | "post-freeze"): Promise<boolean> => {
+        if (typeof window === "undefined" || typeof document === "undefined") {
+          return false;
+        }
+        const proof = await waitForRevealQuiet({
+          document,
+          window,
+          isStale,
+          measureExtent: () => {
+            const owner = refreshScrollOwner();
+            return owner ? owner.maximumOffset() + owner.viewportExtent() : 0;
+          },
+          measureRects: () => revealRectSignature(scrollOwner),
+          measureResources: revealResourceSignature,
+          measureMotion: () => revealMotionSignature(phase === "post-freeze"),
+          measureRows: () => revealRowSignature(phase === "post-freeze"),
+          ...(phase === "post-freeze" ? {
+            resetOnCaptureMutation: true,
+            additionalMutationRoots: revealAccessibleShadowRoots(),
+            shadowRootAttachedEventName: OPEN_SHADOW_ATTACHED_EVENT,
+          } : {}),
+          ...(phase === "post-freeze" ? { quietMs: 2_000, timeoutMs: 4_000 } : {}),
+        });
+        return proof.quiet;
+      };
+      let attemptedPageWorldSessionNonce = "";
       try {
         const armed = await requestStabilizationPageCommand("ARM", {});
+        attemptedPageWorldSessionNonce = armed.nonce;
+        requireStabilizationPageState("ARM", armed, {
+          armed: true,
+          paused: false,
+          lazySuppressed: false,
+          sessionNonce: armed.nonce,
+          phase: "armed",
+        });
         if (isStale()) {
-          requestPageWorldSessionDestroy(armed.nonce);
+          await destroyPageWorldSessionAndWait(armed.nonce);
           return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
         }
         pageWorldSessionNonce = armed.nonce;
         const result = await runReveal({
-          hasVerticalScrollRoom: typeof document !== "undefined" && typeof window !== "undefined"
-            ? currentDocumentScrollHeight() > window.innerHeight + 2
-            : false,
+          hasVerticalScrollRoom: (initialScrollOwner?.maximumOffset() ?? 0) > 2,
           activationStale: isStale,
-          initialScrollHeight: currentDocumentScrollHeight(),
-          measureExpandedScrollHeight: currentDocumentScrollHeight,
+          initialScrollHeight: scrollOwner
+            ? scrollOwner.maximumOffset() + scrollOwner.viewportExtent()
+            : 0,
+          measureExpandedScrollHeight: () => {
+            const owner = refreshScrollOwner();
+            return owner
+              ? owner.maximumOffset() + owner.viewportExtent()
+              : currentViewportScrollExtent();
+          },
           async scrollTo(position, measuredScrollHeight) {
             if (typeof window === "undefined" || isStale()) {
-              return;
+              return { reached: false, progressed: false };
             }
-            const bottomY = Math.max(0, measuredScrollHeight - window.innerHeight);
-            const targetY = position === "top"
+            if (position === "restore") {
+              let allReached = true;
+              let anyProgress = false;
+              for (const origin of scrollRestoration.positionsForRestore()) {
+                if (isStale()) {
+                  return { reached: false, progressed: anyProgress };
+                }
+                const beforeOffset = origin.owner.currentOffset();
+                origin.owner.scrollTo(origin.top, "smooth", origin.left);
+                const scroll = await waitForScrollEnd(
+                  origin.owner,
+                  origin.top,
+                  isStale,
+                  window,
+                );
+                const afterOffset = origin.owner.currentOffset();
+                allReached = allReached && scroll.reached;
+                anyProgress = anyProgress || scroll.reached ||
+                  Math.abs(afterOffset - beforeOffset) > 2;
+              }
+              return { reached: allReached, progressed: anyProgress };
+            }
+            const resolvedOwner = refreshScrollOwner();
+            if (!resolvedOwner) {
+              return { reached: false, progressed: false };
+            }
+            scrollOwner = resolvedOwner;
+            const beforeOffset = resolvedOwner.currentOffset();
+            const bottomOffset = Math.min(
+              resolvedOwner.maximumOffset(),
+              Math.max(0, measuredScrollHeight - resolvedOwner.viewportExtent()),
+            );
+            const targetOffset = position === "top"
               ? 0
               : position === "lazy-threshold"
-                ? Math.round(bottomY * 0.5)
-                : position === "bottom"
-                  ? bottomY
-                  : initialScrollY;
+                ? Math.round(bottomOffset * 0.5)
+                  : bottomOffset;
             // This is intentionally visible operator feedback. The bounded
             // scroll-end proof below keeps hostile or throttled pages from
             // hanging while retaining the latest legacy's smooth visit.
-            window.scrollTo({ top: targetY, behavior: "smooth" });
-            await waitForWindowScrollEnd(targetY, isStale);
+            resolvedOwner.scrollTo(
+              targetOffset,
+              "smooth",
+              resolvedOwner.currentInlineOffset(),
+            );
+            const scroll = await waitForScrollEnd(resolvedOwner, targetOffset, isStale, window);
+            const afterOffset = resolvedOwner.currentOffset();
+            const progressed = scroll.reached || Math.abs(afterOffset - beforeOffset) > 2;
+            if (position !== "bottom") {
+              return { reached: scroll.reached, progressed };
+            }
+            // The document can grow while a smooth scroll is in flight. A fixed
+            // target reached against the old height is not the true bottom.
+            const maximumOffset = resolvedOwner.maximumOffset();
+            const visualBottomReached = maximumOffset <= 2 ||
+              resolvedOwner.currentOffset() >= maximumOffset * 0.995;
+            return {
+              reached: !scroll.stale && visualBottomReached,
+              progressed,
+            };
           },
           waitForSettle,
           async suppressLazyLoading() {
             if (isStale()) {
               return;
             }
-            // The reveal walk has now exposed every existing document boundary.
-            // Materialize declared lazy media before suppressing observers so a
-            // late site initializer cannot strand already-present resources.
-            hydrateExistingLazyMedia(document);
-            await requestStabilizationPageCommand(
+            // The visible reveal walk owns site materialization. Extension-side
+            // data-* promotion would fabricate DOM and contaminate capture, so
+            // suppression is acknowledged without mutating media attributes.
+            const response = await requestStabilizationPageCommand(
               "SET_LAZY_LOADING_SUPPRESSED",
               { suppressed: true },
               pageWorldSessionNonce,
             );
+            requireStabilizationPageState("SET_LAZY_LOADING_SUPPRESSED", response, {
+              armed: true,
+              lazySuppressed: true,
+              sessionNonce: pageWorldSessionNonce,
+            });
           },
           async restoreLazyLoading() {
             if (!pageWorldSessionNonce) {
               return;
             }
-            await requestStabilizationPageCommand(
+            const response = await requestStabilizationPageCommand(
               "SET_LAZY_LOADING_SUPPRESSED",
               { suppressed: false },
               pageWorldSessionNonce,
             );
+            requireStabilizationPageState("SET_LAZY_LOADING_SUPPRESSED", response, {
+              armed: true,
+              lazySuppressed: false,
+              sessionNonce: pageWorldSessionNonce,
+            });
           },
           async freezeAtBottom() {
             if (isStale()) {
               return;
             }
-            await requestStabilizationPageCommand(
+            const response = await requestStabilizationPageCommand(
               "SET_MOTION_PAUSED",
               { paused: true },
               pageWorldSessionNonce,
             );
+            requireStabilizationPageState("SET_MOTION_PAUSED", response, {
+              armed: true,
+              paused: true,
+              lazySuppressed: true,
+              sessionNonce: pageWorldSessionNonce,
+              phase: "frozen",
+              initialDiscoveryComplete: true,
+            });
             if (isStale()) {
               return;
             }
@@ -997,11 +1395,34 @@ async function runActivationStabilization(pageUrl: string): Promise<RevealRunRes
             renderContentSurface();
           },
         });
-        return isStale()
-          ? { skipped: true, lazyExpansions: 0, frozenAtBottom: false }
-          : result;
+        if (isStale() || !result.frozenAtBottom) {
+          await destroyPageWorldSessionAndWait();
+          return {
+            skipped: true,
+            lazyExpansions: result.lazyExpansions,
+            frozenAtBottom: false,
+          };
+        }
+        return result;
+      } catch (error) {
+        const requestNonce = error && typeof error === "object" && "requestNonce" in error
+          ? String((error as { requestNonce?: unknown }).requestNonce ?? "")
+          : "";
+        // This task may finish after a newer reveal has adopted its own exact
+        // session. Reconcile only the lease this task armed; never tear down the
+        // module-global newer session in an old task's catch path.
+        const cleanupNonce = attemptedPageWorldSessionNonce || pageWorldSessionNonce || requestNonce;
+        if (cleanupNonce) {
+          await destroyPageWorldSessionAndWait(cleanupNonce).catch((cleanupError: unknown) => {
+            console.error("[Unfluffify][rewrite] Unable to reconcile failed page-world posture", cleanupError);
+          });
+        }
+        throw error;
       } finally {
-        if (lifecycleGeneration === contentLifecycleGeneration) {
+        if (
+          lifecycleGeneration === contentLifecycleGeneration &&
+          pageWorldCleanupFenceNonce === ""
+        ) {
           pageInspectionActive = false;
           lastContentSurfaceSignature = "";
           renderContentSurface();
@@ -1014,38 +1435,191 @@ async function runActivationStabilization(pageUrl: string): Promise<RevealRunRes
   }
 }
 
-function requestPageWorldSessionDestroy(sessionNonce: string): void {
+async function requestPageWorldSessionDestroy(sessionNonce: string): Promise<boolean> {
   if (!sessionNonce || typeof window === "undefined") {
-    return;
+    return true;
   }
-  window.postMessage?.({
-    kind: "uf-page-bus/1",
-    type: "request",
-    nonce: sessionNonce,
-    sessionNonce,
-    command: "DESTROY",
-    payload: {},
-  }, "*");
+  const response = await requestStabilizationPageCommand("DESTROY", {}, sessionNonce);
+  requireStabilizationPageState("DESTROY", response, {
+    armed: false,
+    paused: false,
+    lazySuppressed: false,
+    sessionNonce: "",
+    phase: "idle",
+  });
+  return true;
 }
 
-function destroyPageWorldSession(): void {
-  const wasPaused = freezeController.isPaused();
-  if (!pageWorldSessionNonce || typeof window === "undefined") {
+async function reconcilePageWorldSessionAndWait(): Promise<void> {
+  if (typeof window === "undefined") {
     freezeController.lift();
     pageWorldSessionNonce = "";
+    return;
+  }
+  const previousNonce = pageWorldSessionNonce;
+  const reconcileEpoch = ++pageWorldLifecycleEpoch;
+  if (pageWorldDestroyRetryHandle !== null) clearTimeout(pageWorldDestroyRetryHandle);
+  pageWorldDestroyRetryHandle = null;
+  pageWorldDestroyRetryNonce = "";
+  pageWorldDestroyRetryAttempt = 0;
+  // An older request cannot be cancelled at the transport boundary, but its
+  // continuation is epoch-fenced below and must not be reused by this owner.
+  pageWorldDestroyInFlight = null;
+  const response = await requestStabilizationPageCommand("RECONCILE", {});
+  requireStabilizationPageState("RECONCILE", response, {
+    armed: false,
+    paused: false,
+    lazySuppressed: false,
+    sessionNonce: "",
+    phase: "idle",
+  });
+  if (reconcileEpoch !== pageWorldLifecycleEpoch) return;
+  freezeController.lift();
+  pageWorldSessionNonce = "";
+  if (previousNonce) clearPageWorldCleanupFence(previousNonce);
+}
+
+function retainPageWorldCleanupFence(nonce: string): void {
+  if (!nonce) {
+    return;
+  }
+  pageWorldCleanupFenceNonce = nonce;
+  pageInspectionActive = true;
+  lastContentSurfaceSignature = "";
+  renderContentSurface();
+}
+
+function clearPageWorldCleanupFence(nonce: string): void {
+  if (pageWorldDestroyRetryNonce === nonce) {
+    if (pageWorldDestroyRetryHandle !== null) {
+      clearTimeout(pageWorldDestroyRetryHandle);
+    }
+    pageWorldDestroyRetryHandle = null;
+    pageWorldDestroyRetryNonce = "";
+    pageWorldDestroyRetryAttempt = 0;
+  }
+  if (pageWorldCleanupFenceNonce !== nonce) {
+    return;
+  }
+  pageWorldCleanupFenceNonce = "";
+  pageInspectionActive = false;
+  lastContentSurfaceSignature = "";
+  renderContentSurface();
+  if (!interactionShieldAuthorityActive) {
+    disposeInteractionShield();
+  }
+}
+
+function failOpenPageWorldCleanupFenceLocally(): void {
+  if (pageWorldDestroyRetryHandle !== null) {
+    clearTimeout(pageWorldDestroyRetryHandle);
+  }
+  pageWorldDestroyRetryHandle = null;
+  pageWorldDestroyRetryNonce = "";
+  pageWorldDestroyRetryAttempt = 0;
+  pageWorldCleanupFenceNonce = "";
+  pageInspectionActive = false;
+}
+
+function schedulePageWorldDestroyRetry(nonce: string): void {
+  if (!nonce || typeof window === "undefined") {
+    return;
+  }
+  if (pageWorldDestroyRetryNonce && pageWorldDestroyRetryNonce !== nonce) {
+    return;
+  }
+  pageWorldDestroyRetryNonce = nonce;
+  if (pageWorldDestroyRetryHandle !== null) {
+    return;
+  }
+  const delay = Math.min(2_000, 100 * (2 ** Math.min(pageWorldDestroyRetryAttempt, 5)));
+  pageWorldDestroyRetryHandle = window.setTimeout(() => {
+    pageWorldDestroyRetryHandle = null;
+    pageWorldDestroyRetryAttempt += 1;
+    void destroyPageWorldSessionAndWait(nonce).catch((error: unknown) => {
+      console.error("[Unfluffify][rewrite] Page-world teardown retry remains pending", error);
+    });
+  }, delay);
+}
+
+async function destroyPageWorldSessionAndWait(explicitNonce = ""): Promise<void> {
+  const wasPaused = freezeController.isPaused();
+  const ownedNonce = explicitNonce || pageWorldSessionNonce;
+  if (!ownedNonce || typeof window === "undefined") {
+    freezeController.lift();
+    if (!explicitNonce || pageWorldSessionNonce === explicitNonce) {
+      pageWorldSessionNonce = "";
+    }
     if (wasPaused) {
       lastContentSurfaceSignature = "";
       renderContentSurface();
     }
     return;
   }
-  requestPageWorldSessionDestroy(pageWorldSessionNonce);
-  freezeController.lift();
-  pageWorldSessionNonce = "";
-  if (wasPaused) {
-    lastContentSurfaceSignature = "";
-    renderContentSurface();
+  if (explicitNonce && pageWorldSessionNonce && pageWorldSessionNonce !== explicitNonce) {
+    // A late task is attempting to reconcile a superseded lease. The current
+    // exact session is authoritative and must not be fenced or destroyed.
+    return;
   }
+  // Teardown is an acknowledgement boundary. Acquire the physical cleanup
+  // fence before the first request, not after two timeouts, so the page is
+  // never interactive while its page-world posture is uncertain.
+  retainPageWorldCleanupFence(ownedNonce);
+  if (pageWorldDestroyInFlight?.nonce === ownedNonce) {
+    return pageWorldDestroyInFlight.promise;
+  }
+  const destroyEpoch = ++pageWorldLifecycleEpoch;
+  const promise = (async (): Promise<void> => {
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        await requestPageWorldSessionDestroy(ownedNonce);
+        if (destroyEpoch !== pageWorldLifecycleEpoch) return;
+        lastError = null;
+        break;
+      } catch (error) {
+        if (destroyEpoch !== pageWorldLifecycleEpoch) return;
+        lastError = error;
+      }
+    }
+    if (lastError) {
+      // The command may have applied even when its response was lost. Preserve
+      // the exact lease so the next activation/terminal retry can issue the same
+      // idempotent DESTROY instead of orphaning a frozen page world.
+      if (destroyEpoch === pageWorldLifecycleEpoch &&
+        (!pageWorldSessionNonce || pageWorldSessionNonce === ownedNonce)) {
+        pageWorldSessionNonce = ownedNonce;
+        retainPageWorldCleanupFence(ownedNonce);
+        schedulePageWorldDestroyRetry(ownedNonce);
+      }
+      throw lastError;
+    }
+    // A newer exact session must never be cleared by an older teardown reply.
+    if (destroyEpoch === pageWorldLifecycleEpoch &&
+      (!pageWorldSessionNonce || pageWorldSessionNonce === ownedNonce)) {
+      freezeController.lift();
+      pageWorldSessionNonce = "";
+      clearPageWorldCleanupFence(ownedNonce);
+      if (wasPaused) {
+        lastContentSurfaceSignature = "";
+        renderContentSurface();
+      }
+    }
+  })();
+  pageWorldDestroyInFlight = { nonce: ownedNonce, epoch: destroyEpoch, promise };
+  try {
+    await promise;
+  } finally {
+    if (pageWorldDestroyInFlight?.promise === promise) {
+      pageWorldDestroyInFlight = null;
+    }
+  }
+}
+
+function destroyPageWorldSession(): void {
+  void destroyPageWorldSessionAndWait().catch((error: unknown) => {
+    console.error("[Unfluffify][rewrite] Unable to confirm page-world teardown", error);
+  });
 }
 
 function setSpacePassthrough(event: KeyboardEvent, active: boolean): void {
@@ -1401,6 +1975,27 @@ function extensionSurfacesForShield(): HTMLElement[] {
   return surfaces;
 }
 
+function inputBoundarySurfacesForShield(): HTMLElement[] {
+  const surfaces: HTMLElement[] = [];
+  if (contentSurfaceRoot && contentSurfaceInputBoundaryActive) {
+    surfaces.push(contentSurfaceRoot);
+  }
+  const inspectionRoot = renderInspectionCurtain?.element();
+  if (inspectionRoot && renderInspectionCurtain?.current()) {
+    surfaces.push(inspectionRoot);
+  }
+  return surfaces;
+}
+
+function privilegedExtensionTargetsForShield(): HTMLElement[] {
+  return [...contentSurfacePrivilegedTargets].filter((target) => target.isConnected !== false);
+}
+
+function inspectionOwnsScroll(): boolean {
+  return pageInspectionActive || provisionalBfcacheRenderInspectionFence ||
+    (renderInspectionCurtain?.current() ?? null) !== null;
+}
+
 function ensureInteractionShield(): InteractionShieldController | null {
   if (interactionShield || typeof document === "undefined" || typeof window === "undefined") {
     return interactionShield;
@@ -1413,13 +2008,18 @@ function ensureInteractionShield(): InteractionShieldController | null {
         syncInteractionShield();
       }, { once: true });
     }
-    return null;
   }
   interactionShield = createInteractionShield({
     document,
     window,
     extensionSurfaces: extensionSurfacesForShield,
+    inputBoundarySurfaces: inputBoundarySurfacesForShield,
+    privilegedExtensionTargets: privilegedExtensionTargetsForShield,
+    blockNativeScroll: inspectionOwnsScroll,
     onShieldInput: (event) => {
+      if (event.isTrusted === false) {
+        return;
+      }
       if (event.type === "click") {
         handlePreviewPageClick(event as MouseEvent);
       }
@@ -1436,7 +2036,11 @@ function syncInteractionShield(): void {
   const silentActive = silentInteractionShieldActive;
   const blockedOrganActive = contentPresentation.pageInputBlocked && !previewActive;
   const inspectionActive = (renderInspectionCurtain?.current() ?? null) !== null;
-  const shouldBeActive = inspectionActive || (
+  const bfcacheInspectionActive = provisionalBfcacheRenderInspectionFence;
+  const pageVisitInspectionActive =
+    pageWorldCleanupFenceNonce !== "" ||
+    (pageInspectionActive && interactionShieldAuthorityActive);
+  const shouldBeActive = inspectionActive || bfcacheInspectionActive || pageVisitInspectionActive || (
     interactionShieldAuthorityActive &&
     (silentActive || previewActive || blockedOrganActive || durablePostureShieldActive)
   );
@@ -1447,6 +2051,8 @@ function syncInteractionShield(): void {
     interactionShield?.setActive(BLOCKED_ORGAN_SHIELD_REASON, false);
     interactionShield?.setActive(DURABLE_POSTURE_SHIELD_REASON, false);
     interactionShield?.setActive(RENDER_INSPECTION_SHIELD_REASON, false);
+    interactionShield?.setActive(BF_CACHE_RENDER_INSPECTION_SHIELD_REASON, false);
+    interactionShield?.setActive(PAGE_VISIT_INSPECTION_SHIELD_REASON, false);
     return;
   }
   const controller = ensureInteractionShield();
@@ -1468,16 +2074,30 @@ function syncInteractionShield(): void {
   if (inspectionActive) {
     controller.setActive(RENDER_INSPECTION_SHIELD_REASON, true);
   }
+  if (bfcacheInspectionActive) {
+    controller.setActive(BF_CACHE_RENDER_INSPECTION_SHIELD_REASON, true);
+  }
+  if (pageVisitInspectionActive) {
+    controller.setActive(PAGE_VISIT_INSPECTION_SHIELD_REASON, true);
+  }
   markingEngine?.setInputTransparent?.(true);
   controller.setActive(SILENT_SHIELD_REASON, silentActive);
   controller.setActive(PREVIEW_SHIELD_REASON, previewActive);
   controller.setActive(BLOCKED_ORGAN_SHIELD_REASON, blockedOrganActive);
   controller.setActive(DURABLE_POSTURE_SHIELD_REASON, durablePostureShieldActive);
   controller.setActive(RENDER_INSPECTION_SHIELD_REASON, inspectionActive);
+  controller.setActive(BF_CACHE_RENDER_INSPECTION_SHIELD_REASON, bfcacheInspectionActive);
+  controller.setActive(PAGE_VISIT_INSPECTION_SHIELD_REASON, pageVisitInspectionActive);
   controller.refresh();
 }
 
 function disposeInteractionShield(): void {
+  if (pageWorldCleanupFenceNonce) {
+    // Terminal authority can retire every other surface immediately, but the
+    // exact teardown fence owns this physical boundary until idle proof.
+    syncInteractionShield();
+    return;
+  }
   markingEngine?.setInputTransparent?.(false);
   interactionShield?.dispose();
   interactionShield = null;
@@ -1500,6 +2120,8 @@ function disposeTerminalContentSurfaces(): void {
   syncMarkingCursor();
   contentSurfaceRoot?.remove();
   contentSurfaceRoot = null;
+  contentSurfaceInputBoundaryActive = false;
+  contentSurfacePrivilegedTargets.clear();
   if (typeof document !== "undefined") {
     // A terminal boundary must clean every extension-owned renderer occurrence,
     // including an older instance that lost the module pointer during an
@@ -1517,9 +2139,13 @@ function disposeTerminalContentSurfaces(): void {
   lastContentSurfaceSignature = "";
 }
 
-function terminateInteractionShieldAuthority(): void {
+function terminateInteractionShieldAuthority(
+  options: Readonly<{ failOpenCleanupFence?: boolean }> = {},
+): void {
   contentLifecycleGeneration += 1;
   renderInspectionAdoptionGeneration += 1;
+  pendingRenderInspectionAdoptionGeneration = null;
+  provisionalBfcacheRenderInspectionFence = false;
   shieldPostureMutationGeneration += 1;
   interactionShieldAuthorityActive = false;
   silentInteractionShieldActive = false;
@@ -1529,6 +2155,12 @@ function terminateInteractionShieldAuthority(): void {
   currentShieldPosture = { status: "inactive", revision: 0 };
   renderInspectionCurtain?.terminate();
   disposeTerminalContentSurfaces();
+  if (options.failOpenCleanupFence) {
+    // The extension realm is about to disappear, so it cannot own a durable DOM
+    // shield or retry loop. DESTROY was already posted best-effort above; remove
+    // local layers synchronously rather than orphaning a blocking element.
+    failOpenPageWorldCleanupFenceLocally();
+  }
   disposeInteractionShield();
 }
 
@@ -1606,7 +2238,10 @@ function persistShieldPosture(posture: ShieldPostureUpdate): void {
       }
       if (
         (documentScoped || propertyKey === null) &&
-        (routeGeneration !== documentLifecycleGeneration || pageUrl !== currentPageUrl())
+        (
+          routeGeneration !== documentLifecycleGeneration ||
+          pageUrl !== currentPageUrl()
+        )
       ) {
         return false;
       }
@@ -1665,7 +2300,10 @@ function clearPersistedShieldPosture(reason: ShieldPostureClearReason): void {
       }
       if (
         (documentScoped || propertyKey === null) &&
-        (routeGeneration !== documentLifecycleGeneration || pageUrl !== currentPageUrl())
+        (
+          routeGeneration !== documentLifecycleGeneration ||
+          pageUrl !== currentPageUrl()
+        )
       ) {
         return false;
       }
@@ -1866,6 +2504,8 @@ function renderContentSurface(): void {
   if (!interactionShieldAuthorityActive) {
     contentSurfaceRoot?.remove();
     contentSurfaceRoot = null;
+    contentSurfaceInputBoundaryActive = false;
+    contentSurfacePrivilegedTargets.clear();
     lastContentSurfaceSignature = "";
     return;
   }
@@ -1890,6 +2530,7 @@ function renderContentSurface(): void {
     return;
   }
   root.style.pointerEvents = curtain.visible ? "auto" : "none";
+  contentSurfaceInputBoundaryActive = curtain.visible;
   syncInteractionShield();
   if (
     !interactionShield?.isActive() &&
@@ -1908,6 +2549,7 @@ function renderContentSurface(): void {
   lastContentSurfaceSignature = signature;
   contentLockConfirmation?.unregister();
   contentLockConfirmation = null;
+  contentSurfacePrivilegedTargets.clear();
   root.replaceChildren();
   if (curtain.visible) {
     const curtainElement = document.createElement("section");
@@ -1949,10 +2591,12 @@ function renderContentSurface(): void {
         button.type = "button";
         button.setAttribute("data-uf-content-lock-action", "true");
         button.setAttribute("data-uf-lock-action-kind", action.kind);
+        contentSurfacePrivilegedTargets.add(button);
         button.textContent = action.confirmDiscard
           ? `${CONTENT_LOCK_ACTION_LABEL[action.kind]} anyway`
           : CONTENT_LOCK_ACTION_LABEL[action.kind];
         button.addEventListener("click", (event) => {
+          if (event.isTrusted === false) return;
           event.preventDefault();
           event.stopPropagation();
           if (action.confirmDiscard) {
@@ -1964,8 +2608,10 @@ function renderContentSurface(): void {
             const confirm = document.createElement("button");
             confirm.type = "button";
             confirm.setAttribute("data-uf-content-lock-confirm", "discard");
+            contentSurfacePrivilegedTargets.add(confirm);
             confirm.textContent = "Discard and continue";
             confirm.addEventListener("click", (confirmEvent) => {
+              if (confirmEvent.isTrusted === false) return;
               confirmEvent.preventDefault();
               confirmEvent.stopPropagation();
               contentLockConfirmation?.close("context-change");
@@ -1974,8 +2620,10 @@ function renderContentSurface(): void {
             const cancel = document.createElement("button");
             cancel.type = "button";
             cancel.setAttribute("data-uf-content-lock-confirm-cancel", "true");
+            contentSurfacePrivilegedTargets.add(cancel);
             cancel.textContent = "Cancel";
             cancel.addEventListener("click", (cancelEvent) => {
+              if (cancelEvent.isTrusted === false) return;
               cancelEvent.preventDefault();
               cancelEvent.stopPropagation();
               contentLockConfirmation?.close("context-change");
@@ -2042,10 +2690,12 @@ function renderContentSurface(): void {
     const close = document.createElement("button");
     close.type = "button";
     close.setAttribute("data-uf-content-toast-close", "true");
+    contentSurfacePrivilegedTargets.add(close);
     close.setAttribute("aria-label", "Close notification");
     close.title = "Close notification";
     close.textContent = "×";
     close.addEventListener("click", (event) => {
+      if (event.isTrusted === false) return;
       event.preventDefault();
       event.stopPropagation();
       contentToasts.dismiss(contentToast.id);
@@ -2289,7 +2939,7 @@ function readyToWalk(): boolean {
 
 function pageVisitRitualIdentity(pageUrl: string): PageVisitRitualIdentity {
   return {
-    pageUrl,
+    pageUrl: normalizedDocumentPageUrl(pageUrl),
     documentNonce: RENDER_INSPECTION_DOCUMENT_NONCE,
     lifecycleGeneration: contentLifecycleGeneration,
     routeGeneration: documentLifecycleGeneration,
@@ -2405,7 +3055,14 @@ function runPageVisitRitual(pageUrl: string, cause: string): Promise<PageVisitRi
   if (
     completedPageVisitRitual &&
     completedPageVisitRitual.status === "prepared" &&
-    samePageVisitRitualIdentity(completedPageVisitRitual, identity)
+    samePageVisitRitualIdentity(completedPageVisitRitual, identity) &&
+    // "Prepared" describes a live presentation lease, not a historical walk.
+    // Terminal deactivation destroys the page-world session and lifts the
+    // freeze while retaining this content realm. Reusing the old outcome after
+    // that point would acknowledge a reactivation with motion/lazy loading
+    // already released.
+    pageWorldSessionNonce !== "" &&
+    freezeController.isPaused()
   ) {
     return Promise.resolve(completedPageVisitRitual);
   }
@@ -2476,7 +3133,22 @@ function ensureMarkingListeners(): void {
     at: number;
   }> | null = null;
   let closeMarkingMenu: (() => void) | null = null;
+  type ResolvedMarkingTarget = NonNullable<
+    ReturnType<NonNullable<typeof markingEngine>["resolveAtPoint"]>
+  >;
+  type PendingMarkingMutation = Readonly<{
+    physicalId: number;
+    target: ResolvedMarkingTarget;
+    mode: "include" | "exclude" | "clear";
+    x: number;
+    y: number;
+  }>;
+  let markingMutationActive = false;
+  let markingMutationFrame = 0;
+  let markingMutationTask: ReturnType<typeof setTimeout> | null = null;
+  let trailingMarkingMutation: PendingMarkingMutation | null = null;
   const deduper = createPhysicalActionDeduper();
+  const isTrustedMarkingInput = (event: Event): boolean => event.isTrusted !== false;
   const overlayXpathFromTarget = (target: EventTarget | null): string => {
     const candidate = target as (Element & {
       closest?: (selector: string) => Element | null;
@@ -2512,22 +3184,83 @@ function ensureMarkingListeners(): void {
   };
   const commit = (
     physicalId: number,
-    target: NonNullable<ReturnType<NonNullable<typeof markingEngine>["resolveAtPoint"]>>,
+    target: ResolvedMarkingTarget,
     mode: "include" | "exclude" | "clear",
+    x: number,
+    y: number,
   ): void => {
     if (!markingEngine || !deduper.accept(physicalId, target.xpath, mode)) {
       return;
     }
-    const changed = mode === "clear"
-      ? markingEngine.clear?.(target) ?? false
-      : markingEngine.toggle(target, mode);
-    if (changed === false) {
-      markingEngine.rejectAtPoint?.(lastPointer?.x ?? 0, lastPointer?.y ?? 0);
+    const mutation: PendingMarkingMutation = { physicalId, target, mode, x, y };
+    const scheduleMutation = (next: PendingMarkingMutation): void => {
+      const owner = markingEngine;
+      if (!owner) {
+        return;
+      }
+      const applyMutation = (): void => {
+        if (!markingActive || markingEngine !== owner) {
+          return;
+        }
+        const changed = next.mode === "clear"
+          ? owner.clear?.(next.target) ?? false
+          : owner.toggle(next.target, next.mode);
+        if (changed === false) {
+          owner.rejectAtPoint?.(next.x, next.y);
+          return;
+        }
+        userToggleCount += 1;
+        markingToggleSeq += 1;
+        reportMarkingToggle();
+      };
+      const finish = (): void => {
+        markingMutationActive = false;
+        markingMutationTask = null;
+        const trailing = trailingMarkingMutation;
+        trailingMarkingMutation = null;
+        if (trailing) {
+          markingMutationActive = true;
+          scheduleMutation(trailing);
+        }
+      };
+      // Test doubles and older injected engines have no split acknowledgement.
+      // Preserve their synchronous seam; production always takes the painted
+      // acknowledgement path below.
+      if (typeof owner.acknowledge !== "function") {
+        try {
+          applyMutation();
+        } finally {
+          finish();
+        }
+        return;
+      }
+      const acknowledge = (): void => {
+        markingMutationFrame = 0;
+        if (!markingActive || markingEngine !== owner || !owner.acknowledge?.(next.target, next.mode)) {
+          finish();
+          return;
+        }
+        // A task posted from a presentation frame runs after that frame has had
+        // an opportunity to paint. Canonical evaluation can then be expensive
+        // without delaying the physical gesture acknowledgement.
+        markingMutationTask = setTimeout(() => {
+          try {
+            applyMutation();
+          } finally {
+            finish();
+          }
+        }, 0);
+      };
+      markingMutationFrame = contentPresentationClock.requestFrame(acknowledge);
+    };
+    if (markingMutationActive) {
+      // Coalesce physical repeats but never drop the most recent distinct,
+      // already-resolved valid gesture.
+      trailingMarkingMutation = mutation;
       return;
     }
-    userToggleCount += 1;
-    markingToggleSeq += 1;
-    reportMarkingToggle();
+    markingMutationActive = true;
+    scheduleMutation(mutation);
   };
   const scheduleHover = (): void => {
     if (hoverFrame || !lastPointer || typeof window === "undefined") {
@@ -2559,6 +3292,9 @@ function ensureMarkingListeners(): void {
     hoverFrame = contentPresentationClock.requestFrame(run);
   };
   const handleClick = (event: MouseEvent): void => {
+    if (!isTrustedMarkingInput(event)) {
+      return;
+    }
     if (!markingActive || !markingEngine) {
       return;
     }
@@ -2587,6 +3323,12 @@ function ensureMarkingListeners(): void {
       overlayXpathFromTarget(event.target),
     );
     if (!target) {
+      // Plain exclude mode is intentionally an unmark-only gesture. A miss on
+      // an already-included area is a valid no-op; Shift is required to create
+      // or widen an exclusion, so do not flash an error for ordinary browsing.
+      if (mode === "exclude" && !event.shiftKey) {
+        return;
+      }
       markingEngine.rejectAtPoint?.(event.clientX, event.clientY);
       const debugDetail = typeof __UF_DEBUG_BUILD__ !== "undefined" && __UF_DEBUG_BUILD__
         ? ` (${Math.round(event.clientX)}, ${Math.round(event.clientY)})`
@@ -2597,9 +3339,12 @@ function ensureMarkingListeners(): void {
       });
       return;
     }
-    commit(physicalIdFor(event), target, mode);
+    commit(physicalIdFor(event), target, mode, event.clientX, event.clientY);
   };
   const handlePointerDown = (event: PointerEvent): void => {
+    if (!isTrustedMarkingInput(event)) {
+      return;
+    }
     physicalSequence += 1;
     lastPointerDown = {
       id: physicalSequence,
@@ -2610,6 +3355,9 @@ function ensureMarkingListeners(): void {
     };
   };
   const handleContextMenu = (event: MouseEvent): void => {
+    if (!isTrustedMarkingInput(event)) {
+      return;
+    }
     if (!markingActive || !markingEngine || spacePassthroughActive) {
       return;
     }
@@ -2626,10 +3374,10 @@ function ensureMarkingListeners(): void {
     const physicalId = physicalIdFor(event);
     const overlayXpath = overlayXpathFromTarget(event.target);
     const include = resolveAtPoint(event.clientX, event.clientY, "include", false, overlayXpath);
-    const exclude = resolveAtPoint(event.clientX, event.clientY, "exclude", false, overlayXpath);
-    const widen = resolveAtPoint(event.clientX, event.clientY, "exclude", true, overlayXpath);
-    const clearTarget = exclude ?? include;
-    if (!include && !exclude) {
+    const existingExclude = resolveAtPoint(event.clientX, event.clientY, "exclude", false, overlayXpath);
+    const shiftedExclude = resolveAtPoint(event.clientX, event.clientY, "exclude", true, overlayXpath);
+    const clearTarget = existingExclude ?? include;
+    if (!include && !existingExclude && !shiftedExclude) {
       markingEngine.rejectAtPoint?.(event.clientX, event.clientY);
       contentToasts.show({ message: "That area can't be marked.", tone: "warning" });
       return;
@@ -2640,24 +3388,55 @@ function ensureMarkingListeners(): void {
       x: event.clientX,
       y: event.clientY,
       actions: [
-        { id: "include", label: "Include", enabled: Boolean(include), run: () => include && commit(physicalId, include, "include") },
-        { id: "exclude", label: "Exclude", enabled: Boolean(exclude), run: () => exclude && commit(physicalId, exclude, "exclude") },
+        {
+          id: "include",
+          label: "Include",
+          enabled: Boolean(include),
+          run: () => include && commit(physicalId, include, "include", event.clientX, event.clientY),
+        },
+        {
+          id: "exclude",
+          label: "Exclude",
+          enabled: Boolean(!existingExclude && shiftedExclude),
+          run: () => shiftedExclude && commit(
+            physicalId,
+            shiftedExclude,
+            "exclude",
+            event.clientX,
+            event.clientY,
+          ),
+        },
         {
           id: "widen",
           label: "Widen exclusion",
-          enabled: Boolean(widen && widen.xpath !== exclude?.xpath),
-          run: () => widen && commit(physicalId, widen, "exclude"),
+          enabled: Boolean(existingExclude && shiftedExclude && shiftedExclude.xpath !== existingExclude.xpath),
+          run: () => shiftedExclude && commit(
+            physicalId,
+            shiftedExclude,
+            "exclude",
+            event.clientX,
+            event.clientY,
+          ),
         },
         {
           id: "clear",
           label: "Clear mark",
           enabled: Boolean(clearTarget && markingEngine?.hasExplicitMark?.(clearTarget)),
-          run: () => clearTarget && commit(physicalId, clearTarget, "clear"),
+          run: () => clearTarget && commit(
+            physicalId,
+            clearTarget,
+            "clear",
+            event.clientX,
+            event.clientY,
+          ),
         },
       ],
     });
   };
   const handleMouseMove = (event: MouseEvent): void => {
+    if (!isTrustedMarkingInput(event)) {
+      return;
+    }
     if (!markingActive || !markingEngine) {
       return;
     }
@@ -2675,11 +3454,17 @@ function ensureMarkingListeners(): void {
     };
     scheduleHover();
   };
-  const handleMouseLeave = (): void => {
+  const handleMouseLeave = (event: MouseEvent): void => {
+    if (!isTrustedMarkingInput(event)) {
+      return;
+    }
     lastPointer = null;
     markingEngine?.clearHover();
   };
   const handleKeyDown = (event: KeyboardEvent): void => {
+    if (!isTrustedMarkingInput(event)) {
+      return;
+    }
     setAltInclude(event, true);
     setSpacePassthrough(event, true);
     if (event.key === "Shift") {
@@ -2691,6 +3476,9 @@ function ensureMarkingListeners(): void {
     }
   };
   const handleKeyUp = (event: KeyboardEvent): void => {
+    if (!isTrustedMarkingInput(event)) {
+      return;
+    }
     setAltInclude(event, false);
     setSpacePassthrough(event, false);
     if (event.key === "Shift") {
@@ -2701,7 +3489,10 @@ function ensureMarkingListeners(): void {
       scheduleHover();
     }
   };
-  const resetModifiers = (): void => {
+  const resetModifiers = (event?: Event): void => {
+    if (event && !isTrustedMarkingInput(event)) {
+      return;
+    }
     if (spacePassthroughWatchdog !== null) {
       clearTimeout(spacePassthroughWatchdog);
       spacePassthroughWatchdog = null;
@@ -2746,6 +3537,16 @@ function ensureMarkingListeners(): void {
       contentPresentationClock.cancelFrame(hoverFrame);
       hoverFrame = 0;
     }
+    if (markingMutationFrame) {
+      contentPresentationClock.cancelFrame(markingMutationFrame);
+      markingMutationFrame = 0;
+    }
+    if (markingMutationTask !== null) {
+      clearTimeout(markingMutationTask);
+      markingMutationTask = null;
+    }
+    markingMutationActive = false;
+    trailingMarkingMutation = null;
     lastPointer = null;
     lastPointerDown = null;
     closeMarkingMenu?.();
@@ -2864,10 +3665,20 @@ function handleUrlChanged(nextUrl?: string): void {
     return;
   }
   const previousUrl = lastKnownPageUrl;
+  if (sameDocumentPageUrl(previousUrl, currentUrl)) {
+    // Fragment-only History API/hash changes retain the exact document,
+    // inspection generation, lock, freeze, and overlays. Keep the latest href
+    // for diagnostics without manufacturing a navigation boundary or asking
+    // Hub to classify a fragment as a different property page.
+    lastKnownPageUrl = currentUrl;
+    return;
+  }
   contentTransientSurfaces?.closeAll("context-change");
   contentTransientSurfaces?.syncPreviewContext({ active: false, restoring: false });
   contentLockConfirmation = null;
   renderInspectionAdoptionGeneration += 1;
+  pendingRenderInspectionAdoptionGeneration = null;
+  provisionalBfcacheRenderInspectionFence = false;
   const activeInspection = renderInspectionCurtain?.current() ?? null;
   const activeInspectionIdentity = activeInspection
     ? renderInspectionIdentity(activeInspection)
@@ -2904,6 +3715,10 @@ function handleUrlChanged(nextUrl?: string): void {
   completedPageVisitRitual = null;
   pendingPageVisitRitual = null;
   revealController.resetForNavigation();
+  // A real path/query boundary invalidates the frozen document posture even
+  // when the page-load ritual ran without an interactive marking engine.
+  // DESTROY is acknowledged and retry-safe; fragment-only changes returned above.
+  destroyPageWorldSession();
   // A toast describes an occurrence on the old URL. Retire it synchronously at
   // the boundary even when no marking engine happens to be mounted.
   contentToasts.retire();
@@ -3189,6 +4004,9 @@ function previewInteractionActive(): boolean {
 }
 
 function handlePreviewPageClick(event: MouseEvent): void {
+  if (event.isTrusted === false) {
+    return;
+  }
   if (!previewInteractionActive() || !markingEngine) {
     return;
   }
@@ -3346,12 +4164,24 @@ function createContentRouter() {
           tree: "rewrite",
         };
       },
-      refreshInteractionShieldViewport: () => {
+      refreshInteractionShieldViewport: (payload) => {
         // DevTools device metrics do not consistently dispatch a viewport event
         // into an already-running isolated world. Emulation therefore asks the
         // content owner for one explicit, synchronous remeasurement after CDP
         // confirms the new target posture.
         interactionShield?.refresh();
+        if (
+          payloadObject(payload).repaintSilent === true &&
+          !markingActive &&
+          silentInteractionShieldActive &&
+          markingEngine
+        ) {
+          // Same-document metrics changes need a synchronous geometry repaint.
+          // Responsive identity changes take the reload path in the popup, where
+          // a fresh content document rebuilds selector ownership. The explicit
+          // flag prevents an expensive duplicate paint on that new document.
+          markingEngine.renderSilentHighlights();
+        }
         const viewport = window.visualViewport;
         return {
           ok: true,
@@ -3469,7 +4299,24 @@ function createContentRouter() {
 export default defineContentScript({
   matches: ["<all_urls>"],
   runAt: "document_start",
+  allFrames: false,
   main(ctx) {
+    // Construct the inert input firewall at document_start. Once a shield lease
+    // activates, this already-registered capture listener precedes page-owned
+    // window listeners instead of racing them after authority resolution.
+    ensureInteractionShield();
+    // A replaced isolated realm has lost its old nonce, while the MAIN-world
+    // runtime and its freeze can survive. Reconcile only when the DOM exposes
+    // an active posture; normal documents pay no command or timeout overhead.
+    const documentElement = typeof document !== "undefined" ? document.documentElement : null;
+    if (
+      documentElement?.hasAttribute?.("data-uf-page-motion-paused") ||
+      documentElement?.hasAttribute?.("data-uf-lazy-loading-suppressed")
+    ) {
+      void reconcilePageWorldSessionAndWait().catch((error: unknown) => {
+        console.error("[Unfluffify][rewrite] Unable to reconcile orphaned page-world posture", error);
+      });
+    }
     const transientSurfaces = ensureContentTransientSurfaces();
     if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
       transientSurfaces.attach(window);
@@ -3481,10 +4328,14 @@ export default defineContentScript({
       transientSurfaces.closeAll("context-change");
       contentToasts.suspend();
       releaseLocalRenderInspectionForPageHide();
-      disposeInteractionShield();
+      // BFCache retains the page realm and all page listeners. Remove only the
+      // physical layers; keep the document_start firewall registered so it
+      // still precedes page listeners when pageshow remounts retained leases.
+      interactionShield?.suspend();
     };
     const unloadLocalSurfaces = (): void => {
       suspendLocalSurfaces();
+      disposeInteractionShield();
       transientSurfaces.dispose();
       contentTransientSurfaces = null;
       contentToasts.dispose();
@@ -3513,7 +4364,7 @@ export default defineContentScript({
     ctx?.onInvalidated?.(() => {
       requestTerminalShieldClear("extension-invalidation");
       terminateConsentSuppression({ terminal: true });
-      terminateInteractionShieldAuthority();
+      terminateInteractionShieldAuthority({ failOpenCleanupFence: true });
       transientSurfaces.dispose();
       contentTransientSurfaces = null;
       contentToasts.dispose();

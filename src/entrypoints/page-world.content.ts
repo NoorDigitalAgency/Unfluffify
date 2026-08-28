@@ -6,7 +6,9 @@ import { createPageTransport } from "../messaging/transports/page";
 export default defineContentScript({
   matches: ["<all_urls>"],
   runAt: "document_start",
-  allFrames: true,
+  // The isolated content owner is top-frame-only. A MAIN runtime in child
+  // frames would have no command owner and could retain orphaned posture.
+  allFrames: false,
   world: "MAIN",
   main() {
     createRealmBus({

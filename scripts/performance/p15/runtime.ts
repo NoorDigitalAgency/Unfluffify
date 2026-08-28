@@ -494,9 +494,14 @@ async function dispatch(name: string, payload: Record<string, unknown> = {}): Pr
   for (const listener of runtimeListeners) {
     const response = await new Promise<unknown>((resolve, reject) => {
       let settled = false;
+      // Marking activation joins the complete reveal/freeze ritual. P15 has
+      // separate behavioral assertions for that ritual and no latency budget;
+      // its transport must not abort the real command at the generic 5 s IPC
+      // backstop before the fixture can observe the page-world lifecycle.
+      const commandTimeoutMs = name === "activateContentMain" ? 30_000 : 5_000;
       const timer = setTimeout(() => {
         if (!settled) reject(new Error(`Timed out dispatching content command ${name}`));
-      }, 5_000);
+      }, commandTimeoutMs);
       const sendResponse = (value: unknown): void => {
         if (settled) return;
         settled = true;

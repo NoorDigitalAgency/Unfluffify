@@ -1,8 +1,10 @@
 # P25 root-cause legacy parity closure
 
-**Status:** Audit complete; approved for autonomous execution by the user on
-2026-08-28. Commit and push this plan package first, then execute every phase.
-P25 remains open until the clean headed matrix and all automated gates pass.
+**Status:** Phases 0–7 implemented and locally verified; clean-source automated
+acceptance and the observer-free headed matrix remain. The approved plan package
+was committed and pushed first as `6db3433a`, and run-plan is continuing without
+another approval. P25 remains open until the clean headed matrix and every
+automated gate pass.
 
 The complete finding register is
 `.reimplementation/p25-legacy-rewrite-frame-parity-audit-2026-08-28.md`.
@@ -26,11 +28,10 @@ bounded visible failure instead of leaving an invisible posture or busy state.
 - Branch `re-write` starts this plan at
   `b32c393e34ee96d495f551fbb985c135204d6604`, synchronized 0 ahead / 0 behind
   `origin/re-write` before plan publication.
-- The shared worktree contains intended but uncommitted preliminary P25 edits in
-  stabilization, page-world freeze, marking, popup, performance harnesses, and
-  tests. They are preserved. The plan package is staged independently; execution
-  begins by reviewing those edits rather than discarding or blindly accepting
-  them.
+- The shared worktree began with intended preliminary P25 edits in stabilization,
+  page-world freeze, marking, popup, performance harnesses, and tests. Run-plan
+  reviewed and integrated those edits; the resulting implementation is awaiting
+  its clean-source acceptance commit rather than further preliminary triage.
 - P14–P24 retained artifacts are historical evidence, not certification of the
   current dirty source. Several old live measurements were contaminated by an
   attached page observer and are excluded from latency acceptance.
@@ -69,7 +70,7 @@ bounded visible failure instead of leaving an invisible posture or busy state.
    mutation. Final Lynx selector publication remains fenced until coverage is
    complete.
 
-## Plan publication bootstrap
+## Plan publication bootstrap — complete
 
 - Review `plan.md` and the P25 audit for internal consistency and diff hygiene.
 - Stage only those two documents; do not include the existing source edits in
@@ -80,7 +81,7 @@ bounded visible failure instead of leaving an invisible posture or busy state.
 
 ## Implementation phases
 
-### Phase 0 — Preserve, classify, and certify the starting source
+### Phase 0 — Preserve, classify, and certify the starting source — complete
 
 - Snapshot `git status`, the complete source diff, current generated artifacts,
   branch/upstream counts, and the restored rewrite build. Keep unrelated/user
@@ -95,7 +96,7 @@ bounded visible failure instead of leaving an invisible posture or busy state.
   first trustworthy dirty-source baseline. Historical green artifacts remain
   clearly labeled by commit.
 
-### Phase 1 — O(visible-hit) marking and exact target semantics
+### Phase 1 — O(visible-hit) marking and exact target semantics — complete
 
 **Findings closed:** audit 16–18, 21, 25–26, 29–31.
 
@@ -133,9 +134,10 @@ bounded visible failure instead of leaving an invisible posture or busy state.
 - Every painted fragment clears exactly its owner; a gap changes no row; overlap
   follows visible layer/order; every modifier target matches the shared corpus.
 
-### Phase 2 — Overlay visibility, cardinality, layers, and scroll presentation
+### Phase 2 — Overlay visibility, cardinality, layers, and scroll presentation — complete
 
-**Findings closed:** audit 19–20, 22–24, 27–28, 31, 50, 54.
+**Findings implementation-closed:** audit 19–20, 22–24, 27–28, 31, 50, 54;
+audit 50 and 54 retain headed-validation gates.
 
 - Unify evaluator and renderer visibility around current paint proof. Connection,
   ancestor display/visibility/opacity, current non-zero fragments, viewport
@@ -146,10 +148,10 @@ bounded visible failure instead of leaving an invisible posture or busy state.
   top, middle, and bottom must not alter canonical rows for an unchanged DOM.
 - Apply shallow ancestor/exception deduplication to silent projection so one
   exclusion boundary does not paint every descendant exception.
-- Preserve canonical semantic rows while projecting presentation provenance into
-  distinct legacy-equivalent layers: hard/default, explicit include/exclude,
-  AI/saved content where provenance exists, hover, context, and cyan occurrence
-  focus. Content List emphasis uses focus, not ordinary hover.
+- Preserve canonical semantic rows and D-02's ordinary explicit presentation for
+  selector-seeded decisions. Keep hard/default, explicit include/exclude, hover,
+  context, and cyan occurrence-focus layers distinct. Content List emphasis uses
+  focus, not ordinary hover; AI/saved provenance does not regain special borders.
 - Keep overlay nodes identity-stable, but fade every coordinate-dependent layer
   before visual drift. Coalesce continuous scroll/resize, perform one structural
   or geometry redraw after the appropriate idle window, await committed paint,
@@ -173,7 +175,7 @@ bounded visible failure instead of leaving an invisible posture or busy state.
   Static border width/color/radius and layer precedence match legacy within
   0.5 px where the same presentation state exists.
 
-### Phase 3 — Transactional reveal, freeze, lazy suppression, and inspection
+### Phase 3 — Transactional reveal, freeze, lazy suppression, and inspection — complete
 
 **Findings closed:** audit 1–15 and 54.
 
@@ -230,9 +232,10 @@ bounded visible failure instead of leaving an invisible posture or busy state.
 - During inspection no page listener/default action receives operator input;
   extension spinner/focus/dash animation continues normally.
 
-### Phase 4 — Content List and AI terminal projection
+### Phase 4 — Content List and AI terminal projection — complete
 
-**Findings closed:** audit 27, 32–36, 42, 51–53.
+**Findings implementation-closed:** audit 27, 32–36, 42, 51–53; audit 51–53
+retain headed-validation gates.
 
 - Fence pending selector sessions independently of the old `contentDirty` flag.
   Pre-AI edits, fresh post-AI selectors, and open Preview remain pending until
@@ -273,9 +276,10 @@ bounded visible failure instead of leaving an invisible posture or busy state.
 - A post-AI edit disables Save/List and shows `requires-ai-run` within one second
   without a remote authority request.
 
-### Phase 5 — Operator lifecycle, emulation, Save, and popup parity
+### Phase 5 — Operator lifecycle, emulation, Save, and popup parity — complete
 
-**Findings closed:** audit 32, 37–49, 50–54.
+**Findings implementation-closed:** audit 32, 37–49, 50–54; audit 50–54 retain
+headed-validation gates.
 
 - Route Save, Discard, Disable, candidate navigation, render inspection, and
   render-mode Set through one serialized operator-action lifecycle. An accepted
@@ -301,10 +305,10 @@ bounded visible failure instead of leaving an invisible posture or busy state.
   Refresh may force one authority refresh.
 - Anchor toasts to the popup viewport through fixed/portal presentation. Restore
   staged marking action hierarchy/copy without removing approved keyboard access.
-- Restore operator-facing parity polish: Todo root collapse/expand-all/
-  collapse-all/auto-collapse and retained context state; Ctrl/Cmd+E/S/M outside
-  editable controls; cancellable checklist checking but locked publication;
-  accurate publishing copy; retain email after successful login.
+- Restore operator-facing parity polish within binding decisions: adaptive Todo
+  sections and retained manual per-property overrides; cancellable checklist
+  checking but locked publication; accurate publishing copy; retain email after
+  successful login. Do not restore global Ctrl/Cmd action shortcuts (D-30).
 - Convert every operator-triggered console-only return into an obviously disabled
   control or visible toast. Production Activity may supplement, never replace,
   operator feedback.
@@ -316,11 +320,11 @@ bounded visible failure instead of leaving an invisible posture or busy state.
 - Disable/Discard/candidate navigation preserve an unsaved post-AI session on
   cancel. Save emits one request and adopts its complete response.
 - Render mode survives reopen. Toast is visible at top, middle, and bottom of a
-  long Preview. Shortcuts obey the same gates as buttons.
+  long Preview. D-30's absence of global action shortcuts remains test-locked.
 - Mobile marking and desktop silent transitions pass success, failure, retry,
   concurrent-poll, reload, and restoration cases observer-free.
 
-### Phase 6 — Contracts, capture, consent, and publication hygiene
+### Phase 6 — Contracts, capture, consent, and publication hygiene — complete
 
 - Update the authoritative marking/interaction specification to remove the stale
   plain-click exclusion text and reference the shared target corpus. Record which
@@ -344,7 +348,7 @@ bounded visible failure instead of leaving an invisible posture or busy state.
 - One current-page Save request; incomplete coverage emits zero final publish;
   an unknown atomic outcome reuses the same idempotency identity.
 
-### Phase 7 — Automated and performance acceptance
+### Phase 7 — Automated and performance acceptance — implementation complete; clean gate pending
 
 - Add focused regression tests with each implementation slice, then run
   `pnpm lint`, `pnpm check`, focused Vitest, full `pnpm test`, `pnpm build`,
@@ -362,7 +366,7 @@ bounded visible failure instead of leaving an invisible posture or busy state.
 - A gate failure is fixed at its owning layer. Budgets are not widened to accept a
   regression, and observer-contaminated evidence is discarded.
 
-### Phase 8 — Full headed frame-by-frame legacy/rewrite matrix
+### Phase 8 — Full headed frame-by-frame legacy/rewrite matrix — pending
 
 - Use the repository `live-browser`, `live-round`, and `live-watch` skills only.
   Run one implementation/profile at a time. Keep website observers detached while
@@ -385,7 +389,7 @@ bounded visible failure instead of leaving an invisible posture or busy state.
   equivalent document generations and flag site drift explicitly.
 - Do not issue the final Lynx publication request.
 
-### Phase 9 — Evidence, review, commit, and push
+### Phase 9 — Evidence, review, commit, and push — in progress
 
 - Write `.reimplementation/p25-legacy-parity-closure-report-2026-08-28.md` with
   the new overall result, contract matrix, per-property results, performance,

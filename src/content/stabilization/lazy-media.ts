@@ -1,61 +1,90 @@
-const LAZY_SOURCE_ATTRIBUTES = [
-  ["data-src", "src"],
-  ["data-srcset", "srcset"],
-  ["data-sizes", "sizes"],
-  ["data-poster", "poster"],
-] as const;
+type LazyAttributeMutation = Readonly<{
+  element: HTMLElement;
+  name: string;
+  before: string | null;
+  applied: string;
+}>;
+
+export type LazyMediaHydration = Readonly<{
+  count: number;
+  restore: () => void;
+}>;
+
+const SOURCE_TARGETS: Readonly<Record<string, ReadonlyArray<readonly [string, string]>>> = {
+  IMG: [["data-src", "src"], ["data-srcset", "srcset"], ["data-sizes", "sizes"]],
+  SOURCE: [["data-src", "src"], ["data-srcset", "srcset"], ["data-sizes", "sizes"]],
+  VIDEO: [["data-src", "src"], ["data-poster", "poster"]],
+  AUDIO: [["data-src", "src"]],
+};
+
+function excludedFromHydration(element: HTMLElement): boolean {
+  return element.isConnected === false ||
+    element.getAttribute("data-uf-extension-ui") === "true" ||
+    Boolean(element.closest?.('[data-uf-extension-ui="true"],[data-uf-consent-hidden="true"]'));
+}
 
 /**
- * Materializes lazy media that is already present after the bounded reveal walk.
- *
- * Some page loaders create their IntersectionObservers from a load-event timer.
- * The extension can reach the true bottom before that observer gets its first
- * delivery, then intentionally suppress future deliveries to fence infinite
- * feeds. Promoting only existing media attributes is finite and preserves that
- * fence while ensuring the captured document contains the resource the page
- * already declared.
+ * Promotes only finite, already-authored image/media resources. Interactive
+ * embeds and arbitrary data-* mappings remain untouched. Every mutation is
+ * ledgered and restored conditionally so a later page-authored change wins.
  */
-export function hydrateExistingLazyMedia(root: ParentNode): number {
-  if (typeof root.querySelectorAll !== "function") {
-    return 0;
-  }
-  const selector = [
-    ...LAZY_SOURCE_ATTRIBUTES.map(([source]) => `[${source}]`),
-    '[loading="lazy"]',
-  ].join(",");
-  const candidates = Array.from(root.querySelectorAll<HTMLElement>(selector));
-  let hydrated = 0;
+export function hydrateExistingLazyMediaWithLedger(root: ParentNode): LazyMediaHydration {
+  if (typeof root.querySelectorAll !== "function") return { count: 0, restore: () => undefined };
+  const candidates = Array.from(root.querySelectorAll<HTMLElement>(
+    "img[data-src],img[data-srcset],img[data-sizes],img[loading=\"lazy\"]," +
+    "source[data-src],source[data-srcset],source[data-sizes]," +
+    "video[data-src],video[data-poster],audio[data-src]",
+  ));
+  const attributeMutations: LazyAttributeMutation[] = [];
+  const revealedClasses = new Set<HTMLElement>();
+  let count = 0;
 
   for (const element of candidates) {
+    if (excludedFromHydration(element)) continue;
+    const tagName = String(element.tagName || "").toUpperCase();
     let changed = false;
-    for (const [source, target] of LAZY_SOURCE_ATTRIBUTES) {
+    for (const [source, target] of SOURCE_TARGETS[tagName] ?? []) {
       const value = element.getAttribute(source)?.trim();
       const existing = element.getAttribute(target)?.trim() ?? "";
-      const replaceablePlaceholder = target !== "sizes" && existing.startsWith("data:");
-      if (!value || (existing && !replaceablePlaceholder)) {
-        continue;
-      }
+      const placeholder = target !== "sizes" && existing.startsWith("data:");
+      if (!value || existing && !placeholder) continue;
+      attributeMutations.push({ element, name: target, before: element.getAttribute(target), applied: value });
       element.setAttribute(target, value);
       changed = true;
     }
-    // Chrome may keep a freshly promoted resource deferred when the website tab
-    // is backgrounded by the extension side panel, even though the reveal walk
-    // visited its viewport. This resource is now capture material, so request it
-    // deterministically instead of carrying the site's pre-visit lazy posture.
-    if (element.getAttribute("loading") === "lazy") {
+    if (tagName === "IMG" && element.getAttribute("loading")?.toLowerCase() === "lazy") {
+      attributeMutations.push({ element, name: "loading", before: element.getAttribute("loading"), applied: "eager" });
       element.setAttribute("loading", "eager");
       changed = true;
     }
-    if (!changed) {
-      continue;
+    if (!changed) continue;
+    if (element.classList.contains("bricks-lazy-hidden")) {
+      element.classList.remove("bricks-lazy-hidden");
+      revealedClasses.add(element);
     }
-
-    // Bricks keeps promoted images visually hidden until its observer callback
-    // runs. We have performed the same source promotion, so retaining that class
-    // would make the successfully loaded resource absent from the capture.
-    element.classList.remove("bricks-lazy-hidden");
-    hydrated += 1;
+    count += 1;
   }
 
-  return hydrated;
+  let restored = false;
+  return {
+    count,
+    restore() {
+      if (restored) return;
+      restored = true;
+      for (let index = attributeMutations.length - 1; index >= 0; index -= 1) {
+        const mutation = attributeMutations[index];
+        if (!mutation || mutation.element.getAttribute(mutation.name) !== mutation.applied) continue;
+        if (mutation.before === null) mutation.element.removeAttribute(mutation.name);
+        else mutation.element.setAttribute(mutation.name, mutation.before);
+      }
+      for (const element of revealedClasses) {
+        if (!element.classList.contains("bricks-lazy-hidden")) element.classList.add("bricks-lazy-hidden");
+      }
+    },
+  };
+}
+
+/** Compatibility count-only surface. Prefer the ledgered variant for a visit. */
+export function hydrateExistingLazyMedia(root: ParentNode): number {
+  return hydrateExistingLazyMediaWithLedger(root).count;
 }

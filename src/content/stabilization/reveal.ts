@@ -6,12 +6,17 @@ export type RevealRunInput = Readonly<{
   scrollTo: (
     position: "top" | "lazy-threshold" | "bottom" | "restore",
     measuredScrollHeight: number,
-  ) => void | Promise<void>;
-  waitForSettle?: () => Promise<void>;
+  ) => RevealScrollOutcome | Promise<RevealScrollOutcome>;
+  waitForSettle?: (phase: "step" | "post-freeze") => Promise<boolean | void>;
   suppressLazyLoading: () => void | Promise<void>;
   restoreLazyLoading?: () => void | Promise<void>;
   freezeAtBottom: () => void | Promise<void>;
   maximumBottomPasses?: number;
+}>;
+
+export type RevealScrollOutcome = boolean | void | Readonly<{
+  reached: boolean;
+  progressed: boolean;
 }>;
 
 export type RevealRunResult = Readonly<{
@@ -43,27 +48,70 @@ export async function runReveal(input: RevealRunInput): Promise<RevealRunResult>
     return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
   }
   const waitForSettle = input.waitForSettle ?? (() => Promise.resolve());
+  const settled = async (phase: "step" | "post-freeze"): Promise<boolean> =>
+    await waitForSettle(phase) !== false;
   const measure = input.measureExpandedScrollHeight ?? (() => input.initialScrollHeight);
   const maximumBottomPasses = Math.max(2, Math.trunc(input.maximumBottomPasses ?? 10));
   let lazyLoadingSuppressed = false;
   let frozenAtBottom = false;
   let lazyExpansions = 0;
+  let hasVerticalScrollRoom = input.hasVerticalScrollRoom;
+  let restoreRequired = false;
+  let restoredPosition = false;
+  const reached = (outcome: RevealScrollOutcome): boolean =>
+    typeof outcome === "object" ? outcome.reached : outcome !== false;
+  const progressed = (outcome: RevealScrollOutcome): boolean =>
+    typeof outcome !== "object" || outcome.progressed;
+  const restorePosition = async (): Promise<boolean> => {
+    if (!restoreRequired || restoredPosition || activationStale()) {
+      return restoredPosition;
+    }
+    const outcome = await input.scrollTo(
+      "restore",
+      Math.max(input.initialScrollHeight, measure()),
+    );
+    restoredPosition = reached(outcome) && await settled("step");
+    return restoredPosition;
+  };
   try {
-    if (!input.hasVerticalScrollRoom) {
-      await input.freezeAtBottom();
-      frozenAtBottom = true;
-      await waitForSettle();
-      return { skipped: true, lazyExpansions: 0, frozenAtBottom: true };
+    if (!hasVerticalScrollRoom) {
+      // Short documents can still own observers and deferred media. Retain the
+      // same finite-growth fence as the scrollable path before freezing.
+      await input.suppressLazyLoading();
+      lazyLoadingSuppressed = true;
+      if (!await settled("step")) {
+        return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
+      }
+      hasVerticalScrollRoom = measure() > input.initialScrollHeight + 2;
+      if (!hasVerticalScrollRoom) {
+        await input.freezeAtBottom();
+        if (activationStale()) {
+          return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
+        }
+        if (!await settled("post-freeze")) {
+          return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
+        }
+        frozenAtBottom = true;
+        return { skipped: true, lazyExpansions: 0, frozenAtBottom: true };
+      }
+      lazyExpansions = 1;
+      await input.restoreLazyLoading?.();
+      lazyLoadingSuppressed = false;
     }
 
-    await input.scrollTo("top", input.initialScrollHeight);
-    await waitForSettle();
+    restoreRequired = true;
+    const top = await input.scrollTo("top", input.initialScrollHeight);
+    if (!reached(top) || !await settled("step")) {
+      return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
+    }
     if (activationStale()) {
       return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
     }
 
-    await input.scrollTo("lazy-threshold", input.initialScrollHeight);
-    await waitForSettle();
+    const midpoint = await input.scrollTo("lazy-threshold", input.initialScrollHeight);
+    if (!reached(midpoint) || !await settled("step")) {
+      return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
+    }
     if (activationStale()) {
       return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
     }
@@ -73,38 +121,69 @@ export async function runReveal(input: RevealRunInput): Promise<RevealRunResult>
     // then prevents an infinite feed from racing the growth-aware bottom walk.
     await input.suppressLazyLoading();
     lazyLoadingSuppressed = true;
-    await waitForSettle();
+    if (!await settled("step")) {
+      return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
+    }
 
     let measuredScrollHeight = Math.max(input.initialScrollHeight, measure());
     if (measuredScrollHeight > input.initialScrollHeight + 1) {
       lazyExpansions = 1;
     }
+    let bottomConfirmed = false;
+    let consecutiveNoProgress = 0;
     for (let pass = 0; pass < maximumBottomPasses && !activationStale(); pass += 1) {
-      await input.scrollTo("bottom", measuredScrollHeight);
-      await waitForSettle();
+      const bottomOutcome = await input.scrollTo("bottom", measuredScrollHeight);
+      if (!await settled("step")) {
+        return { skipped: true, lazyExpansions, frozenAtBottom: false };
+      }
       const expandedScrollHeight = Math.max(measuredScrollHeight, measure());
       const expanded = expandedScrollHeight > measuredScrollHeight + 1;
       if (expanded) {
         lazyExpansions += 1;
         measuredScrollHeight = expandedScrollHeight;
       }
+      bottomConfirmed = reached(bottomOutcome) && !expanded;
+      consecutiveNoProgress = !expanded && !progressed(bottomOutcome)
+        ? consecutiveNoProgress + 1
+        : 0;
       // Always perform the visible bottom -> wait -> bottom confirmation pass.
-      // Additional passes are reserved for pages that continue growing.
-      if (pass >= 1 && !expanded) {
+      // A scroll timeout is not a bottom acknowledgement: long pages continue
+      // the smooth walk from their current position, exactly as legacy did.
+      if (pass >= 1 && bottomConfirmed) {
+        break;
+      }
+      if (consecutiveNoProgress >= 2) {
         break;
       }
     }
     if (activationStale()) {
       return { skipped: true, lazyExpansions, frozenAtBottom: false };
     }
+    if (!bottomConfirmed) {
+      return { skipped: true, lazyExpansions, frozenAtBottom: false };
+    }
 
     await input.freezeAtBottom();
+    if (activationStale()) {
+      return { skipped: true, lazyExpansions, frozenAtBottom: false };
+    }
+    if (!await settled("post-freeze")) {
+      return { skipped: true, lazyExpansions, frozenAtBottom: false };
+    }
+    if (!await restorePosition() || activationStale()) {
+      return { skipped: true, lazyExpansions, frozenAtBottom: false };
+    }
     frozenAtBottom = true;
-    await waitForSettle();
-    await input.scrollTo("restore", Math.max(input.initialScrollHeight, measure()));
-    await waitForSettle();
     return { skipped: false, lazyExpansions, frozenAtBottom: true };
   } finally {
+    if (restoreRequired && !restoredPosition && !activationStale()) {
+      try {
+        await restorePosition();
+      } catch {
+        // Cleanup remains best-effort and smooth; the caller will destroy the
+        // exact page-world session and surface a visible failed ritual.
+      }
+    }
     if (lazyLoadingSuppressed && !frozenAtBottom) {
       await input.restoreLazyLoading?.();
     }

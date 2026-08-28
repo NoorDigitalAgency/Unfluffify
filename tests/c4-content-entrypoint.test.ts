@@ -8,13 +8,36 @@ import type { BusFrame } from "../src/messaging/contract";
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 let commandSeq = 0;
 
+async function waitForMockCalls(
+  mock: { mock: { calls: unknown[][] } },
+  count: number,
+  timeoutMs = 500,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (mock.mock.calls.length < count && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+async function waitForCondition(
+  predicate: () => boolean,
+  timeoutMs = 500,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 const shieldHarness = vi.hoisted(() => ({
   instances: [] as Array<{
     setActive: ReturnType<typeof vi.fn>;
     refresh: ReturnType<typeof vi.fn>;
+    suspend: ReturnType<typeof vi.fn>;
     dispose: ReturnType<typeof vi.fn>;
     extensionSurfaces: () => HTMLElement[];
     onShieldInput?: (event: Event) => void;
+    blockNativeScroll?: () => boolean;
   }>,
   create: vi.fn(),
 }));
@@ -29,6 +52,7 @@ const inspectionCurtainHarness = vi.hoisted(() => ({
     current: ReturnType<typeof vi.fn>;
     element: ReturnType<typeof vi.fn>;
     paint: (session: unknown) => void;
+    starve: () => void;
     fail: (session: unknown, reason: string) => void;
   }>,
   create: vi.fn(),
@@ -37,7 +61,9 @@ const inspectionCurtainHarness = vi.hoisted(() => ({
 vi.mock("../src/content/interaction-shield", () => {
   shieldHarness.create.mockImplementation((options: {
     extensionSurfaces?: () => HTMLElement[];
+    inputBoundarySurfaces?: () => HTMLElement[];
     onShieldInput?: (event: Event) => void;
+    blockNativeScroll?: () => boolean;
   }) => {
     const reasons = new Set<string>();
     const instance = {
@@ -60,15 +86,18 @@ vi.mock("../src/content/interaction-shield", () => {
       element: vi.fn(() => null),
       registerExtensionSurface: vi.fn(() => vi.fn()),
       refresh: vi.fn(),
+      suspend: vi.fn(),
       dispose: vi.fn(() => reasons.clear()),
       extensionSurfaces: options.extensionSurfaces ?? (() => []),
       onShieldInput: options.onShieldInput,
+      blockNativeScroll: options.blockNativeScroll,
     };
     shieldHarness.instances.push(instance);
     return instance;
   });
   return {
     createInteractionShield: shieldHarness.create,
+    INTERACTION_SHIELD_INPUT_BOUNDARY_ATTRIBUTE: "data-uf-shield-input-boundary",
     MAXIMUM_DOCUMENT_Z_INDEX: "2147483647",
   };
 });
@@ -78,6 +107,11 @@ vi.mock("../src/content/render-inspection-curtain", () => {
     onPaintReady: (session: unknown) => void;
     onFailure?: (session: unknown, reason: string) => void;
     onSurfaceChanged?: () => void;
+    schedulePaintFallback?: (
+      session: unknown,
+      callback: () => void,
+      delayMs: number,
+    ) => () => void;
   }) => {
     let active: Record<string, unknown> | null = null;
     let terminated = false;
@@ -114,6 +148,11 @@ vi.mock("../src/content/render-inspection-curtain", () => {
       current: vi.fn(() => active),
       element: vi.fn(() => active ? root : null),
       paint: options.onPaintReady,
+      starve: () => {
+        if (active) {
+          options.schedulePaintFallback?.(active, () => options.onPaintReady(active), 1_000);
+        }
+      },
       fail: options.onFailure ?? (() => undefined),
     };
     inspectionCurtainHarness.instances.push(instance);
@@ -142,6 +181,40 @@ function dispatchTestEvent(registry: TestListenerRegistry, type: string, event: 
   for (const listener of [...(registry.get(type) ?? [])]) {
     listener(event);
   }
+}
+
+type TestPageWorldCommand = Readonly<{
+  nonce?: string;
+  sessionNonce?: string;
+  command?: string;
+  payload?: { paused?: boolean; suppressed?: boolean };
+}>;
+
+function pageWorldAcknowledgement(message: TestPageWorldCommand): Record<string, unknown> {
+  const sessionNonce = message.command === "ARM" ? message.nonce ?? "" : message.sessionNonce ?? "";
+  if (message.command === "DESTROY" || message.command === "RECONCILE") {
+    return {
+      armed: false,
+      paused: false,
+      lazySuppressed: false,
+      sessionNonce: "",
+      phase: "idle",
+      initialDiscoveryComplete: false,
+      motionErrorCount: 0,
+    };
+  }
+  const paused = message.command === "SET_MOTION_PAUSED" && message.payload?.paused === true;
+  return {
+    armed: true,
+    paused,
+    lazySuppressed: message.command === "SET_LAZY_LOADING_SUPPRESSED"
+      ? message.payload?.suppressed === true
+      : paused,
+    sessionNonce,
+    phase: paused ? "frozen" : "armed",
+    initialDiscoveryComplete: paused,
+    motionErrorCount: 0,
+  };
 }
 
 function mockFastRevealVisit(): void {
@@ -525,7 +598,7 @@ describe("C4 rewrite content entrypoints", () => {
     const nextPageUrl = "https://example.com/next";
     const addListener = vi.fn();
     const locationValue = installTestLocation(pageUrl);
-    const { windowListeners } = installMinimalContentDom();
+    const { documentListeners, windowListeners } = installMinimalContentDom();
 
     const projection = {
       projectionId: "projection-p17",
@@ -734,12 +807,30 @@ describe("C4 rewrite content entrypoints", () => {
     };
     const shieldClick = {
       type: "click",
+      isTrusted: true,
       target: shieldTarget,
       clientX: 35,
       clientY: 45,
       preventDefault: vi.fn(),
       stopImmediatePropagation: vi.fn(),
     };
+    const focusedMessageCount = (): number => sendMessage.mock.calls.filter(([frame]) =>
+      (frame as { name?: unknown }).name === "preview.focused"
+    ).length;
+    const focusedBeforeSynthetic = focusedMessageCount();
+    dispatchTestEvent(documentListeners, "click", {
+      ...shieldClick,
+      target: { closest: vi.fn(() => null) },
+      isTrusted: false,
+    } as unknown as Event);
+    shieldHarness.instances.at(-1)?.onShieldInput?.({
+      ...shieldClick,
+      isTrusted: false,
+    } as unknown as Event);
+    await Promise.resolve();
+    expect(engine.previewRowAtPoint).not.toHaveBeenCalled();
+    expect(focusedMessageCount()).toBe(focusedBeforeSynthetic);
+
     shieldHarness.instances.at(-1)?.onShieldInput?.(shieldClick as unknown as Event);
     await Promise.resolve();
     expect(engine.previewRowAtPoint).toHaveBeenCalledWith(35, 45);
@@ -1040,6 +1131,7 @@ describe("C4 rewrite content entrypoints", () => {
     expect(shieldHarness.instances.at(-1)?.extensionSurfaces()).toContain(curtain?.element());
     expect(shieldHarness.instances.at(-1)?.setActive)
       .toHaveBeenCalledWith("render-inspection", true);
+    expect(shieldHarness.instances.at(-1)?.blockNativeScroll?.()).toBe(true);
 
     // The old generation's exact ack starts, then a newer durable generation is
     // adopted before its response. That late response cannot clear generation 2.
@@ -1070,6 +1162,80 @@ describe("C4 rewrite content entrypoints", () => {
       generation: 2,
       documentNonce: newer.documentNonce,
     });
+    expect(shieldHarness.instances.at(-1)?.setActive)
+      .toHaveBeenCalledWith("render-inspection", false);
+    expect(shieldHarness.instances.at(-1)?.blockNativeScroll?.()).toBe(false);
+  });
+
+  it("reconciles the exact local curtain after the background starvation proof wakes paint acknowledgement", async () => {
+    const addListener = vi.fn();
+    const pageUrl = installTestLocation("https://example.com/javascript-off");
+    installMinimalContentDom();
+    const requestNames: string[] = [];
+    let adopted: ReturnType<typeof adoptedInspectionSession> | null = null;
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      requestNames.push(message.name);
+      if (message.name === "renderInspection.adopt") {
+        const nonce = (message.payload as { documentNonce: string }).documentNonce;
+        adopted = adoptedInspectionSession(pageUrl.href, nonce);
+        return replyFrame(message, { status: "adopt", session: adopted });
+      }
+      if (message.name === "renderInspection.paintFallbackTick") {
+        return replyFrame(message, { status: "ready" });
+      }
+      if (message.name === "renderInspection.ackPaint") {
+        return replyFrame(message, {
+          status: "ok",
+          session: {
+            ...adopted!,
+            phase: "terminal",
+            updatedAt: 3,
+            terminalReason: "paint-acknowledged",
+          },
+        });
+      }
+      if (message.name === "page.context") {
+        return managedPageContextReply(message, pageUrl.href);
+      }
+      if (message.name === "signals.pull") {
+        return replyFrame(message, []);
+      }
+      return undefined;
+    });
+    globalThis.chrome = {
+      runtime: {
+        onMessage: { addListener },
+        sendMessage,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+      },
+    } as unknown as typeof chrome;
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as { main: () => void }).main();
+    await waitForCondition(() => inspectionCurtainHarness.instances.length > 0);
+    const curtain = inspectionCurtainHarness.instances.at(-1);
+    expect(curtain).toBeDefined();
+    await waitForMockCalls(curtain!.adopt, 1);
+    expect(curtain?.current()).toEqual(adopted);
+
+    curtain?.starve();
+    for (let attempt = 0; attempt < 100 && curtain?.current() !== null; attempt += 1) {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(requestNames.indexOf("renderInspection.paintFallbackTick")).toBeGreaterThanOrEqual(0);
+    expect(requestNames.indexOf("renderInspection.ackPaint"))
+      .toBeGreaterThan(requestNames.indexOf("renderInspection.paintFallbackTick"));
+    expect(curtain?.clearMatching).toHaveBeenCalledWith({
+      token: adopted!.token,
+      generation: adopted!.generation,
+      documentNonce: adopted!.documentNonce,
+    });
+    expect(curtain?.current()).toBeNull();
     expect(shieldHarness.instances.at(-1)?.setActive)
       .toHaveBeenCalledWith("render-inspection", false);
   });
@@ -1129,7 +1295,8 @@ describe("C4 rewrite content entrypoints", () => {
       documentNonce: adopted!.documentNonce,
     });
     expect(curtain?.current()).toBeNull();
-    expect(shieldHarness.instances.at(-1)?.dispose).toHaveBeenCalledOnce();
+    expect(shieldHarness.instances.at(-1)?.suspend).toHaveBeenCalledOnce();
+    expect(shieldHarness.instances.at(-1)?.dispose).not.toHaveBeenCalled();
 
     // Queued paint work from the hidden page has lost its local identity and
     // therefore cannot acknowledge after pagehide.
@@ -1206,6 +1373,8 @@ describe("C4 rewrite content entrypoints", () => {
     expect(curtain?.current()).toBeNull();
     expect(curtain?.refresh).not.toHaveBeenCalled();
     expect(curtain?.adopt).toHaveBeenCalledTimes(1);
+    expect(shieldHarness.instances.at(-1)?.setActive)
+      .toHaveBeenCalledWith("bfcache-render-inspection", true);
 
     releaseRestore?.();
     for (let attempt = 0; attempt < 20 && curtain?.current() === null; attempt += 1) {
@@ -1216,6 +1385,73 @@ describe("C4 rewrite content entrypoints", () => {
     expect(curtain?.current()).toEqual(adopted);
     expect(shieldHarness.instances.at(-1)?.setActive)
       .toHaveBeenCalledWith("render-inspection", true);
+    expect(shieldHarness.instances.at(-1)?.setActive)
+      .toHaveBeenCalledWith("bfcache-render-inspection", false);
+  });
+
+  it("holds a provisional BFCache fence when pagehide races the initial inspection adoption", async () => {
+    const addListener = vi.fn();
+    const pageUrl = installTestLocation("https://example.com/bfcache-pending");
+    const { windowListeners } = installMinimalContentDom();
+    let adoptionRequests = 0;
+    let releaseInitial: (() => void) | undefined;
+    let releaseRestore: (() => void) | undefined;
+    const initialGate = new Promise<void>((resolve) => { releaseInitial = resolve; });
+    const restoreGate = new Promise<void>((resolve) => { releaseRestore = resolve; });
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "renderInspection.adopt") {
+        adoptionRequests += 1;
+        const requestNumber = adoptionRequests;
+        const nonce = (message.payload as { documentNonce: string }).documentNonce;
+        await (requestNumber === 1 ? initialGate : restoreGate);
+        return replyFrame(message, {
+          status: "adopt",
+          session: adoptedInspectionSession(pageUrl.href, nonce),
+        });
+      }
+      if (message.name === "page.context") {
+        return managedPageContextReply(message, pageUrl.href);
+      }
+      if (message.name === "signals.pull") {
+        return replyFrame(message, []);
+      }
+      return undefined;
+    });
+    globalThis.chrome = {
+      runtime: { onMessage: { addListener }, sendMessage },
+    } as unknown as typeof chrome;
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as { main: () => void }).main();
+    for (let attempt = 0; attempt < 20 && adoptionRequests < 1; attempt += 1) {
+      await Promise.resolve();
+    }
+    dispatchTestEvent(windowListeners, "pagehide", {} as Event);
+    dispatchTestEvent(windowListeners, "pageshow", {} as Event);
+    for (let attempt = 0; attempt < 20 && adoptionRequests < 2; attempt += 1) {
+      await Promise.resolve();
+    }
+
+    const shield = shieldHarness.instances.at(-1);
+    const bfcacheCalls = () => shield?.setActive.mock.calls.filter(([reason]) =>
+      reason === "bfcache-render-inspection"
+    ) ?? [];
+    expect(bfcacheCalls().at(-1)).toEqual(["bfcache-render-inspection", true]);
+
+    releaseInitial?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(bfcacheCalls().at(-1)).toEqual(["bfcache-render-inspection", true]);
+
+    releaseRestore?.();
+    for (let attempt = 0; attempt < 20 && bfcacheCalls().at(-1)?.[1] !== false; attempt += 1) {
+      await Promise.resolve();
+    }
+    expect(bfcacheCalls().at(-1)).toEqual(["bfcache-render-inspection", false]);
+    expect(inspectionCurtainHarness.instances.at(-1)?.current()).not.toBeNull();
   });
 
   it("does not revive a delayed bootstrap adoption after terminal invalidation", async () => {
@@ -1766,7 +2002,10 @@ describe("C4 rewrite content entrypoints", () => {
       },
     });
     expect(createMarkingEngine).not.toHaveBeenCalled();
-    expect(shieldHarness.create).not.toHaveBeenCalled();
+    // The document_start firewall is constructed while dormant; terminal
+    // authority still prevents any marking/highlight lease from activating.
+    expect(shieldHarness.create).toHaveBeenCalledOnce();
+    expect(shieldHarness.instances.at(-1)?.dispose).toHaveBeenCalledOnce();
     expect(terminalClearRequests).toBe(1);
     await expect(staleApply).resolves.toMatchObject({
       ok: true,
@@ -2086,6 +2325,7 @@ describe("C4 rewrite content entrypoints", () => {
       renderReadOnly: vi.fn(),
       dispose: vi.fn(),
       resolveAtPoint: vi.fn(() => ({ xpath: "/html[1]/body[1]/p[1]" })),
+      acknowledge: vi.fn(() => true),
       toggle: vi.fn(),
       setPassthrough: vi.fn(),
       setInputTransparent: vi.fn(),
@@ -2192,11 +2432,9 @@ describe("C4 rewrite content entrypoints", () => {
       scrollY: 123,
       scrollTo,
       requestAnimationFrame,
-      postMessage: vi.fn((message: {
+      postMessage: vi.fn((message: TestPageWorldCommand & {
         kind?: string;
         type?: string;
-        nonce?: string;
-        command?: string;
       }) => {
         if (message.kind !== "uf-page-bus/1" || message.type !== "request") {
           return;
@@ -2209,7 +2447,7 @@ describe("C4 rewrite content entrypoints", () => {
             nonce: message.nonce,
             command: message.command,
             ok: true,
-            payload: {},
+            payload: pageWorldAcknowledgement(message),
           },
         } as unknown as Event));
       }),
@@ -2276,6 +2514,9 @@ describe("C4 rewrite content entrypoints", () => {
       element.attributes["data-uf-content-curtain-copy"] === "true"
       && element.textContent === "Inspecting page... it will be ready soon"
     )).toBe(true);
+    expect(shieldHarness.instances.some((instance) => instance.setActive.mock.calls.some(
+      ([reason, active]) => reason === "page-visit-inspection" && active === true,
+    ))).toBe(true);
     expect(contentRoot?.children.some((element) =>
       element.attributes["data-uf-content-curtain"] === "true"
     )).toBe(false);
@@ -2327,9 +2568,17 @@ describe("C4 rewrite content entrypoints", () => {
     expect(contentElements.find((element) => element.id === "unfluffify-content-surface-style")?.textContent)
       .toContain('chrome-extension://test/assets/materialdesignicons-webfont.woff2');
     expect(window.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      command: "RECONCILE",
+      sessionNonce: undefined,
+    }), "*");
+    expect(window.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       command: "ARM",
       sessionNonce: undefined,
     }), "*");
+    const stabilizationCommands = window.postMessage.mock.calls
+      .map(([message]) => (message as TestPageWorldCommand).command)
+      .filter(Boolean);
+    expect(stabilizationCommands.indexOf("RECONCILE")).toBeLessThan(stabilizationCommands.indexOf("ARM"));
     expect(window.postMessage).toHaveBeenCalledWith(expect.objectContaining({
       command: "SET_LAZY_LOADING_SUPPRESSED",
       sessionNonce: expect.stringMatching(/^rewrite-stabilization-/),
@@ -2340,9 +2589,57 @@ describe("C4 rewrite content entrypoints", () => {
     }), "*");
     expect(requestAnimationFrame).not.toHaveBeenCalled();
     expect(scrollTo).not.toHaveBeenCalled();
-    documentListeners.get("keydown")?.({ code: "AltLeft", key: "Alt" } as unknown as Event);
+    const inputCallsBeforeSynthetic = {
+      elements: createElement.mock.calls.length,
+      cursor: (document.documentElement as HTMLElement).className,
+    };
+    const syntheticPreventDefault = vi.fn();
+    const syntheticStopPropagation = vi.fn();
+    for (const [type, event] of [
+      ["keydown", { code: "AltLeft", key: "Alt", isTrusted: false }],
+      ["keydown", { code: "ShiftLeft", key: "Shift", isTrusted: false }],
+      ["keyup", { code: "AltLeft", key: "Alt", isTrusted: false }],
+      ["mousemove", { clientX: 8, clientY: 9, altKey: true, shiftKey: true, isTrusted: false }],
+      ["pointerdown", { clientX: 8, clientY: 9, button: 0, timeStamp: 1, isTrusted: false }],
+      ["click", {
+        clientX: 8,
+        clientY: 9,
+        altKey: true,
+        shiftKey: true,
+        isTrusted: false,
+        preventDefault: syntheticPreventDefault,
+        stopPropagation: syntheticStopPropagation,
+      }],
+      ["contextmenu", {
+        clientX: 8,
+        clientY: 9,
+        button: 2,
+        timeStamp: 2,
+        isTrusted: false,
+        preventDefault: syntheticPreventDefault,
+        stopPropagation: syntheticStopPropagation,
+      }],
+      ["mouseleave", { isTrusted: false }],
+      ["visibilitychange", { isTrusted: false }],
+    ] as const) {
+      documentListeners.get(type)?.(event as unknown as Event);
+    }
+    dispatchTestEvent(windowListeners, "blur", { isTrusted: false } as unknown as Event);
+    expect((document.documentElement as HTMLElement).className).toBe(inputCallsBeforeSynthetic.cursor);
+    expect(createElement).toHaveBeenCalledTimes(inputCallsBeforeSynthetic.elements);
+    expect(engine.resolveAtPoint).not.toHaveBeenCalled();
+    expect(engine.hoverAtPoint).not.toHaveBeenCalled();
+    expect(engine.acknowledge).not.toHaveBeenCalled();
+    expect(engine.toggle).not.toHaveBeenCalled();
+    expect(engine.rejectAtPoint).not.toHaveBeenCalled();
+    expect(engine.clearHover).not.toHaveBeenCalled();
+    expect(engine.setPassthrough).not.toHaveBeenCalled();
+    expect(syntheticPreventDefault).not.toHaveBeenCalled();
+    expect(syntheticStopPropagation).not.toHaveBeenCalled();
+
+    documentListeners.get("keydown")?.({ code: "AltLeft", key: "Alt", isTrusted: true } as unknown as Event);
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-include");
-    documentListeners.get("keyup")?.({ code: "AltLeft", key: "Alt" } as unknown as Event);
+    documentListeners.get("keyup")?.({ code: "AltLeft", key: "Alt", isTrusted: true } as unknown as Event);
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
     documentListeners.get("keydown")?.({ code: "Space" } as unknown as Event);
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-passthrough");
@@ -2419,6 +2716,7 @@ describe("C4 rewrite content entrypoints", () => {
       clientY: 35,
       altKey: false,
       shiftKey: false,
+      isTrusted: true,
     } as unknown as Event);
     documentListeners.get("mousemove")?.({
       clientX: 45,
@@ -2460,18 +2758,26 @@ describe("C4 rewrite content entrypoints", () => {
       clientY: 20,
       altKey: false,
       shiftKey: true,
+      isTrusted: true,
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),
     };
     documentListeners.get("click")?.(click as unknown as Event);
     expect(engine.resolveAtPoint).toHaveBeenCalledWith(10, 20, "exclude", true);
+    expect(engine.acknowledge).not.toHaveBeenCalled();
+    expect(engine.toggle).not.toHaveBeenCalled();
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(engine.acknowledge).toHaveBeenCalledWith(
+      { xpath: "/html[1]/body[1]/p[1]" },
+      "exclude",
+    );
     expect(engine.toggle).toHaveBeenCalledWith({ xpath: "/html[1]/body[1]/p[1]" }, "exclude");
     engine.resolveAtPoint.mockReturnValueOnce(null);
     documentListeners.get("click")?.({
       clientX: 15,
       clientY: 25,
       altKey: false,
-      shiftKey: false,
+      shiftKey: true,
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),
     } as unknown as Event);
@@ -2526,7 +2832,34 @@ describe("C4 rewrite content entrypoints", () => {
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),
     } as unknown as Event);
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    documentListeners.get("click")?.({
+      clientX: 11,
+      clientY: 21,
+      altKey: false,
+      shiftKey: true,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as Event);
+    await waitForMockCalls(engine.acknowledge, 3);
+    expect(engine.acknowledge).toHaveBeenNthCalledWith(
+      2,
+      { xpath: "/html[1]/body[1]/p[1]" },
+      "include",
+    );
+    expect(engine.acknowledge).toHaveBeenNthCalledWith(
+      3,
+      { xpath: "/html[1]/body[1]/p[1]" },
+      "exclude",
+    );
+    await waitForCondition(() => sendMessage.mock.calls
+      .map(([frame]) => frame as {
+        name?: string;
+        payload?: { sensation?: { reason?: string } };
+      })
+      .filter((frame) =>
+        frame.name === "fact.reported" &&
+        frame.payload?.sensation?.reason === "marking-toggle"
+      ).length >= 3);
     const markingToggleFacts = sendMessage.mock.calls
       .map(([frame]) => frame as {
         name?: string;
@@ -2534,11 +2867,11 @@ describe("C4 rewrite content entrypoints", () => {
       })
       .filter((frame) => frame.name === "fact.reported" && frame.payload?.sensation?.reason === "marking-toggle")
       .map((frame) => frame.payload?.sensation?.facts?.markingToggleSeq);
-    expect(markingToggleFacts).toEqual([1, 2]);
+    expect(markingToggleFacts).toEqual([1, 2, 3]);
     expect((await dispatchContentCommand(listener, "getContentMainStatus")).data).toMatchObject({
       dirty: true,
-      markedCount: 1,
-      markingToggleSeq: 2,
+      markedCount: 2,
+      markingToggleSeq: 3,
     });
     engine.resolveAtPoint.mockReturnValueOnce(null);
     const unresolvedClick = {
@@ -2552,7 +2885,8 @@ describe("C4 rewrite content entrypoints", () => {
     documentListeners.get("click")?.(unresolvedClick as unknown as Event);
     expect(unresolvedClick.preventDefault).toHaveBeenCalledTimes(1);
     expect(unresolvedClick.stopPropagation).toHaveBeenCalledTimes(1);
-    expect(engine.toggle).toHaveBeenCalledTimes(2);
+    expect(engine.toggle).toHaveBeenCalledTimes(3);
+    expect(engine.rejectAtPoint).toHaveBeenCalledTimes(1);
     const destroyCallsBeforeSilent = window.postMessage.mock.calls.filter(([message]) =>
       (message as { command?: string }).command === "DESTROY"
     ).length;
@@ -2596,12 +2930,14 @@ describe("C4 rewrite content entrypoints", () => {
     expect(shield?.setActive).toHaveBeenCalledWith("silent-highlights", true);
     expect(engine.setInputTransparent).toHaveBeenCalledWith(true);
     shield?.refresh.mockClear();
-    await expect(dispatchContentCommand(listener, "refreshInteractionShieldViewport"))
+    await expect(dispatchContentCommand(listener, "refreshInteractionShieldViewport", { repaintSilent: true }))
       .resolves.toMatchObject({
         ok: true,
         data: { ok: true, active: true, tree: "rewrite" },
       });
     expect(shield?.refresh).toHaveBeenCalledOnce();
+    expect(engine.refresh).not.toHaveBeenCalled();
+    expect(engine.renderSilentHighlights).toHaveBeenCalledTimes(2);
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal("navigator", { clipboard: { writeText } });
     const debugCopyEvent = {
@@ -2653,6 +2989,25 @@ describe("C4 rewrite content entrypoints", () => {
     expect(currentToast()).toBeUndefined();
     dispatchTestEvent(windowListeners, "pageshow", { type: "pageshow" } as Event);
 
+    const pauseCountBeforeTerminalDeactivation = windowObject.postMessage.mock.calls.filter(
+      ([message]) => message.command === "SET_MOTION_PAUSED",
+    ).length;
+    const firstDeactivate = await dispatchContentCommand(listener, "deactivateContentMain");
+    expect(firstDeactivate).toEqual({ ok: true, data: { ok: true, initialized: false, tree: "rewrite" } });
+    const reactivated = await dispatchContentCommand(listener, "activateContentMain", { pageUrl: pageUrl.href });
+    expect(reactivated).toMatchObject({
+      ok: true,
+      data: { ok: true, initialized: true, interactionsReady: true },
+    });
+    for (let index = 0; index < 20 && windowObject.postMessage.mock.calls.filter(
+      ([message]) => message.command === "SET_MOTION_PAUSED"
+    ).length === pauseCountBeforeTerminalDeactivation; index += 1) {
+      await Promise.resolve();
+    }
+    expect(windowObject.postMessage.mock.calls.filter(
+      ([message]) => message.command === "SET_MOTION_PAUSED",
+    )).toHaveLength(pauseCountBeforeTerminalDeactivation + 1);
+
     const deactivate = await dispatchContentCommand(listener, "deactivateContentMain");
     expect(currentToast()).toBeUndefined();
     expect(shieldHarness.instances.at(-1)?.setActive)
@@ -2688,7 +3043,7 @@ describe("C4 rewrite content entrypoints", () => {
     resolveInvalidatedCopy?.();
     await Promise.resolve();
     await Promise.resolve();
-    expect(engine.dispose).toHaveBeenCalledTimes(5);
+    expect(engine.dispose).toHaveBeenCalledTimes(6);
     expect(markingOverlay.remove).toHaveBeenCalledOnce();
     expect(contentRoot?.isConnected).toBe(false);
     expect(currentToast()).toBeUndefined();
@@ -2786,7 +3141,7 @@ describe("C4 rewrite content entrypoints", () => {
         }),
       },
     });
-    let pendingMotion: { nonce: string; command: string } | null = null;
+    let pendingMotion: TestPageWorldCommand | null = null;
     const posted: Array<Record<string, unknown>> = [];
     const scrollTo = vi.fn();
     const windowObject = {
@@ -2799,10 +3154,15 @@ describe("C4 rewrite content entrypoints", () => {
           return;
         }
         if (message.command === "SET_MOTION_PAUSED") {
-          pendingMotion = { nonce: message.nonce, command: message.command };
+          pendingMotion = message as TestPageWorldCommand;
           return;
         }
-        if (message.command === "ARM" || message.command === "SET_LAZY_LOADING_SUPPRESSED") {
+        if (
+          message.command === "ARM" ||
+          message.command === "RECONCILE" ||
+          message.command === "SET_LAZY_LOADING_SUPPRESSED" ||
+          message.command === "DESTROY"
+        ) {
           queueMicrotask(() => dispatchTestEvent(windowListeners, "message", {
             source: windowObject,
             data: {
@@ -2811,7 +3171,7 @@ describe("C4 rewrite content entrypoints", () => {
               nonce: message.nonce,
               command: message.command,
               ok: true,
-              payload: {},
+              payload: pageWorldAcknowledgement(message as TestPageWorldCommand),
             },
           } as unknown as Event));
         }
@@ -2921,7 +3281,7 @@ describe("C4 rewrite content entrypoints", () => {
     // Marking is not constructed until this exact reveal occurrence settles.
     expect(engine.dispose).not.toHaveBeenCalled();
     releaseSignals?.();
-    const motion = pendingMotion as { nonce: string; command: string } | null;
+    const motion = pendingMotion;
     expect(motion).not.toBeNull();
     dispatchTestEvent(windowListeners, "message", {
       source: windowObject,
@@ -2931,7 +3291,7 @@ describe("C4 rewrite content entrypoints", () => {
         nonce: motion!.nonce,
         command: motion!.command,
         ok: true,
-        payload: {},
+        payload: pageWorldAcknowledgement(motion!),
       },
     } as unknown as Event);
     for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -3201,6 +3561,9 @@ describe("C4 rewrite content entrypoints", () => {
     let postureSetRequests = 0;
     const sendMessage = vi.fn(async (message: BusFrame) => {
       if (message.name === "page.context") {
+        if (((message.payload as { pageUrl?: string }).pageUrl ?? "").includes("#")) {
+          throw new Error("fragment-only changes must not reclassify page context");
+        }
         return managedPageContextReply(
           message,
           (message.payload as { pageUrl?: string }).pageUrl ?? locationValue.href,
@@ -3281,6 +3644,19 @@ describe("C4 rewrite content entrypoints", () => {
     } as unknown as Event);
     await applyLockState(listener);
     await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/a" });
+    const pageContextCallsBeforeFragment = sendMessage.mock.calls.filter(
+      ([message]) => (message as BusFrame).name === "page.context",
+    ).length;
+    locationValue.href = "https://example.com/a#results";
+    dispatchTestEvent(windowListeners, "hashchange", {} as Event);
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await Promise.resolve();
+    }
+    expect(engine.dispose).not.toHaveBeenCalled();
+    expect(sendMessage.mock.calls.filter(
+      ([message]) => (message as BusFrame).name === "page.context",
+    )).toHaveLength(pageContextCallsBeforeFragment);
+
     deferSignalPull = true;
     await applyLockState(listener);
     for (let attempt = 0; attempt < 20 && !signalPullStarted; attempt += 1) {

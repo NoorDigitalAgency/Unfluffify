@@ -1,4 +1,12 @@
-export type OperatorActionKind = "marking-preflight" | "ai-preflight";
+export type OperatorActionKind =
+  | "marking-preflight"
+  | "marking-disable"
+  | "ai-preflight"
+  | "preview-open"
+  | "save"
+  | "discard"
+  | "candidate-navigation"
+  | "render-mode-set";
 
 export type OperatorActionStage =
   | "admitted"
@@ -13,6 +21,9 @@ export type OperatorActionStage =
   | "xpaths"
   | "ai-start"
   | "ai-poll"
+  | "preview"
+  | "persist"
+  | "navigation"
   | "terminal";
 
 export type OperatorActionBinding = Readonly<{
@@ -44,8 +55,14 @@ const STAGE_ORDER: Readonly<Record<OperatorActionKind, readonly OperatorActionSt
     "admitted", "context", "signals", "lock", "emulation", "reload", "activation", "rows", "terminal",
   ],
   "ai-preflight": [
-    "admitted", "context", "lock", "signals", "ai-start", "snapshot", "xpaths", "ai-poll", "terminal",
+    "admitted", "context", "lock", "signals", "ai-start", "snapshot", "xpaths", "ai-poll", "preview", "terminal",
   ],
+  "marking-disable": ["admitted", "context", "signals", "activation", "emulation", "terminal"],
+  "preview-open": ["admitted", "context", "rows", "preview", "terminal"],
+  save: ["admitted", "context", "signals", "lock", "snapshot", "persist", "terminal"],
+  discard: ["admitted", "context", "lock", "activation", "emulation", "terminal"],
+  "candidate-navigation": ["admitted", "context", "navigation", "terminal"],
+  "render-mode-set": ["admitted", "persist", "terminal"],
 };
 
 function stageIndex(kind: OperatorActionKind, stage: OperatorActionStage): number {

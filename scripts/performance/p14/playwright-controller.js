@@ -50,6 +50,49 @@ async (page) => {
     return key;
   };
 
+  const installLongTaskCapture = () => page.evaluate(() => {
+    const supported = typeof PerformanceObserver === "function"
+      && PerformanceObserver.supportedEntryTypes?.includes("longtask") === true;
+    const entries = [];
+    const retain = (entry) => entries.push({
+      name: entry.name,
+      entryType: entry.entryType,
+      startTime: entry.startTime,
+      duration: entry.duration,
+    });
+    const observer = supported
+      ? new PerformanceObserver((list) => list.getEntries().forEach(retain))
+      : null;
+    observer?.observe({ type: "longtask", buffered: true });
+    window.__p14LongTaskCapture = { supported, entries, observer, retain };
+    return { supported };
+  });
+
+  const beginInputWindow = (operation) => page.evaluate((operationName) => ({
+    operation: operationName,
+    startTime: performance.now(),
+  }), operation);
+
+  const finishInputWindow = (windowStart) => page.evaluate((start) => {
+    const capture = window.__p14LongTaskCapture;
+    capture?.observer?.takeRecords().forEach(capture.retain);
+    const endTime = performance.now();
+    const entries = (capture?.entries ?? []).filter((entry) =>
+      entry.startTime <= endTime && entry.startTime + entry.duration >= start.startTime
+    );
+    return {
+      operation: start.operation,
+      startTime: start.startTime,
+      endTime,
+      durationMs: endTime - start.startTime,
+      supported: capture?.supported === true,
+      entries,
+      maxDurationMs: entries.length > 0
+        ? Math.max(...entries.map((entry) => entry.duration))
+        : 0,
+    };
+  }, windowStart);
+
   for (const scenario of plan.scenarios) {
     const pageErrorStart = pageErrors.length;
     // Stable per-corpus URLs let legacy enable clear/rebuild the same current
@@ -80,6 +123,7 @@ async (page) => {
     }
 
     try {
+      await installLongTaskCapture();
       const activation = await page.evaluate(
         ({ mode, selectors }) => window.__p14Runtime.activate(mode, selectors),
         { mode: scenario.mode, selectors: plan.selectorsByMode[scenario.mode] },
@@ -90,6 +134,7 @@ async (page) => {
       };
       let afterClick = null;
       let mutationPressure = null;
+      const inputLongTasks = [];
 
       if (scenario.mode === "marking") {
         if (scenario.fixture === "large" && scenario.runtime === "rewrite") {
@@ -97,24 +142,39 @@ async (page) => {
         }
         const point = await page.evaluate(() => window.__p14Runtime.point("click-target"));
         await page.mouse.move(4, 4);
+        // Exclusion creation and its hover preview are Shift-only. Keep the
+        // physical modifier held through both samples so this gate benchmarks
+        // the production gesture instead of the ordinary-click unmark/no-op
+        // path.
+        await page.keyboard.down("Shift");
+        const hoverWindow = await beginInputWindow("markingHover");
         await page.evaluate(() => window.__p14Runtime.armHover());
         await page.mouse.move(point.x, point.y);
         timings.markingHover = await page.evaluate(() => window.__p14Runtime.finishHover());
+        inputLongTasks.push(await finishInputWindow(hoverWindow));
 
+        const clickWindow = await beginInputWindow("markingClickCommitPaint");
         await page.evaluate(() => window.__p14Runtime.armClick());
         await page.mouse.click(point.x, point.y);
+        await page.keyboard.up("Shift");
         const clickResult = await page.evaluate(() => window.__p14Runtime.finishClick());
         timings.markingClickCommitPaint = clickResult.durationMs;
+        inputLongTasks.push(await finishInputWindow(clickWindow));
         afterClick = await page.evaluate(() => window.__p14Runtime.semantics());
         if (scenario.fixture === "large" && scenario.runtime === "rewrite") {
           mutationPressure = await page.evaluate(() => window.__p14Runtime.stopMutationPressure());
         }
       }
 
+      const scrollOperation = scenario.mode === "silent"
+        ? "silentScrollReposition"
+        : "markingScrollReposition";
+      const scrollWindow = await beginInputWindow(scrollOperation);
       await page.evaluate(() => window.__p14Runtime.prepareScroll());
       await page.mouse.wheel(0, 160);
-      timings[scenario.mode === "silent" ? "silentScrollReposition" : "markingScrollReposition"] =
+      timings[scrollOperation] =
         await page.evaluate(() => window.__p14Runtime.finishScroll());
+      inputLongTasks.push(await finishInputWindow(scrollWindow));
 
       // Scroll and mutation are independent operations. Restore the initial
       // viewport and let each shipping reposition path settle before timing the
@@ -130,6 +190,7 @@ async (page) => {
         activation,
         mutationPressure,
         timings,
+        inputLongTasks,
         semanticRefs: {
           before: retainSemantics(scenario, "before", before),
           afterClick: retainSemantics(scenario, "after-click", afterClick),

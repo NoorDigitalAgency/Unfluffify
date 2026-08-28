@@ -3,9 +3,10 @@ import {
   type BoundaryNode,
   isPageShell,
   isSelfMarkable,
+  isShallowGenericShell,
   ownsDirectText,
 } from "./boundary";
-import { isToggleableDefaultTag } from "./taxonomy";
+import { isImmutableTag, isToggleableDefaultTag } from "./taxonomy";
 
 export type WidenNode = BoundaryNode & Readonly<{
   parent?: WidenNode | null;
@@ -43,34 +44,32 @@ export function holdsMultipleTextualMarkableContent(
 }
 
 export function isGroupingWidenTarget(node: WidenNode, ctx: WideningContext = {}): boolean {
-  if (isPageShell(node) || ownsDirectText(node, ctx)) {
+  if (isPageShell(node) || isShallowGenericShell(node) || ownsDirectText(node, ctx)) {
     return false;
   }
-  const eligibleChildren = getChildren(node, ctx).filter((child) =>
-    isEligibleWidenTarget(child, ctx),
+  const textualChildren = getChildren(node, ctx).filter((child) =>
+    child.visible &&
+    !child.chrome &&
+    !isImmutableTag(child.tagName) &&
+    getTextualMarkableContentCount(child, ctx) > 0
   );
-  return eligibleChildren.length >= 2;
+  // Textless spacers are structural noise. Every remaining textual direct
+  // child must itself be a tight markable piece; silently dropping an
+  // ineligible textual sibling turns mixed page wrappers into false groups.
+  return textualChildren.length >= 2 && textualChildren.every((child) => isSelfMarkable(child, ctx));
 }
 
 export function isEligibleWidenTarget(node: WidenNode, ctx: WideningContext = {}): boolean {
   if (isPageShell(node)) {
     return false;
   }
-  // W4/F3 applies to descendants-only wrappers. A self-markable element with
-  // direct text remains a valid ancestor even when it owns one content piece.
-  if (isSelfMarkable(node, ctx) && ownsDirectText(node, ctx)) {
-    return true;
-  }
-  if (!ownsDirectText(node, ctx) && holdsMultipleTextualMarkableContent(node, ctx)) {
-    return true;
-  }
-  return isGroupingWidenTarget(node, ctx);
+  return isSelfMarkable(node, ctx) || isGroupingWidenTarget(node, ctx);
 }
 
 export function chooseWidenTarget(node: WidenNode, ctx: WideningContext = {}): WidenNode {
   const isStructuredGroup = (candidate: WidenNode) => isGroupingWidenTarget(candidate, ctx);
   const isToggleableBoundary = (candidate: WidenNode) =>
-    isToggleableDefaultTag(candidate.tagName) && isEligibleWidenTarget(candidate, ctx);
+    isToggleableDefaultTag(candidate.tagName) && isSelfMarkable(candidate, ctx);
 
   // C-TGT-4 step 1: Shift on an already meaningful boundary stays there.
   if (isStructuredGroup(node) || isToggleableBoundary(node)) {
@@ -104,7 +103,7 @@ export function chooseWidenTarget(node: WidenNode, ctx: WideningContext = {}): W
   // Step 4: only now select the broadest ordinary eligible ancestor.
   let broadest: WidenNode | null = null;
   for (const ancestor of ancestors) {
-    if (isEligibleWidenTarget(ancestor, ctx)) {
+    if (!isPageShell(ancestor) && isSelfMarkable(ancestor, ctx)) {
       broadest = ancestor;
     }
   }

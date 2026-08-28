@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "p25-pinned-legacy-bundle-attestation/v1",
+  "generatedAt": "2026-08-28T17:20:00.000Z",
+  "implementation": "legacy",
+  "source": {
+    "head": "28974c2a0c859c91a7167f4757cf84a47ea31e28",
+    "tree": "ebfb2f160763e3acc3331e62f9824ac18d45fcad",
+    "lockfile": "pnpm-lock.yaml",
+    "packageLockSha256": "16e388025ae49f0292b8153a099580e07606610d5d7f104e7f78c489796307f6",
+    "buildCommand": "pnpm build"
+  },
+  "bundle": {
+    "schemaVersion": "browser-live-bundle-inventory/v1",
+    "normalization": "manifest-version-launch-counter-only/v1",
+    "normalizedManifestVersion": "1.10.0",
+    "inventoryDigest": "886c12365e10d8cba98a64afcdda234924804fb4c555c50f807c026577f6c69e",
+    "fileCount": 39,
+    "bytes": 4393227
+  },
+  "reproduction": {
+    "worktreeHead": "28974c2a0c859c91a7167f4757cf84a47ea31e28",
+    "worktreeTree": "ebfb2f160763e3acc3331e62f9824ac18d45fcad",
+    "consecutiveBuildCount": 2,
+    "consecutiveBuildsMatched": true
+  }
+}

@@ -58,7 +58,13 @@ function renderInspectionCurtainProofExpression(identity: Readonly<{
   return `(() => {
     const expected = ${expected};
     const root = document.documentElement;
-    const curtain = document.querySelector('[data-uf-render-inspection-curtain="true"]');
+    const curtain = Array.from(
+      document.querySelectorAll('[data-uf-render-inspection-curtain="true"]'),
+    ).find((candidate) =>
+      candidate.getAttribute('data-uf-inspection-token') === expected.token &&
+      candidate.getAttribute('data-uf-inspection-generation') === String(expected.generation) &&
+      candidate.getAttribute('data-uf-document-nonce') === expected.documentNonce
+    );
     if (
       document.visibilityState !== 'visible' ||
       !root ||
@@ -85,7 +91,7 @@ function renderInspectionCurtainProofExpression(identity: Readonly<{
       style.visibility === 'visible' &&
       style.pointerEvents !== 'none' &&
       style.zIndex === '2147483647' &&
-      Number.isFinite(opacity) && opacity === 1 &&
+      Number.isFinite(opacity) && opacity >= 0.999 &&
       rect.left <= viewportLeft && rect.top <= viewportTop &&
       rect.right >= viewportLeft + viewportWidth &&
       rect.bottom >= viewportTop + viewportHeight;
@@ -195,11 +201,19 @@ export function startRewriteBackground(): void {
   };
   const mainDocumentWrites = new Map<number, Promise<void>>();
   const mainDocumentKey = (tabId: number): string => `uf:main-document:${tabId}`;
-  const persistMainDocument = (tabId: number, documentId: string | null): void => {
+  const mainDocumentAuthorityKey = (tabId: number): string =>
+    `uf:main-document-authority:${tabId}`;
+  const persistMainDocument = (
+    tabId: number,
+    documentId: string | null,
+    pageUrl: string | null,
+  ): void => {
+    const normalizedUrl = normalizedPageUrl(pageUrl);
     const previous = mainDocumentWrites.get(tabId) ?? Promise.resolve();
     const write = previous.then(async () => {
       await Promise.resolve(api.storage?.session?.set({
         [mainDocumentKey(tabId)]: { documentId },
+        [mainDocumentAuthorityKey(tabId)]: { documentId, pageUrl: normalizedUrl },
       }));
     }).catch(() => undefined);
     mainDocumentWrites.set(tabId, write);
@@ -209,12 +223,16 @@ export function startRewriteBackground(): void {
       }
     });
   };
-  const observeMainDocument = (tabId: number, documentId: string | null): void => {
+  const observeMainDocument = (
+    tabId: number,
+    documentId: string | null,
+    pageUrl: string | null = mainNavigationByTab.get(tabId)?.pageUrl ?? null,
+  ): void => {
     mainDocumentByTab.set(tabId, documentId);
     // Navigation events are synchronous, while storage.session is not. Keep
     // writes ordered so a rapid C -> D commit cannot leave C as the cold-worker
     // fallback merely because its first write completed last.
-    persistMainDocument(tabId, documentId);
+    persistMainDocument(tabId, documentId, pageUrl);
   };
   type MainFrameAuthority = Readonly<{
     documentId: string | null;
@@ -268,8 +286,6 @@ export function startRewriteBackground(): void {
       return undefined;
     }
   };
-  const queryMainDocument = async (tabId: number): Promise<string | null | undefined> =>
-    (await queryMainFrame(tabId))?.documentId;
   const queryTabPresence = async (
     tabId: number,
   ): Promise<"present" | "missing" | "unknown"> => {
@@ -358,13 +374,13 @@ export function startRewriteBackground(): void {
     if (mainDocumentByTab.has(tabId)) {
       return { known: true, documentId: mainDocumentByTab.get(tabId) ?? null };
     }
-    const queriedDocument = await queryMainDocument(tabId);
+    const queriedFrame = await queryMainFrame(tabId);
     if (mainDocumentByTab.has(tabId)) {
       return { known: true, documentId: mainDocumentByTab.get(tabId) ?? null };
     }
-    if (queriedDocument !== undefined) {
-      observeMainDocument(tabId, queriedDocument);
-      return { known: true, documentId: queriedDocument };
+    if (queriedFrame !== undefined) {
+      observeMainDocument(tabId, queriedFrame.documentId, queriedFrame.pageUrl);
+      return { known: true, documentId: queriedFrame.documentId };
     }
     const key = mainDocumentKey(tabId);
     try {
@@ -388,6 +404,53 @@ export function startRewriteBackground(): void {
       // navigation authority before they can be released.
     }
     return { known: false, documentId: null };
+  };
+  const loadDurableMainDocumentAuthority = async (
+    tabId: number,
+  ): Promise<MainFrameAuthority | null> => {
+    await mainDocumentWrites.get(tabId);
+    const navigation = mainNavigationByTab.get(tabId);
+    if (
+      mainDocumentByTab.has(tabId) &&
+      navigation &&
+      !navigation.pending &&
+      navigation.pageUrl
+    ) {
+      return {
+        documentId: mainDocumentByTab.get(tabId) ?? null,
+        pageUrl: navigation.pageUrl,
+      };
+    }
+    const key = mainDocumentAuthorityKey(tabId);
+    try {
+      const stored = await api.storage?.session?.get(key);
+      // A commit observed while the read was pending is newer than storage.
+      const latestNavigation = mainNavigationByTab.get(tabId);
+      if (
+        mainDocumentByTab.has(tabId) &&
+        latestNavigation &&
+        !latestNavigation.pending &&
+        latestNavigation.pageUrl
+      ) {
+        return {
+          documentId: mainDocumentByTab.get(tabId) ?? null,
+          pageUrl: latestNavigation.pageUrl,
+        };
+      }
+      const value = stored?.[key];
+      if (!value || typeof value !== "object") return null;
+      const documentId = (value as { documentId?: unknown }).documentId;
+      const pageUrl = normalizedPageUrl(
+        typeof (value as { pageUrl?: unknown }).pageUrl === "string"
+          ? (value as { pageUrl: string }).pageUrl
+          : null,
+      );
+      return typeof documentId === "string" && documentId && pageUrl
+        ? { documentId, pageUrl }
+        : null;
+    } catch {
+      return null;
+    }
   };
   const isCurrentMainDocument = async (tabId: number, documentId: string): Promise<boolean> => {
     const current = await loadMainDocument(tabId);
@@ -428,7 +491,7 @@ export function startRewriteBackground(): void {
       return null;
     }
     if (!mainDocumentByTab.has(tabId)) {
-      observeMainDocument(tabId, documentId);
+      observeMainDocument(tabId, documentId, frame.pageUrl);
     }
     let navigation = navigationBeforeFrame;
     if (!navigation) {
@@ -449,6 +512,8 @@ export function startRewriteBackground(): void {
     mainNavigationByTab.delete(tabId);
     await mainDocumentWrites.get(tabId);
     await Promise.resolve(api.storage?.session?.remove(mainDocumentKey(tabId)))
+      .catch(() => undefined);
+    await Promise.resolve(api.storage?.session?.remove(mainDocumentAuthorityKey(tabId)))
       .catch(() => undefined);
   };
   const stalePageContextResponse = (pageUrl: string) => ({
@@ -844,6 +909,21 @@ export function startRewriteBackground(): void {
   });
   const lockBrowserLifecycle = createLockBrowserLifecycle({
     api: api as unknown as LockBrowserApi,
+    async isDurableSameDocumentNavigation(tabId, commit) {
+      const pageUrl = normalizedPageUrl(commit.pageUrl);
+      if (!commit.documentId || !pageUrl) {
+        return false;
+      }
+      // The lifecycle's process-local document map is empty after an MV3
+      // restart. Every retained authority shares this durable main-frame
+      // identity, so a first hash notification remains a true no-op even when
+      // there is no active render-inspection record to classify it.
+      const authority = await loadDurableMainDocumentAuthority(tabId);
+      if (authority) {
+        return authority.documentId === commit.documentId && authority.pageUrl === pageUrl;
+      }
+      return renderInspection.preservesNavigationCommit({ tabId, ...commit });
+    },
     onMainDocumentNavigationStarted(tabId, pageUrl) {
       advanceMainNavigation(tabId, true, pageUrl);
       const expectedInspectionReload = renderInspection.observeNavigationStart(tabId, pageUrl);
@@ -877,12 +957,12 @@ export function startRewriteBackground(): void {
           pending: false,
           pageUrl: frame.pageUrl,
         });
-        observeMainDocument(tabId, frame.documentId);
+        observeMainDocument(tabId, frame.documentId, frame.pageUrl);
       });
     },
     onMainDocumentCommitted(tabId, documentId, pageUrl) {
       const state = advanceMainNavigation(tabId, false, pageUrl);
-      observeMainDocument(tabId, documentId);
+      observeMainDocument(tabId, documentId, state.pageUrl);
       const commit = {
         tabId,
         documentId,
@@ -898,7 +978,7 @@ export function startRewriteBackground(): void {
     onMainDocumentHistoryChanged(tabId, documentId, pageUrl) {
       const state = advanceMainNavigation(tabId, false, pageUrl);
       if (documentId) {
-        observeMainDocument(tabId, documentId);
+        observeMainDocument(tabId, documentId, state.pageUrl);
       }
       const commit = { tabId, documentId, pageUrl: state.pageUrl };
       renderInspection.observeNavigationCommit(commit);
@@ -1116,6 +1196,83 @@ export function startRewriteBackground(): void {
    * failure. Share it across page-context and popup consumers so a property
    * binding performs one remote load until explicit Refresh or Save. */
   const definitiveConfigAuthority = new Map<string, "ok" | "not_found">();
+  type PropertyAuthorityLoad = Readonly<{
+    result: Awaited<ReturnType<typeof services.lynx.loadConfigSnapshot>>;
+    applied: Awaited<ReturnType<typeof services.property.applyBackendLoad>>;
+  }>;
+  type PropertyAuthorityLoadEntry = Readonly<{
+    generation: number;
+    operation: Promise<PropertyAuthorityLoad | null>;
+  }>;
+  const propertyAuthorityLoadGeneration = new Map<string, number>();
+  const propertyAuthorityLoads = new Map<string, PropertyAuthorityLoadEntry>();
+  const propertyAuthorityGeneration = (propertyKey: string): number =>
+    propertyAuthorityLoadGeneration.get(propertyKey) ?? 0;
+  const invalidatePropertyAuthority = (propertyKey: string): void => {
+    definitiveConfigAuthority.delete(propertyKey);
+    propertyAuthorityLoadGeneration.set(
+      propertyKey,
+      propertyAuthorityGeneration(propertyKey) + 1,
+    );
+  };
+  const loadPropertyAuthority = async (
+    environmentKey: string,
+    siteId: number,
+  ): Promise<PropertyAuthorityLoad> => {
+    const propertyKey = `${environmentKey}\u0000${siteId}`;
+    // Explicit invalidation can retire an in-flight request. Its callers join
+    // the replacement generation instead of adopting or projecting the stale
+    // answer, while ordinary page.context/config.load overlap shares one whole
+    // remote-load-and-adoption operation.
+    while (true) {
+      const generation = propertyAuthorityGeneration(propertyKey);
+      let entry = propertyAuthorityLoads.get(propertyKey);
+      if (!entry || entry.generation !== generation) {
+        const operation = (async (): Promise<PropertyAuthorityLoad | null> => {
+          const result = await services.lynx.loadConfigSnapshot(environmentKey, siteId);
+          if (propertyAuthorityGeneration(propertyKey) !== generation) {
+            return null;
+          }
+          const applied = await services.property.applyBackendLoad(
+            environmentKey,
+            siteId,
+            result.status === "ok"
+              ? { status: result.status, config: result.data }
+              : { status: result.status },
+          );
+          if (propertyAuthorityGeneration(propertyKey) !== generation) {
+            return null;
+          }
+          if (result.status === "not_found") {
+            definitiveConfigAuthority.set(propertyKey, "not_found");
+            await shieldPosture.removeProperty(environmentKey, siteId);
+          } else if (result.status === "ok") {
+            definitiveConfigAuthority.set(propertyKey, "ok");
+          }
+          if (propertyAuthorityGeneration(propertyKey) !== generation) {
+            return null;
+          }
+          return { result, applied };
+        })();
+        const created: PropertyAuthorityLoadEntry = { generation, operation };
+        entry = created;
+        propertyAuthorityLoads.set(propertyKey, created);
+        const clear = (): void => {
+          if (propertyAuthorityLoads.get(propertyKey) === created) {
+            propertyAuthorityLoads.delete(propertyKey);
+          }
+        };
+        void operation.then(clear, clear);
+      }
+      const outcome = await entry.operation;
+      if (
+        outcome !== null &&
+        propertyAuthorityGeneration(propertyKey) === entry.generation
+      ) {
+        return outcome;
+      }
+    }
+  };
   bus.onCommand("page.context", (request, meta) => {
     const tabId = request.tabId ?? parseSenderTabId(meta.sourceInstance) ?? 0;
     const incomingDocumentId = parseSenderDocumentId(meta.sourceInstance);
@@ -1188,7 +1345,7 @@ export function startRewriteBackground(): void {
       ? `${context.environmentKey}\u0000${context.siteId}`
       : null;
     if (request.refresh === true && propertyKey) {
-      definitiveConfigAuthority.delete(propertyKey);
+      invalidatePropertyAuthority(propertyKey);
     }
     let renderModeSet = propertyKey ? renderModeByProperty.get(propertyKey) ?? false : false;
     let authoritativeConfig: ConfigSnapshot | null = null;
@@ -1207,20 +1364,10 @@ export function startRewriteBackground(): void {
         context.status === "suspended_candidate_feed_conflict")
     ) {
       if (!definitiveConfigAuthority.has(propertyKey)) {
-        const loaded = await services.lynx.loadConfigSnapshot(context.environmentKey, context.siteId);
-        const authority = await services.property.applyBackendLoad(
+        const { result: loaded, applied: authority } = await loadPropertyAuthority(
           context.environmentKey,
           context.siteId,
-          loaded.status === "ok"
-            ? { status: loaded.status, config: loaded.data }
-            : { status: loaded.status },
         );
-        if (loaded.status === "not_found") {
-          definitiveConfigAuthority.set(propertyKey, "not_found");
-          await shieldPosture.removeProperty(context.environmentKey, context.siteId);
-        } else if (loaded.status === "ok") {
-          definitiveConfigAuthority.set(propertyKey, "ok");
-        }
         renderModeSet = authority.renderMode !== undefined;
         if (loaded.status === "ok" || loaded.status === "not_found") {
           renderModeByProperty.set(propertyKey, renderModeSet);
@@ -1523,7 +1670,7 @@ export function startRewriteBackground(): void {
         throw new Error("render-inspection-navigation-changed");
       }
       if (queriedFrame?.documentId && !mainDocumentByTab.has(request.tabId)) {
-        observeMainDocument(request.tabId, queriedFrame.documentId);
+        observeMainDocument(request.tabId, queriedFrame.documentId, queriedFrame.pageUrl);
       }
       if (!navigationBeforeFrame && queriedFrame?.pageUrl) {
         mainNavigationByTab.set(request.tabId, {
@@ -1706,22 +1853,14 @@ export function startRewriteBackground(): void {
       ) {
         return { status: "stale" as const, reason: "inspection-document-changed" };
       }
-      const acknowledged = await renderInspection.acknowledgePaint({
-        tabId: sender.tabId,
-        documentId: sender.documentId,
-        token: request.token,
-        generation: request.generation,
-        pageUrl: request.pageUrl,
-        documentNonce: request.documentNonce,
-      });
-      if (acknowledged.status !== "ok") {
-        return {
-          status: "stale" as const,
-          reason: acknowledged.status === "stale" ? acknowledged.reason : "inspection-inactive",
-        };
-      }
-      reportRenderInspectionFallbackStage("acknowledged", request.generation, sender.documentId);
-      return { status: "acknowledged" as const };
+      // The debugger realm can prove a JavaScript-off curtain while the page's
+      // animation-frame queue is starved, but it must not terminalize the
+      // session itself. Returning `ready` wakes the exact content controller;
+      // that controller rechecks its local curtain identity/coverage, records
+      // the fallback paint stage, and sends the ordinary document-fenced paint
+      // acknowledgement. Keeping one acknowledgement owner also guarantees the
+      // local curtain and shield are reconciled on the terminal response.
+      return { status: "ready" as const };
     });
   });
   bus.onCommand("renderInspection.ackPaint", async (request, meta) => {
@@ -1835,38 +1974,63 @@ export function startRewriteBackground(): void {
     if (definitiveConfigAuthority.get(propertyKey) === "ok") {
       const stored = await services.repos.configRepo.load(environmentKey, request.siteId);
       if (stored.ok && stored.value) {
+        const local = await services.repos.localPropertyRepo.load(environmentKey, request.siteId);
+        const draft = local.ok ? local.value?.pendingRenderModeDraft : undefined;
+        const pendingRenderMode = draft &&
+          draft.basePropertyRevision === stored.value.propertyRevision &&
+          draft.baseRenderModeUpdatedAt === stored.value.renderModeUpdatedAt
+          ? draft.renderMode
+          : undefined;
+        if (draft && !pendingRenderMode && local.ok && local.value) {
+          await services.repos.localPropertyRepo.save({
+            environmentKey,
+            siteId: request.siteId,
+            backendConfigPresent: true,
+            ...(local.value.renderMode ? { renderMode: local.value.renderMode } : {}),
+            ...(local.value.integrityWarning ? { integrityWarning: local.value.integrityWarning } : {}),
+            updatedAt: new Date().toISOString(),
+          });
+        }
         return {
           status: "ok" as const,
           config: stored.value,
           renderMode: stored.value.renderMode,
+          ...(pendingRenderMode ? { pendingRenderMode } : {}),
           renderModeSource: "backend" as const,
         };
       }
       definitiveConfigAuthority.delete(propertyKey);
     }
-    const result = definitiveConfigAuthority.get(propertyKey) === "not_found"
-      ? { status: "not_found" as const, httpStatus: 404 }
-      : await services.lynx.loadConfigSnapshot(environmentKey, request.siteId);
-    // The rule lives in services, not here and not in the popup: one place
-    // decides what local data survives a backend answer.
+    const cachedNotFound = definitiveConfigAuthority.get(propertyKey) === "not_found";
+    const loaded = cachedNotFound
+      ? null
+      : await loadPropertyAuthority(environmentKey, request.siteId);
+    const result = loaded?.result ?? { status: "not_found" as const, httpStatus: 404 };
+    // The shared property-keyed loader owns remote adoption. Reading a settled
+    // 404 projects its one documented local exception without rewriting the
+    // same authoritative answer on every popup request.
     try {
       if (result.status === "ok") {
-        const applied = await services.property.applyBackendLoad(
-          environmentKey,
-          request.siteId,
-          { status: "ok", config: result.data },
-        );
+        const applied = loaded?.applied;
+        if (!applied || applied.source !== "backend") {
+          throw new PropertySnapshotIntegrityError("Validated backend load did not establish backend authority.");
+        }
         const snapshot = applied.snapshot;
         if (!snapshot) {
           throw new PropertySnapshotIntegrityError("Validated backend load did not produce a snapshot.");
         }
+        // page.context establishes document authority through bindDocument.
+        // A popup-only load has no document to bind, so retain the former
+        // config.load side effect here and keep it out of the shared adoption
+        // operation; otherwise a same-document refresh increments the shield
+        // fence once for authorize and once again for the exact bind.
         await shieldPosture.authorizeProperty(environmentKey, request.siteId);
-        definitiveConfigAuthority.set(propertyKey, "ok");
         if (applied.integrityWarning) {
           return {
             status: "integrity_shrink" as const,
             config: snapshot,
             renderMode: applied.renderMode,
+            ...(applied.pendingRenderMode ? { pendingRenderMode: applied.pendingRenderMode } : {}),
             renderModeSource: "backend" as const,
             reason: applied.integrityWarning.message,
           };
@@ -1875,22 +2039,24 @@ export function startRewriteBackground(): void {
           status: "ok" as const,
           config: snapshot,
           ...(applied.renderMode ? { renderMode: applied.renderMode } : {}),
+          ...(applied.pendingRenderMode ? { pendingRenderMode: applied.pendingRenderMode } : {}),
           renderModeSource: "backend" as const,
         };
       }
-      const applied = await services.property.applyBackendLoad(
-        environmentKey,
-        request.siteId,
-        { status: result.status },
-      );
-      if (result.status === "not_found") {
-        definitiveConfigAuthority.set(propertyKey, "not_found");
-        await shieldPosture.removeProperty(environmentKey, request.siteId);
-      }
+      const applied = loaded?.applied ?? await (async () => {
+        const existing = await services.repos.localPropertyRepo.load(environmentKey, request.siteId);
+        return {
+          renderMode: existing.ok ? existing.value?.renderMode : undefined,
+          source: "local" as const,
+        };
+      })();
       return {
         status: result.status,
         httpStatus: result.httpStatus,
         ...(applied.renderMode ? { renderMode: applied.renderMode } : {}),
+        ...("pendingRenderMode" in applied && applied.pendingRenderMode
+          ? { pendingRenderMode: applied.pendingRenderMode }
+          : {}),
         renderModeSource: applied.source,
       };
     } catch (error) {

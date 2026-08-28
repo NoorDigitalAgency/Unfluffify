@@ -7,6 +7,18 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build, version as esbuildVersion } from "esbuild";
 
+import {
+  ACCEPTANCE_ID,
+  ARTIFACT_SCHEMA_VERSION,
+  HOVER_BUDGET_MS,
+  PLAYWRIGHT_CLI_VERSION,
+  REQUIRED_CHECK_IDS,
+  SILENT_BUDGET_MS,
+  VIEWPORT,
+  validateCheckCatalog,
+} from "./p23/contract.mjs";
+import { classifyParitySourceStatus } from "./p25/source-identity.mjs";
+
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "../..");
 const harnessDirectory = join(scriptDirectory, "p23");
@@ -14,8 +26,8 @@ const outputDirectory = join(repositoryRoot, "output/playwright/p23-frozen-prese
 const buildDirectory = join(outputDirectory, "build");
 const playwrightWorkingDirectory = join(buildDirectory, "playwright-cli-session");
 const playwrightCli = join(scriptDirectory, "p14/playwright-cli.sh");
-const HOVER_BUDGET_MS = 40;
-const SILENT_BUDGET_MS = 50;
+const smoke = process.argv.includes("--smoke");
+const startedAt = new Date();
 
 function run(command, args, options = {}) {
   return new Promise((resolvePromise, reject) => {
@@ -146,7 +158,7 @@ async function runBrowser(baseUrl) {
       env: environment,
     });
     opened = true;
-    await run(playwrightCli, ["resize", "1000", "900"], {
+    await run(playwrightCli, ["resize", String(VIEWPORT.width), String(VIEWPORT.height)], {
       cwd: playwrightWorkingDirectory,
       env: environment,
     });
@@ -185,6 +197,20 @@ function validate(payload) {
     );
   }
   check(
+    "silent-scroll-fades-before-reposition-and-restores",
+    payload.silentDuring.retained &&
+      payload.silentDuring.allBoxesRetained &&
+      !payload.silentDuring.geometryChanged &&
+      payload.silentDuring.rootScrolling &&
+      payload.silentDuring.allRetainedLayersTransparent &&
+      payload.silentAfter.retained &&
+      payload.silentAfter.allBoxesRetained &&
+      payload.silentAfter.geometryChanged &&
+      !payload.silentAfter.rootScrolling &&
+      payload.silentAfter.allRetainedLayersVisible,
+    { before: payload.silentBefore, during: payload.silentDuring, after: payload.silentAfter },
+  );
+  check(
     "silent-overlay-retained",
     payload.silentAfter.retained &&
       payload.silentAfter.count === payload.silentBefore.count &&
@@ -204,11 +230,38 @@ function validate(payload) {
   return checks;
 }
 
+async function sourceIdentity() {
+  const [head, rawStatus] = await Promise.all([
+    run("git", ["rev-parse", "HEAD"]),
+    run("git", ["status", "--porcelain=v1", "--untracked-files=all", "--", "."]),
+  ]);
+  const classified = classifyParitySourceStatus(rawStatus.stdout);
+  return {
+    headCommit: head.stdout,
+    ...classified,
+  };
+}
+
 let server = null;
+let source = null;
+let bundle = null;
+let cli = null;
+let cliVersion = null;
+let payload = null;
+let checks = [];
+let catalog = validateCheckCatalog(checks);
+let fatal = null;
+
 try {
+  source = await sourceIdentity();
+  const versionResult = await run(playwrightCli, ["--version"]);
+  cliVersion = versionResult.stdout.match(/(\d+\.\d+\.\d+)/)?.[1] ?? "unknown";
+  if (cliVersion !== PLAYWRIGHT_CLI_VERSION) {
+    throw new Error(`P23 requires @playwright/cli ${PLAYWRIGHT_CLI_VERSION}, received ${cliVersion}`);
+  }
   await rm(buildDirectory, { recursive: true, force: true });
   await mkdir(buildDirectory, { recursive: true });
-  const bundle = await build({
+  bundle = await build({
     absWorkingDir: repositoryRoot,
     entryPoints: ["scripts/performance/p23/runtime.ts"],
     outfile: join(buildDirectory, "runtime.js"),
@@ -222,51 +275,69 @@ try {
     metafile: true,
   });
   server = await startServer();
-  const cli = await runBrowser(server.baseUrl);
-  const payload = server.payload();
+  cli = await runBrowser(server.baseUrl);
+  payload = server.payload();
   if (!payload) {
     throw new Error("P23 browser controller returned no payload\n" + cli.stdout);
   }
-  const checks = validate(payload);
-  const pass = checks.every((entry) => entry.pass);
-  const artifact = {
-    schemaVersion: 1,
-    generatedAt: new Date().toISOString(),
-    pass,
-    protocol: {
-      browser: "Chromium through pinned @playwright/cli@0.1.17",
-      viewport: { width: 1000, height: 900 },
-      pageRequestAnimationFrame: "permanently starved before runtime bundle evaluation",
-      hoverBudgetMs: HOVER_BUDGET_MS,
-      silentBudgetMs: SILENT_BUDGET_MS,
-      physicalInputs: ["mousemove", "wheel"],
-    },
-    source: {
-      headCommit: (await run("git", ["rev-parse", "HEAD"])).stdout,
-      status: (await run("git", ["status", "--porcelain=v1", "--untracked-files=all"])).stdout
-        .split("\n")
-        .filter(Boolean)
-        .filter((line) => !line.slice(3).startsWith("output/playwright/p23-frozen-presentation/")),
-      compiler: { name: "esbuild", version: esbuildVersion, inputs: Object.keys(bundle.metafile.inputs).sort() },
-    },
-    checks,
-    browser: payload,
-    cli: { stdout: cli.stdout, stderr: cli.stderr },
-  };
-  await mkdir(outputDirectory, { recursive: true });
-  const timestamp = artifact.generatedAt.replaceAll(":", "-").replace(".", "-");
-  const artifactPath = join(outputDirectory, "acceptance-" + timestamp + ".json");
-  await writeFile(artifactPath, JSON.stringify(artifact, null, 2) + "\n");
-  process.stdout.write(JSON.stringify({
-    pass,
-    artifact: artifactPath.slice(repositoryRoot.length + 1),
-    checks: checks.length,
-    failedChecks: checks.filter((entry) => !entry.pass).map((entry) => entry.id),
-  }, null, 2) + "\n");
-  if (!pass) {
-    process.exitCode = 1;
-  }
+  checks = validate(payload);
+  catalog = validateCheckCatalog(checks);
+} catch (error) {
+  fatal = String(error?.stack ?? error);
 } finally {
   await server?.close().catch(() => undefined);
-  await rm(buildDirectory, { recursive: true, force: true });
+  await rm(buildDirectory, { recursive: true, force: true }).catch(() => undefined);
 }
+
+const sourceAccepted = smoke || source?.cleanSourceSet === true;
+const pass = fatal === null && payload !== null && catalog.pass && sourceAccepted;
+const generatedAt = new Date().toISOString();
+const artifact = {
+  schemaVersion: ARTIFACT_SCHEMA_VERSION,
+  acceptanceId: ACCEPTANCE_ID,
+  runKind: smoke ? "smoke" : "acceptance",
+  generatedAt,
+  startedAt: startedAt.toISOString(),
+  pass,
+  source,
+  sourceRequirement: { requiredClean: !smoke, pass: sourceAccepted },
+  protocol: {
+    browser: `Chromium through pinned @playwright/cli@${PLAYWRIGHT_CLI_VERSION}`,
+    viewport: VIEWPORT,
+    pageRequestAnimationFrame: "permanently starved before runtime bundle evaluation",
+    hoverBudgetMs: HOVER_BUDGET_MS,
+    silentBudgetMs: SILENT_BUDGET_MS,
+    physicalInputs: ["mousemove", "wheel"],
+  },
+  toolchain: {
+    playwrightCli: { expected: PLAYWRIGHT_CLI_VERSION, actual: cliVersion },
+    compiler: bundle ? {
+      name: "esbuild",
+      version: esbuildVersion,
+      inputs: Object.keys(bundle.metafile.inputs).sort(),
+    } : null,
+  },
+  contract: { requiredChecks: REQUIRED_CHECK_IDS, catalog },
+  checks,
+  browser: payload,
+  cli: cli ? { stdout: cli.stdout, stderr: cli.stderr } : null,
+  fatal,
+};
+await mkdir(outputDirectory, { recursive: true });
+const timestamp = generatedAt.replaceAll(":", "-").replace(".", "-");
+const artifactPath = smoke
+  ? join("/tmp", `unfluffify-p23-frozen-presentation-${pass ? "smoke" : "failure"}-${process.pid}.json`)
+  : join(outputDirectory, `${pass ? "acceptance" : "failure"}-${timestamp}.json`);
+await writeFile(artifactPath, JSON.stringify(artifact, null, 2) + "\n");
+process.stdout.write(JSON.stringify({
+  acceptanceId: ACCEPTANCE_ID,
+  runKind: artifact.runKind,
+  pass,
+  artifactPath,
+  checksPassed: checks.filter((entry) => entry.pass).length,
+  checksRequired: REQUIRED_CHECK_IDS.length,
+  failedChecks: checks.filter((entry) => !entry.pass).map((entry) => entry.id),
+  cleanSourceSet: source?.cleanSourceSet ?? false,
+  fatal,
+}, null, 2) + "\n");
+if (!pass) process.exitCode = 1;

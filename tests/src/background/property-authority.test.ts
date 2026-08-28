@@ -45,7 +45,7 @@ afterEach(() => {
   Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: originalIndexedDb });
 });
 
-describe("local storage is only for an unconfigured property", () => {
+describe("local render-mode persistence", () => {
   it("serializes same-property authority transitions so a render-mode choice survives", async () => {
     const memory = createMemoryStore();
     let releaseFirstLocalWrite!: () => void;
@@ -110,20 +110,25 @@ describe("local storage is only for an unconfigured property", () => {
     });
   });
 
-  it("refuses to store one once the backend has a configuration", async () => {
+  it("stores a revision-fenced pending draft once the backend has a configuration", async () => {
     const svc = services();
     await svc.property.applyBackendLoad(ENVIRONMENT_KEY, SITE_ID, { status: "ok", config: BACKEND_CONFIG });
 
     await expect(svc.property.rememberRenderMode(ENVIRONMENT_KEY, SITE_ID, "static"))
-      .resolves.toEqual({ stored: false, reason: "backend-config-present" });
+      .resolves.toEqual({ stored: true, reason: "pending-save" });
 
     const stored = await svc.repos.localPropertyRepo.load(ENVIRONMENT_KEY, SITE_ID);
     expect(stored.ok ? stored.value?.renderMode : "read-failed").toBeUndefined();
+    expect(stored.ok ? stored.value?.pendingRenderModeDraft : null).toMatchObject({
+      renderMode: "static",
+      basePropertyRevision: BACKEND_CONFIG.propertyRevision,
+      baseRenderModeUpdatedAt: BACKEND_CONFIG.renderModeUpdatedAt,
+    });
   });
 
-  it("reads the gate from storage rather than from memory", async () => {
-    // What makes a service-worker restart safe: the refusal must hold with no
-    // prior load in this process, which only works if the flag is persisted.
+  it("reads the backend baseline from storage rather than from memory", async () => {
+    // What makes a service-worker restart safe: the draft is fenced against the
+    // cached authority even with no prior load in this process.
     // (Two services() instances cannot stand in for a restart here — with no
     // indexedDB each gets its own memory store.)
     const svc = services();
@@ -133,9 +138,41 @@ describe("local storage is only for an unconfigured property", () => {
       backendConfigPresent: true,
       updatedAt: "2026-08-04T10:00:00Z",
     });
+    await svc.repos.configRepo.save(BACKEND_CONFIG);
 
     await expect(svc.property.rememberRenderMode(ENVIRONMENT_KEY, SITE_ID, "static"))
-      .resolves.toEqual({ stored: false, reason: "backend-config-present" });
+      .resolves.toEqual({ stored: true, reason: "pending-save" });
+  });
+
+  it("restores a draft on the same authority and clears it on replacement", async () => {
+    const svc = services();
+    await svc.property.applyBackendLoad(ENVIRONMENT_KEY, SITE_ID, { status: "ok", config: BACKEND_CONFIG });
+    await svc.property.rememberRenderMode(ENVIRONMENT_KEY, SITE_ID, "static");
+
+    await expect(svc.property.applyBackendLoad(
+      ENVIRONMENT_KEY,
+      SITE_ID,
+      { status: "ok", config: BACKEND_CONFIG },
+    )).resolves.toMatchObject({
+      renderMode: "rendered",
+      pendingRenderMode: "static",
+      source: "backend",
+    });
+
+    const replacement = {
+      ...BACKEND_CONFIG,
+      propertyRevision: BACKEND_CONFIG.propertyRevision + 1,
+      renderModeUpdatedAt: "2026-08-28T12:00:00.000Z",
+    };
+    const applied = await svc.property.applyBackendLoad(
+      ENVIRONMENT_KEY,
+      SITE_ID,
+      { status: "ok", config: replacement },
+    );
+    expect(applied).toMatchObject({ renderMode: "rendered", source: "backend" });
+    expect(applied).not.toHaveProperty("pendingRenderMode");
+    const local = await svc.repos.localPropertyRepo.load(ENVIRONMENT_KEY, SITE_ID);
+    expect(local.ok ? local.value?.pendingRenderModeDraft : null).toBeUndefined();
   });
 });
 
@@ -217,9 +254,9 @@ describe("the backend is the single source of truth", () => {
     const stored = await svc.repos.localPropertyRepo.load(ENVIRONMENT_KEY, SITE_ID);
     expect(stored.ok && stored.value).toMatchObject({ backendConfigPresent: true });
     expect(stored.ok ? stored.value?.renderMode : "read-failed").toBeUndefined();
-    // And a later choice is refused, since the backend now owns it.
+    // Choosing the authoritative value explicitly clears any pending draft.
     await expect(svc.property.rememberRenderMode(ENVIRONMENT_KEY, SITE_ID, "rendered"))
-      .resolves.toEqual({ stored: false, reason: "backend-config-present" });
+      .resolves.toEqual({ stored: true, reason: "authoritative-match" });
   });
 
   it("adopts an authoritative shrink, persists its warning, and blocks writes until a clean refresh", async () => {

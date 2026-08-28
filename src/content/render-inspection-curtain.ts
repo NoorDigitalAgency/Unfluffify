@@ -1,4 +1,5 @@
 import type { RenderInspectionSession } from "../messaging/render-inspection";
+import { INTERACTION_SHIELD_INPUT_BOUNDARY_ATTRIBUTE } from "./interaction-shield";
 
 export const RENDER_INSPECTION_CURTAIN_ATTRIBUTE = "data-uf-render-inspection-curtain";
 export const RENDER_INSPECTION_TOKEN_ATTRIBUTE = "data-uf-inspection-token";
@@ -204,6 +205,7 @@ export function createRenderInspectionCurtain(
     setAttribute(curtain, RENDER_INSPECTION_GENERATION_ATTRIBUTE, String(candidate.generation));
     setAttribute(curtain, RENDER_INSPECTION_DOCUMENT_NONCE_ATTRIBUTE, candidate.documentNonce);
     setAttribute(curtain, RENDER_INSPECTION_MODE_ATTRIBUTE, candidate.javascriptEnabled ? "rendered" : "static");
+    setAttribute(curtain, INTERACTION_SHIELD_INPUT_BOUNDARY_ATTRIBUTE, "true");
     setAttribute(curtain, "role", "status");
     setAttribute(curtain, "aria-live", "assertive");
     setAttribute(curtain, "aria-label", CURTAIN_COPY);
@@ -315,6 +317,7 @@ export function createRenderInspectionCurtain(
           RENDER_INSPECTION_GENERATION_ATTRIBUTE,
           RENDER_INSPECTION_DOCUMENT_NONCE_ATTRIBUTE,
           RENDER_INSPECTION_MODE_ATTRIBUTE,
+          INTERACTION_SHIELD_INPUT_BOUNDARY_ATTRIBUTE,
           "role",
           "aria-live",
           "aria-label",
@@ -340,6 +343,19 @@ export function createRenderInspectionCurtain(
       !terminated && epoch === paintEpoch && sameIdentity(session, candidate) && curtain?.isConnected === true;
     const finish = (stage: "frame-two" | "fallback"): void => {
       if (!stillCurrent()) {
+        return;
+      }
+      if (document.visibilityState !== "visible") {
+        clearPaintFallback();
+        paintEpoch += 1;
+        paintScheduledFor = "";
+        return;
+      }
+      if (!curtainHasVisibleViewportCoverage()) {
+        clearPaintFallback();
+        paintEpoch += 1;
+        paintScheduledFor = "";
+        scheduleSync();
         return;
       }
       reportLifecycleStage(candidate, stage);
@@ -400,7 +416,7 @@ export function createRenderInspectionCurtain(
         style.visibility !== "hidden" &&
         style.pointerEvents !== "none" &&
         style.zIndex === MAXIMUM_DOCUMENT_Z_INDEX &&
-        Number.isFinite(opacity) && opacity > 0 &&
+        Number.isFinite(opacity) && opacity >= 0.999 &&
         rect.left <= viewportLeft && rect.top <= viewportTop &&
         rect.right >= viewportLeft + viewportWidth &&
         rect.bottom >= viewportTop + viewportHeight;

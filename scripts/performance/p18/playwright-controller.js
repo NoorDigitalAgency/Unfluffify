@@ -113,10 +113,27 @@ async (page) => {
     assertion(box, `P18 physical target has no box: ${selector}`);
     return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   };
-  const physicalClick = async (target, selector, button = "left") => {
+  const physicalClick = async (target, selector, button = "left", modifiers = []) => {
     const point = await elementCenter(target, selector);
-    await target.mouse.click(point.x, point.y, { button });
+    for (const modifier of modifiers) {
+      await target.keyboard.down(modifier);
+    }
+    try {
+      await target.mouse.click(point.x, point.y, { button });
+    } finally {
+      for (const modifier of [...modifiers].reverse()) {
+        await target.keyboard.up(modifier);
+      }
+    }
     return point;
+  };
+  const invalidShiftClick = async (target, x, y) => {
+    await target.keyboard.down("Shift");
+    try {
+      await target.mouse.click(x, y);
+    } finally {
+      await target.keyboard.up("Shift");
+    }
   };
   const waitForPopupEffect = (target) => target.evaluate(() => new Promise((resolve) => {
     requestAnimationFrame(() => requestAnimationFrame(resolve));
@@ -449,7 +466,7 @@ async (page) => {
       );
 
       const markedBefore = afterDismissal.status?.data?.markedCount;
-      const resumedPoint = await physicalClick(contentPage, "#p18-second-mark-target");
+      const resumedPoint = await physicalClick(contentPage, "#p18-second-mark-target", "left", ["Shift"]);
       await contentPage.waitForFunction(
         (previous) => window.__p18ContentRuntime.snapshot().then((snapshot) => snapshot.status?.data?.markedCount === previous + 1),
         markedBefore,
@@ -485,7 +502,7 @@ async (page) => {
       await waitForContentToastTone(contentPage, "success");
       await contentPage.keyboard.up("Space");
       const contentFirst = await contentCall(contentPage, "snapshot");
-      await contentPage.mouse.click(1_100, 700);
+      await invalidShiftClick(contentPage, 1_100, 700);
       await waitForContentToastTone(contentPage, "warning");
       const contentAfterReplace = await contentCall(contentPage, "snapshot");
       assertion(contentFirst.toast?.message === "Page interaction mode", "Content success toast did not use production copy", contentFirst.toast);
@@ -509,7 +526,7 @@ async (page) => {
       );
 
       const priorContentOccurrenceId = contentReplacementEvidence.replacement.id;
-      await contentPage.mouse.click(1_100, 700);
+      await invalidShiftClick(contentPage, 1_100, 700);
       await contentPage.waitForFunction(
         (priorId) => {
           const toast = document.querySelector("[data-uf-content-toast=\"true\"]");
@@ -683,7 +700,7 @@ async (page) => {
       contentDeadlines.push({ tone: "success", durationMs: 1_800, observedElapsedMs: contentSuccessElapsed, initial: contentSuccess.toast, beforeDeadline: contentSuccessBefore.toast, atDeadline: contentSuccessAt.toast });
 
       const contentWarningStarted = await contentPage.evaluate(() => performance.now());
-      await contentPage.mouse.click(1_100, 700);
+      await invalidShiftClick(contentPage, 1_100, 700);
       await waitForContentToastTone(contentPage, "warning");
       const contentWarning = await contentCall(contentPage, "snapshot");
       await contentPage.waitForTimeout(expectedDurations.warning - 150);

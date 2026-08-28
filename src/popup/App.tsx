@@ -233,6 +233,7 @@ export function App({
   onExitPreview,
   onPreviewRowHover,
   onPreviewRowActivate,
+  focusedPreviewRowId,
   onRefresh,
   onLockAction,
   onSettingsChange,
@@ -275,6 +276,7 @@ export function App({
   onExitPreview?: () => void;
   onPreviewRowHover?: (rowId: string, active: boolean) => void;
   onPreviewRowActivate?: (rowId: string) => void;
+  focusedPreviewRowId?: string | null;
   onRefresh?: () => void;
   onLockAction?: (action: LockAction) => void;
   onSettingsChange?: (field: PopupSettingsField, value: string) => void;
@@ -310,15 +312,16 @@ export function App({
   >({});
   const [todoExpandedOverrides, setTodoExpandedOverrides] = React.useState<Record<string, boolean>>({});
   const [pendingCandidatePageKey, setPendingCandidatePageKey] = React.useState<string | null>(null);
-  const [previewHoveredRowId, setPreviewHoveredRowId] = React.useState<string | null>(null);
   const [pendingMaintenanceAction, setPendingMaintenanceAction] = React.useState<"cache" | "unregister" | null>(null);
   const [pendingMarkingDisable, setPendingMarkingDisable] = React.useState(false);
+  const [pendingDiscard, setPendingDiscard] = React.useState(false);
   const headerMenuRef = React.useRef<HTMLDivElement | null>(null);
   const themeMenuRef = React.useRef<HTMLDivElement | null>(null);
   const lockConfirmationRef = React.useRef<HTMLSpanElement | null>(null);
   const candidateConfirmationRef = React.useRef<HTMLElement | null>(null);
   const maintenanceConfirmationRef = React.useRef<HTMLDivElement | null>(null);
   const markingDisableConfirmationRef = React.useRef<HTMLDivElement | null>(null);
+  const discardConfirmationRef = React.useRef<HTMLDivElement | null>(null);
   const checklistRef = React.useRef<HTMLDivElement | null>(null);
   const busyCurtainRef = React.useRef<HTMLDivElement | null>(null);
   const transientManager = useTransientSurfaceManager({
@@ -326,22 +329,28 @@ export function App({
     previewRestoring: presentation.previewExitPending,
     onPreviewExit: onExitPreview,
   });
+  const previewHoverHandlerRef = React.useRef(onPreviewRowHover);
+  const previewActivateHandlerRef = React.useRef(onPreviewRowActivate);
+  previewHoverHandlerRef.current = onPreviewRowHover;
+  previewActivateHandlerRef.current = onPreviewRowActivate;
+  const previewHoverHandler = React.useCallback((rowId: string, active: boolean) => {
+    previewHoverHandlerRef.current?.(rowId, active);
+  }, []);
+  const previewActivateHandler = React.useCallback((rowId: string) => {
+    previewActivateHandlerRef.current?.(rowId);
+  }, []);
   React.useEffect(() => {
     if (!diagnostics.settingsDirty && Object.keys(settingsFieldOriginals).length > 0) {
       setSettingsFieldOriginals({});
     }
   }, [diagnostics.settingsDirty, settingsFieldOriginals]);
-  const previewHoveredRowPresent = previewHoveredRowId === null || Boolean(
-    presentation.previewProjection?.rows.some((row) => row.id === previewHoveredRowId),
-  );
-  React.useEffect(() => {
-    if (!previewHoveredRowPresent) {
-      setPreviewHoveredRowId(null);
-    }
-  }, [previewHoveredRowPresent]);
   const todoPropertyKey = `${diagnostics.siteId ?? "none"}|${diagnostics.baseUrl}`;
   const requestCandidateNavigation = (pageKey: string): void => {
-    setPendingCandidatePageKey(pageKey);
+    if (diagnostics.sessionPending) {
+      setPendingCandidatePageKey(pageKey);
+      return;
+    }
+    onCandidateNavigate?.(pageKey);
   };
   const confirmCandidateNavigation = (): void => {
     const pageKey = pendingCandidatePageKey;
@@ -492,7 +501,7 @@ export function App({
    *  mode in force. Null means nothing is selected and there is nothing to set. */
   const selectedRenderMode = diagnostics.renderModePending ?? diagnostics.renderMode;
   const pendingMarkingDisableIsCurrent = pendingMarkingDisable &&
-    presentation.enableToggleChecked && diagnostics.contentDirty;
+    presentation.enableToggleChecked && diagnostics.sessionPending;
   React.useEffect(() => {
     if (pendingMarkingDisable && !pendingMarkingDisableIsCurrent) {
       setPendingMarkingDisable(false);
@@ -543,6 +552,14 @@ export function App({
     escape: "dismiss",
     dismiss: () => setPendingMarkingDisable(false),
   });
+  useTransientSurfaceRegistration(transientManager, pendingDiscard, {
+    id: "discard-confirmation",
+    kind: "confirmation",
+    root: () => discardConfirmationRef.current,
+    outside: "ignore",
+    escape: "dismiss",
+    dismiss: () => setPendingDiscard(false),
+  });
   // Register the checklist before its nested candidate confirmation so Escape
   // can only peel the latter, never both surfaces or the underlying action.
   useTransientSurfaceRegistration(transientManager, lynxChecklist.open, {
@@ -550,7 +567,7 @@ export function App({
     kind: "checklist",
     root: () => checklistRef.current,
     outside: "ignore",
-    escape: publicationBusy ? "block" : "dismiss",
+    escape: lynxChecklist.phase === "publishing" ? "block" : "dismiss",
     dismiss: () => onCloseLynxChecklist?.(),
   });
   useTransientSurfaceRegistration(transientManager, pendingCandidatePageKey !== null, {
@@ -561,20 +578,6 @@ export function App({
     outside: "ignore",
     escape: "dismiss",
     dismiss: () => setPendingCandidatePageKey(null),
-  });
-  useTransientSurfaceRegistration(transientManager, previewHoveredRowId !== null, {
-    id: "preview-hover",
-    kind: "tooltip",
-    root: () => null,
-    outside: "ignore",
-    escape: "dismiss",
-    dismiss: () => {
-      const rowId = previewHoveredRowId;
-      setPreviewHoveredRowId(null);
-      if (rowId !== null) {
-        onPreviewRowHover?.(rowId, false);
-      }
-    },
   });
   useTransientSurfaceRegistration(transientManager, curtainKind === "busy", {
     id: "popup-busy-curtain",
@@ -591,6 +594,7 @@ export function App({
     candidateConfirmation: pendingCandidatePageKey !== null,
     maintenanceConfirmation: pendingMaintenanceAction !== null,
     markingDisableConfirmation: pendingMarkingDisable,
+    discardConfirmation: pendingDiscard,
     checklist: lynxChecklist.open,
   });
   React.useEffect(() => {
@@ -667,12 +671,11 @@ export function App({
           <PreviewRowList
             projection={presentation.previewProjection}
             debug={debugBuild}
-            hoveredRowId={previewHoveredRowId}
-            onRowHover={(rowId, active) => {
-              setPreviewHoveredRowId((current) => active ? rowId : current === rowId ? null : current);
-              onPreviewRowHover?.(rowId, active);
-            }}
-            onRowActivate={onPreviewRowActivate}
+            hoveredRowId={null}
+            focusedRowId={focusedPreviewRowId}
+            pending={presentation.previewProjection === null}
+            onRowHover={previewHoverHandler}
+            onRowActivate={previewActivateHandler}
           />
         </section>
 
@@ -982,7 +985,9 @@ export function App({
               Disable marking and discard this draft?
             </h2>
             <p className="warning-popover__body">
-              This page has unsaved marking changes. Disabling marking will discard them.
+              {diagnostics.contentDirty
+                ? "This page has unsaved marking changes. Disabling marking will discard them."
+                : "This page has a completed AI result that has not been saved. Disabling marking will discard it."}
             </p>
             <div className="button-row warning-popover__actions">
               <button
@@ -1003,6 +1008,47 @@ export function App({
                 onClick={() => setPendingMarkingDisable(false)}
               >
                 Keep marking
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {pendingDiscard ? (
+        <div
+          ref={discardConfirmationRef}
+          className="warning-popover discard-confirmation"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="discard-confirmation-title"
+          data-transient-surface="discard-confirmation"
+        >
+          <section className="warning-popover__card">
+            <h2 id="discard-confirmation-title" className="warning-popover__title">
+              Discard this session's markings?
+            </h2>
+            <p className="warning-popover__body">
+              Markings and any unsaved AI result for this page will return to the clean session baseline.
+            </p>
+            <div className="button-row warning-popover__actions">
+              <button
+                id="discard-confirm"
+                type="button"
+                className="u-btn-danger"
+                onClick={() => {
+                  setPendingDiscard(false);
+                  onDiscard?.();
+                }}
+              >
+                Discard markings
+              </button>
+              <button
+                id="discard-cancel"
+                type="button"
+                className="u-btn-secondary"
+                onClick={() => setPendingDiscard(false)}
+              >
+                Keep session
               </button>
             </div>
           </section>
@@ -1039,7 +1085,7 @@ export function App({
             disabled={!onEnableChange || presentation.lockBanner.visible || !renderModeSet}
             onChange={(event) => {
               const enabled = event.currentTarget.checked;
-              if (markingDisableNeedsConfirmation(enabled, diagnostics.contentDirty)) {
+              if (markingDisableNeedsConfirmation(enabled, diagnostics.sessionPending)) {
                 setPendingMarkingDisable(true);
                 return;
               }
@@ -1070,15 +1116,22 @@ export function App({
         </label>
         ) : null}
 
+        {diagnostics.renderModeSource === "pending" ? (
+          <p className="hint u-color-warning" data-render-mode-draft="pending-save">
+            Render mode change is stored as a draft and becomes authoritative with the next successful Save.
+          </p>
+        ) : null}
+
         <div className="section-divider" />
 
         {/* Run AI, Save and Discard act on the operator's markings, and silent mode
             has none — legacy hid this whole group outside marking mode. */}
         {markingView ? (
-        <div className="button-row">
+        <div className="session-action-stack">
           <button
             id="compute"
             type="button"
+            className="session-action-primary"
             disabled={buttons.compute.disabled}
             data-blocked-reason={buttons.compute.blockedReason}
             title={buttons.compute.blockedReason}
@@ -1086,29 +1139,6 @@ export function App({
           >
             <i className="mdi mdi-auto-fix btn-icon" aria-hidden="true" />
             Run AI
-          </button>
-          <button
-            id="page-save"
-            type="button"
-            disabled={buttons.save.disabled}
-            data-blocked-reason={buttons.save.blockedReason}
-            title={buttons.save.blockedReason}
-            onClick={onSave}
-          >
-            <i className="mdi mdi-content-save btn-icon" aria-hidden="true" />
-            Save
-          </button>
-          <button
-            id="page-revert"
-            type="button"
-            className="u-btn-danger"
-            disabled={buttons.discard.disabled}
-            data-blocked-reason={buttons.discard.blockedReason}
-            title={buttons.discard.blockedReason}
-            onClick={onDiscard}
-          >
-            <i className="mdi mdi-restore btn-icon" aria-hidden="true" />
-            Discard
           </button>
           <button
             id="marking-preview"
@@ -1122,6 +1152,33 @@ export function App({
             <i className="mdi mdi-eye-outline btn-icon" aria-hidden="true" />
             Content list
           </button>
+          <div className="section-divider" />
+          <div className="button-row session-action-secondary">
+            <button
+              id="page-save"
+              type="button"
+              disabled={buttons.save.disabled}
+              data-blocked-reason={buttons.save.blockedReason}
+              title={buttons.save.blockedReason}
+              onClick={onSave}
+            >
+              <i className="mdi mdi-content-save btn-icon" aria-hidden="true" />
+              Save
+            </button>
+            <button
+              id="page-revert"
+              type="button"
+              className="u-btn-danger"
+              disabled={buttons.discard.disabled}
+              data-blocked-reason={buttons.discard.blockedReason}
+              title={buttons.discard.blockedReason}
+              data-transient-trigger="discard-confirmation"
+              onClick={() => setPendingDiscard(true)}
+            >
+              <i className="mdi mdi-restore btn-icon" aria-hidden="true" />
+              Discard
+            </button>
+          </div>
         </div>
         ) : null}
 
@@ -1356,10 +1413,13 @@ export function App({
             >
               {renderModeLabel(diagnostics.renderMode)}
             </span>
-            {/* A choice held locally because the backend has no configuration is
-                not the same as one the backend confirmed; say which. */}
+            {/* A local first-config choice and a revision-fenced draft over an
+                existing backend config are both non-authoritative; say which. */}
             {diagnostics.renderMode && diagnostics.renderModeSource === "local" ? (
               <span className="hint u-color-muted" data-render-mode-source="local">not saved yet</span>
+            ) : null}
+            {diagnostics.renderMode && diagnostics.renderModeSource === "pending" ? (
+              <span className="hint u-color-warning" data-render-mode-source="pending">pending Save</span>
             ) : null}
           </span>
         </div>
@@ -1975,7 +2035,7 @@ export function App({
               <div className="lynx-checklist-popover__checking" role="status" data-publication-phase={lynxChecklist.phase}>
                 <span className="lynx-checklist-popover__spinner" aria-hidden="true" />
                 {lynxChecklist.phase === "publishing"
-                  ? "Checking Lynx selector status..."
+                  ? "Publishing selectors to Lynx…"
                   : "Checking publication authority..."}
               </div>
             ) : (
@@ -1999,7 +2059,7 @@ export function App({
                 id="lynx-checklist-cancel"
                 type="button"
                 className="u-btn-secondary"
-                disabled={!onCloseLynxChecklist || publicationBusy}
+                disabled={!onCloseLynxChecklist || lynxChecklist.phase === "publishing"}
                 onClick={onCloseLynxChecklist}
               >
                 <i className="mdi mdi-arrow-left btn-icon" aria-hidden="true" />

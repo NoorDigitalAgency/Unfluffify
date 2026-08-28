@@ -77,7 +77,7 @@ test("browser launcher opens the persistent popup without wedging the MCP reques
   assert.ok(launchScript.includes('fetch(endpoint, { method: "PUT" })'));
   assert.ok(launchScript.includes("await openCdpTab(boundUrl);"));
   assert.ok(launchScript.includes("await waitForCdpTarget(boundUrl);"));
-  assert.ok(launchScript.includes("await bringCdpPageToFront(finalUrl);"));
+  assert.ok(launchScript.includes("await bringCdpPageToFront(targetInfo);"));
   assert.ok(launchScript.includes('"Page.bringToFront"'));
   assert.ok(launchScript.includes("Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set"));
   assert.ok(launchScript.includes("Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set"));
@@ -146,14 +146,17 @@ test("browser launcher drops the worker registration without dropping the data",
     /join\(PROFILE_DIR, "Default", "Service Worker"\)/.test(launchScript),
     "only the service-worker directory may be removed",
   );
-  // Every removal in the script must target that one directory — asserted on the
-  // calls, not on the words, since the comments explaining this name other paths.
+  // Runtime-data removal stays restricted to the service-worker directory. The
+  // P25 bundle transaction may remove only the canonical generated output or its
+  // exact marker while restoring the previous canonical bundle from backup. The
+  // remaining removals are exact launcher-owned lock/provenance/atomic-temp paths.
   const removals = [...launchScript.matchAll(/\brm\(([^)]*)\)/g)].map((match) => match[1]);
   assert.ok(removals.length > 0, "the removal must exist to be constrained");
   for (const argument of removals) {
     assert.ok(
-      argument.includes("swDir"),
-      `rm(${argument}) removes something other than the service-worker directory`,
+      argument.includes("swDir") || argument.includes("EXT_DIR") || argument.includes("BUNDLE_SWAP_MARKER") ||
+        argument.includes("LAUNCH_LOCK") || argument.includes("LAUNCH_PROVENANCE") || argument.includes("temporary"),
+      `rm(${argument}) removes something outside the service-worker or recoverable canonical-bundle transaction`,
     );
   }
   // Before Chrome starts, or it will have reused the registration already.

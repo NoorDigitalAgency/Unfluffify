@@ -5,7 +5,15 @@ import type { PublicationChecklistGate } from "../domain/publication";
 import type { PopupPresentation } from "./organ/memory";
 
 type OperatorActionPresentationState = Readonly<{
-  kind: "marking-preflight" | "ai-preflight";
+  kind:
+    | "marking-preflight"
+    | "marking-disable"
+    | "ai-preflight"
+    | "preview-open"
+    | "save"
+    | "discard"
+    | "candidate-navigation"
+    | "render-mode-set";
   stage: string;
 }>;
 
@@ -79,9 +87,12 @@ export type PopupDiagnostics = Readonly<{
   configurationComplete: boolean;
   /** Whether the effective render mode came from the backend or is a local
    *  choice held only because the backend has no configuration yet. */
-  renderModeSource: "backend" | "local";
+  renderModeSource: "backend" | "local" | "pending";
   contentActive: boolean;
   contentDirty: boolean;
+  /** True for every unsaved marking session, including a clean post-AI result.
+   *  A clean AI generation is safe to Save, but it is not safe to abandon. */
+  sessionPending: boolean;
   /** False when nothing answers on the tab — the content script was never
    *  injected, which only a page reload fixes. Distinct from merely idle. */
   contentReachable: boolean;
@@ -147,6 +158,7 @@ export const EMPTY_POPUP_DIAGNOSTICS: PopupDiagnostics = {
   renderModeSource: "local",
   contentActive: false,
   contentDirty: false,
+  sessionPending: false,
   contentReachable: true,
   runSessionId: "",
   settingsLoaded: false,
@@ -188,10 +200,28 @@ export function overlayOperatorActionPresentation(
   action: OperatorActionPresentationState | null,
   debug = false,
 ): PopupPresentation {
-  if (action === null || presentation.curtainVisible) {
+  if (action === null || presentation.lockBanner.visible) {
     return presentation;
   }
-  const title = action.kind === "marking-preflight" ? "Preparing marking" : "Preparing AI run";
+  const title = (() => {
+    if (action.kind === "ai-preflight") {
+      if (action.stage === "ai-poll") return "Waiting for AI results";
+      if (action.stage === "xpaths") return "Refining content paths";
+      if (action.stage === "snapshot") return "Capturing marked content";
+      if (action.stage === "preview") return "Preparing content list";
+      if (action.stage === "ai-start") return "Starting AI run";
+      return "Preparing AI run";
+    }
+    return {
+      "marking-preflight": "Preparing marking",
+      "marking-disable": "Disabling marking",
+      "preview-open": "Preparing content list",
+      save: action.stage === "persist" ? "Saving page" : "Preparing Save",
+      discard: "Discarding markings",
+      "candidate-navigation": "Opening candidate page",
+      "render-mode-set": "Setting render mode",
+    }[action.kind];
+  })();
   return {
     ...presentation,
     runAiDisabled: true,
@@ -200,6 +230,9 @@ export function overlayOperatorActionPresentation(
     showPreviewDisabled: true,
     curtainVisible: true,
     curtainText: title,
+    countdownText: action.kind === "ai-preflight" && action.stage === "ai-poll"
+      ? presentation.countdownText
+      : "",
     temporarilyDisabledOverlay: true,
     blockedReason: debug ? action.stage : "",
     runAiBlockedReason: "operator-action-pending",
@@ -249,8 +282,8 @@ export function resolvePopupCurtainKind(presentation: PopupPresentation): PopupC
   return presentation.lockBanner.visible ? "blocked" : "busy";
 }
 
-export function markingDisableNeedsConfirmation(enabled: boolean, contentDirty: boolean): boolean {
-  return !enabled && contentDirty;
+export function markingDisableNeedsConfirmation(enabled: boolean, sessionPending: boolean): boolean {
+  return !enabled && sessionPending;
 }
 
 export function resolvePopupPanelBlocking(input: Readonly<{
@@ -260,9 +293,10 @@ export function resolvePopupPanelBlocking(input: Readonly<{
   candidateConfirmation: boolean;
   maintenanceConfirmation: boolean;
   markingDisableConfirmation: boolean;
+  discardConfirmation?: boolean;
   checklist: boolean;
 }>): boolean {
   return input.curtainKind === "busy" || input.maintenanceBusy || input.lockConfirmation ||
     input.candidateConfirmation || input.maintenanceConfirmation ||
-    input.markingDisableConfirmation || input.checklist;
+    input.markingDisableConfirmation || Boolean(input.discardConfirmation) || input.checklist;
 }

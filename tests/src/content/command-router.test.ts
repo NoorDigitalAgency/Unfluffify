@@ -47,6 +47,12 @@ describe("content command authority", () => {
       tabId: 1,
       payload: { pageUrl: "https://example.com/new" },
     })).resolves.toEqual({ ok: true, data: { ok: true } });
+    await expect(router.dispatch({
+      kind: "uf-command/1",
+      name: "clearSilentSelectors",
+      tabId: 1,
+      payload: { pageUrl: "https://example.com/new#results" },
+    })).resolves.toMatchObject({ ok: false, failure: { code: "page-url-mismatch" } });
     expect(clearSilentSelectors).toHaveBeenCalledOnce();
   });
 

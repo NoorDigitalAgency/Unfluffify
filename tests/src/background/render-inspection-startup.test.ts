@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { runInNewContext } from "node:vm";
 
 import type { BusFrame } from "../../../src/messaging/contract";
 
@@ -128,6 +129,7 @@ function installLockRuntime(scope: PropertyScope | null, options: Readonly<{
 
 function installBrowser(options: Readonly<{
   frameUnavailable?: boolean;
+  runtimeEvaluate?: (expression: string) => unknown;
   runtimeEvaluateValue?: unknown;
   createAlarm?: (name: string, info: unknown) => Promise<void> | void;
   clearAlarm?: (name: string) => Promise<boolean> | boolean | void;
@@ -181,6 +183,14 @@ function installBrowser(options: Readonly<{
         callback?: (result?: unknown) => void,
       ) {
         commands.push({ method, ...(params ? { params } : {}) });
+        if (method === "Runtime.evaluate" && options.runtimeEvaluate) {
+          callback?.({
+            result: {
+              value: options.runtimeEvaluate(String(params?.expression ?? "")),
+            },
+          });
+          return;
+        }
         callback?.(method === "Runtime.evaluate" && "runtimeEvaluateValue" in options
           ? { result: { value: options.runtimeEvaluateValue } }
           : {});
@@ -312,6 +322,66 @@ function installBrowser(options: Readonly<{
   };
 }
 
+function evaluateCurtainProofWithPrecedingSpoof(
+  expression: string,
+  identity: Readonly<{
+    token: string;
+    generation: number;
+    documentNonce: string;
+  }>,
+): unknown {
+  const root: { lastElementChild: unknown } = { lastElementChild: null };
+  const candidate = (attributes: Readonly<Record<string, string>>) => ({
+    isConnected: true,
+    parentElement: root,
+    getAttribute: (name: string) => attributes[name] ?? null,
+    getBoundingClientRect: () => ({
+      left: 0,
+      top: 0,
+      right: 1_920,
+      bottom: 1_080,
+    }),
+  });
+  const spoof = candidate({
+    "data-uf-inspection-token": "preceding-page-spoof",
+    "data-uf-inspection-generation": String(identity.generation),
+    "data-uf-document-nonce": identity.documentNonce,
+  });
+  const curtain = candidate({
+    "data-uf-inspection-token": identity.token,
+    "data-uf-inspection-generation": String(identity.generation),
+    "data-uf-document-nonce": identity.documentNonce,
+  });
+  root.lastElementChild = curtain;
+
+  return runInNewContext(expression, {
+    document: {
+      visibilityState: "visible",
+      documentElement: root,
+      querySelector: () => spoof,
+      querySelectorAll: () => [spoof, curtain],
+    },
+    getComputedStyle: () => ({
+      position: "fixed",
+      display: "block",
+      visibility: "visible",
+      pointerEvents: "auto",
+      zIndex: "2147483647",
+      opacity: "0.9995",
+    }),
+    window: {
+      visualViewport: {
+        offsetLeft: 0,
+        offsetTop: 0,
+        width: 1_920,
+        height: 1_080,
+      },
+    },
+    innerWidth: 1_920,
+    innerHeight: 1_080,
+  });
+}
+
 function caller(listener: MessageListener) {
   let sequence = 0;
   return (
@@ -434,7 +504,18 @@ describe("background render inspection integration", () => {
     vi.useFakeTimers();
     try {
       installLockRuntime(SCOPE);
-      const browser = installBrowser({ runtimeEvaluateValue: true });
+      let proofIdentity: Readonly<{
+        token: string;
+        generation: number;
+        documentNonce: string;
+      }> | null = null;
+      const browser = installBrowser({
+        runtimeEvaluate(expression) {
+          return proofIdentity
+            ? evaluateCurtainProofWithPrecedingSpoof(expression, proofIdentity)
+            : false;
+        },
+      });
       const { startRewriteBackground } = await import("../../../src/background/index");
       startRewriteBackground();
       const call = caller(browser.listener());
@@ -458,6 +539,11 @@ describe("background render inspection integration", () => {
       const session = (adopted.payload as {
         session: { token: string; generation: number };
       }).session;
+      proofIdentity = {
+        token: session.token,
+        generation: session.generation,
+        documentNonce: "replacement-nonce",
+      };
       expect(started).toMatchObject({ ok: true, payload: { status: "started" } });
 
       const fallback = call("renderInspection.paintFallbackTick", {
@@ -469,7 +555,26 @@ describe("background render inspection integration", () => {
       await vi.advanceTimersByTimeAsync(1_000);
       await expect(fallback).resolves.toMatchObject({
         ok: true,
-        payload: { status: "acknowledged" },
+        payload: { status: "ready" },
+      });
+      await expect(call("renderInspection.current", { tabId: 7 }, "popup")).resolves.toMatchObject({
+        ok: true,
+        payload: {
+          status: "active",
+          session: { phase: "adopted" },
+        },
+      });
+      await expect(call("renderInspection.ackPaint", {
+        token: session.token,
+        generation: session.generation,
+        pageUrl: SCOPE.pageUrl,
+        documentNonce: "replacement-nonce",
+      }, "content", "document-b")).resolves.toMatchObject({
+        ok: true,
+        payload: {
+          status: "ok",
+          session: { phase: "terminal", terminalReason: "paint-acknowledged" },
+        },
       });
       await expect(call("renderInspection.current", { tabId: 7 }, "popup")).resolves.toMatchObject({
         ok: true,
@@ -483,6 +588,12 @@ describe("background render inspection integration", () => {
         params: expect.objectContaining({
           expression: expect.stringContaining("data-uf-render-inspection-curtain"),
           returnByValue: true,
+        }),
+      }));
+      expect(browser.commands).toContainEqual(expect.objectContaining({
+        method: "Runtime.evaluate",
+        params: expect.objectContaining({
+          expression: expect.stringContaining("querySelectorAll"),
         }),
       }));
       expect(browser.commands).toContainEqual(expect.objectContaining({

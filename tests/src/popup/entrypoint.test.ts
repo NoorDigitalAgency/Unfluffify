@@ -112,13 +112,17 @@ function createReactRenderProbe() {
 /** Establishing the render mode is two acts, as legacy had it: pick, then
  *  confirm. Tests that only need a mode in force before doing something else say
  *  so through this rather than repeating both calls. */
-function confirmRenderMode(
+async function confirmRenderMode(
   render: { mock: { calls: { at(index: number): [{ props: Record<string, (value?: unknown) => void> }] | undefined } } },
   mode: "rendered" | "static" = "rendered",
-): void {
+): Promise<void> {
   const props = () => render.mock.calls.at(-1)?.[0].props;
   props()?.onRenderModePick(mode);
   props()?.onRenderModeCommit();
+  await waitFor(
+    () => (props()?.presentation as unknown as { temporarilyDisabledOverlay?: boolean })?.temporarilyDisabledOverlay !== true,
+    "render mode Set completion",
+  );
 }
 
 /** Waits for work the entrypoint kicked off without awaiting — the standing
@@ -495,8 +499,109 @@ function makeRuntime(
   };
 }
 
+async function startDirtyMarkingSession(options: Readonly<{
+  emulationApply?: (
+    frame: BusFrame,
+    state: { resetSeen: boolean },
+  ) => Promise<BusFrame> | BusFrame;
+}> = {}) {
+  installEntrypointDom("chrome-extension://extension-id/popup.html");
+  const render = createReactRenderProbe();
+  vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+  const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+  const state = { resetSeen: false };
+  const tabsSendMessage = makeTabsSendMessage((_tabId, message) => {
+    if (message.type === "resetContentMain") {
+      state.resetSeen = true;
+    }
+    return { ok: true, initialized: true, tree: "rewrite" };
+  });
+  let dirtyPending = false;
+  let signalSeq = 0;
+  const markingSignals: Array<Record<string, unknown>> = [];
+  const runtime = makeRuntime(async (message) => {
+    if (message.name === "fact.reported") {
+      const sensation = (message.payload as {
+        sensation?: { facts?: { markingEnabled?: unknown } };
+      }).sensation;
+      if (typeof sensation?.facts?.markingEnabled === "boolean") {
+        signalSeq += 1;
+        markingSignals.push({
+          kind: "uf-signal/1",
+          tabId: 77,
+          seq: signalSeq,
+          name: sensation.facts.markingEnabled ? "marking.enabled" : "marking.disabled",
+          source: "brain",
+          cause: "fact-fold",
+          at: signalSeq,
+          payload: { pageUrl: "https://example.com/page" },
+        });
+      }
+      return replyFrame(message, []);
+    }
+    if (message.name === "signals.emit") {
+      const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
+      signalSeq += 1;
+      return replyFrame(message, [{
+        kind: "uf-signal/1",
+        tabId: request.tabId,
+        seq: signalSeq,
+        name: request.signal?.name,
+        source: "brain",
+        cause: "test",
+        at: signalSeq,
+        payload: request.signal?.payload ?? {},
+      }]);
+    }
+    if (message.name === "signals.pull" && (dirtyPending || markingSignals.length > 0)) {
+      const signals = markingSignals.splice(0);
+      if (dirtyPending) {
+        dirtyPending = false;
+        signalSeq += 1;
+        signals.push({
+          kind: "uf-signal/1",
+          tabId: 77,
+          seq: signalSeq,
+          name: "markings.changed",
+          source: "content",
+          cause: "content-click",
+          at: signalSeq,
+          payload: { pageUrl: "https://example.com/page", markedCount: 1 },
+        });
+      }
+      return replyFrame(message, signals);
+    }
+    return replyFrame(message, []);
+  }, "rendered", {
+    emulationApply: options.emulationApply
+      ? (frame) => options.emulationApply?.(frame, state) as Promise<BusFrame> | BusFrame
+      : undefined,
+  });
+  globalThis.chrome = {
+    runtime: { ...runtime },
+    tabs: { query, sendMessage: tabsSendMessage },
+  } as unknown as typeof chrome;
+
+  await import("../../../src/entrypoints/popup/main.tsx");
+  const props = () => render.mock.calls.at(-1)?.[0].props;
+  await confirmRenderMode(render);
+  props().onEnableChange(true);
+  await waitFor(
+    () => props().diagnostics.contentActive === true && props().diagnostics.stateName === "pre_ai_clean",
+    "marking activation",
+  );
+  dirtyPending = true;
+  for (const [poll] of globalThis.window.setInterval.mock.calls as Array<[() => void]>) {
+    poll();
+  }
+  props().onRefresh();
+  await waitFor(() => props().diagnostics.stateName === "pre_ai_dirty", "dirty marking session");
+  return { props, render, runtime, tabsSendMessage, state };
+}
+
 describe("rewrite popup entrypoint", () => {
   afterEach(() => {
+    vi.doUnmock("../../../src/popup/emulation-reload-transition");
     vi.resetModules();
     vi.clearAllMocks();
     Reflect.deleteProperty(globalThis, "chrome");
@@ -609,6 +714,11 @@ describe("rewrite popup entrypoint", () => {
     // This is a final, user-triggered refusal. It appears in Activity and as one
     // concise transient occurrence.
     props().onCandidateNavigate("//invalid-cross-origin-page-key");
+    expect(props().presentation).toMatchObject({
+      curtainVisible: true,
+      curtainText: "Opening candidate page",
+      temporarilyDisabledOverlay: true,
+    });
     await waitFor(
       () => props().toast?.message === "Candidate navigation blocked: invalid relative page key",
       "navigation refusal toast",
@@ -619,14 +729,20 @@ describe("rewrite popup entrypoint", () => {
       tone: "warning",
       message: "Candidate navigation blocked: invalid relative page key",
     });
-    expect(props().diagnostics.log[0]).toMatchObject({ label: "Candidate navigation blocked", tone: "warn" });
+    expect(props().diagnostics.log).toContainEqual(expect.objectContaining({
+      label: "Candidate navigation blocked",
+      tone: "warn",
+    }));
 
     props().onToastDismiss(occurrence.id);
     await waitFor(() => props().toast === null, "manual toast dismissal");
     // A later informational Activity entry must not reconstruct the dismissed
     // notification from history.
     props().onRenderModePick("rendered");
-    expect(props().diagnostics.log[0]).toMatchObject({ label: "Candidate navigation blocked", tone: "warn" });
+    expect(props().diagnostics.log).toContainEqual(expect.objectContaining({
+      label: "Candidate navigation blocked",
+      tone: "warn",
+    }));
     expect(props().toast).toBeNull();
   });
 
@@ -842,7 +958,7 @@ describe("rewrite popup entrypoint", () => {
       .map((frame) => (frame.name === "emulation.clear" ? "cleared" : String(frame.payload?.mode)));
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    confirmRenderMode(render);
+    await confirmRenderMode(render);
     await waitFor(() => emulationNames().length > 0, "the initial posture");
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
@@ -888,7 +1004,7 @@ describe("rewrite popup entrypoint", () => {
 
     await import("../../../src/entrypoints/popup/main.tsx");
     const props = () => render.mock.calls.at(-1)?.[0].props;
-    confirmRenderMode(render);
+    await confirmRenderMode(render);
     await waitFor(() => emulationModes().length > 0, "initial emulation posture");
     props().onDesktopPreviewChange(true);
     await waitFor(() => emulationModes().at(-1) === "desktop", "desktop silent posture");
@@ -1650,7 +1766,7 @@ describe("rewrite popup entrypoint", () => {
 
     await import("../../../src/entrypoints/popup/main.tsx");
     const props = () => render.mock.calls.at(-1)?.[0].props;
-    confirmRenderMode(render);
+    await confirmRenderMode(render);
     await waitFor(() => props().view === "silent", "the established session view");
     expect(props().diagnostics.renderMode).toBe("rendered");
     props().onOpenRenderMode();
@@ -1950,7 +2066,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    confirmRenderMode(render);
+    await confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
 
@@ -2050,7 +2166,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    confirmRenderMode(render);
+    await confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     expect(globalThis.window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState().stateName).toBe("pre_ai_dirty");
@@ -2061,7 +2177,8 @@ describe("rewrite popup entrypoint", () => {
     });
     render.mock.calls.at(-1)?.[0].props.onDiscard();
     await waitFor(
-      () => render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled === true,
+      () => globalThis.window.__UNFLUFFIFY_POPUP_DEBUG__.getViewState().stateName === "pre_ai_clean" &&
+        render.mock.calls.at(-1)?.[0].props.presentation.temporarilyDisabledOverlay === false,
       "delayed discard acknowledgement",
     );
     expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(true);
@@ -2116,8 +2233,126 @@ describe("rewrite popup entrypoint", () => {
         .lastIndexOf("enterSilentContentMain"));
   });
 
+  it("does not acknowledge Discard when the exact mobile posture fails", async () => {
+    const { props, runtime } = await startDirtyMarkingSession({
+      emulationApply(frame, state) {
+        const mode = (frame.payload as { mode: "mobile" | "desktop" }).mode;
+        return replyFrame(frame, {
+          mode,
+          width: mode === "desktop" ? 1920 : 412,
+          height: mode === "desktop" ? 1080 : 960,
+          scale: 1,
+          active: !(state.resetSeen && mode === "mobile"),
+        });
+      },
+    });
+    props().onDesktopPreviewChange(true);
+    await waitFor(() => runtime.sendMessage.mock.calls.some(([frame]) =>
+      frame.name === "emulation.apply" &&
+      (frame.payload as { mode?: string }).mode === "desktop"), "opposite desktop posture");
+
+    props().onDiscard();
+    await waitFor(
+      () => props().toast?.message.includes("Discard needs device recovery") === true,
+      "discard posture failure",
+    );
+
+    expect(props().diagnostics).toMatchObject({ stateName: "pre_ai_dirty", contentDirty: false });
+    expect(props().presentation.saveDisabled).toBe(true);
+    expect(props().toast).toMatchObject({
+      tone: "danger",
+      message: expect.stringContaining("required mobile session posture could not be restored"),
+    });
+    expect(runtime.sendMessage.mock.calls.some(([frame]) =>
+      frame.name === "fact.reported" &&
+      (frame.payload as { sensation?: { reason?: string } }).sensation?.reason === "session-discarded"
+    )).toBe(false);
+  });
+
+  it("serializes Discard behind a concurrent opposite posture before acknowledging it", async () => {
+    let desktopFrame: BusFrame | null = null;
+    let releaseDesktop!: (frame: BusFrame) => void;
+    const desktopPending = new Promise<BusFrame>((resolve) => {
+      releaseDesktop = resolve;
+    });
+    const { props, runtime, state } = await startDirtyMarkingSession({
+      async emulationApply(frame) {
+        const mode = (frame.payload as { mode: "mobile" | "desktop" }).mode;
+        if (mode === "desktop" && desktopFrame === null) {
+          desktopFrame = frame;
+          return await desktopPending;
+        }
+        return replyFrame(frame, {
+          mode,
+          width: mode === "desktop" ? 1920 : 412,
+          height: mode === "desktop" ? 1080 : 960,
+          scale: 1,
+          active: true,
+        });
+      },
+    });
+
+    props().onDesktopPreviewChange(true);
+    await waitFor(() => desktopFrame !== null, "pending opposite desktop posture");
+    props().onDiscard();
+    await waitFor(() => state.resetSeen, "discard reset before posture reconciliation");
+    expect(runtime.sendMessage.mock.calls.some(([frame]) =>
+      frame.name === "fact.reported" &&
+      (frame.payload as { sensation?: { reason?: string } }).sensation?.reason === "session-discarded"
+    )).toBe(false);
+
+    releaseDesktop(replyFrame(desktopFrame as BusFrame, {
+      mode: "desktop",
+      width: 1920,
+      height: 1080,
+      scale: 1,
+      active: true,
+    }));
+    await waitFor(
+      () => props().diagnostics.stateName === "pre_ai_clean" &&
+        props().presentation.temporarilyDisabledOverlay === false,
+      "serialized mobile Discard completion",
+    );
+
+    const postureModes = runtime.sendMessage.mock.calls
+      .filter(([frame]) => frame.name === "emulation.apply")
+      .map(([frame]) => (frame.payload as { mode?: string }).mode);
+    expect(postureModes.lastIndexOf("desktop")).toBeLessThan(postureModes.lastIndexOf("mobile"));
+    expect(runtime.sendMessage.mock.calls.some(([frame]) =>
+      frame.name === "fact.reported" &&
+      (frame.payload as { sensation?: { reason?: string } }).sensation?.reason === "session-discarded"
+    )).toBe(true);
+    expect(props().toast).toMatchObject({
+      tone: "success",
+      message: expect.stringContaining("Markings discarded"),
+    });
+  });
+
   it("fetches static source HTML before running AI, previewing, and saving", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const rawSource = "<html><body><aside id=\"cookie-banner\">cookie secret</aside><main>server source</main></body></html>";
+    const sanitizedRawSource = "<html><body><main>server source</main></body></html>";
+    vi.stubGlobal("DOMParser", class {
+      parseFromString(html: string) {
+        let serialized = html;
+        const cookie = {
+          remove() {
+            serialized = serialized.replace(/<aside id="cookie-banner">[\s\S]*?<\/aside>/i, "");
+          },
+        };
+        return {
+          doctype: null,
+          querySelectorAll(selector: string) {
+            return selector.includes("id*='cookie'") ? [cookie] : [];
+          },
+          documentElement: {
+            get outerHTML() {
+              return serialized;
+            },
+          },
+        };
+      }
+    });
     const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({
       createRoot: vi.fn(() => ({ render })),
@@ -2132,7 +2367,7 @@ describe("rewrite popup entrypoint", () => {
       pages: [{
         url: "https://example.com/page",
         renderedHtml: "<html></html>",
-        rawHtml: "<html><body>server source</body></html>",
+        rawHtml: rawSource,
         renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
       }],
     };
@@ -2214,7 +2449,7 @@ describe("rewrite popup entrypoint", () => {
           ok: true,
           status: 200,
           url: "https://example.com/page",
-          html: "<html><body>server source</body></html>",
+          html: rawSource,
         });
       }
       if (message.name === "transferPayload.put") {
@@ -2252,13 +2487,18 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    confirmRenderMode(render, "static");
+    await confirmRenderMode(render, "static");
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     const emulationApplyCountBeforeAi = runtime.sendMessage.mock.calls
       .filter(([message]) => message.name === "emulation.apply").length;
     render.mock.calls.at(-1)?.[0].props.onRunAi();
-    await flushEntrypointWork();
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.diagnostics.stateName === "preview_open" &&
+        render.mock.calls.at(-1)?.[0].props.presentation.previewProjection?.rows.length === 1 &&
+        render.mock.calls.at(-1)?.[0].props.presentation.curtainVisible === false,
+      "post-AI Preview auto-open",
+    );
 
     expect(runtime.sendMessage.mock.calls.filter(([message]) => message.name === "emulation.apply"))
       .toHaveLength(emulationApplyCountBeforeAi);
@@ -2267,7 +2507,7 @@ describe("rewrite popup entrypoint", () => {
       baseUrl: "https://example.com",
       renderMode: "static",
       pageUrl: "https://example.com/page",
-      rawHtml: "<html><body>server source</body></html>",
+      rawHtml: rawSource,
     }));
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "staticHtml.fetch",
@@ -2295,7 +2535,13 @@ describe("rewrite popup entrypoint", () => {
         siteId: 1,
         pageKey: "/page",
         clientRunId: expect.any(String),
-        snapshot,
+        snapshot: {
+          ...snapshot,
+          pages: [{
+            ...snapshot.pages[0],
+            rawHtml: sanitizedRawSource,
+          }],
+        },
       }),
       target: "background",
     }));
@@ -2312,9 +2558,12 @@ describe("rewrite popup entrypoint", () => {
     expect(syncIndexes[0]).toBeLessThan(aiCommandNames.indexOf("captureSubmissionSnapshot"));
     expect(syncIndexes[1]).toBeGreaterThan(aiCommandNames.indexOf("markContentMainClean"));
 
-    render.mock.calls.at(-1)?.[0].props.onPreview();
-    await flushEntrypointWork();
-    expect(render.mock.calls.at(-1)?.[0].props.presentation.temporarilyDisabledOverlay).toBe(true);
+    expect(render.mock.calls.at(-1)?.[0].props.presentation).toMatchObject({
+      previewVisible: true,
+      temporarilyDisabledOverlay: true,
+      curtainVisible: false,
+      previewProjection: expect.objectContaining({ projectionId: "projection-1" }),
+    });
 
     render.mock.calls.at(-1)?.[0].props.onPreviewRowHover("row-main", true);
     render.mock.calls.at(-1)?.[0].props.onPreviewRowHover("row-main", false);
@@ -2395,6 +2644,102 @@ describe("rewrite popup entrypoint", () => {
       }),
     }));
   });
+
+  it.each(["rejected", "no_receiver"] as const)(
+    "keeps AI freshness fenced when the content clean acknowledgement is %s",
+    async (cleanOutcome) => {
+      installEntrypointDom("chrome-extension://extension-id/popup.html");
+      const render = createReactRenderProbe();
+      vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+      const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+      const snapshot = {
+        baseUrl: "https://example.com",
+        renderMode: "rendered" as const,
+        defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"] as const,
+        pages: [{
+          url: "https://example.com/page",
+          renderedHtml: "<html><body><main>AI page</main></body></html>",
+          renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
+        }],
+      };
+      const tabsSendMessage = makeTabsSendMessage((_tabId, message) => {
+        if (message.type === "captureSubmissionSnapshot") {
+          return { ok: true, snapshot, rows: [] };
+        }
+        if (message.type === "markContentMainClean") {
+          if (cleanOutcome === "no_receiver") {
+            throw new Error("Could not establish connection. Receiving end does not exist.");
+          }
+          return { ok: false, initialized: true, tree: "rewrite", reason: "generation-rejected" };
+        }
+        return { ok: true, initialized: true, tree: "rewrite" };
+      });
+      const runtime = makeRuntime(async (message) => {
+        if (message.name === "ai.run") {
+          return replyFrame(message, {
+            status: "ok",
+            sessionId: `clean-${cleanOutcome}`,
+            selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+          });
+        }
+        if (message.name === "transferPayload.put") {
+          const value = String((message.payload as { value?: unknown }).value ?? "");
+          return replyFrame(message, {
+            handle: {
+              id: `clean-${cleanOutcome}-rendered`,
+              scope: "ai-refinement-rendered",
+              sha256: "a".repeat(64),
+              byteLength: new TextEncoder().encode(value).byteLength,
+            },
+          });
+        }
+        if (message.name === "transferPayload.release") {
+          return replyFrame(message, { released: 1 });
+        }
+        return replyFrame(message, []);
+      }, "rendered");
+      globalThis.chrome = {
+        runtime: { ...runtime },
+        tabs: { query, sendMessage: tabsSendMessage },
+      } as unknown as typeof chrome;
+
+      await import("../../../src/entrypoints/popup/main.tsx");
+      const props = () => render.mock.calls.at(-1)?.[0].props;
+      await confirmRenderMode(render);
+      props().onEnableChange(true);
+      await waitFor(() => props().diagnostics.contentActive === true, "marking activation");
+      props().onRunAi();
+      await waitFor(
+        () => props().toast?.message.includes("Run AI failed") === true &&
+          props().presentation.temporarilyDisabledOverlay === false,
+        `${cleanOutcome} AI clean failure`,
+      );
+
+      expect(props().diagnostics.contentDirty).toBe(true);
+      expect(props().presentation).toMatchObject({
+        saveDisabled: true,
+        showPreviewDisabled: true,
+        selectors: { inclusionSelectors: [], exclusionSelectors: [] },
+      });
+      expect(props().toast).toMatchObject({
+        tone: "danger",
+        message: expect.stringContaining(cleanOutcome === "no_receiver"
+          ? "could not receive the completed AI result"
+          : "did not accept the completed AI result as current"),
+      });
+      expect(runtime.sendMessage.mock.calls.some(([frame]) =>
+        frame.name === "fact.reported" &&
+        (frame.payload as { sensation?: { reason?: string } }).sensation?.reason === "ai-run-completed"
+      )).toBe(false);
+      expect(runtime.sendMessage.mock.calls.some(([frame]) =>
+        frame.name === "fact.reported" &&
+        (frame.payload as { sensation?: { reason?: string } }).sensation?.reason === "ai-run-content-clean-failed"
+      )).toBe(true);
+      expect(tabsSendMessage.mock.calls.some(([, frame]) =>
+        (frame as BusFrame).name === "preview.project"
+      )).toBe(false);
+    },
+  );
 
   it("saves one first configuration from a cached not-found baseline and adopts authority", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
@@ -2626,6 +2971,316 @@ describe("rewrite popup entrypoint", () => {
     await flushEntrypointWork();
   });
 
+  it("keeps the old marking engine fenced when silent entry fails after Hub commits Save", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const snapshot = {
+      baseUrl: "https://example.com",
+      renderMode: "rendered" as const,
+      defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"] as const,
+      pages: [{
+        url: "https://example.com/page",
+        renderedHtml: "<html><body><main>committed page</main></body></html>",
+        renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
+      }],
+    };
+    let markingActive = false;
+    let saveCommitted = false;
+    const tabsSendMessage = makeTabsSendMessage((_tabId, message) => {
+      if (message.type === "activateContentMain") {
+        markingActive = true;
+      }
+      if (message.type === "captureSubmissionSnapshot") {
+        return { ok: true, snapshot, rows: [] };
+      }
+      if (message.type === "getContentMainStatus") {
+        return {
+          ok: true,
+          active: markingActive,
+          dirty: false,
+          pageUrl: "https://example.com/page",
+          contentRows: [],
+        };
+      }
+      if (message.type === "enterSilentContentMain" && saveCommitted) {
+        return { ok: false, initialized: true, tree: "rewrite", reason: "consent-registration-failed" };
+      }
+      return { ok: true, initialized: true, tree: "rewrite" };
+    });
+    const saveRequests: BusFrame[] = [];
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "page.context") {
+        return replyFrame(message, {
+          status: "managed_candidate",
+          generation: 1,
+          observedUrl: "https://example.com/page",
+          draftDisposition: "preserve",
+          environmentKey: "example.com",
+          siteId: 1,
+          baseUrl: "https://example.com",
+          pageKey: "/page",
+          pageTypes: [{
+            pageType: "detail",
+            pages: [{ pageKey: "/page", wordsCount: 100 }],
+          }],
+          membershipFingerprint: "membership",
+          assignmentFingerprint: "assignment",
+          conflicts: [],
+          upstreamCode: null,
+          renderModeSet: true,
+          todo: {
+            covered: 0,
+            actionable: 1,
+            pageTypes: [{
+              pageType: "detail",
+              markedCount: 0,
+              current: true,
+              candidates: [{ pageKey: "/page", wordsCount: 100, marked: false, current: true }],
+            }],
+          },
+        });
+      }
+      if (message.name === "ai.run") {
+        return replyFrame(message, {
+          status: "ok",
+          sessionId: "committed-save-ai",
+          selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+        });
+      }
+      if (message.name === "transferPayload.put") {
+        const value = String((message.payload as { value?: unknown }).value ?? "");
+        return replyFrame(message, {
+          handle: {
+            id: "committed-save-rendered",
+            scope: "ai-refinement-rendered",
+            sha256: "a".repeat(64),
+            byteLength: new TextEncoder().encode(value).byteLength,
+          },
+        });
+      }
+      if (message.name === "transferPayload.release") {
+        return replyFrame(message, { released: 1 });
+      }
+      if (message.name === "config.save") {
+        saveRequests.push(message);
+        saveCommitted = true;
+        return replyFrame(message, { status: "ok", config: backendConfig() });
+      }
+      return replyFrame(message, []);
+    }, "rendered", {
+      delegatePageContextToHandler: true,
+      deferReconciliationFactAvailability: true,
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    await confirmRenderMode(render);
+    props().onEnableChange(true);
+    await waitFor(() => props().diagnostics.contentActive === true, "marking activation");
+    props().onRunAi();
+    await waitFor(() => props().presentation.saveDisabled === false, "fresh AI result");
+    const resumesBeforeSave = tabsSendMessage.mock.calls.filter(([, frame]) =>
+      ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "resumeContentMainInteractions"
+    ).length;
+
+    props().onSave();
+    await waitFor(
+      () => props().presentation.blockedReason === "page-recovery-required",
+      "post-commit page recovery fence",
+    );
+
+    const commandNames = tabsSendMessage.mock.calls.map(([, frame]) =>
+      ((frame as BusFrame).payload as { name?: string } | undefined)?.name);
+    expect(saveRequests).toHaveLength(1);
+    expect(commandNames).toContain("pauseContentMainInteractions");
+    expect(commandNames).toContain("enterSilentContentMain");
+    expect(commandNames.filter((name) => name === "resumeContentMainInteractions")).toHaveLength(resumesBeforeSave);
+    expect(props().diagnostics.contentActive).toBe(true);
+    expect(props().presentation).toMatchObject({
+      curtainVisible: true,
+      curtainText: "Reload the page to finish Save",
+      saveDisabled: true,
+      discardDisabled: true,
+      showPreviewDisabled: true,
+    });
+    expect(props().toast).toMatchObject({
+      tone: "danger",
+      message: expect.stringContaining("Save committed; page recovery required"),
+    });
+    expect(runtime.sendMessage.mock.calls.some(([frame]) =>
+      frame.name === "fact.reported" &&
+      (frame.payload as { sensation?: { reason?: string } }).sensation?.reason === "session-saved"
+    )).toBe(false);
+
+    props().onSave();
+    await flushEntrypointWork();
+    expect(saveRequests).toHaveLength(1);
+  });
+
+  it.each(["timed_out", "identity_changed"] as const)(
+    "requires reload when the exact silent posture is %s after Hub commits Save",
+    async (transitionStatus) => {
+      vi.doMock("../../../src/popup/emulation-reload-transition", async () => {
+        const actual = await vi.importActual<typeof import("../../../src/popup/emulation-reload-transition")>(
+          "../../../src/popup/emulation-reload-transition",
+        );
+        return {
+          ...actual,
+          waitForReloadTransition: vi.fn(async (options: {
+            original: { tabId: number; url: string };
+          }) => ({
+            status: transitionStatus,
+            context: transitionStatus === "identity_changed"
+              ? { ...options.original, url: "https://replacement.example/page" }
+              : options.original,
+          })),
+        };
+      });
+      installEntrypointDom("chrome-extension://extension-id/popup.html");
+      const render = createReactRenderProbe();
+      vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+      const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+      const snapshot = {
+        baseUrl: "https://example.com",
+        renderMode: "rendered" as const,
+        defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"] as const,
+        pages: [{
+          url: "https://example.com/page",
+          renderedHtml: "<html><body><main>committed page</main></body></html>",
+          renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
+        }],
+      };
+      let markingActive = false;
+      let saveCommitted = false;
+      const tabsSendMessage = makeTabsSendMessage((_tabId, message) => {
+        if (message.type === "activateContentMain") {
+          markingActive = true;
+        }
+        if (message.type === "captureSubmissionSnapshot") {
+          return { ok: true, snapshot, rows: [] };
+        }
+        if (message.type === "getContentMainStatus") {
+          return {
+            ok: true,
+            active: markingActive,
+            dirty: false,
+            pageUrl: "https://example.com/page",
+            authority: { environmentKey: "example.com", siteId: 1, lockBlocked: false },
+            contentRows: [],
+          };
+        }
+        if (message.type === "enterSilentContentMain") {
+          markingActive = false;
+        }
+        return { ok: true, initialized: true, tree: "rewrite" };
+      });
+      const saveRequests: BusFrame[] = [];
+      const runtime = makeRuntime(async (message) => {
+        if (message.name === "ai.run") {
+          return replyFrame(message, {
+            status: "ok",
+            sessionId: `posture-${transitionStatus}`,
+            selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+          });
+        }
+        if (message.name === "transferPayload.put") {
+          const value = String((message.payload as { value?: unknown }).value ?? "");
+          return replyFrame(message, {
+            handle: {
+              id: `posture-${transitionStatus}-rendered`,
+              scope: "ai-refinement-rendered",
+              sha256: "a".repeat(64),
+              byteLength: new TextEncoder().encode(value).byteLength,
+            },
+          });
+        }
+        if (message.name === "transferPayload.release") {
+          return replyFrame(message, { released: 1 });
+        }
+        if (message.name === "config.save") {
+          saveRequests.push(message);
+          saveCommitted = true;
+          return replyFrame(message, { status: "ok", config: backendConfig() });
+        }
+        return replyFrame(message, []);
+      }, "rendered", {
+        deferReconciliationFactAvailability: true,
+        emulationApply: (frame) => {
+          const mode = (frame.payload as { mode: "mobile" | "desktop" }).mode;
+          return replyFrame(frame, {
+            mode,
+            width: mode === "desktop" ? 1920 : 412,
+            height: mode === "desktop" ? 1080 : 960,
+            scale: 1,
+            active: true,
+            identityStale: saveCommitted && mode === "desktop",
+          });
+        },
+      });
+      globalThis.chrome = {
+        runtime: { ...runtime },
+        tabs: { query, sendMessage: tabsSendMessage },
+      } as unknown as typeof chrome;
+
+      await import("../../../src/entrypoints/popup/main.tsx");
+      const props = () => render.mock.calls.at(-1)?.[0].props;
+      await confirmRenderMode(render);
+      props().onDesktopPreviewChange(true);
+      await waitFor(() => runtime.sendMessage.mock.calls.some(([frame]) =>
+        frame.name === "emulation.apply" &&
+        (frame.payload as { mode?: string }).mode === "desktop"), "desktop preview posture");
+      props().onEnableChange(true);
+      await waitFor(() => props().diagnostics.contentActive === true, "marking activation");
+      props().onRunAi();
+      await waitFor(() => props().presentation.saveDisabled === false, "fresh AI result");
+
+      props().onSave();
+      await waitFor(
+        () => props().presentation.blockedReason === "page-recovery-required",
+        `${transitionStatus} post-commit recovery fence`,
+      );
+      expect(saveRequests).toHaveLength(1);
+      expect(props().presentation).toMatchObject({
+        curtainVisible: true,
+        curtainText: "Reload the page to finish Save",
+        saveDisabled: true,
+        discardDisabled: true,
+        showPreviewDisabled: true,
+      });
+      expect(props().toast).toMatchObject({
+        tone: "danger",
+        message: expect.stringContaining("Save committed; page recovery required"),
+      });
+      expect(runtime.sendMessage.mock.calls.some(([frame]) =>
+        frame.name === "fact.reported" &&
+        (frame.payload as { sensation?: { reason?: string } }).sensation?.reason === "session-saved"
+      )).toBe(false);
+
+      const statusChecksBeforeRefresh = tabsSendMessage.mock.calls.filter(([, frame]) =>
+        ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "getContentMainStatus"
+      ).length;
+      props().onRefresh();
+      await waitFor(() => tabsSendMessage.mock.calls.filter(([, frame]) =>
+        ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "getContentMainStatus"
+      ).length > statusChecksBeforeRefresh, "posture recovery status check");
+      expect(props().presentation.blockedReason).toBe("page-recovery-required");
+      expect(runtime.sendMessage.mock.calls.some(([frame]) =>
+        frame.name === "fact.reported" &&
+        (frame.payload as { sensation?: { reason?: string } }).sensation?.reason === "session-saved"
+      )).toBe(false);
+
+      props().onSave();
+      await flushEntrypointWork();
+      expect(saveRequests).toHaveLength(1);
+    },
+  );
+
   it("surfaces a background-completed AI run when the side panel opens again", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     const render = createReactRenderProbe();
@@ -2827,7 +3482,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    confirmRenderMode(render);
+    await confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -2920,7 +3575,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    confirmRenderMode(render);
+    await confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -2938,7 +3593,7 @@ describe("rewrite popup entrypoint", () => {
     });
   });
 
-  it("does not let session.saved skip an intervening dirty signal", async () => {
+  it("fences a successful Save when an in-flight dirty signal arrives after Hub commits", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({
@@ -2959,6 +3614,7 @@ describe("rewrite popup entrypoint", () => {
     });
     let signalSeq = 0;
     let dirtyOnSaveTail = false;
+    const saveRequests: BusFrame[] = [];
     const runtime = makeRuntime(async (message) => {
       if (message.name === "signals.emit") {
         const request = message.payload as { tabId: number; signal: { name?: string; payload?: unknown } };
@@ -2978,6 +3634,7 @@ describe("rewrite popup entrypoint", () => {
         return replyFrame(message, { status: "ok", sessionId: "ai-1", selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] } });
       }
       if (message.name === "config.save") {
+        saveRequests.push(message);
         dirtyOnSaveTail = true;
         return replyFrame(message, { status: "ok", config: backendConfig() });
       }
@@ -3003,18 +3660,47 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    confirmRenderMode(render);
+    await confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
     await flushEntrypointWork();
-    render.mock.calls.at(-1)?.[0].props.onSave();
-    await flushEntrypointWork();
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    const resumesBeforeSave = tabsSendMessage.mock.calls.filter(([, frame]) =>
+      ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "resumeContentMainInteractions"
+    ).length;
+    props().onSave();
+    await waitFor(
+      () => props().presentation.blockedReason === "page-recovery-required",
+      "post-commit dirty recovery fence",
+    );
 
-    expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(false);
+    expect(saveRequests).toHaveLength(1);
+    expect(props().presentation).toMatchObject({
+      curtainVisible: true,
+      curtainText: "Reload the page to finish Save",
+      saveDisabled: true,
+      discardDisabled: true,
+      showPreviewDisabled: true,
+    });
+    expect(props().toast).toMatchObject({
+      tone: "danger",
+      message: expect.stringContaining("Save committed; page review required"),
+    });
     expect(tabsSendMessage).not.toHaveBeenCalledWith(77, contentCommand("enterSilentContentMain", {
       pageUrl: "https://example.com/page",
     }));
+    expect(tabsSendMessage.mock.calls.filter(([, frame]) =>
+      ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "resumeContentMainInteractions"
+    )).toHaveLength(resumesBeforeSave);
+    expect(runtime.sendMessage.mock.calls.some(([frame]) =>
+      frame.name === "fact.reported" &&
+      (frame.payload as { sensation?: { reason?: string } }).sensation?.reason === "session-saved"
+    )).toBe(false);
+
+    props().onSave();
+    await flushEntrypointWork();
+    expect(saveRequests).toHaveLength(1);
   });
 
   it("does not enable Save when markings change during AI snapshot capture", async () => {
@@ -3088,7 +3774,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    confirmRenderMode(render);
+    await confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -3161,7 +3847,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    confirmRenderMode(render);
+    await confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     dirtyReady = true;
@@ -3219,7 +3905,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    confirmRenderMode(render);
+    await confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -3619,12 +4305,19 @@ describe("rewrite popup entrypoint", () => {
         },
       },
     });
-    confirmRenderMode(render);
+    await confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi?.();
     await flushEntrypointWork();
     dirtyReady = true;
+    const fastPoll = globalThis.window.setInterval.mock.calls
+      .find(([, delay]) => delay === 500)?.[0] as (() => void) | undefined;
+    fastPoll?.();
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.presentation.showPreviewDisabled === true,
+      "dirty signal projection",
+    );
     render.mock.calls.at(-1)?.[0].props.onPreview();
     await flushEntrypointWork();
 
@@ -3710,7 +4403,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    confirmRenderMode(render);
+    await confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
     render.mock.calls.at(-1)?.[0].props.onRunAi();
@@ -4660,7 +5353,7 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
-    confirmRenderMode(render);
+    await confirmRenderMode(render);
     render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
     await flushEntrypointWork();
 

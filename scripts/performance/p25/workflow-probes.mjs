@@ -1,0 +1,454 @@
+import { normalizeLiveUrl, sha256 } from "./live-comparison-contract.mjs";
+
+export const CANDIDATE_DISPOSITION_SCHEMA_VERSION = "p25-candidate-disposition/v1";
+
+const NOT_FOUND_COPY = /(?:\b404\b|page\s+not\s+found|page\s+does\s+not\s+exist|sidan\s+(?:du\s+söker\s+)?(?:finns\s+inte|kunde\s+inte\s+hittas)|siden\s+(?:du\s+leter\s+etter\s+)?(?:finnes\s+ikke|ble\s+ikke\s+funnet)|siden\s+(?:findes\s+ikke|kunne\s+ikke\s+findes)|side\s+ikke\s+fundet)/iu;
+
+function normalizedCopy(value, limit = 512) {
+  return String(value ?? "").replace(/\s+/g, " ").trim().slice(0, limit);
+}
+
+function finiteStatus(value) {
+  return Number.isInteger(value) && value >= 100 && value <= 599 ? value : null;
+}
+
+/** Capture only implementation-neutral page facts. Raw body copy is returned in
+ * `analysis` for the immediate decision and must not be persisted by callers. */
+export async function captureCandidateSignals(session, expectedUrl) {
+  const raw = await session.evaluate(`(() => {
+    const navigation = performance.getEntriesByType('navigation')[0];
+    const bodyText = (document.body?.innerText ?? '').replace(/\\s+/g, ' ').trim();
+    const main = document.querySelector('main, article, [role="main"]');
+    const meaningfulBlocks = [...document.querySelectorAll('h1,h2,h3,p,li')].filter((element) => {
+      const text = (element.textContent ?? '').replace(/\\s+/g, ' ').trim();
+      if (text.length < 24) return false;
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity || '1') > 0 && rect.width > 0 && rect.height > 0;
+    });
+    return {
+      href: location.href,
+      responseStatus: Number.isInteger(navigation?.responseStatus) ? navigation.responseStatus : null,
+      title: document.title,
+      primaryHeading: document.querySelector('h1')?.textContent ?? '',
+      bodyLead: bodyText.slice(0, 4000),
+      bodyTextLength: bodyText.length,
+      mainTextLength: (main?.textContent ?? '').replace(/\\s+/g, ' ').trim().length,
+      meaningfulBlockCount: meaningfulBlocks.length,
+      headingCount: document.querySelectorAll('h1,h2,h3').length,
+      contentElementCount: document.querySelectorAll('main,article,section,h1,h2,h3,p,li').length,
+      hasMainLandmark: Boolean(main),
+      readyState: document.readyState,
+    };
+  })()`);
+  const title = normalizedCopy(raw?.title);
+  const primaryHeading = normalizedCopy(raw?.primaryHeading);
+  const bodyLead = normalizedCopy(raw?.bodyLead, 4_000);
+  return {
+    signals: {
+      expectedNormalizedUrl: normalizeLiveUrl(expectedUrl),
+      observedNormalizedUrl: normalizeLiveUrl(raw?.href ?? expectedUrl),
+      httpStatus: finiteStatus(raw?.responseStatus),
+      statusAvailable: finiteStatus(raw?.responseStatus) !== null,
+      title,
+      primaryHeading,
+      bodyLeadSha256: sha256(bodyLead),
+      bodyTextLength: Number(raw?.bodyTextLength) || 0,
+      mainTextLength: Number(raw?.mainTextLength) || 0,
+      meaningfulBlockCount: Number(raw?.meaningfulBlockCount) || 0,
+      headingCount: Number(raw?.headingCount) || 0,
+      contentElementCount: Number(raw?.contentElementCount) || 0,
+      hasMainLandmark: raw?.hasMainLandmark === true,
+      readyState: raw?.readyState ?? null,
+    },
+    analysis: { title, primaryHeading, bodyLead },
+  };
+}
+
+export function evaluateCandidateValidity({ signals, analysis }) {
+  const urlMatches = signals?.observedNormalizedUrl === signals?.expectedNormalizedUrl;
+  const status = finiteStatus(signals?.httpStatus);
+  const statusNotFound = status === 404 || status === 410;
+  const titleNotFound = NOT_FOUND_COPY.test(normalizedCopy(analysis?.title));
+  const headingNotFound = NOT_FOUND_COPY.test(normalizedCopy(analysis?.primaryHeading));
+  const bodyLead = normalizedCopy(analysis?.bodyLead, 4_000);
+  // Body copy alone is conclusive only when the not-found phrase leads a sparse
+  // document. A valid article that happens to mention a 404 must not be demoted.
+  const sparseBodyNotFound = NOT_FOUND_COPY.test(bodyLead.slice(0, 600)) &&
+    Number(signals?.bodyTextLength ?? 0) < 6_000 &&
+    Number(signals?.meaningfulBlockCount ?? 0) < 8;
+  const definitiveNotFound = statusNotFound || titleNotFound || headingNotFound || sparseBodyNotFound;
+  const substantiveContent = Number(signals?.bodyTextLength ?? 0) >= 500 &&
+    Number(signals?.meaningfulBlockCount ?? 0) >= 3 &&
+    Number(signals?.contentElementCount ?? 0) >= 5 &&
+    (Number(signals?.headingCount ?? 0) >= 1 || signals?.hasMainLandmark === true);
+  const valid = urlMatches && !definitiveNotFound && substantiveContent && signals?.readyState === "complete";
+  const reasonCode = !urlMatches
+    ? "preflight-url-mismatch"
+    : definitiveNotFound
+      ? "site-not-found-body"
+      : signals?.readyState !== "complete"
+        ? "preflight-document-incomplete"
+        : !substantiveContent
+          ? "preflight-content-signals-insufficient"
+          : null;
+  return {
+    valid,
+    reasonCode,
+    checks: {
+      urlMatches,
+      statusNotFound,
+      titleNotFound,
+      headingNotFound,
+      sparseBodyNotFound,
+      definitiveNotFound,
+      substantiveContent,
+      documentComplete: signals?.readyState === "complete",
+    },
+  };
+}
+
+export function adoptCandidateDisposition({ declared, matrixEligibility, evaluation, signals, evidenceArtifact }) {
+  const runtimeValidationRequired = matrixEligibility === "runtime-validation-required";
+  const fixedExternal = !declared?.parityEligible && !runtimeValidationRequired;
+  const parityEligible = !fixedExternal && evaluation?.valid === true;
+  const reasonCode = parityEligible
+    ? null
+    : fixedExternal
+      ? declared?.reasonCode ?? "matrix-candidate-unavailable"
+      : evaluation?.reasonCode ?? "preflight-candidate-invalid";
+  const reason = parityEligible
+    ? null
+    : fixedExternal
+      ? declared?.reason ?? "The matrix does not authorize candidate-workflow parity for this property."
+      : `Implementation-neutral preflight did not prove a valid candidate document (${reasonCode}).`;
+  return {
+    eligibility: parityEligible ? "candidate" : (declared?.eligibility ?? "external-block"),
+    reasonCode,
+    reason,
+    parityEligible,
+    source: "preflight",
+    evidenceArtifact,
+    candidateSignals: signals,
+  };
+}
+
+function dispositionCore(record) {
+  return {
+    schemaVersion: record?.schemaVersion,
+    createdAt: record?.createdAt,
+    runNonce: record?.runNonce,
+    label: record?.label,
+    normalizedUrl: record?.normalizedUrl,
+    documentKey: record?.documentKey,
+    documentFingerprint: record?.documentFingerprint,
+    matrixEligibility: record?.matrixEligibility,
+    evaluation: record?.evaluation,
+    signals: record?.signals,
+  };
+}
+
+export function createCandidateDispositionRecord({ identity, document, matrixEligibility, captured, relativePath = "candidate-disposition.json" }) {
+  const evaluation = evaluateCandidateValidity(captured);
+  const core = {
+    schemaVersion: CANDIDATE_DISPOSITION_SCHEMA_VERSION,
+    createdAt: new Date().toISOString(),
+    runNonce: identity.runNonce,
+    label: identity.label,
+    normalizedUrl: identity.normalizedUrl,
+    documentKey: `document-${document.fingerprint.slice(0, 16)}`,
+    documentFingerprint: document.fingerprint,
+    matrixEligibility,
+    evaluation,
+    signals: captured.signals,
+  };
+  const evidenceArtifact = { path: relativePath, sha256: sha256(JSON.stringify(core)) };
+  return {
+    ...core,
+    evidenceArtifact,
+    candidateDisposition: adoptCandidateDisposition({
+      declared: identity.declaredCandidateDisposition ?? identity.candidateDisposition,
+      matrixEligibility,
+      evaluation,
+      signals: captured.signals,
+      evidenceArtifact,
+    }),
+  };
+}
+
+export function validateCandidateDispositionRecord(record, identity, document = null) {
+  const failures = [];
+  if (record?.schemaVersion !== CANDIDATE_DISPOSITION_SCHEMA_VERSION) failures.push("schema-version");
+  if (record?.runNonce !== identity?.runNonce) failures.push("run-nonce");
+  if (record?.label !== identity?.label) failures.push("label");
+  if (record?.normalizedUrl !== identity?.normalizedUrl) failures.push("normalized-url");
+  if (document && record?.documentFingerprint !== document.fingerprint) failures.push("document-fingerprint");
+  if (document && record?.documentKey !== `document-${document.fingerprint.slice(0, 16)}`) failures.push("document-key");
+  const expectedDigest = sha256(JSON.stringify(dispositionCore(record)));
+  if (record?.evidenceArtifact?.sha256 !== expectedDigest) failures.push("evidence-digest");
+  if (record?.candidateDisposition?.source !== "preflight") failures.push("source");
+  if (record?.candidateDisposition?.evidenceArtifact?.sha256 !== expectedDigest) failures.push("disposition-evidence-digest");
+  if (JSON.stringify(record?.candidateDisposition?.candidateSignals) !== JSON.stringify(record?.signals)) failures.push("candidate-signals");
+  return { pass: failures.length === 0, failures };
+}
+
+export function proveRequestedRenderMode(state, requestedMode) {
+  if (state?.renderInspectionView === requestedMode) return { modeProven: true, proofSource: "inspection-lifecycle" };
+  if (state?.renderChoice === requestedMode) return { modeProven: true, proofSource: "confirmed-render-choice" };
+  return { modeProven: false, proofSource: null };
+}
+
+export async function captureWorkflowPopupState(session) {
+  return session.evaluate(`(() => {
+    const control = (id) => {
+      const element = document.getElementById(id);
+      if (!(element instanceof HTMLElement)) return null;
+      return {
+        id,
+        disabled: Boolean(element.disabled),
+        checked: 'checked' in element ? Boolean(element.checked) : null,
+        blockedReason: element.getAttribute('data-blocked-reason'),
+        text: element.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
+      };
+    };
+    const rowButtons = [...document.querySelectorAll('.preview-sidebar__item-button')];
+    const active = document.activeElement;
+    const previewRoot = document.querySelector('.preview-sidebar');
+    const domFocusedPreviewButton = active?.matches?.('.preview-sidebar__item-button') ? active : null;
+    const selectedPreviewButton = document.querySelector('.preview-sidebar__item--active .preview-sidebar__item-button');
+    const activePreviewButton = domFocusedPreviewButton || selectedPreviewButton;
+    const rowName = (element) => element?.getAttribute?.('aria-label') || element?.getAttribute?.('title') || element?.textContent?.replace(/\\s+/g, ' ').trim() || null;
+    const rowIdentity = (element) => element ? {
+      name: rowName(element),
+      readableText: element.querySelector('.preview-sidebar__item-text')?.textContent?.replace(/\\s+/g, ' ').trim() || element.textContent?.replace(/\\s+/g, ' ').trim() || null,
+      title: element.getAttribute('title'),
+    } : null;
+    const checklistRoot = document.querySelector('[data-transient-surface="lynx-checklist"], .lynx-checklist-popover:not([hidden])');
+    const explicitPhase = document.querySelector('[data-publication-phase]')?.getAttribute('data-publication-phase') ?? null;
+    const legacyChecking = Boolean(checklistRoot?.querySelector('.lynx-checklist-popover__checking'));
+    const legacySend = document.getElementById('lynx-checklist-send');
+    const checklistPhase = explicitPhase || (checklistRoot ? legacyChecking ? 'checking' : legacySend && !legacySend.disabled ? 'ready' : 'error' : null);
+    const toggle = document.getElementById('toggle-enabled');
+    return {
+      at: Date.now(),
+      view: document.querySelector('main[data-view]')?.getAttribute('data-view') ?? null,
+      busy: Boolean(document.querySelector('[data-transient-surface="popup-busy-curtain"]')),
+      silentAcknowledged: document.querySelector('[data-silent-mode="active"]') !== null || (toggle instanceof HTMLInputElement && !toggle.checked && document.getElementById('preview-latest') !== null),
+      controls: ['toggle-enabled','compute','marking-preview','page-save','page-revert','preview-exit','preview-latest','save-excludes','discard-confirm','lynx-checklist-cancel','lynx-checklist-send'].map(control),
+      preview: {
+        open: previewRoot !== null,
+        rowCount: rowButtons.length,
+        firstRowName: rowName(rowButtons[0]),
+        focusedRowName: rowName(activePreviewButton),
+        domFocusedRowName: rowName(domFocusedPreviewButton),
+        selectedRowName: rowName(selectedPreviewButton),
+        domFocusedRow: rowIdentity(domFocusedPreviewButton),
+        selectedRow: rowIdentity(selectedPreviewButton),
+      },
+      discardOpen: document.querySelector('[data-transient-surface="discard-confirmation"]') !== null,
+      checklist: {
+        open: checklistRoot !== null,
+        phase: checklistPhase,
+        pageTypes: [...document.querySelectorAll('[data-checklist-page-type], .lynx-checklist-popover__page-type')].map((element) => ({
+          pageType: element.getAttribute('data-checklist-page-type') || element.querySelector('.lynx-checklist-popover__page-type-title')?.textContent?.trim() || null,
+          missing: element.classList.contains('lynx-checklist-popover__page-type--missing'),
+        })),
+      },
+    };
+  })()`);
+}
+
+export async function physicalActivatePopupControl(session, id, method = "pointer", fallbackSelector = null) {
+  const before = await session.evaluate(`(() => {
+    const element = document.getElementById(${JSON.stringify(id)}) || (${JSON.stringify(fallbackSelector)} ? document.querySelector(${JSON.stringify(fallbackSelector)}) : null);
+    if (!(element instanceof HTMLElement)) return null;
+    const rect = element.getBoundingClientRect();
+    return { id: element.id, tag: element.tagName, disabled: Boolean(element.disabled), checked: 'checked' in element ? Boolean(element.checked) : null, rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height } };
+  })()`);
+  if (!before || before.disabled || before.rect.width <= 0 || before.rect.height <= 0) throw new Error(`Real popup control #${id} is unavailable: ${JSON.stringify(before)}`);
+  if (method === "keyboard") {
+    await session.evaluate(`(document.getElementById(${JSON.stringify(id)}) || (${JSON.stringify(fallbackSelector)} ? document.querySelector(${JSON.stringify(fallbackSelector)}) : null))?.focus()`);
+    await session.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    await session.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+  } else {
+    const x = before.rect.x + before.rect.width / 2;
+    const y = before.rect.y + before.rect.height / 2;
+    await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+    await session.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 });
+    await session.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 });
+  }
+  return { method, before, dispatchedAt: new Date().toISOString() };
+}
+
+export async function physicalActivatePreviewRow(session, index = 0) {
+  const before = await session.evaluate(`(() => {
+    const element = document.querySelectorAll('.preview-sidebar__item-button')[${Number(index)}];
+    if (!(element instanceof HTMLButtonElement) || element.disabled) return null;
+    element.focus();
+    return {
+      name: element.getAttribute('aria-label') || element.getAttribute('title') || element.textContent?.replace(/\\s+/g, ' ').trim() || null,
+      readableText: element.querySelector('.preview-sidebar__item-text')?.textContent?.replace(/\\s+/g, ' ').trim() || element.textContent?.replace(/\\s+/g, ' ').trim() || null,
+      title: element.getAttribute('title'),
+      focused: document.activeElement === element,
+    };
+  })()`);
+  if (!before?.focused) throw new Error(`Preview row ${index} is unavailable for trusted keyboard activation`);
+  await session.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+  await session.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+  return { trustedKeyboard: true, before, dispatchedAt: new Date().toISOString() };
+}
+
+export async function physicalActivatePreviewPageTarget(session) {
+  const target = await session.evaluate(`(() => {
+    const xpathNode = (xpath) => { try { return document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue; } catch { return null; } };
+    const candidates = [];
+    const focusedXpaths = new Set([...document.querySelectorAll('[data-uf-overlay-focus]')].map((element) => element.getAttribute('data-uf-overlay-focus')).filter(Boolean));
+    const focusedMarkIds = new Set([...document.querySelectorAll('[data-layer="focus"] [data-mc-mark-id]')].map((element) => element.getAttribute('data-mc-mark-id')).filter(Boolean));
+    for (const source of document.querySelectorAll('[data-uf-ai-preview-clickable="on"]')) {
+      if (!source.classList.contains('uf-ai-preview-focus-target')) candidates.push({ source, identity: source.getAttribute('title') || source.tagName });
+    }
+    for (const overlay of document.querySelectorAll('[data-uf-overlay-xpath], [data-uf-silent-highlight], [data-mc-mark-id]')) {
+      const xpath = overlay.getAttribute('data-uf-overlay-xpath') || overlay.getAttribute('data-uf-silent-highlight');
+      const markId = overlay.getAttribute('data-mc-mark-id');
+      if (focusedXpaths.has(xpath) || focusedMarkIds.has(markId)) continue;
+      const source = xpath ? xpathNode(xpath) : markId ? document.querySelector('[data-uf-mark-id="' + CSS.escape(markId) + '"]') : null;
+      if (source instanceof Element && !source.matches('.uf-ai-preview-focus-target')) candidates.push({ source, identity: xpath || markId });
+    }
+    const candidate = candidates.find(({ source }) => {
+      const rect = source.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return false;
+      const x = Math.max(2, Math.min(innerWidth - 2, rect.left + Math.min(rect.width / 2, 80)));
+      const y = Math.max(2, Math.min(innerHeight - 2, rect.top + Math.min(rect.height / 2, 40)));
+      const hit = document.elementFromPoint(x, y);
+      return hit === source || source.contains(hit) || Boolean(hit?.closest?.('[data-uf-interaction-shield="true"]'));
+    });
+    if (!candidate) return null;
+    const { source, identity } = candidate;
+    const rect = source.getBoundingClientRect();
+    return {
+      x: Math.max(2, Math.min(innerWidth - 2, rect.left + Math.min(rect.width / 2, 80))),
+      y: Math.max(2, Math.min(innerHeight - 2, rect.top + Math.min(rect.height / 2, 40))),
+      identity,
+      readableText: (source.getAttribute('aria-label') || source.getAttribute('title') || source.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 400),
+    };
+  })()`);
+  if (!target) throw new Error("No real preview page target is available");
+  await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y });
+  await session.send("Input.dispatchMouseEvent", { type: "mousePressed", x: target.x, y: target.y, button: "left", buttons: 1, clickCount: 1 });
+  await session.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: target.x, y: target.y, button: "left", buttons: 0, clickCount: 1 });
+  return { trustedPointer: true, target, dispatchedAt: new Date().toISOString() };
+}
+
+export async function waitForWorkflowPopupState(session, predicate, timeoutMs = 20_000) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  while (Date.now() < deadline) {
+    last = await captureWorkflowPopupState(session);
+    if (predicate(last)) return last;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Popup workflow state did not terminalize: ${JSON.stringify(last)}`);
+}
+
+export async function captureSiteWorkflowPosture(session) {
+  return session.evaluate(`(() => {
+    const xpathNode = (xpath) => { try { return document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue; } catch { return null; } };
+    const targets = [];
+    const append = (source, owner) => {
+      if (!(source instanceof Element) || targets.some((target) => target.source === source)) return;
+      targets.push({ source, owner });
+    };
+    for (const overlay of document.querySelectorAll('[data-uf-overlay-focus]')) {
+      const xpath = overlay.getAttribute('data-uf-overlay-focus');
+      append(xpath ? xpathNode(xpath) : null, xpath);
+    }
+    for (const source of document.querySelectorAll('.uf-ai-preview-focus-target')) append(source, source.getAttribute('title') || 'legacy-focus');
+    for (const overlay of document.querySelectorAll('[data-layer="focus"] [data-mc-mark-id]')) {
+      const markId = overlay.getAttribute('data-mc-mark-id');
+      append(markId ? document.querySelector('[data-uf-mark-id="' + CSS.escape(markId) + '"]') : null, markId);
+    }
+    return ({
+    viewport: { width: innerWidth, height: innerHeight, scrollX: Math.round(scrollX), scrollY: Math.round(scrollY) },
+    markingRootCount: document.querySelectorAll('.uf-marking-layer-root, #unfluffify-overlay').length,
+    silentHighlightCount: document.querySelectorAll('[data-uf-silent-highlight], #unfluffify-silent-highlight-overlay .uf-rect, #unfluffify-overlay [data-layer="ai-content"] .uf-rect, #unfluffify-overlay [data-layer="saved-explicit-include"] .uf-rect, #unfluffify-overlay [data-layer="saved-explicit-exclude"] .uf-rect').length,
+    shield: [...document.querySelectorAll('[data-uf-interaction-shield="true"], #unfluffify-overlay')].map((element) => {
+      const style = getComputedStyle(element); const rect = element.getBoundingClientRect();
+      return { connected: element.isConnected, pointerEvents: style.pointerEvents, opacity: Number(style.opacity || '1'), rect: [rect.left, rect.top, rect.width, rect.height] };
+    }),
+    focusOwners: targets.map((target) => target.owner),
+    focusTargets: targets.map((target) => ({
+      owner: target.owner,
+      readableText: (target.source.getAttribute('aria-label') || target.source.getAttribute('title') || target.source.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 400),
+    })),
+  }); })()`);
+}
+
+export function readableTextsCorrespond(left, right) {
+  const normalize = (value) => String(value ?? "")
+    .normalize("NFKC")
+    .toLocaleLowerCase("en")
+    .replace(/^\s*\d+[.)]\s*/, "")
+    .replace(/\b(?:included|excluded|immutable|closed shadow)\s*$/i, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+  const a = normalize(left);
+  const b = normalize(right);
+  if (!a || !b) return false;
+  if (Math.min(a.length, b.length) >= 8 && (a.includes(b) || b.includes(a))) return true;
+  const aTokens = new Set(a.split(" ").filter((token) => token.length >= 3));
+  const bTokens = new Set(b.split(" ").filter((token) => token.length >= 3));
+  const common = [...aTokens].filter((token) => bTokens.has(token)).length;
+  return common >= 3 && common / Math.min(aTokens.size, bTokens.size) >= 0.75;
+}
+
+export function validateFullWorkflowEvidence(workflow) {
+  const failures = [];
+  const requireValue = (condition, reason) => { if (!condition) failures.push(reason); };
+  requireValue(workflow?.contentList?.firstPaintMs >= 0 && workflow.contentList.firstPaintMs <= 1_000, "content-list-first-paint");
+  requireValue(workflow?.contentList?.openActivation?.method === "ai-auto-open", "content-list-ai-auto-open");
+  requireValue(workflow?.contentList?.rowCount > 0, "content-list-empty");
+  requireValue(workflow?.contentList?.rowToPage?.trustedKeyboard === true && workflow.contentList.rowToPage.targetCorresponds === true, "content-list-row-to-page");
+  requireValue(workflow?.contentList?.pageToRow?.trustedPointer === true && workflow.contentList.pageToRow.rowFocused === true && workflow.contentList.pageToRow.targetCorresponds === true, "content-list-page-to-row");
+  requireValue(workflow?.initialAi?.requestCount === 1 && workflow?.freshAi?.requestCount === 1, "ai-single-request-per-run");
+  requireValue(workflow?.freshness?.projectedWithinMs >= 0 && workflow.freshness.projectedWithinMs <= 1_000, "post-ai-freshness");
+  requireValue(workflow?.freshness?.saveBlockedReason === "requires-ai-run" && workflow.freshness?.previewBlockedReason === "requires-ai-run", "post-ai-block-reasons");
+  requireValue(workflow?.save?.trustedPointer === true && workflow.save.requestCount === 1 && workflow.save.authoritativeAdopted === true, "save-authoritative-single-request");
+  requireValue(workflow?.discard?.trustedPointer === true && workflow.discard.confirmed === true && workflow.discard.restored === true, "discard-flow");
+  requireValue(workflow?.silentTransition?.trustedPointer === true && workflow.silentTransition.acknowledged === true, "silent-transition");
+  requireValue(workflow?.payloadHygiene?.pass === true, "payload-hygiene");
+  return { pass: failures.length === 0, failures };
+}
+
+const REQUIRED_CONTEXT_ACTIONS = Object.freeze(["clear", "exclude", "include", "widen"]);
+
+export function validateExactMarkingGestureEvidence(evidence) {
+  const failures = [];
+  const operations = new Map((evidence?.operations ?? []).map((operation) => [operation.id, operation]));
+  const requireOperation = (id, predicate, reason) => {
+    const operation = operations.get(id);
+    if (!operation) failures.push(`${id}:missing`);
+    else {
+      if (operation.acknowledged !== true || !Number.isFinite(operation.acknowledgementLatencyMs)) failures.push(`${id}:target-acknowledgement-missing`);
+      if (!predicate(operation)) failures.push(`${id}:${reason}`);
+    }
+  };
+  requireOperation("plain-no-create", (value) => value.targetDelta?.created.length === 0 && value.targetDelta?.removed.length === 0 && value.targetDelta?.changed.length === 0, "target-mutated");
+  requireOperation("shift-expand", (value) => value.assertion?.kind === "explicit-exclusion" && value.assertion?.ownerRelation === "ancestor" && value.assertion?.breadthIncreased === true, "not-widened-exclusion");
+  requireOperation("plain-exact-unmark", (value) => value.assertion?.removedExactOwner === true && value.assertion?.remainingTargetOwned === 0, "exact-owner-not-removed");
+  requireOperation("alt-include", (value) => value.assertion?.kind === "explicit-inclusion" && value.assertion?.ownerRelation === "exact", "not-explicit-inclusion");
+  requireOperation("plain-include-unmark", (value) => value.assertion?.removedExactOwner === true && value.assertion?.remainingTargetOwned === 0, "inclusion-not-removed");
+  const contextOperation = operations.get("context-menu");
+  if (!contextOperation) failures.push("context-menu:operation-missing");
+  else if (contextOperation.acknowledged !== true || !Number.isFinite(contextOperation.acknowledgementLatencyMs)) failures.push("context-menu:target-acknowledgement-missing");
+  const contextActions = new Map((evidence?.contextMenu ?? []).map((action) => [action.action, action]));
+  for (const id of REQUIRED_CONTEXT_ACTIONS) {
+    if (!contextActions.has(id)) failures.push(`context-menu:${id}:missing`);
+  }
+  if (contextActions.size !== REQUIRED_CONTEXT_ACTIONS.length) failures.push("context-menu:unexpected-action-set");
+  const expectedDisabled = evidence?.contextExpectedDisabled ?? {};
+  for (const id of REQUIRED_CONTEXT_ACTIONS) {
+    if (typeof expectedDisabled[id] !== "boolean") failures.push(`context-menu:${id}:expected-state-missing`);
+    else if (contextActions.get(id)?.disabled !== expectedDisabled[id]) failures.push(`context-menu:${id}:disabled-state-mismatch`);
+  }
+  return { pass: failures.length === 0, failures };
+}

@@ -15,6 +15,7 @@ const target = (key: string, count = 2): WidenNode => ({
   tagName: "ARTICLE",
   depthFromBody: 4,
   visible: true,
+  ownsDirectText: true,
   structuralRole: "article",
   textualMarkableContentCount: count,
 });
@@ -130,5 +131,39 @@ describe("P0 widening chooser (INV-3.18..INV-3.21)", () => {
     });
 
     expect(chooseWidenTarget(first)).toBe(wrapper);
+  });
+
+  it("rejects a group when any textual direct child is not self-markable", () => {
+    const eligibleA = target("eligible-a", 1);
+    const eligibleB = target("eligible-b", 1);
+    const descendantOnlyTextualSibling: WidenNode = {
+      key: "mixed-textual",
+      tagName: "DIV",
+      depthFromBody: 4,
+      visible: true,
+      structuralRole: "generic",
+      textualMarkableContentCount: 1,
+      children: [target("nested", 1)],
+    };
+    const wrapper = group("mixed-wrapper", [eligibleA, eligibleB, descendantOnlyTextualSibling]);
+
+    expect(isGroupingWidenTarget(wrapper)).toBe(false);
+  });
+
+  it("ignores textless structural noise but preserves the shallow grouping guard", () => {
+    const spacer: WidenNode = {
+      key: "spacer",
+      tagName: "DIV",
+      depthFromBody: 4,
+      visible: true,
+      structuralRole: "generic",
+      textualMarkableContentCount: 0,
+    };
+    expect(isGroupingWidenTarget(group("with-noise", [target("a", 1), spacer, target("b", 1)])))
+      .toBe(true);
+    expect(isGroupingWidenTarget(group("shallow", [target("c", 1), target("d", 1)], {
+      structuralRole: "generic",
+      depthFromBody: 2,
+    }))).toBe(false);
   });
 });

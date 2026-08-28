@@ -9,7 +9,15 @@ import {
   LEGACY_CONSENT_BYPASS_STYLE_ID,
   consentStyleForCapture,
 } from "../consent";
-import { sanitizeCaptureClassValue } from "./capture-hygiene";
+import {
+  restoreInteractionShieldInertForCapture,
+  restoreInteractionShieldStyleForCapture,
+} from "../interaction-shield-capture";
+import {
+  MOTION_CAPTURE_LEDGER_ATTR,
+  restoreMotionStyleForCapture,
+  sanitizeCaptureClassValue,
+} from "./capture-hygiene";
 import { readElementId } from "./element-identity";
 import { isActuallyPaintReachable } from "./paint-reachability";
 
@@ -233,17 +241,21 @@ function geometryFor(element: Element, pass: DomBridgePass): VisibilityGeometry 
     return cached;
   }
   const rect = element.getBoundingClientRect();
+  const view = element.ownerDocument.defaultView;
   const style = styleFor(element, pass);
   const ariaHidden = hasHiddenAncestor(element, "aria-hidden", "true", pass.ariaHiddenByElement);
   const srOnly = hasClassInAncestors(element, /\b(?:sr-only|visually-hidden)\b/, pass.srOnlyByElement);
   const geometry: VisibilityGeometry = {
     rect: {
       left: rect.left,
-      top: rect.top,
+      // Vertical visibility is page-height based, so use document coordinates.
+      // Horizontal clipping intentionally remains viewport-relative for the
+      // fixed mobile emulation width contract.
+      top: rect.top + (view?.scrollY ?? view?.pageYOffset ?? 0),
       width: rect.width,
       height: rect.height,
     },
-    viewportWidth: element.ownerDocument.defaultView?.innerWidth,
+    viewportWidth: view?.innerWidth,
     pageHeight: element.ownerDocument.documentElement.scrollHeight,
     style: style
       ? {
@@ -537,18 +549,32 @@ function escapeHtmlAttribute(value: string): string {
 
 function serializeAttributes(element: Element): string {
   const consentHidden = element.hasAttribute(CONSENT_HIDDEN_ATTR);
-  const safeConsentStyle = consentHidden ? consentStyleForCapture(element) : null;
+  const currentStyle = element.getAttribute("style");
+  const safeConsentStyle = consentHidden ? consentStyleForCapture(element) : currentStyle;
+  const hasMotionLedger = element.hasAttribute(MOTION_CAPTURE_LEDGER_ATTR);
+  const safeMotionStyle = hasMotionLedger
+    ? restoreMotionStyleForCapture(element, safeConsentStyle)
+    : safeConsentStyle;
+  const safeStyle = restoreInteractionShieldStyleForCapture(element, safeMotionStyle);
+  const safeInert = restoreInteractionShieldInertForCapture(element);
   const names = element.getAttributeNames()
     .filter((name) => !name.startsWith("data-uf-"));
-  if (consentHidden && safeConsentStyle && !names.includes("style")) {
+  if (safeStyle !== null && !names.includes("style")) {
     names.push("style");
   }
+  if (safeInert !== null && !names.includes("inert")) {
+    names.push("inert");
+  }
   return names
-    .filter((name) => name !== "style" || !consentHidden || safeConsentStyle !== null)
+    .filter((name) => {
+      if (name === "style") return safeStyle !== null;
+      if (name === "inert") return safeInert !== null;
+      return true;
+    })
     .flatMap((name) => {
-      let value = name === "style" && consentHidden
-        ? safeConsentStyle ?? ""
-        : element.getAttribute(name) ?? "";
+      let value = name === "style" ? safeStyle ?? ""
+        : name === "inert" ? safeInert ?? ""
+          : element.getAttribute(name) ?? "";
       if (name === "class") {
         value = sanitizeCaptureClassValue(value, element.tagName);
         if (!value) {

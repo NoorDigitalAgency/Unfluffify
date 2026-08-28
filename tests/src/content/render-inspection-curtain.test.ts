@@ -425,6 +425,53 @@ describe("render inspection replacement-document curtain", () => {
     expect(painted).toHaveBeenCalledOnce();
   });
 
+  it("does not acknowledge when visibility becomes hidden between frame proofs", async () => {
+    const { controller, document, window, painted } = harness();
+    controller.adopt(session("token-hidden-frame", 6, "nonce-hidden-frame"));
+
+    window.flushFrame();
+    document.visibilityState = "hidden";
+    window.flushFrame();
+    expect(painted).not.toHaveBeenCalled();
+
+    document.visibilityState = "visible";
+    document.dispatch("visibilitychange");
+    await flushMutation();
+    window.flushFrame();
+    window.flushFrame();
+    expect(painted).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a near-transparent curtain as starvation-fallback proof", async () => {
+    const { controller, window, painted, failed } = harness();
+    controller.adopt(session("token-transparent", 7, "nonce-transparent"));
+    const curtain = controller.element() as unknown as FakeElement;
+    curtain.style.setProperty("opacity", "0.001", "important");
+
+    window.flushTimer(1_000);
+    await flushMutation();
+
+    expect(painted).not.toHaveBeenCalled();
+    expect(failed).not.toHaveBeenCalled();
+  });
+
+  it("requires full visible coverage on the normal second-frame proof", async () => {
+    const { controller, window, painted } = harness();
+    controller.adopt(session("token-frame-coverage", 8, "nonce-frame-coverage"));
+    const curtain = controller.element() as unknown as FakeElement;
+
+    window.flushFrame();
+    curtain.style.setProperty("opacity", "0.001", "important");
+    window.flushFrame();
+    expect(painted).not.toHaveBeenCalled();
+
+    curtain.style.setProperty("opacity", "1", "important");
+    await flushMutation();
+    window.flushFrame();
+    window.flushFrame();
+    expect(painted).toHaveBeenCalledOnce();
+  });
+
   it("restarts the two-frame proof when the root is replaced between paint opportunities", async () => {
     const { controller, document, window, painted } = harness();
     controller.adopt(session("token-a", 1, "nonce-a"));

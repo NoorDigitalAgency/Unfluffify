@@ -121,6 +121,10 @@ export function createLockBrowserLifecycle(input: Readonly<{
   onMainDocumentNavigationFailed?(tabId: number, pageUrl: string | null): void;
   onMainDocumentCommitted?(tabId: number, documentId: string | null, pageUrl: string | null): void;
   onMainDocumentHistoryChanged?(tabId: number, documentId: string | null, pageUrl: string | null): void;
+  isDurableSameDocumentNavigation?(
+    tabId: number,
+    commit: MainDocumentCommit,
+  ): boolean | Promise<boolean>;
   onTabTerminated(
     tabId: number,
     reason: LockTabTerminationReason,
@@ -131,6 +135,9 @@ export function createLockBrowserLifecycle(input: Readonly<{
   const activeTabByWindow = new Map<number, number>();
   const lastPresenceByTab = new Map<number, string>();
   const lastMainDocumentByTab = new Map<number, MainDocumentCommit>();
+  const sameDocumentClassifications = new Map<number, Promise<void>>();
+  const lifecycleGenerationByTab = new Map<number, number>();
+  const removedTabs = new Set<number>();
   let focusedWindowId: number | null = null;
   let browserIdle = true;
   let started = false;
@@ -204,10 +211,13 @@ export function createLockBrowserLifecycle(input: Readonly<{
       });
       tabs?.onRemoved?.addListener((tabId) => {
         tabEventVersion += 1;
+        lifecycleGenerationByTab.set(tabId, (lifecycleGenerationByTab.get(tabId) ?? 0) + 1);
+        removedTabs.add(tabId);
         const windowId = tabWindowById.get(tabId);
         tabWindowById.delete(tabId);
         lastPresenceByTab.delete(tabId);
         lastMainDocumentByTab.delete(tabId);
+        sameDocumentClassifications.delete(tabId);
         if (windowId !== undefined && activeTabByWindow.get(windowId) === tabId) {
           activeTabByWindow.delete(windowId);
         }
@@ -251,6 +261,7 @@ export function createLockBrowserLifecycle(input: Readonly<{
       });
       webNavigation?.onCommitted?.addListener(({ tabId, frameId, documentId, url }) => {
         if (frameId === 0) {
+          lifecycleGenerationByTab.set(tabId, (lifecycleGenerationByTab.get(tabId) ?? 0) + 1);
           // This event is Chrome's authoritative document boundary. Publish it
           // synchronously before any asynchronous cleanup so an old content
           // realm cannot present itself as the replacement document while the
@@ -276,11 +287,74 @@ export function createLockBrowserLifecycle(input: Readonly<{
         url?: string;
       }>): void => {
         if (frameId === 0) {
+          if (removedTabs.has(tabId)) {
+            return;
+          }
           const commit = {
             documentId: typeof documentId === "string" && documentId ? documentId : null,
             pageUrl: typeof url === "string" && url ? url : null,
           };
           if (isNoopSameDocumentNavigation(lastMainDocumentByTab.get(tabId), commit)) {
+            return;
+          }
+          if (
+            !lastMainDocumentByTab.has(tabId) &&
+            input.isDurableSameDocumentNavigation
+          ) {
+            const lifecycleGeneration = lifecycleGenerationByTab.get(tabId) ?? 0;
+            const previousClassification = sameDocumentClassifications.get(tabId) ?? Promise.resolve();
+            const classification = previousClassification.then(async () => {
+              if (
+                removedTabs.has(tabId) ||
+                (lifecycleGenerationByTab.get(tabId) ?? 0) !== lifecycleGeneration
+              ) {
+                return;
+              }
+              if (isNoopSameDocumentNavigation(lastMainDocumentByTab.get(tabId), commit)) {
+                return;
+              }
+              const priorFifoCommit = lastMainDocumentByTab.get(tabId);
+              if (priorFifoCommit) {
+                // A preceding cold-start classification is ordered before this
+                // event; it is not a newer document boundary. Reclassify this
+                // queued route against that established document immediately.
+                // A real onCommitted boundary increments lifecycleGeneration
+                // and is rejected by the fence above instead.
+                lastMainDocumentByTab.set(tabId, commit);
+                input.onMainDocumentHistoryChanged?.(tabId, commit.documentId, commit.pageUrl);
+                terminate(tabId, "navigation", commit);
+                return;
+              }
+              let preserve = false;
+              try {
+                preserve = await input.isDurableSameDocumentNavigation!(tabId, commit);
+              } catch {
+                // Unknown durable state fails safe into the existing cleanup.
+              }
+              if (
+                removedTabs.has(tabId) ||
+                (lifecycleGenerationByTab.get(tabId) ?? 0) !== lifecycleGeneration
+              ) {
+                return;
+              }
+              const newerDocument = lastMainDocumentByTab.get(tabId);
+              if (newerDocument && !isNoopSameDocumentNavigation(newerDocument, commit)) {
+                return;
+              }
+              lastMainDocumentByTab.set(tabId, commit);
+              if (preserve) {
+                return;
+              }
+              input.onMainDocumentHistoryChanged?.(tabId, commit.documentId, commit.pageUrl);
+              terminate(tabId, "navigation", commit);
+            });
+            sameDocumentClassifications.set(tabId, classification);
+            const releaseClassification = (): void => {
+              if (sameDocumentClassifications.get(tabId) === classification) {
+                sameDocumentClassifications.delete(tabId);
+              }
+            };
+            void classification.then(releaseClassification, releaseClassification);
             return;
           }
           lastMainDocumentByTab.set(tabId, commit);

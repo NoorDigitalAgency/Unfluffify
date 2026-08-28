@@ -294,21 +294,32 @@ export function createRewriteBackgroundServices(input: Readonly<{
             const existing = await localPropertyRepo.load(environmentKey, siteId);
             return {
               renderMode: existing.ok ? existing.value?.renderMode : undefined,
+              ...(existing.ok && existing.value?.pendingRenderModeDraft
+                ? { pendingRenderMode: existing.value.pendingRenderModeDraft.renderMode }
+                : {}),
               source: "local" as const,
             };
           }
           if (outcome.status === "ok") {
             const stored = await configRepo.load(environmentKey, siteId);
+            const existingLocal = await localPropertyRepo.load(environmentKey, siteId);
             const adoption = assessAuthoritativeSnapshot(
               stored.ok ? stored.value : null,
               outcome.config,
               { environmentKey, siteId },
             );
+            const draft = existingLocal.ok ? existingLocal.value?.pendingRenderModeDraft : undefined;
+            const retainedDraft = draft &&
+              draft.basePropertyRevision === adoption.snapshot.propertyRevision &&
+              draft.baseRenderModeUpdatedAt === adoption.snapshot.renderModeUpdatedAt
+              ? draft
+              : undefined;
             await configRepo.save(adoption.snapshot);
             await localPropertyRepo.save({
               environmentKey,
               siteId,
               backendConfigPresent: true,
+              ...(retainedDraft ? { pendingRenderModeDraft: retainedDraft } : {}),
               ...(adoption.integrityWarning ? {
                 integrityWarning: {
                   ...adoption.integrityWarning,
@@ -320,6 +331,7 @@ export function createRewriteBackgroundServices(input: Readonly<{
             });
             return {
               renderMode: adoption.snapshot.renderMode,
+              ...(retainedDraft ? { pendingRenderMode: retainedDraft.renderMode } : {}),
               source: "backend" as const,
               snapshot: adoption.snapshot,
               integrityWarning: adoption.integrityWarning,
@@ -327,6 +339,9 @@ export function createRewriteBackgroundServices(input: Readonly<{
           }
           await configRepo.clear(environmentKey, siteId);
           const existing = await localPropertyRepo.load(environmentKey, siteId);
+          // A definitive 404 is an authoritative replacement, so a draft made
+          // against the former backend baseline is retired. Only the original
+          // first-config local exemption survives another 404.
           const keptRenderMode = existing.ok ? existing.value?.renderMode : undefined;
           await localPropertyRepo.save({
             environmentKey,
@@ -394,13 +409,37 @@ export function createRewriteBackgroundServices(input: Readonly<{
           return overlayLivePageOnAuthoritativeCorpus(stored.ok ? stored.value : null, live);
         });
       },
-      /** Refused when the backend already has a configuration for the property:
-       *  local storage is only permitted while it does not. */
+      /** Stores either the 404-only local choice or one revision-fenced draft
+       *  for an existing backend configuration. The draft is explicitly not
+       *  authority; config.load returns it separately and a Save is the only
+       *  path that can put it on Hub. */
       rememberRenderMode(environmentKey: string, siteId: number, renderMode: RenderMode) {
         return withPropertyOperation(environmentKey, siteId, async () => {
           const existing = await localPropertyRepo.load(environmentKey, siteId);
           if (existing.ok && existing.value?.backendConfigPresent) {
-            return { stored: false as const, reason: "backend-config-present" as const };
+            const authoritative = await configRepo.load(environmentKey, siteId);
+            if (!authoritative.ok || !authoritative.value) {
+              return { stored: false as const, reason: "backend-config-unavailable" as const };
+            }
+            const { pendingRenderModeDraft: _priorDraft, ...retained } = existing.value;
+            if (authoritative.value.renderMode === renderMode) {
+              await localPropertyRepo.save({
+                ...retained,
+                updatedAt: new Date().toISOString(),
+              });
+              return { stored: true as const, reason: "authoritative-match" as const };
+            }
+            await localPropertyRepo.save({
+              ...retained,
+              pendingRenderModeDraft: {
+                renderMode,
+                basePropertyRevision: authoritative.value.propertyRevision,
+                baseRenderModeUpdatedAt: authoritative.value.renderModeUpdatedAt,
+                updatedAt: new Date().toISOString(),
+              },
+              updatedAt: new Date().toISOString(),
+            });
+            return { stored: true as const, reason: "pending-save" as const };
           }
           await localPropertyRepo.save({
             environmentKey,

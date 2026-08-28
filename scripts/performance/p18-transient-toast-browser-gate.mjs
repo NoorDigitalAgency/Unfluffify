@@ -26,6 +26,7 @@ import {
   renderContentFixturePage,
   renderPopupFixturePage,
 } from "./p18/fixture.mjs";
+import { classifyParitySourceStatus } from "./p25/source-identity.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "../..");
@@ -119,10 +120,7 @@ async function fileManifest(paths, baseDirectory = repositoryRoot) {
 
 async function sourceIdentity() {
   const rawStatus = await git("status", "--porcelain=v1", "--untracked-files=all", "--", ".");
-  const status = rawStatus
-    .split("\n")
-    .filter(Boolean)
-    .filter((line) => !line.slice(3).startsWith("output/playwright/p18-transient-toast/"));
+  const classifiedStatus = classifyParitySourceStatus(rawStatus);
   const trackedDiff = (await run("git", ["diff", "--binary", "HEAD", "--", "."])).stdout;
   const manifestPaths = (await git(
     "ls-files",
@@ -135,13 +133,15 @@ async function sourceIdentity() {
     "pnpm-lock.yaml",
     "scripts/performance/p18-transient-toast-browser-gate.mjs",
     "scripts/performance/p18",
+    "scripts/performance/p25/source-identity.mjs",
     "tests/p18-browser-transient-toast-contract.test.ts",
   )).split("\n").filter(Boolean);
   const harnessManifest = await fileManifest(manifestPaths);
   return {
     headCommit: await git("rev-parse", "HEAD"),
-    cleanSourceSet: status.length === 0,
-    status,
+    cleanSourceSet: classifiedStatus.cleanSourceSet,
+    status: classifiedStatus.status,
+    artifactStatus: classifiedStatus.artifactStatus,
     trackedDiffSha256: sha256(trackedDiff),
     harnessManifest,
     harnessManifestSha256: sha256(JSON.stringify(harnessManifest)),

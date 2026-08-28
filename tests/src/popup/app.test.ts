@@ -734,16 +734,17 @@ describe("popup App surface", () => {
     expect(markup).not.toMatch(/id="render-mode-without-js"[^>]*title=/);
   });
 
-  it("says when a chosen render mode is only held locally", () => {
-    // A choice kept because the backend has no configuration is not the same as
-    // one the backend confirmed, and the difference decides whether it survives.
+  it("distinguishes local and pending render-mode choices from backend authority", () => {
     const local = renderRenderModeView({ ...SIGNED_IN, renderMode: "static", renderModeSource: "local" });
     const backend = renderRenderModeView({ ...SIGNED_IN, renderMode: "static", renderModeSource: "backend" });
+    const pending = renderRenderModeView({ ...SIGNED_IN, renderMode: "static", renderModeSource: "pending" });
     const unset = renderRenderModeView({ ...SIGNED_IN, renderModeSource: "local" });
 
     expect(local).toContain('data-render-mode-source="local"');
     expect(local).toContain("not saved yet");
     expect(backend).not.toContain("data-render-mode-source");
+    expect(pending).toContain('data-render-mode-source="pending"');
+    expect(pending).toContain("pending Save");
     // Nothing chosen yet is not "unsaved"; it is simply absent.
     expect(unset).not.toContain("data-render-mode-source");
   });
@@ -1263,7 +1264,7 @@ describe("popup App surface", () => {
       },
     );
 
-    expect(markup).toContain("Checking Lynx selector status...");
+    expect(markup).toContain("Publishing selectors to Lynx…");
     expect(markup).toMatch(/id="lynx-checklist-send"[^>]*disabled/);
     expect(markup).toMatch(/id="lynx-checklist-cancel"[^>]*disabled/);
   });

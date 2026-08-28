@@ -32,7 +32,7 @@ test("repo MCP specs stay placeholdered (non-launchable) and keep no-sandbox lau
 test("live browser launcher targets the WXT output and canonical pnpm command", () => {
   const launcher = readFileSync(new URL("../scripts/launch-test-browser.mjs", import.meta.url), "utf8");
 
-  assert.match(launcher, /Usage:\s*\n \* {3}pnpm browser:live <target-url> \[--no-build\]/);
+  assert.match(launcher, /Usage:\s*\n \* {3}pnpm browser:live <target-url> \[--no-build\] \[--bundle-source <bundle-dir>\]/);
   assert.match(launcher, /const EXT_DIR = join\(repoRoot, "\.output", "chrome-mv3"\);/);
   assert.match(launcher, /await run\("pnpm", \["build"\]\);/);
   assert.match(launcher, /Run \\`pnpm build\\` first/);
@@ -69,6 +69,11 @@ test("live browser launcher targets the WXT output and canonical pnpm command", 
   assert.match(launcher, /if \(currentManifest !== stamp\.stampedManifest\) return false;/);
   assert.match(launcher, /await writeFile\(stamp\.manifestPath, stamp\.originalManifest, "utf8"\);/);
   assert.match(launcher, /finally \{[\s\S]*?await restoreStampedManifest\(\);[\s\S]*?\}/);
+  assert.match(launcher, /async function stageBundleSource\(sourceArgument\)/);
+  assert.match(launcher, /async function restoreBundleSwap\(/);
+  assert.match(launcher, /browser-live-bundle-swap\.json/);
+  assert.match(launcher, /await cp\(sourceRoot, EXT_DIR/);
+  assert.doesNotMatch(launcher, /`--load-extension=\$\{[^}]+\}`/);
   assert.doesNotMatch(launcher, /document\.body\?\.innerText/);
   assert.match(launcher, /if \(line === "state"\) \{[\s\S]*?const resumeObserve = observing;[\s\S]*?observing = false;[\s\S]*?runStateAction\("state", CONTROL_STATE_TIMEOUT_MS, \{[\s\S]*?includeTarget: false[\s\S]*?if \(resumeObserve\) \{[\s\S]*?observing = true;[\s\S]*?void observeLoop\(\);/);
   assert.match(launcher, /runStateAction\("state", CONTROL_OBSERVE_TIMEOUT_MS, \{[\s\S]*?includeTarget: false/);

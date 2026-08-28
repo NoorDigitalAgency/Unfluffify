@@ -126,6 +126,7 @@ describe("popup presentation contract", () => {
       renderModeSource: "local",
       contentActive: false,
       contentDirty: false,
+      sessionPending: false,
       contentReachable: true,
       runSessionId: "",
       settingsLoaded: false,
@@ -207,7 +208,7 @@ describe("popup presentation contract", () => {
     });
   });
 
-  it("overlays local preflight without replacing a brain-owned curtain", () => {
+  it("keeps operator phases truthful while preserving a brain-owned lock curtain", () => {
     const action: OperatorActionState = {
       id: 1,
       kind: "marking-preflight",
@@ -234,10 +235,21 @@ describe("popup presentation contract", () => {
       reconciliationReason: "post_ai",
       runSessionId: "run-1",
     });
-    expect(presentationExports.overlayOperatorActionPresentation(running, action, true)).toBe(running);
+    expect(presentationExports.overlayOperatorActionPresentation(running, action, true)).toMatchObject({
+      curtainText: "Preparing marking",
+      blockedReason: "emulation",
+    });
+    const locked = memoryFor({
+      name: "locked",
+      lastConsumedSeq: 3,
+      reconciliationReason: "",
+      priorState: "pre_ai_clean",
+      lockBanner: { visible: true, text: "Held elsewhere" },
+    });
+    expect(presentationExports.overlayOperatorActionPresentation(locked, action, true)).toBe(locked);
   });
 
-  it("preserves curtain, dirty-disable, and panel blocking truth tables", () => {
+  it("preserves curtain, pending-session disable, and panel blocking truth tables", () => {
     expect(presentationExports.resolvePopupCurtainKind(memoryFor({
       name: "silent",
       lastConsumedSeq: 1,
@@ -260,7 +272,7 @@ describe("popup presentation contract", () => {
       [true, false, false],
       [false, false, false],
       [false, true, true],
-    ].map(([enabled, dirty]) => presentationExports.markingDisableNeedsConfirmation(enabled, dirty)))
+    ].map(([enabled, pending]) => presentationExports.markingDisableNeedsConfirmation(enabled, pending)))
       .toEqual([false, false, false, true]);
 
     const baseline = {
@@ -281,6 +293,7 @@ describe("popup presentation contract", () => {
       "candidateConfirmation",
       "maintenanceConfirmation",
       "markingDisableConfirmation",
+      "discardConfirmation",
       "checklist",
     ] as const) {
       expect(presentationExports.resolvePopupPanelBlocking({ ...baseline, [key]: true }), key).toBe(true);

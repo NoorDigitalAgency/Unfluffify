@@ -24,17 +24,39 @@ type RectLike = Readonly<{
   height: number;
 }>;
 
-type ClassificationBox = Readonly<{
+type ClassificationBox = {
   overlay: HTMLElement;
   xpath: string;
   classification: Classification;
-}>;
+  rect: RectLike;
+  explicit: boolean;
+  paintOrder: number;
+};
 
 type SilentBox = Readonly<{
   overlay: HTMLElement;
   xpath: string;
   presentation: string;
 }>;
+
+type PaintedOwnerFragment = Readonly<{
+  xpath: string;
+  rect: RectLike;
+  explicit: boolean;
+  paintOrder: number;
+  depth: number;
+}>;
+
+const OWNER_INDEX_CELL_SIZE = 64;
+
+function pointInRect(rect: RectLike, x: number, y: number): boolean {
+  return x >= rect.left && x <= rect.left + rect.width &&
+    y >= rect.top && y <= rect.top + rect.height;
+}
+
+function ownerCellKey(x: number, y: number): string {
+  return `${Math.floor(x / OWNER_INDEX_CELL_SIZE)}:${Math.floor(y / OWNER_INDEX_CELL_SIZE)}`;
+}
 
 const LAYER_KEYS = [
   "hard",
@@ -145,22 +167,39 @@ function composedElementChildren(element: Element): Element[] {
     .filter((child) => child.getAttribute("data-uf-extension-ui") !== "true");
 }
 
-/** A display:contents/collapsed wrapper owns the semantic XPath, while the
- * nearest painted descendant owns its geometry. Stop at the first measurable
- * depth so unrelated deep descendants do not turn into one giant outline. */
+function hasNormalizedText(element: Element): boolean {
+  const visit = (node: Node): string => {
+    if (node.nodeType === 3) {
+      return node.textContent ?? "";
+    }
+    return Array.from(node.childNodes ?? []).map(visit).join(" ");
+  };
+  return /\S/.test(visit(element).replace(/\s+/g, " "));
+}
+
+/** A display:contents/collapsed textual wrapper owns the semantic XPath, while
+ * the first visible painted descendant in breadth-first order owns its
+ * geometry. The 200-node ceiling matches the approved legacy safety bound. */
 function nearestDescendantRects(
   element: Element,
   accept: (candidate: Element, rect: RectLike) => boolean,
 ): RectLike[] {
-  let frontier = composedElementChildren(element).slice(0, 64);
-  for (let depth = 0; depth < 8 && frontier.length > 0; depth += 1) {
-    const rects = frontier.flatMap((candidate) =>
-      ownMeasurableRects(candidate).filter((rect) => accept(candidate, rect))
-    );
+  if (!hasNormalizedText(element)) {
+    return [];
+  }
+  const queue = composedElementChildren(element);
+  let inspected = 0;
+  while (queue.length > 0 && inspected < 200) {
+    const candidate = queue.shift();
+    inspected += 1;
+    if (!candidate || !isCurrentlyVisuallyVisible(candidate)) {
+      continue;
+    }
+    const rects = ownMeasurableRects(candidate).filter((rect) => accept(candidate, rect));
     if (rects.length > 0) {
       return rects;
     }
-    frontier = frontier.flatMap(composedElementChildren).slice(0, 64);
+    queue.push(...composedElementChildren(candidate));
   }
   return [];
 }
@@ -202,7 +241,8 @@ function composedParentElement(element: Element): Element | null {
  * untouched. */
 export function isCurrentlyVisuallyVisible(element: Element): boolean {
   const view = element.ownerDocument.defaultView;
-  if (!view) {
+  const connection = element as Element & { isConnected?: boolean };
+  if (!view || connection.isConnected === false) {
     return false;
   }
   let current: Element | null = element;
@@ -212,7 +252,7 @@ export function isCurrentlyVisuallyVisible(element: Element): boolean {
     if (
       html.hidden === true ||
       current.hasAttribute("hidden") ||
-      current.getAttribute("aria-hidden") === "true" ||
+      current.hasAttribute("data-uf-consent-hidden") ||
       style.display === "none" ||
       style.visibility === "hidden" ||
       style.visibility === "collapse" ||
@@ -263,12 +303,21 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   const silentPresentationByXpath = new Map<string, string>();
   const silentBoxes = new Map<string, SilentBox>();
   const hoverBoxes = new Map<string, HTMLElement>();
+  const focusBoxes = new Map<string, HTMLElement>();
   let hoverElement: Element | null = null;
   let hoverXpath = "";
+  let focusElement: Element | null = null;
+  let focusXpath = "";
   let acknowledgementClearHandle: ReturnType<typeof setTimeout> | null = null;
   let silentDebugAnnotations = false;
   let passthroughActive = false;
   let inputTransparent = false;
+  let scrolling = false;
+  let renderGeneration = 0;
+  let paintOrder = 0;
+  let explicitExclusionXpaths = new Set<string>();
+  let ownerIndexGeneration = -1;
+  let ownerFragmentsByCell = new Map<string, PaintedOwnerFragment[]>();
   // Marking and silent layers are rendered synchronously from the same DOM
   // generation. Retain paint-reachable rects only until the next microtask so
   // that the immediately following silent pass can reuse the expensive native
@@ -305,6 +354,43 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     const measured = clientRectsFor(element, options.document);
     geometryBatch?.set(element, measured);
     return measured;
+  };
+
+  const rebuildPaintedOwnerIndex = (generation: number): void => {
+    const next = new Map<string, PaintedOwnerFragment[]>();
+    for (const record of classificationBoxes.values()) {
+      if (record.classification !== "exception") {
+        continue;
+      }
+      const fragment: PaintedOwnerFragment = {
+        xpath: record.xpath,
+        rect: record.rect,
+        explicit: explicitExclusionXpaths.has(record.xpath),
+        paintOrder: record.paintOrder,
+        depth: record.xpath.split("/").length,
+      };
+      const minColumn = Math.floor(record.rect.left / OWNER_INDEX_CELL_SIZE);
+      const maxColumn = Math.floor((record.rect.left + record.rect.width) / OWNER_INDEX_CELL_SIZE);
+      const minRow = Math.floor(record.rect.top / OWNER_INDEX_CELL_SIZE);
+      const maxRow = Math.floor((record.rect.top + record.rect.height) / OWNER_INDEX_CELL_SIZE);
+      for (let row = minRow; row <= maxRow; row += 1) {
+        for (let column = minColumn; column <= maxColumn; column += 1) {
+          const key = `${column}:${row}`;
+          const bucket = next.get(key) ?? [];
+          bucket.push(fragment);
+          next.set(key, bucket);
+        }
+      }
+    }
+    ownerFragmentsByCell = next;
+    ownerIndexGeneration = generation;
+    renderGeneration = generation;
+  };
+
+  const adoptEvaluationMetadata = (evaluation: EvaluationResult): void => {
+    explicitExclusionXpaths = new Set(evaluation.rows
+      .filter((row) => row.excluded === true && row.explicit === true)
+      .map((row) => row.xpath));
   };
 
   const updateClientArea = (): void => {
@@ -381,12 +467,10 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     let presentation = overlayClassFor(classification);
     let rects = measuredClientRectsFor(target.element);
     if (rects.length === 0 && classification === "explicit-include") {
-      rects = rawClientRectsFor(target.element);
+      rects = rawClientRectsFor(target.element).filter((rect) => rectInViewport(rect, options.document));
       if (!target.visible) {
         presentation = "uf-explicit-include-ghost";
       }
-    } else if (rects.length === 0 && (classification === "immutable" || classification === "closed-shadow")) {
-      rects = rawClientRectsFor(target.element);
     }
     const layer = layers.get(layerKey);
     if (!layer) {
@@ -402,10 +486,20 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         overlay.setAttribute("data-uf-overlay-classification", classification);
         overlay.setAttribute("data-uf-overlay-rect", String(index));
         overlay.className = `uf-rect ${presentation}`;
-        record = { overlay, xpath, classification };
+        record = {
+          overlay,
+          xpath,
+          classification,
+          rect: rects[index]!,
+          explicit: explicitExclusionXpaths.has(xpath),
+          paintOrder: 0,
+        };
         classificationBoxes.set(key, record);
         layer.appendChild(overlay);
       }
+      record.rect = rects[index]!;
+      record.explicit = explicitExclusionXpaths.has(xpath);
+      record.paintOrder = ++paintOrder;
       placeOverlay(record.overlay, rects[index]!);
       used.add(key);
     }
@@ -553,6 +647,35 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     }
   };
 
+  const drawFocus = (): void => {
+    const used = new Set<string>();
+    const layer = layers.get("focus");
+    if (layer && focusElement) {
+      const rects = measuredClientRectsFor(focusElement);
+      for (let index = 0; index < rects.length; index += 1) {
+        const key = `${focusXpath}\u0000${index}`;
+        let overlay = focusBoxes.get(key);
+        if (!overlay) {
+          overlay = options.document.createElement("div");
+          overlay.setAttribute("data-uf-extension-ui", "true");
+          overlay.setAttribute("data-uf-overlay-focus", focusXpath);
+          overlay.setAttribute("data-uf-overlay-rect", String(index));
+          overlay.className = "uf-rect uf-focus";
+          focusBoxes.set(key, overlay);
+          layer.appendChild(overlay);
+        }
+        placeOverlay(overlay, rects[index]!);
+        used.add(key);
+      }
+    }
+    for (const [key, overlay] of focusBoxes) {
+      if (!used.has(key)) {
+        overlay.remove();
+        focusBoxes.delete(key);
+      }
+    }
+  };
+
   const clearAcknowledgement = (): void => {
     if (acknowledgementClearHandle !== null) {
       clearTimeout(acknowledgementClearHandle);
@@ -585,8 +708,13 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     silentPresentationByXpath.clear();
     silentBoxes.clear();
     hoverBoxes.clear();
+    focusBoxes.clear();
     hoverElement = null;
     hoverXpath = "";
+    focusElement = null;
+    focusXpath = "";
+    ownerFragmentsByCell.clear();
+    ownerIndexGeneration = -1;
   };
 
   mountLayers();
@@ -596,8 +724,13 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     detach(): void {
       root.remove();
     },
-    render(evaluation: EvaluationResult, byXpath: ReadonlyMap<string, OverlayRenderTarget>): void {
+    render(
+      evaluation: EvaluationResult,
+      byXpath: ReadonlyMap<string, OverlayRenderTarget>,
+      generation = renderGeneration + 1,
+    ): void {
       beginRetainedGeometryBatch();
+      adoptEvaluationMetadata(evaluation);
       const submittedXpaths = new Set(evaluation.rows.map((row) => row.xpath));
       classificationByXpath.clear();
       for (const [xpath, classification] of evaluation.overlay) {
@@ -610,9 +743,15 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         }
       }
       drawCurrentClassifications(byXpath);
+      rebuildPaintedOwnerIndex(generation);
     },
-    renderBranch(evaluation: EvaluationResult, byXpath: ReadonlyMap<string, OverlayRenderTarget>): void {
+    renderBranch(
+      evaluation: EvaluationResult,
+      byXpath: ReadonlyMap<string, OverlayRenderTarget>,
+      generation = renderGeneration,
+    ): void {
       beginRetainedGeometryBatch();
+      adoptEvaluationMetadata(evaluation);
       const affected = new Set(byXpath.keys());
       const submittedXpaths = new Set(evaluation.rows.map((row) => row.xpath));
       const used = new Set<string>();
@@ -637,10 +776,11 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         drawClassification(xpath, classification, target, used);
       }
       finalizeClassification(used, affected);
+      rebuildPaintedOwnerIndex(generation);
     },
     reposition(
       byXpath: ReadonlyMap<string, OverlayRenderTarget>,
-      renderOptions: Readonly<{ includeSilent?: boolean }> = {},
+      renderOptions: Readonly<{ includeSilent?: boolean; generation?: number }> = {},
     ): void {
       beginGeometryBatch();
       try {
@@ -650,6 +790,8 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
           drawSilent(byXpath, undefined, true);
         }
         drawHover();
+        drawFocus();
+        rebuildPaintedOwnerIndex(renderOptions.generation ?? renderGeneration);
       } finally {
         endGeometryBatch();
       }
@@ -667,6 +809,44 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       } finally {
         endGeometryBatch();
       }
+    },
+    setFocus(element: Element | null, xpath = ""): void {
+      const nextXpath = element ? xpath : "";
+      if (focusElement === element && focusXpath === nextXpath) {
+        return;
+      }
+      focusElement = element;
+      focusXpath = nextXpath;
+      beginGeometryBatch();
+      try {
+        drawFocus();
+      } finally {
+        endGeometryBatch();
+      }
+    },
+    paintedExclusionOwnerAtPoint(
+      x: number,
+      y: number,
+      generation: number,
+      preferredXpath = "",
+    ): string | null {
+      if (scrolling || generation !== ownerIndexGeneration) {
+        return null;
+      }
+      const matches = (ownerFragmentsByCell.get(ownerCellKey(x, y)) ?? [])
+        .filter((fragment) => pointInRect(fragment.rect, x, y));
+      const preferred = preferredXpath
+        ? matches.find((fragment) => fragment.xpath === preferredXpath)
+        : undefined;
+      if (preferred) {
+        return preferred.xpath;
+      }
+      matches.sort((left, right) =>
+        Number(right.explicit) - Number(left.explicit) ||
+        right.paintOrder - left.paintOrder ||
+        right.depth - left.depth
+      );
+      return matches[0]?.xpath ?? null;
     },
     renderSilentHighlights(
       xpaths: readonly string[],
@@ -807,6 +987,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       }
     },
     setScrolling(active: boolean): void {
+      scrolling = active;
       setRootState("uf-scrolling", active);
     },
     clear(): void {

@@ -63,11 +63,6 @@ function silentBox(xpath: string): HTMLElement | null {
     .find((box) => box.dataset.ufSilentHighlight?.toLowerCase() === xpath.toLowerCase()) ?? null;
 }
 
-function hoverBox(xpath: string): HTMLElement | null {
-  return Array.from(document.querySelectorAll<HTMLElement>("[data-uf-overlay-hover]"))
-    .find((box) => box.dataset.ufOverlayHover?.toLowerCase() === xpath.toLowerCase()) ?? null;
-}
-
 function rowForXpath(xpath: string) {
   return engine?.rows().find((row) => row.xpath.toLowerCase() === xpath.toLowerCase());
 }
@@ -308,8 +303,12 @@ const runtime = {
     clock.arm("mousemove");
   },
   async finishHover(): Promise<number> {
-    const xpath = elementXpath(document.querySelector("[data-p14-id='click-target']")!);
-    await waitFor(() => Boolean(hoverBox(xpath)), "rewrite hover paint");
+    // Shift hover intentionally previews the widened exclusion boundary, whose
+    // XPath can be an ancestor of the physical click target.
+    await waitFor(
+      () => Boolean(document.querySelector("[data-uf-overlay-hover]")),
+      "rewrite hover paint",
+    );
     await doubleAnimationFrame();
     return clock.elapsed();
   },
@@ -317,16 +316,17 @@ const runtime = {
     clock.arm("click");
   },
   async finishClick() {
-    const xpath = elementXpath(document.querySelector("[data-p14-id='click-target']")!);
     await waitFor(() => {
+      const box = document.querySelector<HTMLElement>(
+        "[data-layer='session-explicit-exclude'] [data-uf-overlay-classification='exception']",
+      );
+      const xpath = box?.dataset.ufOverlayXpath ?? "";
       const row = rowForXpath(xpath);
-      const box = overlayBox(xpath);
       return row?.excluded === true
         && row.explicit === true
         && userToggleCount === 1
         && reportPayloadCount === 1
-        && box?.dataset.ufOverlayClassification === "exception"
-        && box.closest("[data-layer='session-explicit-exclude']") !== null;
+        && box?.dataset.ufOverlayClassification === "exception";
     }, "rewrite committed and painted physical click");
     await doubleAnimationFrame();
     return {

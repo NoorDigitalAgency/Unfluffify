@@ -6,26 +6,24 @@
  * to the target tab once startup is complete.
  *
  * Usage:
- *   pnpm browser:live <target-url> [--no-build]
+ *   pnpm browser:live <target-url> [--no-build] [--bundle-source <bundle-dir>]
  *
  * What it does (the canonical, proven flow):
  *   1. Builds the current WXT unpacked extension (`pnpm build`) unless --no-build.
- *   2. Resolves the current repo root and materializes a launchable, per-env
+ *   2. Acquires exclusive launcher/profile/port ownership and verifies a trusted
+ *      source-to-bundle attestation (including pinned legacy bundle sources).
+ *   3. Resolves the current repo root and materializes a launchable, per-env
  *      copy of the placeholdered browser config into the gitignored `.temp/`
  *      (substituting the repo root and dropping `executablePath` so Playwright
  *      uses its managed Chromium).
- *   3. Ensures the MCP-managed Chromium is installed (idempotent).
- *   4. Resolves and starts the pinned package's managed Chromium directly,
- *      bound to `.wxt/browser-profile`, with the target URL as its first tab.
- *   6. Resolves the loaded extension id from the service worker (and verifies it
+ *   4. Ensures the MCP-managed Chromium is installed (idempotent).
+ *   5. Drops only the unused profile's stale service-worker registration and
+ *      stamps a temporary, normalized-away manifest launch counter.
+ *   6. Resolves and starts the pinned package's managed Chromium directly,
+ *      bound to `.wxt/browser-profile`, initially at `about:blank`.
+ *   7. Opens the requested URL as an exact CDP-identified target and resolves the
+ *      loaded extension id from the service worker (verifying it
  *      against the deterministic path-hash id).
- *   7. Drops the profile's service-worker registration and stamps a monotonic build
- *      counter into the manifest version. Both exist for one reason: Chrome keeps
- *      serving the worker it registered for this profile, so a rebuilt background
- *      silently answers with the previous build's code. The version bump alone was
- *      measured NOT to dislodge an already-registered worker; dropping the
- *      registration does, and it keeps the extension's stored data — the operator's
- *      endpoints, token and property state all survive.
  *   8. Reloads the target page (never the extension — see the bind script: the
  *      extension reload unloads the extension outright in the current managed
  *      Chromium).
@@ -33,16 +31,29 @@
  *  10. Uses a temporary `popup.html?debugTabId=<pageTabId>` helper to open the
  *      real side panel for trusted popup-only commands such as render
  *      inspection, then closes the helper so only one popup client remains.
+ *  11. Atomically emits launch-bound source/bundle/browser/profile/target
+ *      provenance only after every runtime identity has been proven.
  *
  * The browser stays open until this process is stopped (Ctrl-C / kill <pid>).
  */
 import { spawn, spawnSync } from "node:child_process";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
-import { join, resolve } from "node:path";
+import { cp, lstat, mkdir, readFile, readdir, readlink, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { createConnection } from "node:net";
 import { createInterface } from "node:readline";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import {
+  BROWSER_LIVE_BUILD_ATTESTATION_SCHEMA_VERSION,
+  BROWSER_LIVE_PROVENANCE_SCHEMA_VERSION,
+  PINNED_LEGACY_ATTESTATION_SCHEMA_VERSION,
+  SOURCE_LOCKFILE,
+  normalizedBundleInventory,
+  pinnedLegacyAttestationFailures,
+  validateBundleInventoryAttestation,
+} from "./performance/p25/bundle-provenance.mjs";
+import { normalizeLiveUrl } from "./performance/p25/live-comparison-contract.mjs";
 
 const selfPath = fileURLToPath(import.meta.url);
 const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -55,6 +66,12 @@ const PROFILE_EXISTED = await stat(PROFILE_DIR).then(() => true, () => false);
 const TEMP_DIR = join(repoRoot, ".temp");
 const TEMP_CONFIG = join(TEMP_DIR, "browser-mcp.config.json");
 const COMMITTED_CONFIG = join(repoRoot, ".vscode", "browser-mcp.config.json");
+const BUNDLE_SWAP_MARKER = join(TEMP_DIR, "browser-live-bundle-swap.json");
+const LAUNCH_LOCK = join(TEMP_DIR, "browser-live-launch.lock.json");
+const BUNDLE_SWAP_SCHEMA = "browser-live-bundle-swap/v2";
+const BUILD_ATTESTATION = join(TEMP_DIR, "browser-live-build-attestation.json");
+const LAUNCH_PROVENANCE = join(TEMP_DIR, "browser-live-provenance.json");
+const PINNED_LEGACY_ATTESTATION = join(repoRoot, "scripts", "performance", "p25", "pinned-legacy-bundle-attestation.json");
 /** The MCP package/browser revision is PINNED, not floating.
  *
  *  `@latest` broke this harness twice in one day. First the Chromium it bundles
@@ -68,19 +85,34 @@ const COMMITTED_CONFIG = join(repoRoot, ".vscode", "browser-mcp.config.json");
 const PLAYWRIGHT_MCP_VERSION = "0.0.78";
 const PLAYWRIGHT_MCP_PACKAGE = `@playwright/mcp@${PLAYWRIGHT_MCP_VERSION}`;
 const CDP_PORT = 9222;
+const LAUNCH_LOCK_SCHEMA = "browser-live-launch-lock/v1";
 const CONTROL_STATE_TIMEOUT_MS = 30_000;
 const CONTROL_OBSERVE_TIMEOUT_MS = 10_000;
 const XVFB_WRAP_ENV = "UNFLUFFIFY_BROWSER_LIVE_XVFB_WRAPPED";
 const XVFB_RUN_ARGS = ["-a", "--server-args=-screen 0 1280x900x24"];
 const MANUAL_XVFB_COMMAND =
-  'xvfb-run -a --server-args="-screen 0 1280x900x24" pnpm browser:live <target-url> [--no-build]';
+  'xvfb-run -a --server-args="-screen 0 1280x900x24" pnpm browser:live <target-url> [--no-build] [--bundle-source <bundle-dir>]';
 
 // --- args -----------------------------------------------------------------
 const positionals = [];
 const flags = new Set();
-for (const a of process.argv.slice(2)) {
-  if (a.startsWith("--")) flags.add(a);
-  else positionals.push(a);
+let bundleSourceArgument = null;
+const rawArguments = process.argv.slice(2);
+for (let index = 0; index < rawArguments.length; index += 1) {
+  const argument = rawArguments[index];
+  if (argument === "--bundle-source") {
+    const value = rawArguments[index + 1];
+    if (!value || value.startsWith("--")) {
+      console.error("ERROR: --bundle-source requires a bundle directory");
+      process.exit(2);
+    }
+    bundleSourceArgument = value;
+    index += 1;
+  } else if (argument.startsWith("--")) {
+    flags.add(argument);
+  } else {
+    positionals.push(argument);
+  }
 }
 
 let target = positionals[0];
@@ -92,13 +124,31 @@ if (!target) {
       "The user must instruct which page to load. If they did not, STOP and ask",
       "them for it — do not guess a default.",
       "",
-      "Usage: pnpm browser:live <target-url> [--no-build]",
+      "Usage: pnpm browser:live <target-url> [--no-build] [--bundle-source <bundle-dir>]",
     ].join("\n"),
   );
   process.exit(2);
 }
 if (!/^https?:\/\//i.test(target)) target = `https://${target}`;
+try {
+  const parsedTarget = new URL(target);
+  if (!/^https?:$/.test(parsedTarget.protocol) || !parsedTarget.hostname) throw new Error("HTTP(S) host is missing");
+  target = parsedTarget.href;
+} catch (error) {
+  console.error(`ERROR: invalid target page URL ${JSON.stringify(target)}: ${String(error?.message ?? error)}`);
+  process.exit(2);
+}
 const doBuild = !flags.has("--no-build");
+for (const flag of flags) {
+  if (flag !== "--no-build") {
+    console.error(`ERROR: unsupported browser:live option ${flag}`);
+    process.exit(2);
+  }
+}
+if (bundleSourceArgument && doBuild) {
+  console.error("ERROR: --bundle-source selects an existing bundle and therefore requires --no-build");
+  process.exit(2);
+}
 
 // --- helpers --------------------------------------------------------------
 function commandExists(command) {
@@ -139,9 +189,14 @@ async function maybeWrapWithXvfb() {
      stdio: "inherit",
    },
   );
+  activeCommandChildren.add(child);
   const exitCode = await new Promise((resolvePromise, rejectPromise) => {
-   child.once("error", rejectPromise);
+   child.once("error", (error) => {
+     activeCommandChildren.delete(child);
+     rejectPromise(error);
+   });
    child.once("close", (code, signal) => {
+     activeCommandChildren.delete(child);
      if (signal) {
        rejectPromise(new Error(`xvfb-run exited via signal ${signal}`));
        return;
@@ -156,11 +211,16 @@ async function run(cmd, args) {
   const child = spawn(cmd, args, {
    cwd: repoRoot,
    env: process.env,
-   stdio: "inherit",
+    stdio: "inherit",
   });
+  activeCommandChildren.add(child);
   await new Promise((resolvePromise, rejectPromise) => {
-   child.once("error", rejectPromise);
+   child.once("error", (error) => {
+     activeCommandChildren.delete(child);
+     rejectPromise(error);
+   });
    child.once("close", (code, signal) => {
+     activeCommandChildren.delete(child);
      if (signal) {
        rejectPromise(new Error(`\`${cmd} ${args.join(" ")}\` exited via signal ${signal}`));
        return;
@@ -172,6 +232,458 @@ async function run(cmd, args) {
      resolvePromise();
    });
   });
+}
+
+const sha256 = (value) => createHash("sha256").update(value).digest("hex");
+
+function git(args) {
+  const result = spawnSync("git", args, { cwd: repoRoot, env: process.env, encoding: "utf8" });
+  if (result.status !== 0) {
+    throw new Error(`git ${args.join(" ")} failed: ${String(result.stderr ?? "").trim()}`);
+  }
+  return String(result.stdout ?? "").trim();
+}
+
+async function currentSourceIdentity() {
+  const [head, tree, statusText, packageLock] = await Promise.all([
+    Promise.resolve(git(["rev-parse", "HEAD"])),
+    Promise.resolve(git(["rev-parse", "HEAD^{tree}"])),
+    Promise.resolve(git(["status", "--porcelain=v1", "--untracked-files=all"])),
+    readFile(join(repoRoot, SOURCE_LOCKFILE)),
+  ]);
+  return {
+    head,
+    tree,
+    clean: statusText.length === 0,
+    statusDigest: sha256(statusText),
+    lockfile: SOURCE_LOCKFILE,
+    packageLockSha256: sha256(packageLock),
+    buildCommand: "pnpm build",
+  };
+}
+
+function attestedBundle(inventory) {
+  return {
+    schemaVersion: inventory.schemaVersion,
+    normalization: inventory.normalization,
+    normalizedManifestVersion: inventory.normalizedManifestVersion,
+    inventoryDigest: inventory.inventoryDigest,
+    fileCount: inventory.fileCount,
+    bytes: inventory.bytes,
+  };
+}
+
+async function readJson(path) {
+  return JSON.parse(await readFile(path, "utf8"));
+}
+
+async function writeJsonAtomic(path, value) {
+  const temporary = join(dirname(path), `.${basename(path)}.${process.pid}.${randomUUID()}.tmp`);
+  await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { flag: "wx" });
+  try {
+    await rename(temporary, path);
+  } catch (error) {
+    await rm(temporary, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function resolveLaunchAttestation({ builtCurrentSource, selectedBundleSource }) {
+  const inventory = await normalizedBundleInventory(EXT_DIR);
+  if (builtCurrentSource) {
+    const source = await currentSourceIdentity();
+    const attestation = {
+      schemaVersion: BROWSER_LIVE_BUILD_ATTESTATION_SCHEMA_VERSION,
+      generatedAt: new Date().toISOString(),
+      implementation: "rewrite",
+      source,
+      bundle: attestedBundle(inventory),
+    };
+    await writeJsonAtomic(BUILD_ATTESTATION, attestation);
+    return { implementation: "rewrite", source: { ...source, attestationSchema: attestation.schemaVersion }, inventory, attestation };
+  }
+
+  if (selectedBundleSource) {
+    const attestation = await readJson(PINNED_LEGACY_ATTESTATION);
+    const failures = pinnedLegacyAttestationFailures(attestation, inventory);
+    if (failures.length > 0) {
+      throw new Error(`Selected --bundle-source is not the trusted pinned legacy bundle: ${failures.join(", ")}`);
+    }
+    return {
+      implementation: "legacy",
+      source: {
+        ...attestation.source,
+        clean: true,
+        statusDigest: sha256(""),
+        attestationSchema: PINNED_LEGACY_ATTESTATION_SCHEMA_VERSION,
+      },
+      inventory,
+      attestation,
+    };
+  }
+
+  const [attestation, source] = await Promise.all([
+    readJson(BUILD_ATTESTATION).catch(() => null),
+    currentSourceIdentity(),
+  ]);
+  if (!attestation) {
+    throw new Error(`--no-build requires a launcher-generated build attestation: ${BUILD_ATTESTATION}`);
+  }
+  const validation = validateBundleInventoryAttestation(inventory, attestation, {
+    implementation: "rewrite",
+    head: source.head,
+    tree: source.tree,
+    packageLockSha256: source.packageLockSha256,
+    buildCommand: source.buildCommand,
+  });
+  const failures = [...validation.failures];
+  if (attestation.schemaVersion !== BROWSER_LIVE_BUILD_ATTESTATION_SCHEMA_VERSION) failures.push("attestation-schema");
+  for (const key of ["clean", "statusDigest", "lockfile"]) {
+    if (attestation.source?.[key] !== source[key]) failures.push(`source-${key}`);
+  }
+  if (failures.length > 0) {
+    throw new Error(`--no-build attestation does not match current source and bundle: ${[...new Set(failures)].join(", ")}`);
+  }
+  return {
+    implementation: "rewrite",
+    source: { ...source, attestationSchema: attestation.schemaVersion },
+    inventory,
+    attestation,
+  };
+}
+
+async function writeLaunchProvenance({ launchAttestation, cdpBrowserIdentity, browserProcess, extensionId, requestedUrl, finalUrl, cdpTargetId, tabId }) {
+  const inventory = await normalizedBundleInventory(EXT_DIR);
+  if (inventory.inventoryDigest !== launchAttestation.inventory.inventoryDigest ||
+      inventory.fileCount !== launchAttestation.inventory.fileCount || inventory.bytes !== launchAttestation.inventory.bytes) {
+    throw new Error("Canonical extension bundle changed after its trusted build attestation; refusing provenance");
+  }
+  if (launchAttestation.implementation === "rewrite") {
+    const current = await currentSourceIdentity();
+    for (const key of ["head", "tree", "clean", "statusDigest", "lockfile", "packageLockSha256", "buildCommand"]) {
+      if (current[key] !== launchAttestation.source[key]) {
+        throw new Error(`Rewrite source changed after build attestation (${key}); refusing provenance`);
+      }
+    }
+  }
+  const profileRoot = await realpath(PROFILE_DIR);
+  const fingerprint = sha256(JSON.stringify({
+    browser: cdpBrowserIdentity.product,
+    protocolVersion: cdpBrowserIdentity.protocolVersion,
+    userAgent: cdpBrowserIdentity.userAgent,
+    v8Version: cdpBrowserIdentity.v8Version,
+  }));
+  const provenance = {
+    schemaVersion: BROWSER_LIVE_PROVENANCE_SCHEMA_VERSION,
+    launchNonce: randomUUID(),
+    createdAt: new Date().toISOString(),
+    implementation: launchAttestation.implementation,
+    source: launchAttestation.source,
+    bundle: {
+      canonicalRoot: inventory.root,
+      inventoryDigest: inventory.inventoryDigest,
+      fileCount: inventory.fileCount,
+      bytes: inventory.bytes,
+      manifestVersion: inventory.manifestVersion,
+      normalizedManifestVersion: inventory.normalizedManifestVersion,
+    },
+    browser: {
+      pid: browserProcess.pid,
+      instanceNonce: sha256(cdpBrowserIdentity.webSocketDebuggerUrl).slice(0, 32),
+      fingerprint,
+      product: cdpBrowserIdentity.product,
+      cdpPort: CDP_PORT,
+    },
+    profile: {
+      root: profileRoot,
+      pathDigest: sha256(profileRoot),
+    },
+    extensionId,
+    target: {
+      requestedUrl,
+      normalizedUrl: normalizeLiveUrl(finalUrl),
+      cdpTargetId,
+      tabId,
+    },
+  };
+  await writeJsonAtomic(LAUNCH_PROVENANCE, provenance);
+  return provenance;
+}
+
+async function pathExists(path) {
+  return stat(path).then(() => true, () => false);
+}
+
+let launcherLock = null;
+let manifestStamp = null;
+let activeBrowserStop = null;
+let launchCleanupPromise = null;
+const activeCommandChildren = new Set();
+
+async function stopActiveCommandChildren() {
+  const children = [...activeCommandChildren];
+  for (const child of children) {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+  }
+  await Promise.all(children.map(async (child) => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    await Promise.race([
+      new Promise((resolvePromise) => {
+        child.once("close", resolvePromise);
+        child.once("error", resolvePromise);
+      }),
+      delay(5_000),
+    ]);
+  }));
+  for (const child of children) activeCommandChildren.delete(child);
+}
+
+function processAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function acquireLauncherLock() {
+  const lock = {
+    schemaVersion: LAUNCH_LOCK_SCHEMA,
+    pid: process.pid,
+    token: randomUUID(),
+    repoRoot,
+    profileRoot: PROFILE_DIR,
+    cdpPort: CDP_PORT,
+    createdAt: new Date().toISOString(),
+  };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await writeFile(LAUNCH_LOCK, `${JSON.stringify(lock, null, 2)}\n`, { flag: "wx" });
+      launcherLock = lock;
+      return lock;
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      const raw = await readFile(LAUNCH_LOCK, "utf8").catch(() => null);
+      let existing = null;
+      try { existing = raw ? JSON.parse(raw) : null; } catch { /* a corrupt stale lock is not an owner */ }
+      if (existing?.schemaVersion !== LAUNCH_LOCK_SCHEMA || !Number.isInteger(existing?.pid) || typeof existing?.token !== "string") {
+        throw new Error(`Invalid live-browser lock requires manual inspection before removal: ${LAUNCH_LOCK}`, { cause: error });
+      }
+      if (existing?.schemaVersion === LAUNCH_LOCK_SCHEMA && processAlive(existing.pid)) {
+        throw new Error(`The live browser profile is owned by launcher pid ${existing.pid}; stop that launcher first`, { cause: error });
+      }
+      await rm(LAUNCH_LOCK, { force: true });
+    }
+  }
+  throw new Error(`Could not acquire the exclusive live-browser lock: ${LAUNCH_LOCK}`);
+}
+
+async function releaseLauncherLock() {
+  const owned = launcherLock;
+  launcherLock = null;
+  if (!owned) return false;
+  const raw = await readFile(LAUNCH_LOCK, "utf8").catch(() => null);
+  if (!raw) return false;
+  let current;
+  try { current = JSON.parse(raw); } catch { return false; }
+  if (current?.pid !== owned.pid || current?.token !== owned.token) {
+    throw new Error(`Refusing to remove a live-browser lock now owned by another launcher: ${LAUNCH_LOCK}`);
+  }
+  await rm(LAUNCH_LOCK, { force: true });
+  return true;
+}
+
+async function assertCdpPortAvailable(timeoutMs = 1_000) {
+  await new Promise((resolvePromise, rejectPromise) => {
+    const socket = createConnection({ host: "127.0.0.1", port: CDP_PORT });
+    let settled = false;
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      if (error) rejectPromise(error);
+      else resolvePromise();
+    };
+    socket.setTimeout(timeoutMs, () => finish(new Error(`Could not prove CDP port ${CDP_PORT} is free (probe timed out)`)));
+    socket.once("connect", () => finish(new Error(
+      `CDP port ${CDP_PORT} is already occupied; refusing to attach to or control a browser not owned by this launcher`,
+    )));
+    socket.once("error", (error) => {
+      if (error?.code === "ECONNREFUSED") finish();
+      else finish(new Error(`Could not prove CDP port ${CDP_PORT} is free: ${String(error?.message ?? error)}`));
+    });
+  });
+}
+
+async function assertProfileNotInUse() {
+  const singletonLock = join(PROFILE_DIR, "SingletonLock");
+  const lockStat = await lstat(singletonLock).catch((error) => {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  });
+  if (!lockStat) return;
+  if (!lockStat.isSymbolicLink()) {
+    throw new Error(`The Chromium profile has an unrecognized SingletonLock; refusing mutation: ${singletonLock}`);
+  }
+  const owner = await readlink(singletonLock);
+  const pid = Number.parseInt(/-(\d+)$/.exec(owner)?.[1] ?? "", 10);
+  if (!Number.isInteger(pid) || pid <= 0) {
+    throw new Error(`The Chromium profile SingletonLock has an unrecognized owner ${JSON.stringify(owner)}; refusing mutation`);
+  }
+  if (processAlive(pid)) {
+    throw new Error(`The Chromium profile is already in use by browser pid ${pid}; stop that browser before launching`);
+  }
+}
+
+async function readBundleSwapMarker() {
+  const raw = await readFile(BUNDLE_SWAP_MARKER, "utf8").catch(() => null);
+  if (!raw) return null;
+  const marker = JSON.parse(raw);
+  const validSchema = marker?.schemaVersion === BUNDLE_SWAP_SCHEMA;
+  const validSource = typeof marker?.sourceRoot === "string" && isAbsolute(marker.sourceRoot) &&
+    marker.sourceRoot !== EXT_DIR && !isPathWithin(EXT_DIR, marker.sourceRoot);
+  const validBackup = typeof marker?.backupRoot === "string" &&
+    resolve(marker.backupRoot) === marker.backupRoot && dirname(marker.backupRoot) === TEMP_DIR &&
+    /^browser-live-bundle-backup-[0-9a-f-]+$/i.test(basename(marker.backupRoot));
+  const validPreserved = marker?.preservedRoot === undefined || (
+    typeof marker.preservedRoot === "string" && resolve(marker.preservedRoot) === marker.preservedRoot &&
+    dirname(marker.preservedRoot) === TEMP_DIR && /^browser-live-bundle-preserved-[0-9a-f-]+$/i.test(basename(marker.preservedRoot))
+  );
+  const validPhase = ["preparing", "backed-up", "staged", "preserving-concurrent"].includes(marker?.phase);
+  const validFingerprint = !["staged", "preserving-concurrent"].includes(marker?.phase) ||
+    (typeof marker?.stagedFingerprint === "string" && /^[a-f0-9]{64}$/.test(marker.stagedFingerprint));
+  if (!validSchema || marker?.canonicalRoot !== EXT_DIR || !validSource || !validBackup || !validPreserved || !validPhase || !validFingerprint ||
+      (marker?.phase === "preserving-concurrent" && typeof marker?.preservedRoot !== "string") ||
+      !Number.isInteger(marker?.pid) || typeof marker?.originalPresent !== "boolean") {
+    throw new Error(`Unsafe or invalid browser-live bundle swap marker: ${BUNDLE_SWAP_MARKER}`);
+  }
+  return marker;
+}
+
+function isPathWithin(parent, candidate) {
+  const pathFromParent = relative(parent, candidate);
+  return pathFromParent !== "" && pathFromParent !== ".." && !pathFromParent.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) && !isAbsolute(pathFromParent);
+}
+
+async function assertBundleDirectory(path, label) {
+  const directory = await stat(path).catch(() => null);
+  const manifest = await stat(join(path, "manifest.json")).catch(() => null);
+  if (!directory?.isDirectory() || !manifest?.isFile()) {
+    throw new Error(`${label} is not a validated extension bundle directory: ${path}`);
+  }
+}
+
+async function fingerprintBundle(path) {
+  await assertBundleDirectory(path, "Bundle fingerprint target");
+  const hash = createHash("sha256");
+  const visit = async (directory, relativeRoot = "") => {
+    const entries = await readdir(directory, { withFileTypes: true });
+    entries.sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const relativePath = relativeRoot ? `${relativeRoot}/${entry.name}` : entry.name;
+      const absolutePath = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        hash.update(`d:${relativePath}\0`);
+        await visit(absolutePath, relativePath);
+      } else if (entry.isFile()) {
+        hash.update(`f:${relativePath}\0`);
+        hash.update(await readFile(absolutePath));
+        hash.update("\0");
+      } else {
+        throw new Error(`Bundle contains an unsupported non-file entry: ${absolutePath}`);
+      }
+    }
+  };
+  await visit(path);
+  return hash.digest("hex");
+}
+
+async function restoreBundleSwap({ allowCurrentProcess = false } = {}) {
+  const marker = await readBundleSwapMarker();
+  if (!marker) return false;
+  if (processAlive(marker.pid) && !(allowCurrentProcess && marker.pid === process.pid)) {
+    throw new Error(`A browser:live bundle swap is owned by live process ${marker.pid}; stop that launcher first`);
+  }
+  if (marker.phase === "preserving-concurrent") {
+    if (await pathExists(marker.preservedRoot)) {
+      await rm(BUNDLE_SWAP_MARKER, { force: true });
+      console.warn(`[launch] kept a concurrent canonical build and preserved its predecessor at ${marker.preservedRoot}`);
+      return true;
+    }
+    if (!(await pathExists(marker.backupRoot))) {
+      throw new Error(`Cannot finish concurrent-build preservation; both paths are missing from ${BUNDLE_SWAP_MARKER}`);
+    }
+  }
+  const backupExists = await pathExists(marker.backupRoot);
+  if (!marker.originalPresent && backupExists) {
+    throw new Error(`Bundle swap marker claims no original bundle but a backup exists: ${marker.backupRoot}`);
+  }
+  if (marker.originalPresent && backupExists) {
+    await assertBundleDirectory(marker.backupRoot, "Canonical bundle backup");
+    const canonicalExists = await pathExists(EXT_DIR);
+    const canonicalFingerprint = canonicalExists ? await fingerprintBundle(EXT_DIR).catch(() => null) : null;
+    const concurrentChange = canonicalExists && marker.stagedFingerprint && canonicalFingerprint !== marker.stagedFingerprint;
+    if (concurrentChange) {
+      const preservedRoot = marker.preservedRoot ?? join(TEMP_DIR, `browser-live-bundle-preserved-${randomUUID()}`);
+      marker.phase = "preserving-concurrent";
+      marker.preservedRoot = preservedRoot;
+      await writeJsonAtomic(BUNDLE_SWAP_MARKER, marker);
+      await rename(marker.backupRoot, preservedRoot);
+      await rm(BUNDLE_SWAP_MARKER, { force: true });
+      console.warn(`[launch] canonical output changed during the live run; kept it and preserved the pre-run bundle at ${preservedRoot}`);
+      return true;
+    }
+    await rm(EXT_DIR, { recursive: true, force: true });
+    await rename(marker.backupRoot, EXT_DIR);
+  } else if (marker.originalPresent && marker.phase !== "preparing") {
+    throw new Error(`Cannot recover canonical extension bundle; backup is missing: ${marker.backupRoot}`);
+  } else if (!marker.originalPresent) {
+    const canonicalExists = await pathExists(EXT_DIR);
+    const canonicalFingerprint = canonicalExists ? await fingerprintBundle(EXT_DIR).catch(() => null) : null;
+    if (!marker.stagedFingerprint || canonicalFingerprint === marker.stagedFingerprint) {
+      await rm(EXT_DIR, { recursive: true, force: true });
+    } else {
+      console.warn("[launch] canonical output was created or changed during the live run; keeping it because no pre-run bundle existed");
+    }
+  }
+  await rm(BUNDLE_SWAP_MARKER, { force: true });
+  return true;
+}
+
+async function stageBundleSource(sourceArgument) {
+  const sourceRoot = await realpath(resolve(repoRoot, sourceArgument));
+  if (sourceRoot === EXT_DIR) return null;
+  if (isPathWithin(EXT_DIR, sourceRoot)) {
+    throw new Error(`Selected --bundle-source cannot be nested inside the canonical extension bundle: ${sourceRoot}`);
+  }
+  await assertBundleDirectory(sourceRoot, "Selected --bundle-source");
+  const backupRoot = join(TEMP_DIR, `browser-live-bundle-backup-${randomUUID()}`);
+  const marker = {
+    schemaVersion: BUNDLE_SWAP_SCHEMA,
+    pid: process.pid,
+    canonicalRoot: EXT_DIR,
+    sourceRoot,
+    backupRoot,
+    originalPresent: await pathExists(EXT_DIR),
+    phase: "preparing",
+    createdAt: new Date().toISOString(),
+  };
+  await writeFile(BUNDLE_SWAP_MARKER, `${JSON.stringify(marker, null, 2)}\n`, { flag: "wx" });
+  try {
+    if (marker.originalPresent) await rename(EXT_DIR, backupRoot);
+    marker.phase = "backed-up";
+    await writeJsonAtomic(BUNDLE_SWAP_MARKER, marker);
+    await cp(sourceRoot, EXT_DIR, { recursive: true, force: false, errorOnExist: true });
+    marker.stagedFingerprint = await fingerprintBundle(EXT_DIR);
+    marker.phase = "staged";
+    await writeJsonAtomic(BUNDLE_SWAP_MARKER, marker);
+    return marker;
+  } catch (error) {
+    await restoreBundleSwap({ allowCurrentProcess: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 function resolveManagedChromiumExecutable() {
@@ -266,6 +778,24 @@ async function listCdpTargets() {
   return targets;
 }
 
+async function readCdpBrowserIdentity(timeoutMs = 5_000) {
+  const response = await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`);
+  if (!response.ok) throw new Error(`CDP version endpoint failed (${response.status})`);
+  const version = await response.json();
+  if (typeof version?.webSocketDebuggerUrl !== "string") throw new Error("CDP version endpoint omitted the browser debugger URL");
+  const processInfo = await sendCdpCommand(version.webSocketDebuggerUrl, "SystemInfo.getProcessInfo", {}, timeoutMs);
+  const browser = processInfo?.processInfo?.find((entry) => entry.type === "browser");
+  if (!Number.isInteger(browser?.id)) throw new Error("CDP did not report its owning browser process id");
+  return {
+    pid: browser.id,
+    product: String(version.Browser ?? ""),
+    protocolVersion: String(version["Protocol-Version"] ?? ""),
+    userAgent: String(version["User-Agent"] ?? ""),
+    v8Version: String(version["V8-Version"] ?? ""),
+    webSocketDebuggerUrl: version.webSocketDebuggerUrl,
+  };
+}
+
 async function waitForCdpBrowser(browserProcess, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -277,24 +807,31 @@ async function waitForCdpBrowser(browserProcess, timeoutMs = 30_000) {
     }
     try {
       await listCdpTargets();
-      return;
-    } catch {
+      const identity = await readCdpBrowserIdentity();
+      if (identity.pid !== browserProcess.pid) {
+        const error = new Error(
+          `CDP port ${CDP_PORT} belongs to browser pid ${identity.pid}, not launcher-owned pid ${browserProcess.pid}; refusing control`,
+        );
+        error.code = "CDP_OWNERSHIP_MISMATCH";
+        throw error;
+      }
+      return identity;
+    } catch (error) {
+      if (error?.code === "CDP_OWNERSHIP_MISMATCH") throw error;
       await delay(250);
     }
   }
   throw new Error(`Managed Chromium did not expose CDP on port ${CDP_PORT}`);
 }
 
-async function waitForTargetPage(timeoutMs = 30_000) {
+async function waitForTargetPage(targetId, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
   let lastUrls = [];
   while (Date.now() < deadline) {
     const targets = await listCdpTargets();
     lastUrls = targets.map((targetInfo) => String(targetInfo?.url ?? ""));
-    const targetPage = targets.find((targetInfo) => {
-      const url = String(targetInfo?.url ?? "");
-      return targetInfo?.type === "page" && /^https?:\/\//i.test(url);
-    });
+    const targetPage = targets.find((targetInfo) =>
+      targetInfo?.type === "page" && String(targetInfo?.id ?? "") === String(targetId));
     if (targetPage) {
       const state = await evaluateCdpTarget(
         targetPage,
@@ -302,15 +839,27 @@ async function waitForTargetPage(timeoutMs = 30_000) {
         5_000,
       ).catch(() => null);
       if (state?.ready === "complete" && /^https?:\/\//i.test(String(state.href ?? ""))) {
-        // The command-line URL can redirect (Bonliva adds www). Bind against the
-        // document's current canonical URL, not the target-list value sampled
+        // The requested URL can redirect (Bonliva adds www). Bind against the
+        // exact target id returned by /json/new and its current canonical URL, not
+        // another HTTP tab from the reused profile or a target-list value sampled
         // while navigation was still in flight.
         return { ...targetPage, url: String(state.href) };
       }
     }
     await delay(250);
   }
-  throw new Error(`Managed target page did not appear; targets=${JSON.stringify(lastUrls)}`);
+  throw new Error(`Managed target page ${targetId} did not appear; targets=${JSON.stringify(lastUrls)}`);
+}
+
+async function closeStartupBlankPages(targetId) {
+  const targets = await listCdpTargets();
+  for (const targetInfo of targets) {
+    const url = String(targetInfo?.url ?? "");
+    if (targetInfo?.type === "page" && String(targetInfo?.id ?? "") !== String(targetId) &&
+        (url === "about:blank" || url === "chrome://newtab/")) {
+      await closeCdpTarget(targetInfo);
+    }
+  }
 }
 
 async function waitForCdpTarget(url, timeoutMs = 15_000) {
@@ -352,14 +901,9 @@ async function closeCdpTarget(targetInfo) {
   await waitForCdpTargetClosed(targetId);
 }
 
-async function bringCdpPageToFront(url) {
-  const normalizedUrl = String(url).replace(/#.*$/, "");
-  const targets = await listCdpTargets();
-  const pageTarget = targets.find((targetInfo) =>
-    targetInfo?.type === "page"
-      && String(targetInfo?.url ?? "").replace(/#.*$/, "") === normalizedUrl);
+async function bringCdpPageToFront(pageTarget) {
   if (!pageTarget?.webSocketDebuggerUrl) {
-    throw new Error(`Could not focus the managed page target for ${url}`);
+    throw new Error(`Could not focus managed page target ${String(pageTarget?.id ?? "unknown")}`);
   }
   await sendCdpCommand(pageTarget.webSocketDebuggerUrl, "Page.bringToFront", {}, 10_000);
 }
@@ -470,13 +1014,13 @@ async function evaluateCdpTarget(targetInfo, expression, timeoutMs) {
   return response?.result?.value;
 }
 
-async function waitForLiveServiceWorker(timeoutMs = 30_000) {
+async function waitForLiveServiceWorker(expectedExtensionId, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const targets = await listCdpTargets();
     const workers = targets.filter((targetInfo) =>
       targetInfo?.type === "service_worker"
-        && String(targetInfo?.url ?? "").startsWith("chrome-extension://"));
+        && String(targetInfo?.url ?? "").startsWith(`chrome-extension://${expectedExtensionId}/`));
     for (const worker of workers) {
       try {
         const isLive = await evaluateCdpTarget(
@@ -491,21 +1035,19 @@ async function waitForLiveServiceWorker(timeoutMs = 30_000) {
     }
     await delay(500);
   }
-  throw new Error("No live extension service worker");
+  throw new Error(`No live extension service worker for deterministic extension id ${expectedExtensionId}`);
 }
 
-async function bindPopupWithCdp(pageUrl) {
-  const normalizedPageUrl = String(pageUrl).replace(/#.*$/, "");
-  const targets = await listCdpTargets();
-  const pageTarget = targets.find((targetInfo) =>
-    targetInfo?.type === "page"
-      && String(targetInfo?.url ?? "").replace(/#.*$/, "") === normalizedPageUrl);
+async function bindPopupWithCdp(pageTarget, pageUrl, expectedExtensionId) {
   if (!pageTarget?.webSocketDebuggerUrl) {
-    throw new Error(`Could not find the managed page target for ${pageUrl}`);
+    throw new Error(`Could not bind managed page target ${String(pageTarget?.id ?? "unknown")} for ${pageUrl}`);
   }
 
-  let worker = await waitForLiveServiceWorker();
+  let worker = await waitForLiveServiceWorker(expectedExtensionId);
   const extId = String(worker.url).split("/")[2];
+  if (extId !== expectedExtensionId) {
+    throw new Error(`Loaded extension id ${extId} does not match deterministic canonical-path id ${expectedExtensionId}`);
+  }
 
   // The page was first navigated before binding. Reload it without MCP's
   // context-wide wait-for-completion heuristic so a third-party iframe or live
@@ -513,30 +1055,42 @@ async function bindPopupWithCdp(pageUrl) {
   await sendCdpCommand(pageTarget.webSocketDebuggerUrl, "Page.reload", {}, 30_000);
   await delay(1_500);
 
+  // URL equality is insufficient when a reused profile contains duplicate tabs,
+  // and `active` is only a focus hint. Stamp the exact CDP target in MAIN world,
+  // then ask the extension to prove which Chrome tab can read that nonce.
+  const targetMarkerKey = `__UF_BROWSER_LIVE_TARGET_${randomUUID().replaceAll("-", "_")}`;
+  const targetMarkerValue = randomUUID();
+  await evaluateCdpTarget(pageTarget, `(() => {
+    Object.defineProperty(globalThis, ${JSON.stringify(targetMarkerKey)}, {
+      value: ${JSON.stringify(targetMarkerValue)}, configurable: true, enumerable: false
+    });
+    return true;
+  })()`, 5_000);
+
   let tabId = null;
   let lastTabSnapshot = null;
   for (let attempt = 0; attempt < 40; attempt += 1) {
-    worker = await waitForLiveServiceWorker(5_000);
+    worker = await waitForLiveServiceWorker(expectedExtensionId, 5_000);
     const expression = `(async () => {
-      const targetUrl = ${JSON.stringify(pageUrl)};
+      const targetMarkerKey = ${JSON.stringify(targetMarkerKey)};
+      const targetMarkerValue = ${JSON.stringify(targetMarkerValue)};
       const tabs = await chrome.tabs.query({});
-      const normalize = (url) => String(url || '').replace(/#.*$/, '');
-      const normalizedTarget = normalize(targetUrl);
-      const exact = tabs.find((tab) => normalize(tab.url) === normalizedTarget);
-      if (exact && Number.isFinite(exact.id)) return { tabId: exact.id, tabs };
-      const fallback = tabs.find((tab) =>
-        normalize(tab.url) && normalizedTarget
-          && normalize(tab.url).startsWith(normalizedTarget.split('?')[0]));
-      const numericTabs = tabs.filter((tab) => Number.isFinite(tab.id));
+      const proven = [];
+      for (const tab of tabs) {
+        if (!Number.isFinite(tab.id) || !/^https?:/i.test(String(tab.url || ''))) continue;
+        try {
+          const results = await chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            world: 'MAIN',
+            func: (key) => globalThis[key] ?? null,
+            args: [targetMarkerKey],
+          });
+          if (results?.[0]?.result === targetMarkerValue) proven.push(tab);
+        } catch {}
+      }
       return {
-        // Chrome can omit Tab.url when the persisted profile has host access set
-        // to "on click". Before the temporary helper exists there is exactly one
-        // browser tab, so that one-tab identity is still authoritative.
-        tabId: fallback && Number.isFinite(fallback.id)
-          ? fallback.id
-          : numericTabs.length === 1
-            ? numericTabs[0].id
-            : null,
+        tabId: proven.length === 1 ? proven[0].id : null,
+        provenTabIds: proven.map((tab) => tab.id),
         tabs: tabs.map((tab) => ({ id: tab.id, url: tab.url, status: tab.status })),
       };
     })()`;
@@ -549,6 +1103,11 @@ async function bindPopupWithCdp(pageUrl) {
     if (Number.isFinite(tabId)) break;
     await delay(500);
   }
+  await evaluateCdpTarget(
+    pageTarget,
+    `(() => delete globalThis[${JSON.stringify(targetMarkerKey)}])()`,
+    5_000,
+  ).catch(() => undefined);
   if (!Number.isFinite(tabId)) {
     throw new Error(
       `Could not resolve a Chrome tab id for ${pageUrl}; ` +
@@ -630,7 +1189,8 @@ function buildPopupActionExpression(action, options = {}) {
     const inputs = Array.from(document.querySelectorAll('input[type=text], input[type=url], input[type=password], textarea'));
     const inputState = inputs.map((input) => ({
       id: input.id || input.name || '?',
-      value: String(input.value || '').slice(0, 80),
+      type: input instanceof HTMLInputElement ? input.type : 'textarea',
+      valuePresent: String(input.value || '').length > 0,
       placeholder: input.placeholder || '',
       visible: Boolean(input.offsetWidth || input.offsetHeight),
     }));
@@ -662,7 +1222,7 @@ function buildPopupActionExpression(action, options = {}) {
     }
     await sleep(500);
     const state = await collectPopupState();
-    return { action, inputValues, state };
+    return { action, updatedInputIds: Object.keys(inputValues), state };
   }
 
   if (action === 'exit-preview') {
@@ -688,18 +1248,15 @@ function buildPopupActionExpression(action, options = {}) {
 })()`;
 }
 
-async function runCdpStateAction(action, timeoutMs, options = {}) {
+async function runCdpStateAction(action, timeoutMs, options = {}, identity = {}) {
   const targets = await listCdpTargets();
   const pages = targets.filter((targetInfo) => targetInfo?.type === "page");
   const actualSidePanel = pages.find((targetInfo) =>
-    /^chrome-extension:\/\/[^/]+\/popup\.html$/.test(String(targetInfo?.url ?? "")));
+    String(targetInfo?.url ?? "") === `chrome-extension://${identity.extensionId}/popup.html`);
   const boundLegacyPopup = pages.find((targetInfo) =>
-    /^chrome-extension:\/\/[^/]+\/popup\.html\?/.test(String(targetInfo?.url ?? "")));
+    String(targetInfo?.url ?? "").startsWith(`chrome-extension://${identity.extensionId}/popup.html?`));
   const popup = actualSidePanel ?? boundLegacyPopup;
-  const targetPage = pages.find((targetInfo) => {
-    const url = String(targetInfo?.url ?? "");
-    return !url.startsWith("chrome-extension://") && !url.startsWith("chrome://");
-  });
+  const targetPage = pages.find((targetInfo) => String(targetInfo?.id ?? "") === String(identity.targetId ?? ""));
   const pageUrls = pages.map((targetInfo) => String(targetInfo?.url ?? ""));
   if (!popup) {
     return { error: "Could not find the actual Unfluffify side panel", pages: pageUrls };
@@ -750,7 +1307,7 @@ function summarizeButtonState(result) {
   };
 }
 
-function makeControlChannel() {
+function makeControlChannel(identity) {
   let queue = Promise.resolve();
   let observing = true;
   let lastObserved = "";
@@ -763,7 +1320,7 @@ function makeControlChannel() {
   }
 
   async function runStateAction(action, timeoutMs = CONTROL_STATE_TIMEOUT_MS, options = {}) {
-    return await runCdpStateAction(action, timeoutMs, options);
+    return await runCdpStateAction(action, timeoutMs, options, identity);
   }
 
   function printJson(prefix, value) {
@@ -936,11 +1493,43 @@ function makeControlChannel() {
   };
 }
 
+let emergencyCleanupStarted = false;
+async function emergencyCleanup(error, exitCode = 1) {
+  if (emergencyCleanupStarted) return;
+  emergencyCleanupStarted = true;
+  try {
+    if (activeBrowserStop) await activeBrowserStop().catch(() => undefined);
+    await cleanupLaunchArtifacts().catch(() => undefined);
+  } finally {
+    activeBrowserStop = null;
+  }
+  console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+  process.exit(exitCode);
+}
+process.on("uncaughtException", (error) => { void emergencyCleanup(error); });
+process.on("unhandledRejection", (error) => { void emergencyCleanup(error); });
+process.on("SIGINT", () => {
+  console.log("\n[launch] stopping…");
+  void emergencyCleanup(new Error("Live browser stopped by SIGINT"), 130);
+});
+process.on("SIGTERM", () => {
+  void emergencyCleanup(new Error("Live browser stopped by SIGTERM"), 143);
+});
+
 // --- prepare --------------------------------------------------------------
 await maybeWrapWithXvfb();
+await mkdir(TEMP_DIR, { recursive: true });
+await acquireLauncherLock();
+await assertCdpPortAvailable();
+await assertProfileNotInUse();
+await rm(LAUNCH_PROVENANCE, { force: true });
+if (await restoreBundleSwap()) {
+  console.log("[launch] recovered a stale canonical extension bundle swap");
+}
 
 console.log(`[launch] repo root: ${repoRoot}`);
 console.log(`[launch] target:    ${target}`);
+console.log(`[launch] extension: ${EXT_DIR}${bundleSourceArgument ? " (canonical staged bundle)" : ""}`);
 
 if (doBuild) {
   console.log("[launch] building unpacked WXT extension (pnpm build)…");
@@ -950,6 +1539,15 @@ if (doBuild) {
   console.log(`[launch] sourcemaps: ${process.env.UNFLUFFIFY_SOURCEMAP}`);
   await run("pnpm", ["build"]);
 }
+const stagedBundle = bundleSourceArgument ? await stageBundleSource(bundleSourceArgument) : null;
+if (stagedBundle) {
+  console.log(`[launch] staged ${stagedBundle.sourceRoot} into canonical ${EXT_DIR}`);
+}
+const launchAttestation = await resolveLaunchAttestation({
+  builtCurrentSource: doBuild,
+  selectedBundleSource: Boolean(bundleSourceArgument),
+});
+console.log(`[launch] trusted ${launchAttestation.implementation} bundle inventory ${launchAttestation.inventory.inventoryDigest}`);
 /** Chrome re-registers an unpacked extension's service worker when it sees a new
  *  VERSION. Without that it keeps serving the worker it registered for this
  *  profile on a previous run — so a rebuilt background answers with the previous
@@ -988,8 +1586,6 @@ async function dropServiceWorkerRegistration() {
   return true;
 }
 
-let manifestStamp = null;
-
 async function stampBuildVersion() {
   const manifestPath = join(EXT_DIR, "manifest.json");
   const counterPath = join(TEMP_DIR, "build-counter");
@@ -1026,29 +1622,31 @@ async function restoreStampedManifest() {
   return true;
 }
 
+function cleanupLaunchArtifacts() {
+  launchCleanupPromise ??= (async () => {
+    try {
+      await stopActiveCommandChildren();
+      await rm(LAUNCH_PROVENANCE, { force: true });
+      await restoreStampedManifest();
+    } finally {
+      try {
+        await restoreBundleSwap({ allowCurrentProcess: true });
+      } finally {
+        activeBrowserStop = null;
+        await releaseLauncherLock();
+      }
+    }
+  })();
+  return launchCleanupPromise;
+}
+
 try {
   await stat(join(EXT_DIR, "manifest.json"));
 } catch {
-  console.error(
-    `ERROR: ${EXT_DIR}/manifest.json not found. Run \`pnpm build\` first ` +
+  throw new Error(
+    `${EXT_DIR}/manifest.json not found. Run \`pnpm build\` first ` +
       `(or omit --no-build).`,
   );
-  process.exit(1);
-}
-
-await mkdir(TEMP_DIR, { recursive: true });
-
-// Before Chrome starts, so it finds nothing to reuse.
-const droppedWorker = await dropServiceWorkerRegistration();
-if (droppedWorker) {
-  console.log("[launch] dropped the profile's service-worker registration (extension data kept)");
-}
-
-const stampedVersion = await stampBuildVersion();
-if (stampedVersion) {
-  console.log(`[launch] stamped manifest version ${stampedVersion} so Chrome re-registers the worker`);
-} else {
-  console.warn("[launch] WARNING: could not stamp the manifest version; a reused profile may serve a stale worker");
 }
 
 const rawConfig = await readFile(COMMITTED_CONFIG, "utf8");
@@ -1070,9 +1668,9 @@ if (config?.browser?.launchOptions) {
   ];
 }
 const serializedConfig = JSON.stringify(config, null, 2);
-if (serializedConfig.includes("__") || serializedConfig.includes("executablePath")) {
-  console.error("ERROR: temp config still contains placeholders or an executablePath; aborting.");
-  process.exit(1);
+if (serializedConfig.includes("__UNFLUFFIFY_REPO_ROOT__") || serializedConfig.includes("__CHROMIUM_EXECUTABLE_PATH__") ||
+    Object.prototype.hasOwnProperty.call(config?.browser?.launchOptions ?? {}, "executablePath")) {
+  throw new Error("Temp config still contains a known placeholder or an executablePath; aborting");
 }
 await writeFile(TEMP_CONFIG, serializedConfig);
 console.log(`[launch] wrote ${TEMP_CONFIG}`);
@@ -1091,7 +1689,25 @@ console.log(`[launch] starting npm:${PLAYWRIGHT_MCP_PACKAGE} managed Chromium wi
 const launchArgs = Array.isArray(config?.browser?.launchOptions?.args)
   ? config.browser.launchOptions.args
   : [];
-const browserProcess = spawnManagedChromium(managedChromiumExecutable, launchArgs, target);
+
+// Re-prove both resources immediately before the only profile mutation and
+// browser spawn. Installation/building may take long enough for an older
+// launcher or a manually opened managed Chromium to appear after preflight.
+await assertCdpPortAvailable();
+await assertProfileNotInUse();
+const droppedWorker = await dropServiceWorkerRegistration();
+if (droppedWorker) {
+  console.log("[launch] dropped the profile's service-worker registration (extension data kept)");
+}
+
+const stampedVersion = await stampBuildVersion();
+if (stampedVersion) {
+  console.log(`[launch] stamped manifest version ${stampedVersion} so Chrome re-registers the worker`);
+} else {
+  console.warn("[launch] WARNING: could not stamp the manifest version; a reused profile may serve a stale worker");
+}
+
+const browserProcess = spawnManagedChromium(managedChromiumExecutable, launchArgs, "about:blank");
 browserProcess.stdout?.on("data", (chunk) => process.stdout.write(chunk));
 browserProcess.stderr?.on("data", (chunk) => process.stderr.write(chunk));
 const browserClosed = new Promise((resolvePromise, rejectPromise) => {
@@ -1112,27 +1728,26 @@ const stop = () => {
       }
       await browserClosed.catch(() => undefined);
     } finally {
-      await restoreStampedManifest();
+      await cleanupLaunchArtifacts();
     }
   })();
   return stopPromise;
 };
-process.on("SIGINT", () => {
-  console.log("\n[launch] stopping…");
-  void stop();
-});
-process.on("SIGTERM", () => {
-  void stop();
-});
+activeBrowserStop = stop;
 
 try {
-  await waitForCdpBrowser(browserProcess);
-  const targetInfo = await waitForTargetPage();
+  const cdpBrowserIdentity = await waitForCdpBrowser(browserProcess);
+  const openedTarget = await openCdpTab(target);
+  const openedTargetId = String(openedTarget?.id ?? "");
+  if (!openedTargetId) throw new Error("CDP did not return an identity for the requested target page");
+  const targetInfo = await waitForTargetPage(openedTargetId);
+  await closeStartupBlankPages(openedTargetId);
   const finalUrl = String(targetInfo.url);
   console.log(`[launch] page loaded: ${finalUrl}`);
 
   console.log("[launch] binding popup to the page tab (debugTabId)…");
-  const bindInfo = await bindPopupWithCdp(finalUrl);
+  await bringCdpPageToFront(targetInfo);
+  const bindInfo = await bindPopupWithCdp(targetInfo, finalUrl, predictedId);
   const { extId, tabId, boundUrl } = bindInfo;
 
   if (extId && tabId && boundUrl) {
@@ -1143,12 +1758,25 @@ try {
     // popup becomes Chrome's active tab by default and therefore suspends the lock
     // as `tab-hidden`; return focus to the target while retaining CDP control of
     // the hidden popup.
-    await bringCdpPageToFront(finalUrl);
+    await bringCdpPageToFront(targetInfo);
     const operatorSurface = await openOperatorSurface(boundUrl, tabId);
+    const provenTargetUrl = await evaluateCdpTarget(targetInfo, "location.href", 5_000);
+    const provenance = await writeLaunchProvenance({
+      launchAttestation,
+      cdpBrowserIdentity,
+      browserProcess,
+      extensionId: extId,
+      requestedUrl: target,
+      finalUrl: String(provenTargetUrl),
+      cdpTargetId: openedTargetId,
+      tabId,
+    });
     console.log("");
     console.log("================ live test browser ready ================");
     console.log(`  target page : ${finalUrl}`);
-    console.log(`  extension id: ${extId}${extId === predictedId ? " (matches path hash)" : " (WARNING: differs from path hash)"}`);
+    console.log(`  extension id: ${extId} (matches canonical path hash)`);
+    console.log(`  browser pid : ${cdpBrowserIdentity.pid} (owned endpoint)`);
+    console.log(`  provenance  : ${LAUNCH_PROVENANCE} (${provenance.launchNonce})`);
     console.log(`  page tabId  : ${tabId}`);
     console.log(`  helper popup: ${boundUrl} (closed after side-panel open)`);
     console.log(`  ${operatorSurface.kind.padEnd(12)}: ${operatorSurface.url}`);
@@ -1162,7 +1790,7 @@ try {
       : "WARNING: not refreshed; the worker may be running a previous build"}`);
     console.log("=========================================================");
     console.log("Browser is open. Stop with Ctrl-C or `kill <pid>` to close it.");
-    controlChannel = makeControlChannel();
+    controlChannel = makeControlChannel({ extensionId: extId, targetId: openedTargetId });
     controlChannel.start();
   } else {
     console.error("[launch] popup binding did not return the expected result");
@@ -1180,5 +1808,5 @@ try {
     browserProcess.kill("SIGTERM");
     await browserClosed.catch(() => undefined);
   }
-  await restoreStampedManifest();
+  await cleanupLaunchArtifacts();
 }

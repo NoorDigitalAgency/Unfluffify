@@ -212,8 +212,9 @@ descendants, so it can never be a marking target and listing it as immutable was
 redundant.
 
 Toggleable defaults are not promoted to explicit includes by a plain exclude
-click. Exclude mode keeps drilling to the nearest markable content target unless
-the user holds `Shift` to select a broader boundary. Include mode is explicit:
+click. Plain exclude mode resolves only a current exclusion owner to clear;
+holding `Shift` is required to resolve and create any new exclusion target.
+Include mode is explicit:
 the user holds `Alt` and the selected target is written to the local
 `includeXpaths` list, then synced as an explicit include row in `xpaths`. This
 also applies to eligible content that is currently included implicitly; Alt is
@@ -477,8 +478,8 @@ from the committing event's `altKey` (race-proof at click time).
   page (open accordions/tabs) and the overlay yields.
 - `include` — Alt is active; clicks reach into excluded/hidden content to rescue
   it as an explicit include (closed boundary).
-- `exclude` — the default active mode; clicks exclude the nearest self-markable
-  target.
+- `exclude` — the default active mode; plain clicks clear the exact current
+  exclusion owner, while Shift-click resolves and creates an exclusion target.
 
 **Mode inputs and precedence.** The mode is derived by fixed precedence:
 
@@ -530,18 +531,18 @@ above the ancestor still reads as covered.
 
 ### Exclude Mode
 
-Plain exclude clicks choose the nearest self-markable target. Already excluded
-non-default ancestors are not forced back into the selection path, so users can
-refine a broad exclusion by clicking deeper descendants. Active toggleable
-default boundaries do not steal descendant clicks: clicking a markable
-descendant inside a default-excluded footer, header, form, label, nav, dialog,
-or aside records that boundary as `excluded: false` and records the descendant
-as the explicit exclusion. Clicking the default boundary itself, where no
-descendant wins target resolution, still unmarks that default boundary directly.
+Plain exclude clicks are **unmark-only**. Without `Shift`, a click never creates
+an exclusion at any depth. It resolves the visually top current exclusion owner
+at the clicked painted fragment and clears exactly that owner: an explicit row is
+removed, and an active toggleable default is recorded as `excluded: false`.
+Immutable exclusions remain immutable. Clicking included content or a gap between
+painted fragments is a valid no-op.
 
-An existing widened explicit exclusion owns its visible interaction surface: a
-plain click or **Clear mark** inside it removes that one explicit row. Creating
-a widened/ancestor exclusion always requires `Shift`.
+An existing widened explicit exclusion owns its whole visible interaction
+surface: a plain click or **Clear mark** inside any of its painted fragments
+removes that one explicit row. Overlapping owners follow visible layer/paint
+order, not XPath depth or one broad bounding box. Creating any explicit or
+widened exclusion always requires `Shift`.
 
 `Shift+Click` enables parent selection. Under the restored 052c behavior, target
 resolution first prefers the clicked element when it is a structured group or

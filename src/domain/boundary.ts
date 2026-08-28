@@ -40,7 +40,12 @@ export function isPageShell(node: BoundaryNode): boolean {
   if ((node.landmarkCount ?? 0) >= 2) {
     return true;
   }
-  return node.structuralRole === "generic" && (node.depthFromBody ?? Number.POSITIVE_INFINITY) <= 2;
+  return false;
+}
+
+export function isShallowGenericShell(node: BoundaryNode): boolean {
+  return node.structuralRole === "generic" &&
+    (node.depthFromBody ?? Number.POSITIVE_INFINITY) <= 2;
 }
 
 export function ownsDirectText(node: BoundaryNode, ctx: BoundaryContext = {}): boolean {
@@ -48,7 +53,7 @@ export function ownsDirectText(node: BoundaryNode, ctx: BoundaryContext = {}): b
 }
 
 export function isStructuralBoundary(node: BoundaryNode, _ctx: BoundaryContext = {}): boolean {
-  if (node.chrome || isImmutableTag(node.tagName) || isPageShell(node)) {
+  if (node.chrome || isImmutableTag(node.tagName) || isPageShell(node) || isShallowGenericShell(node)) {
     return false;
   }
   if (isToggleableDefaultTag(node.tagName)) {
@@ -70,7 +75,7 @@ export function isSelfMarkable(node: BoundaryNode, ctx: BoundaryContext = {}): b
     visible &&
     !chrome &&
     !isImmutableTag(node.tagName) &&
-    (ownsDirectText(node, ctx) || isStructuralBoundary(node, ctx))
+    ownsDirectText(node, ctx)
   );
 }
 

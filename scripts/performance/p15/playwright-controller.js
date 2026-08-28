@@ -178,6 +178,7 @@ async (page) => {
       const late = document.createElement("aside");
       late.id = "late-shield-popover";
       late.setAttribute("popover", "manual");
+      late.style.setProperty("display", "flex", "important");
       const button = document.createElement("button");
       button.type = "button";
       button.textContent = "Late top-layer menu";
@@ -189,51 +190,80 @@ async (page) => {
     await page.waitForFunction(() => {
       const before = document.querySelector("#pre-shield-popover");
       const after = document.querySelector("#late-shield-popover");
+      const shadow = document.querySelector("#shadow-host")?.shadowRoot?.querySelector("#shadow-popover");
       return Boolean(
-        before && after &&
-        before.hasAttribute("inert") && after.hasAttribute("inert") &&
+        before && after && shadow &&
+        before.hasAttribute("inert") && after.hasAttribute("inert") && shadow.hasAttribute("inert") &&
+        getComputedStyle(before).display === "none" &&
+        getComputedStyle(after).display === "none" &&
+        getComputedStyle(shadow).display === "none" &&
         getComputedStyle(before).pointerEvents === "none" &&
         getComputedStyle(after).pointerEvents === "none" &&
+        getComputedStyle(shadow).pointerEvents === "none" &&
         document.elementFromPoint(1030, 350)?.getAttribute("data-uf-interaction-shield") === "true" &&
-        document.elementFromPoint(1030, 480)?.getAttribute("data-uf-interaction-shield") === "true"
+        document.elementFromPoint(1030, 480)?.getAttribute("data-uf-interaction-shield") === "true" &&
+        document.elementFromPoint(1030, 610)?.getAttribute("data-uf-interaction-shield") === "true"
       );
     }, undefined, { timeout: 10_000 });
     await page.mouse.click(1030, 350);
     await page.mouse.click(1030, 480);
+    await page.mouse.click(1030, 610);
     const topLayerBlocked = await page.evaluate(() => ({
       clicks: window.__p15Fixture.state.topLayerClicks,
       beforeHit: document.elementFromPoint(1030, 350)?.getAttribute("data-uf-interaction-shield") ?? null,
       afterHit: document.elementFromPoint(1030, 480)?.getAttribute("data-uf-interaction-shield") ?? null,
+      shadowHit: document.elementFromPoint(1030, 610)?.getAttribute("data-uf-interaction-shield") ?? null,
+      beforeDisplay: getComputedStyle(document.querySelector("#pre-shield-popover")).display,
+      afterDisplay: getComputedStyle(document.querySelector("#late-shield-popover")).display,
+      shadowDisplay: getComputedStyle(document.querySelector("#shadow-host").shadowRoot.querySelector("#shadow-popover")).display,
       beforePointerEvents: getComputedStyle(document.querySelector("#pre-shield-popover")).pointerEvents,
       afterPointerEvents: getComputedStyle(document.querySelector("#late-shield-popover")).pointerEvents,
+      shadowPointerEvents: getComputedStyle(document.querySelector("#shadow-host").shadowRoot.querySelector("#shadow-popover")).pointerEvents,
       beforeInert: document.querySelector("#pre-shield-popover")?.hasAttribute("inert") ?? false,
       afterInert: document.querySelector("#late-shield-popover")?.hasAttribute("inert") ?? false,
+      shadowInert: document.querySelector("#shadow-host")?.shadowRoot?.querySelector("#shadow-popover")?.hasAttribute("inert") ?? false,
     }));
     await page.evaluate(() => {
       document.querySelector("#pre-shield-popover")?.hidePopover();
       document.querySelector("#late-shield-popover")?.hidePopover();
+      document.querySelector("#shadow-host")?.shadowRoot?.querySelector("#shadow-popover")?.hidePopover();
     });
     await page.waitForFunction(() => {
       const before = document.querySelector("#pre-shield-popover");
       const after = document.querySelector("#late-shield-popover");
+      const shadow = document.querySelector("#shadow-host")?.shadowRoot?.querySelector("#shadow-popover");
       return before?.style.getPropertyValue("pointer-events") === "auto" &&
         before.style.getPropertyPriority("pointer-events") === "important" &&
+        before.style.getPropertyValue("display") === "grid" &&
+        before.style.getPropertyPriority("display") === "important" &&
         after?.style.getPropertyValue("pointer-events") === "" &&
-        !before.hasAttribute("inert") && !after?.hasAttribute("inert");
+        after?.style.getPropertyValue("display") === "flex" &&
+        after?.style.getPropertyPriority("display") === "important" &&
+        shadow?.style.getPropertyValue("pointer-events") === "auto" &&
+        shadow?.style.getPropertyPriority("pointer-events") === "important" &&
+        shadow?.style.getPropertyValue("display") === "grid" &&
+        shadow?.style.getPropertyPriority("display") === "important" &&
+        !before.hasAttribute("inert") && !after?.hasAttribute("inert") && !shadow?.hasAttribute("inert");
     }, undefined, { timeout: 10_000 });
     await check("page-top-layer-surfaces-neutralized", async () => {
       assertion(topLayerBlocked.clicks === 0, "A page-owned top-layer control received input", topLayerBlocked);
-      assertion(topLayerBlocked.beforeHit === "true" && topLayerBlocked.afterHit === "true", "A page top layer remained the physical hit target", topLayerBlocked);
-      assertion(topLayerBlocked.beforePointerEvents === "none" && topLayerBlocked.afterPointerEvents === "none", "Page top-layer pointer targeting was not neutralized", topLayerBlocked);
-      assertion(topLayerBlocked.beforeInert && topLayerBlocked.afterInert, "Page top-layer descendants were not made inert", topLayerBlocked);
+      assertion(topLayerBlocked.beforeHit === "true" && topLayerBlocked.afterHit === "true" && topLayerBlocked.shadowHit === "true", "A page top layer remained the physical hit target", topLayerBlocked);
+      assertion(topLayerBlocked.beforeDisplay === "none" && topLayerBlocked.afterDisplay === "none" && topLayerBlocked.shadowDisplay === "none", "Page top-layer paint or backdrop was not neutralized", topLayerBlocked);
+      assertion(topLayerBlocked.beforePointerEvents === "none" && topLayerBlocked.afterPointerEvents === "none" && topLayerBlocked.shadowPointerEvents === "none", "Page top-layer pointer targeting was not neutralized", topLayerBlocked);
+      assertion(topLayerBlocked.beforeInert && topLayerBlocked.afterInert && topLayerBlocked.shadowInert, "Page top-layer descendants were not made inert", topLayerBlocked);
       const restored = await page.evaluate(() => ({
         beforeValue: document.querySelector("#pre-shield-popover")?.style.getPropertyValue("pointer-events"),
         beforePriority: document.querySelector("#pre-shield-popover")?.style.getPropertyPriority("pointer-events"),
+        beforeDisplay: document.querySelector("#pre-shield-popover")?.style.getPropertyValue("display"),
         afterValue: document.querySelector("#late-shield-popover")?.style.getPropertyValue("pointer-events"),
+        afterDisplay: document.querySelector("#late-shield-popover")?.style.getPropertyValue("display"),
+        shadowValue: document.querySelector("#shadow-host")?.shadowRoot?.querySelector("#shadow-popover")?.style.getPropertyValue("pointer-events"),
+        shadowDisplay: document.querySelector("#shadow-host")?.shadowRoot?.querySelector("#shadow-popover")?.style.getPropertyValue("display"),
         beforeInert: document.querySelector("#pre-shield-popover")?.hasAttribute("inert") ?? false,
         afterInert: document.querySelector("#late-shield-popover")?.hasAttribute("inert") ?? false,
+        shadowInert: document.querySelector("#shadow-host")?.shadowRoot?.querySelector("#shadow-popover")?.hasAttribute("inert") ?? false,
       }));
-      assertion(restored.beforeValue === "auto" && restored.beforePriority === "important" && restored.afterValue === "" && !restored.beforeInert && !restored.afterInert, "Authored top-layer interaction state was not restored", restored);
+      assertion(restored.beforeValue === "auto" && restored.beforePriority === "important" && restored.beforeDisplay === "grid" && restored.afterValue === "" && restored.afterDisplay === "flex" && restored.shadowValue === "auto" && restored.shadowDisplay === "grid" && !restored.beforeInert && !restored.afterInert && !restored.shadowInert, "Authored top-layer interaction state was not restored", restored);
       return { blocked: topLayerBlocked, restored };
     });
 
@@ -371,8 +401,33 @@ async (page) => {
       return { before: beforeWheel, after: snapshot };
     });
 
-    await page.evaluate(() => scrollTo(0, 900));
-    const beforeTouch = await fixtureSnapshot();
+    await page.evaluate(() => {
+      scrollTo(0, 900);
+      document.documentElement.style.setProperty("overflow", "hidden");
+      document.body.style.setProperty("overflow", "hidden");
+      const owner = document.createElement("section");
+      owner.id = "touch-nested-viewport-owner";
+      Object.assign(owner.style, {
+        position: "fixed",
+        inset: "0",
+        overflow: "auto",
+        zIndex: "0",
+        touchAction: "pan-x pan-y",
+      });
+      const content = document.createElement("div");
+      content.style.cssText = "width:100%;height:3600px;background:linear-gradient(#f8fbfd,#dceaf2)";
+      owner.appendChild(content);
+      document.documentElement.appendChild(owner);
+    });
+    await page.waitForFunction(() =>
+      document.querySelector("#touch-nested-viewport-owner") &&
+      document.elementFromPoint(640, 520)?.getAttribute("data-uf-interaction-shield") === "true"
+    );
+    const beforeTouch = await page.evaluate(() => ({
+      fixture: window.__p15Runtime.fixtureSnapshot(),
+      nestedScrollTop: document.querySelector("#touch-nested-viewport-owner")?.scrollTop ?? -1,
+      documentScrollTop: scrollY,
+    }));
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
     await cdp.send("Input.dispatchTouchEvent", {
@@ -387,12 +442,31 @@ async (page) => {
       await sleep(25);
     }
     await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-    await sleep(250);
+    await page.waitForFunction((before) =>
+      (document.querySelector("#touch-nested-viewport-owner")?.scrollTop ?? 0) > before + 30,
+    Number(beforeTouch.nestedScrollTop), { timeout: 5_000 });
+    await sleep(100);
     await check("touch-scroll-preserved", async () => {
-      const snapshot = await fixtureSnapshot();
-      assertion(snapshot.scrollY > beforeTouch.scrollY + 30, "Real touch gesture did not scroll the frozen document", { beforeTouch, snapshot });
-      assertion(snapshot.documentTouchEvents === beforeTouch.documentTouchEvents, "Page-global touch/pointer listener received frozen gesture", { beforeTouch, snapshot });
-      return { before: beforeTouch, after: snapshot };
+      const afterTouch = await page.evaluate(() => ({
+        fixture: window.__p15Runtime.fixtureSnapshot(),
+        nestedScrollTop: document.querySelector("#touch-nested-viewport-owner")?.scrollTop ?? -1,
+        documentScrollTop: scrollY,
+      }));
+      assertion(afterTouch.nestedScrollTop > beforeTouch.nestedScrollTop + 30, "Real touch gesture did not scroll the nested viewport owner", { beforeTouch, afterTouch });
+      assertion(afterTouch.documentScrollTop === beforeTouch.documentScrollTop, "Locked document scroller moved instead of the nested owner", { beforeTouch, afterTouch });
+      assertion(
+        afterTouch.fixture.windowCapturePointerCancels > beforeTouch.fixture.windowCapturePointerCancels ||
+          afterTouch.fixture.windowCaptureTouchEvents > beforeTouch.fixture.windowCaptureTouchEvents,
+        "Neither Chromium ownership transfer nor the cancelable touch fallback stream was exercised",
+        { beforeTouch, afterTouch },
+      );
+      assertion(afterTouch.fixture.documentTouchEvents === beforeTouch.fixture.documentTouchEvents, "Page-global touch/pointer listener received frozen gesture", { beforeTouch, afterTouch });
+      return { before: beforeTouch, after: afterTouch };
+    });
+    await page.evaluate(() => {
+      document.querySelector("#touch-nested-viewport-owner")?.remove();
+      document.documentElement.style.removeProperty("overflow");
+      document.body.style.removeProperty("overflow");
     });
 
     await check("pre-extension-window-capture-order-evidenced", async () => {

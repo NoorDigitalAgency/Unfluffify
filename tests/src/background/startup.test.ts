@@ -811,10 +811,215 @@ describe("rewrite background startup", () => {
         ok: true,
         payload: { status: "ok", config: { renderMode: "static", renderModeUpdatedAt: "2026-08-04T10:00:00Z" } },
       });
+      expect(await call(
+        "renderMode.remember",
+        { siteId: 4821, renderMode: "rendered" },
+        "c-3",
+        3,
+      )).toMatchObject({ ok: true, payload: { stored: true, reason: "pending-save" } });
+      expect(await call("config.load", { siteId: 4821 }, "c-4", 4)).toMatchObject({
+        ok: true,
+        payload: {
+          status: "ok",
+          config: { renderMode: "static" },
+          renderMode: "static",
+          pendingRenderMode: "rendered",
+          renderModeSource: "backend",
+        },
+      });
       expect(requests.at(-1)).toEqual({
         url: "https://config.example.com/load",
         body: { environmentKey: "a.example.com", siteId: 4821 },
       });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("single-flights page-context and popup configuration authority and retries after invalidation failure", async () => {
+    const addMessageListener = vi.fn();
+    const originalFetch = globalThis.fetch;
+    type PendingLoad = Readonly<{
+      resolve: (response: Response) => void;
+      reject: (reason: unknown) => void;
+    }>;
+    const pendingLoads: PendingLoad[] = [];
+    let loadCalls = 0;
+    const configAtRevision = (revision: number) => ({
+      version: 2,
+      environmentKey: "a.example.com",
+      baseUrl: "https://shop.example.com",
+      siteId: 4821,
+      propertyRevision: revision,
+      feedRevision: revision,
+      membershipFingerprint: `membership-${revision}`,
+      assignmentFingerprint: `assignment-${revision}`,
+      renderMode: "static",
+      renderModeUpdatedAt: "2026-08-04T10:00:00Z",
+      selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+      selectorsUpdatedAt: "2026-08-04T10:00:00Z",
+      submittedSelectorsFingerprint: "",
+      pages: {
+        "/detail": {
+          timestamp: "2026-08-04T10:00:00Z",
+          pageType: "detail",
+          renderedHtml: "<html><main>Detail</main></html>",
+          rows: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
+        },
+      },
+      reconciliation: {
+        revision,
+        feedFingerprint: `feed-${revision}`,
+        removedPageKeys: [],
+        relabelledPages: [],
+      },
+    });
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/account/login")) {
+        return new Response(JSON.stringify({ token: "jwt-single-flight" }), { status: 200 });
+      }
+      if (url.endsWith("/context")) {
+        return new Response(JSON.stringify({
+          status: "managed_candidate",
+          environmentKey: "a.example.com",
+          siteId: 4821,
+          baseUrl: "https://shop.example.com",
+          pageKey: "/detail",
+          pageTypes: [{
+            pageType: "detail",
+            pages: [{ pageKey: "/detail", wordsCount: 100 }],
+          }],
+          membershipFingerprint: "membership",
+          assignmentFingerprint: "assignment",
+          conflicts: [],
+          upstreamCode: null,
+        }), { status: 200 });
+      }
+      if (url.endsWith("/load")) {
+        loadCalls += 1;
+        return await new Promise<Response>((resolve, reject) => {
+          pendingLoads.push({ resolve, reject });
+        });
+      }
+      return new Response("{}", { status: 500 });
+    }) as typeof fetch;
+    globalThis.chrome = {
+      runtime: {
+        sendMessage: vi.fn(),
+        onMessage: { addListener: addMessageListener },
+      },
+      webNavigation: {
+        getFrame(
+          _details: { tabId: number; frameId: number },
+          callback: (details: { documentId?: string; url?: string } | null) => void,
+        ) {
+          callback({ documentId: "document-77", url: "https://shop.example.com/detail" });
+        },
+        onBeforeNavigate: { addListener: vi.fn() },
+        onCommitted: { addListener: vi.fn() },
+        onHistoryStateUpdated: { addListener: vi.fn() },
+        onReferenceFragmentUpdated: { addListener: vi.fn() },
+        onErrorOccurred: { addListener: vi.fn() },
+      },
+      action: { onClicked: { addListener: vi.fn() } },
+      alarms: {
+        create: vi.fn(),
+        clear: vi.fn(),
+        onAlarm: { addListener: vi.fn() },
+      },
+    } as unknown as typeof chrome;
+
+    try {
+      const { startRewriteBackground } = await import("../../../src/background/index");
+      startRewriteBackground();
+      const runtimeListener = addMessageListener.mock.calls[0]?.[0] as (
+        message: unknown,
+        sender: unknown,
+        sendResponse: (value: unknown) => void,
+      ) => boolean;
+      let popupSeq = 0;
+      let contentSeq = 0;
+      const request = (
+        name: string,
+        payload: unknown,
+        source: "popup" | "content" = "popup",
+      ): Promise<unknown> => new Promise((resolve) => {
+        const seq = source === "popup" ? ++popupSeq : ++contentSeq;
+        const documentId = "document-77";
+        const keepOpen = runtimeListener({
+          kind: "uf-bus/1",
+          frameType: "request",
+          id: `${source}-${name}-${seq}`,
+          seq,
+          name,
+          source,
+          sourceInstance: source === "popup"
+            ? "popup:single-flight-test"
+            : `tab:77:frame:0:document:${documentId}:content:single-flight-test`,
+          target: "background",
+          payload,
+        }, source === "popup"
+          ? {}
+          : { tab: { id: 77 }, frameId: 0, documentId }, resolve);
+        expect(keepOpen).toBe(true);
+      });
+      const waitForLoadCount = async (expected: number): Promise<void> => {
+        for (let tick = 0; tick < 100 && pendingLoads.length < expected; tick += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        }
+        expect(pendingLoads).toHaveLength(expected);
+      };
+
+      await request("settings.save", {
+        configEndpoint: "https://config.example.com",
+        stageBase: "a.example.com",
+      });
+      await request("accounts.login", { email: "editor@example.com", password: "pw" });
+      const contextRequest = request("page.context", {
+        tabId: 77,
+        pageUrl: "https://shop.example.com/detail",
+      }, "content");
+      const configRequest = request("config.load", { siteId: 4821 });
+      await waitForLoadCount(1);
+      expect(loadCalls).toBe(1);
+      pendingLoads[0]!.resolve(new Response(JSON.stringify(configAtRevision(1)), { status: 200 }));
+
+      await expect(contextRequest).resolves.toMatchObject({
+        ok: true,
+        payload: {
+          status: "managed_candidate",
+          renderModeSet: true,
+          todo: { covered: 1, actionable: 1 },
+        },
+      });
+      await expect(configRequest).resolves.toMatchObject({
+        ok: true,
+        payload: { status: "ok", config: { propertyRevision: 1 } },
+      });
+      await expect(request("config.load", { siteId: 4821 })).resolves.toMatchObject({
+        ok: true,
+        payload: { status: "ok", config: { propertyRevision: 1 } },
+      });
+      expect(loadCalls).toBe(1);
+
+      const invalidatingRefresh = request("page.context", {
+        tabId: 77,
+        pageUrl: "https://shop.example.com/detail",
+        refresh: true,
+      }, "content");
+      await waitForLoadCount(2);
+      pendingLoads[1]!.reject(new Error("load transport failed"));
+      await expect(invalidatingRefresh).resolves.toMatchObject({ ok: false });
+
+      const retry = request("config.load", { siteId: 4821 });
+      await waitForLoadCount(3);
+      pendingLoads[2]!.resolve(new Response(JSON.stringify(configAtRevision(2)), { status: 200 }));
+      await expect(retry).resolves.toMatchObject({
+        ok: true,
+        payload: { status: "ok", config: { propertyRevision: 2 } },
+      });
+      expect(loadCalls).toBe(3);
     } finally {
       globalThis.fetch = originalFetch;
     }

@@ -111,6 +111,20 @@ function samePage(left: string | null, right: string): boolean {
   return left !== null && normalizedPageUrl(left) === normalizedPageUrl(right);
 }
 
+function isUnchangedCommittedDocument(
+  record: RenderInspectionRecord,
+  commit: NavigationCommit,
+): boolean {
+  const boundDocumentId = record.documentId ?? record.sourceDocumentId;
+  return Boolean(
+    boundDocumentId &&
+    commit.documentId &&
+    boundDocumentId === commit.documentId &&
+    commit.pageUrl &&
+    samePage(commit.pageUrl, record.pageUrl),
+  );
+}
+
 function pageBelongsToProperty(pageUrl: string, property: RenderInspectionPropertyScope): boolean {
   try {
     const propertyHost = new URL(property.baseUrl).hostname.toLowerCase().replace(/^www\./, "");
@@ -1207,6 +1221,20 @@ export function createRenderInspectionRuntime(input: Readonly<{
       });
     },
 
+    async preservesNavigationCommit(commit: NavigationCommit): Promise<boolean> {
+      await ensureTabInitialized(commit.tabId);
+      return withOperation(commit.tabId, async () => {
+        const loaded = await loadCurrent(commit.tabId);
+        if (!loaded) return false;
+        const record = await expireIfNeeded(loaded);
+        if (record !== loaded) await rescheduleAlarm();
+        return isUnchangedCommittedDocument(record, commit) && (
+          ACTIVE_PHASES.has(record.phase) ||
+          record.phase === "terminal" && record.terminalReason === "paint-acknowledged"
+        );
+      });
+    },
+
     async adopt(request: DocumentInput): Promise<RenderInspectionAdoptResponse> {
       await ensureTabInitialized(request.tabId);
       return withOperation(request.tabId, async () => {
@@ -1339,6 +1367,20 @@ export function createRenderInspectionRuntime(input: Readonly<{
               reloadAfterRestore: !loaded.javascriptEnabled,
             });
             await rescheduleAlarm();
+            return;
+          }
+          if (
+            isUnchangedCommittedDocument(loaded, commit) &&
+            (ACTIVE_PHASES.has(loaded.phase) || (
+              loaded.phase === "terminal" && loaded.terminalReason === "paint-acknowledged"
+            ))
+          ) {
+            // MV3 recreation loses the lifecycle module's process-local last
+            // document map. Its first history/fragment notification therefore
+            // reaches this durable authority even when Chrome kept the exact
+            // document and only changed (or repeated) the hash. Preserve that
+            // occurrence here; path, query, or document changes still fall
+            // through to the normal terminal navigation boundary below.
             return;
           }
           if (loaded.phase === "terminal") {

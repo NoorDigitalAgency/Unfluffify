@@ -12,40 +12,80 @@ import {
   createRevealVisitController,
   createSpaGuard,
   hydrateExistingLazyMedia,
+  hydrateExistingLazyMediaWithLedger,
   loadPageWithJavascript,
   reloadWithoutJavascriptViaCdp,
   restoreJavascriptViaCdp,
+  createViewportScrollRestorationLedger,
+  invalidateViewportScrollOwnerProofs,
+  resolveViewportScrollOwner,
   runReveal,
+  waitForRevealQuiet,
   waitForWindowScrollEnd,
+  type ViewportScrollOwner,
 } from "../../../../src/content/stabilization";
+
+function fakeScrollOwner(kind: ViewportScrollOwner["kind"], top: number, left: number) {
+  const element = { isConnected: true } as HTMLElement;
+  let currentTop = top;
+  let currentLeft = left;
+  const owner: ViewportScrollOwner = {
+    kind,
+    element,
+    eventTarget: element,
+    currentOffset: () => currentTop,
+    currentInlineOffset: () => currentLeft,
+    maximumOffset: () => 4_000,
+    viewportExtent: () => 960,
+    scrollTo(nextTop, _behavior, nextLeft = currentLeft) {
+      currentTop = nextTop;
+      currentLeft = nextLeft;
+    },
+  };
+  return {
+    owner,
+    setPosition(nextTop: number, nextLeft: number) {
+      currentTop = nextTop;
+      currentLeft = nextLeft;
+    },
+    setConnected(connected: boolean) {
+      (element as unknown as { isConnected: boolean }).isConnected = connected;
+    },
+  };
+}
 
 describe("P5 page stabilization", () => {
   it("hydrates finite lazy media before the observer fence", () => {
-    const element = (attributes: Record<string, string>, classes: string[] = []) => {
+    const element = (tagName: string, attributes: Record<string, string>, classes: string[] = []) => {
       const stored = new Map(Object.entries(attributes));
       const classNames = new Set(classes);
       return {
+        tagName,
+        isConnected: true,
         getAttribute: (name: string) => stored.get(name) ?? null,
         hasAttribute: (name: string) => stored.has(name),
         setAttribute: (name: string, value: string) => stored.set(name, value),
+        removeAttribute: (name: string) => stored.delete(name),
+        closest: () => null,
         classList: {
           contains: (name: string) => classNames.has(name),
           remove: (name: string) => classNames.delete(name),
+          add: (name: string) => classNames.add(name),
         },
       } as unknown as HTMLElement;
     };
-    const lazyImage = element({
+    const lazyImage = element("IMG", {
       src: "data:image/svg+xml,%3Csvg%3E%3C/svg%3E",
       "data-src": "https://example.com/a.svg",
       loading: "lazy",
     }, ["bricks-lazy-hidden"]);
-    const existingImage = element({
+    const existingImage = element("IMG", {
       src: "https://example.com/existing.png",
       "data-src": "https://example.com/replacement.png",
       loading: "lazy",
     });
-    const source = element({ "data-srcset": "a.webp 1x, b.webp 2x", "data-sizes": "100vw" });
-    const video = element({ "data-poster": "https://example.com/poster.jpg" });
+    const source = element("SOURCE", { "data-srcset": "a.webp 1x, b.webp 2x", "data-sizes": "100vw" });
+    const video = element("VIDEO", { "data-poster": "https://example.com/poster.jpg" });
     const root = {
       querySelectorAll: () => [lazyImage, existingImage, source, video],
     } as unknown as ParentNode;
@@ -59,9 +99,15 @@ describe("P5 page stabilization", () => {
     expect(source.getAttribute("srcset")).toBe("a.webp 1x, b.webp 2x");
     expect(source.getAttribute("sizes")).toBe("100vw");
     expect(video.getAttribute("poster")).toBe("https://example.com/poster.jpg");
+
+    const ledger = hydrateExistingLazyMediaWithLedger({
+      querySelectorAll: () => [element("IMG", { "data-src": "https://example.com/b.png" })],
+    } as unknown as ParentNode);
+    expect(ledger.count).toBe(1);
+    expect(() => { ledger.restore(); ledger.restore(); }).not.toThrow();
   });
 
-  it("settles on the wall-clock deadline when a motion freeze starves animation frames", async () => {
+  it("settles on the bounded no-progress watchdog when animation frames starve", async () => {
     vi.useFakeTimers();
     const requestAnimationFrame = vi.fn(() => 73);
     const cancelAnimationFrame = vi.fn();
@@ -69,17 +115,24 @@ describe("P5 page stabilization", () => {
       scrollY: 0,
       requestAnimationFrame,
       cancelAnimationFrame,
-    });
+      });
     try {
       let settled = false;
-      const waiting = waitForWindowScrollEnd(1_000, () => false).then(() => {
+      const result = waitForWindowScrollEnd(1_000, () => false);
+      const waiting = result.then(() => {
         settled = true;
       });
 
       expect(requestAnimationFrame).toHaveBeenCalledOnce();
-      await vi.advanceTimersByTimeAsync(7_999);
+      await vi.advanceTimersByTimeAsync(649);
       expect(settled).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
+      await expect(result).resolves.toEqual({
+        reached: false,
+        timedOut: false,
+        stale: false,
+        stalled: true,
+      });
       await waiting;
 
       expect(settled).toBe(true);
@@ -87,6 +140,847 @@ describe("P5 page stabilization", () => {
     } finally {
       vi.useRealTimers();
       vi.unstubAllGlobals();
+    }
+  });
+
+  it("reports a stalled smooth scroll promptly without teleporting", async () => {
+    vi.useFakeTimers();
+    const frameTimers = new Set<ReturnType<typeof setTimeout>>();
+    vi.stubGlobal("window", {
+      scrollY: 0,
+      requestAnimationFrame(callback: FrameRequestCallback) {
+        const timer = setTimeout(() => callback(Date.now()), 16);
+        frameTimers.add(timer);
+        return timer;
+      },
+      cancelAnimationFrame(timer: ReturnType<typeof setTimeout>) {
+        clearTimeout(timer);
+        frameTimers.delete(timer);
+      },
+    });
+    try {
+      const waiting = waitForWindowScrollEnd(1_000, () => false);
+      await vi.advanceTimersByTimeAsync(650);
+      await expect(waiting).resolves.toEqual({
+        reached: false,
+        timedOut: false,
+        stale: false,
+        stalled: true,
+      });
+    } finally {
+      for (const timer of frameTimers) clearTimeout(timer);
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("resolves a viewport-sized nested scroll owner without probing or teleporting", () => {
+    const root = {
+      nodeType: 1,
+      scrollTop: 0,
+      scrollHeight: 960,
+      clientHeight: 960,
+      clientWidth: 412,
+      parentElement: null,
+      getAttribute: () => null,
+      closest: () => null,
+    } as unknown as HTMLElement;
+    const scrollCalls: ScrollToOptions[] = [];
+    const shell = {
+      nodeType: 1,
+      scrollTop: 0,
+      scrollLeft: 37,
+      scrollHeight: 4_000,
+      clientHeight: 960,
+      parentElement: root,
+      isConnected: true,
+      getAttribute: () => null,
+      closest: () => null,
+      getBoundingClientRect: () => ({ left: 0, top: 0, right: 412, bottom: 960, width: 412, height: 960 }),
+      scrollTo: (options: ScrollToOptions) => scrollCalls.push(options),
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    } as unknown as HTMLElement;
+    const doc = {
+      scrollingElement: root,
+      documentElement: root,
+      body: root,
+      elementsFromPoint: () => [shell],
+    } as unknown as Document;
+    const win = {
+      innerWidth: 412,
+      innerHeight: 960,
+      scrollY: 0,
+      getComputedStyle: () => ({ overflowY: "auto" }),
+    } as unknown as Window;
+
+    const owner = resolveViewportScrollOwner(doc, win);
+    owner.scrollTo(owner.maximumOffset(), "smooth");
+
+    expect(owner.kind).toBe("element");
+    expect(owner.maximumOffset()).toBe(3_040);
+    expect(scrollCalls).toEqual([{ top: 3_040, left: 37, behavior: "smooth" }]);
+  });
+
+  it("pierces an accessible open shadow root to resolve and reversibly prove its viewport owner", () => {
+    const root = {
+      nodeType: 1, scrollTop: 0, scrollLeft: 0, scrollHeight: 960,
+      clientHeight: 960, clientWidth: 412, parentElement: null,
+      getAttribute: () => null, hasAttribute: () => false,
+    } as unknown as HTMLElement;
+    const host = {
+      nodeType: 1, parentElement: root, scrollHeight: 960, clientHeight: 960,
+      getAttribute: () => null, hasAttribute: () => false,
+      getBoundingClientRect: () => ({ left: 0, top: 0, right: 412, bottom: 960, width: 412, height: 960 }),
+      shadowRoot: null as ShadowRoot | null,
+    } as unknown as HTMLElement;
+    let offset = 0;
+    const shadow = {
+      mode: "open",
+      host,
+      children: [] as HTMLElement[],
+      elementsFromPoint: vi.fn(() => [] as HTMLElement[]),
+    } as unknown as ShadowRoot;
+    const owner = {
+      nodeType: 1, parentElement: null, scrollTop: 0, scrollLeft: 31,
+      scrollHeight: 4_000, clientHeight: 960, clientWidth: 412, isConnected: true,
+      getRootNode: () => shadow,
+      getAttribute: () => null, hasAttribute: () => false,
+      getBoundingClientRect: () => ({ left: 0, top: 0, right: 412, bottom: 960, width: 412, height: 960 }),
+      scrollTo(options: ScrollToOptions) {
+        offset = Number(options.top ?? offset);
+        this.scrollTop = offset;
+        this.scrollLeft = Number(options.left ?? this.scrollLeft);
+      },
+    } as unknown as HTMLElement;
+    const probe = {
+      nodeType: 1, parentElement: owner,
+      getAttribute: () => null, hasAttribute: () => false,
+      getBoundingClientRect: () => ({
+        left: 0, top: 140 - offset, right: 412,
+        bottom: 240 - offset, width: 412, height: 100,
+      }),
+    } as unknown as HTMLElement;
+    (shadow as unknown as { children: HTMLElement[] }).children = [owner];
+    (shadow.elementsFromPoint as ReturnType<typeof vi.fn>).mockReturnValue([probe]);
+    (host as unknown as { shadowRoot: ShadowRoot }).shadowRoot = shadow;
+    const doc = {
+      scrollingElement: root, documentElement: root, body: root,
+      elementsFromPoint: () => [host],
+    } as unknown as Document;
+    const win = {
+      innerWidth: 412, innerHeight: 960, scrollY: 0, scrollX: 0,
+      getComputedStyle(element: HTMLElement) {
+        return {
+          overflowY: element === owner ? "auto" : "visible",
+          position: "static",
+        };
+      },
+    } as unknown as Window;
+
+    expect(resolveViewportScrollOwner(doc, win).element).toBe(owner);
+    expect(owner.scrollTop).toBe(0);
+    expect(owner.scrollLeft).toBe(31);
+    expect(shadow.elementsFromPoint).toHaveBeenCalledTimes(9);
+  });
+
+  it("prefers movement-proven app-shell capacity over a genuine three-pixel document range", () => {
+    let shellCoupled = true;
+    const root = {
+      nodeType: 1, scrollTop: 0, scrollLeft: 0, scrollHeight: 963,
+      clientHeight: 960, clientWidth: 412, parentElement: null,
+      getAttribute: () => null, hasAttribute: () => false,
+    } as unknown as HTMLElement;
+    const shell = {
+      nodeType: 1, scrollTop: 0, scrollLeft: 27, scrollHeight: 4_000,
+      clientHeight: 960, clientWidth: 412, parentElement: root, isConnected: true,
+      getAttribute: () => null, hasAttribute: () => false,
+      getBoundingClientRect: () => ({
+        left: 0, top: -root.scrollTop, right: 412,
+        bottom: 960 - root.scrollTop, width: 412, height: 960,
+      }),
+      scrollTo(options: ScrollToOptions) {
+        this.scrollTop = Number(options.top ?? this.scrollTop);
+        this.scrollLeft = Number(options.left ?? this.scrollLeft);
+      },
+    } as unknown as HTMLElement;
+    const probe = {
+      nodeType: 1, parentElement: shell,
+      getAttribute: () => null, hasAttribute: () => false,
+      getBoundingClientRect: () => ({
+        left: 0,
+        top: 120 - root.scrollTop - (shellCoupled ? shell.scrollTop : 0),
+        right: 412,
+        bottom: 220 - root.scrollTop - (shellCoupled ? shell.scrollTop : 0),
+        width: 412,
+        height: 100,
+      }),
+    } as unknown as HTMLElement;
+    const doc = {
+      scrollingElement: root, documentElement: root, body: root,
+      elementsFromPoint: () => [probe],
+    } as unknown as Document;
+    const win = {
+      innerWidth: 412, innerHeight: 960, scrollY: 0, scrollX: 0,
+      scrollTo(options: ScrollToOptions) {
+        root.scrollTop = Number(options.top ?? root.scrollTop);
+        root.scrollLeft = Number(options.left ?? root.scrollLeft);
+      },
+      getComputedStyle(element: HTMLElement) {
+        return {
+          overflowY: element === root || element === shell ? "auto" : "visible",
+          position: "static",
+        };
+      },
+    } as unknown as Window;
+
+    const resolved = resolveViewportScrollOwner(doc, win);
+    expect(resolved.element).toBe(shell);
+    expect(resolved.maximumOffset()).toBe(3_040);
+    expect(root.scrollTop).toBe(0);
+    expect(root.scrollLeft).toBe(0);
+    expect(shell.scrollTop).toBe(0);
+    expect(shell.scrollLeft).toBe(27);
+
+    // A reused shell can keep the same identity/range/initial geometry while
+    // an SPA changes whether its content is coupled to scroll. Lifecycle
+    // invalidation must force a fresh reversible proof.
+    shellCoupled = false;
+    invalidateViewportScrollOwnerProofs();
+    expect(resolveViewportScrollOwner(doc, win).element).toBe(root);
+    expect(root.scrollTop).toBe(0);
+    expect(shell.scrollTop).toBe(0);
+  });
+
+  it("never ranks a consent-hidden modal as the viewport owner", () => {
+    const resolveWithRealOwner = (includeRealOwner: boolean) => {
+      const root = {
+        nodeType: 1, scrollTop: 0, scrollLeft: 0, scrollHeight: 960,
+        clientHeight: 960, clientWidth: 412, parentElement: null,
+        getAttribute: () => null, hasAttribute: () => false, closest: () => null,
+      } as unknown as HTMLElement;
+      const hiddenModal = {
+        nodeType: 1, scrollTop: 0, scrollLeft: 0, scrollHeight: 12_000,
+        clientHeight: 960, clientWidth: 412, parentElement: root, isConnected: true,
+        getAttribute: (name: string) => name === "data-uf-consent-hidden" ? "true" : null,
+        hasAttribute: (name: string) => name === "data-uf-consent-hidden",
+        closest: () => null,
+        getBoundingClientRect: () => ({ left: 0, top: 0, right: 412, bottom: 960, width: 412, height: 960 }),
+      } as unknown as HTMLElement;
+      const hiddenProbe = {
+        nodeType: 1, parentElement: hiddenModal,
+        getAttribute: () => null, hasAttribute: () => false, closest: () => null,
+        getBoundingClientRect: () => ({
+          left: 0, top: 100 - hiddenModal.scrollTop, right: 412,
+          bottom: 200 - hiddenModal.scrollTop, width: 412, height: 100,
+        }),
+      } as unknown as HTMLElement;
+      const real = {
+        nodeType: 1, scrollTop: 0, scrollLeft: 23, scrollHeight: 4_000,
+        clientHeight: 940, clientWidth: 392, parentElement: root, isConnected: true,
+        getAttribute: () => null, hasAttribute: () => false, closest: () => null,
+        getBoundingClientRect: () => ({ left: 10, top: 10, right: 402, bottom: 950, width: 392, height: 940 }),
+        scrollTo(options: ScrollToOptions) {
+          this.scrollTop = Number(options.top ?? this.scrollTop);
+          this.scrollLeft = Number(options.left ?? this.scrollLeft);
+        },
+      } as unknown as HTMLElement;
+      const realProbe = {
+        nodeType: 1, parentElement: real,
+        getAttribute: () => null, hasAttribute: () => false, closest: () => null,
+        getBoundingClientRect: () => ({
+          left: 10, top: 120 - real.scrollTop, right: 402,
+          bottom: 220 - real.scrollTop, width: 392, height: 100,
+        }),
+      } as unknown as HTMLElement;
+      const doc = {
+        scrollingElement: root, documentElement: root, body: root,
+        elementsFromPoint: () => includeRealOwner ? [hiddenProbe, realProbe] : [hiddenProbe],
+      } as unknown as Document;
+      const win = {
+        innerWidth: 412, innerHeight: 960, scrollY: 0, scrollX: 0,
+        getComputedStyle: () => ({ overflowY: "auto", position: "static" }),
+      } as unknown as Window;
+      return { owner: resolveViewportScrollOwner(doc, win), root, hiddenModal, real };
+    };
+
+    const withRealOwner = resolveWithRealOwner(true);
+    expect(withRealOwner.owner.element).toBe(withRealOwner.real);
+    expect(withRealOwner.hiddenModal.scrollTop).toBe(0);
+
+    const withoutRealOwner = resolveWithRealOwner(false);
+    expect(withoutRealOwner.owner.kind).toBe("document");
+    expect(withoutRealOwner.owner.element).toBe(withoutRealOwner.root);
+    expect(withoutRealOwner.hiddenModal.scrollTop).toBe(0);
+  });
+
+  it("keeps a scrollable document authoritative over a viewport-sized nested layer", () => {
+    const root = {
+      nodeType: 1,
+      scrollTop: 0,
+      scrollHeight: 6_000,
+      clientHeight: 960,
+      clientWidth: 412,
+      parentElement: null,
+      getAttribute: () => null,
+      closest: () => null,
+    } as unknown as HTMLElement;
+    const shell = {
+      nodeType: 1,
+      scrollTop: 0,
+      scrollHeight: 9_000,
+      clientHeight: 960,
+      parentElement: root,
+      isConnected: true,
+      getAttribute: () => null,
+      closest: () => null,
+      getBoundingClientRect: () => ({ left: 0, top: 0, right: 412, bottom: 960, width: 412, height: 960 }),
+    } as unknown as HTMLElement;
+    const doc = {
+      scrollingElement: root,
+      documentElement: root,
+      body: root,
+      elementsFromPoint: () => [shell],
+    } as unknown as Document;
+    const win = {
+      innerWidth: 412,
+      innerHeight: 960,
+      scrollY: 0,
+      getComputedStyle: () => ({ overflowY: "auto" }),
+    } as unknown as Window;
+
+    expect(resolveViewportScrollOwner(doc, win).kind).toBe("document");
+  });
+
+  it("uses reversible visual movement to reject a phantom document range", () => {
+    const root = {
+      nodeType: 1,
+      scrollTop: 0,
+      scrollLeft: 0,
+      scrollHeight: 6_000,
+      clientHeight: 960,
+      clientWidth: 412,
+      parentElement: null,
+      getAttribute: () => null,
+      closest: () => null,
+    } as unknown as HTMLElement;
+    let shellTop = 0;
+    const shell = {
+      nodeType: 1,
+      scrollTop: 0,
+      scrollLeft: 0,
+      scrollHeight: 5_000,
+      clientHeight: 960,
+      clientWidth: 412,
+      parentElement: root,
+      isConnected: true,
+      getAttribute: () => null,
+      closest: () => null,
+      getBoundingClientRect: () => ({ left: 0, top: 0, right: 412, bottom: 960, width: 412, height: 960 }),
+      scrollTo(options: ScrollToOptions) {
+        shellTop = Number(options.top ?? shellTop);
+        this.scrollTop = shellTop;
+        this.scrollLeft = Number(options.left ?? this.scrollLeft);
+      },
+    } as unknown as HTMLElement;
+    const child = {
+      nodeType: 1,
+      parentElement: shell,
+      getAttribute: () => null,
+      closest: () => null,
+      getBoundingClientRect: () => ({ left: 0, top: 100 - shellTop, right: 412, bottom: 200 - shellTop }),
+    } as unknown as HTMLElement;
+    const doc = {
+      scrollingElement: root,
+      documentElement: root,
+      body: root,
+      elementsFromPoint: () => [child],
+    } as unknown as Document;
+    const win = {
+      innerWidth: 412,
+      innerHeight: 960,
+      scrollY: 0,
+      scrollX: 0,
+      scrollTo(options: ScrollToOptions) {
+        root.scrollTop = Number(options.top ?? root.scrollTop);
+      },
+      getComputedStyle: () => ({ overflowY: "auto" }),
+    } as unknown as Window;
+
+    expect(resolveViewportScrollOwner(doc, win).element).toBe(shell);
+    expect(root.scrollTop).toBe(0);
+    expect(shell.scrollTop).toBe(0);
+  });
+
+  it("skips a higher-scoring phantom shell for the first movement-proven candidate", () => {
+    const root = {
+      nodeType: 1, scrollTop: 0, scrollLeft: 0, scrollHeight: 6_000,
+      clientHeight: 960, clientWidth: 412, parentElement: null,
+      getAttribute: () => null, closest: () => null,
+    } as unknown as HTMLElement;
+    let phantomTop = 0;
+    const phantom = {
+      nodeType: 1, scrollTop: 0, scrollLeft: 0, scrollHeight: 9_000,
+      clientHeight: 960, clientWidth: 412, parentElement: root, isConnected: true,
+      getAttribute: () => null, closest: () => null,
+      getBoundingClientRect: () => ({ left: 0, top: 0, right: 412, bottom: 960, width: 412, height: 960 }),
+      scrollTo(options: ScrollToOptions) {
+        phantomTop = Number(options.top ?? phantomTop);
+        this.scrollTop = phantomTop;
+      },
+    } as unknown as HTMLElement;
+    const phantomProbe = {
+      nodeType: 1, parentElement: phantom, getAttribute: () => null, closest: () => null,
+      // The page accepts offset writes on the shell, but rendered content does
+      // not move: its apparent range is phantom.
+      getBoundingClientRect: () => ({ left: 0, top: 100, right: 412, bottom: 200 }),
+    } as unknown as HTMLElement;
+    let realTop = 0;
+    const real = {
+      nodeType: 1, scrollTop: 0, scrollLeft: 0, scrollHeight: 4_000,
+      clientHeight: 940, clientWidth: 392, parentElement: root, isConnected: true,
+      getAttribute: () => null, closest: () => null,
+      getBoundingClientRect: () => ({ left: 10, top: 10, right: 402, bottom: 950, width: 392, height: 940 }),
+      scrollTo(options: ScrollToOptions) {
+        realTop = Number(options.top ?? realTop);
+        this.scrollTop = realTop;
+      },
+    } as unknown as HTMLElement;
+    const realProbe = {
+      nodeType: 1, parentElement: real, getAttribute: () => null, closest: () => null,
+      getBoundingClientRect: () => ({ left: 10, top: 120 - realTop, right: 402, bottom: 220 - realTop }),
+    } as unknown as HTMLElement;
+    const doc = {
+      scrollingElement: root, documentElement: root, body: root,
+      elementsFromPoint: () => [phantomProbe, realProbe],
+    } as unknown as Document;
+    const win = {
+      innerWidth: 412, innerHeight: 960, scrollY: 0, scrollX: 0,
+      scrollTo(options: ScrollToOptions) {
+        root.scrollTop = Number(options.top ?? root.scrollTop);
+        root.scrollLeft = Number(options.left ?? root.scrollLeft);
+      },
+      getComputedStyle(element: HTMLElement) {
+        return {
+          overflowY: element === phantom ? "hidden" : element === real || element === root ? "auto" : "visible",
+          position: "static",
+        };
+      },
+    } as unknown as Window;
+
+    expect(resolveViewportScrollOwner(doc, win).element).toBe(real);
+    expect(root.scrollTop).toBe(0);
+    expect(phantom.scrollTop).toBe(0);
+    expect(real.scrollTop).toBe(0);
+  });
+
+  it("ignores a fixed header probe and keeps real document scrolling authoritative", () => {
+    const root = {
+      nodeType: 1, scrollTop: 0, scrollLeft: 0, scrollHeight: 6_000,
+      clientHeight: 960, clientWidth: 412, parentElement: null,
+      getAttribute: () => null, closest: () => null,
+    } as unknown as HTMLElement;
+    let nestedTop = 0;
+    const carousel = {
+      nodeType: 1, scrollTop: 0, scrollLeft: 0, scrollHeight: 4_000,
+      clientHeight: 960, clientWidth: 412, parentElement: root, isConnected: true,
+      getAttribute: () => null, closest: () => null,
+      getBoundingClientRect: () => ({ left: 0, top: -root.scrollTop, right: 412, bottom: 960 - root.scrollTop, width: 412, height: 960 }),
+      scrollTo(options: ScrollToOptions) {
+        nestedTop = Number(options.top ?? nestedTop);
+        this.scrollTop = nestedTop;
+      },
+    } as unknown as HTMLElement;
+    const fixedHeader = {
+      nodeType: 1, parentElement: root, getAttribute: () => null, closest: () => null,
+      getBoundingClientRect: () => ({ left: 0, top: 0, right: 412, bottom: 80 }),
+    } as unknown as HTMLElement;
+    const content = {
+      nodeType: 1, parentElement: carousel, getAttribute: () => null, closest: () => null,
+      getBoundingClientRect: () => ({
+        left: 0,
+        top: 120 - root.scrollTop - nestedTop,
+        right: 412,
+        bottom: 220 - root.scrollTop - nestedTop,
+      }),
+    } as unknown as HTMLElement;
+    const doc = {
+      scrollingElement: root, documentElement: root, body: root,
+      elementsFromPoint: () => [fixedHeader, content],
+    } as unknown as Document;
+    const win = {
+      innerWidth: 412, innerHeight: 960, scrollY: 0, scrollX: 0,
+      scrollTo(options: ScrollToOptions) {
+        root.scrollTop = Number(options.top ?? root.scrollTop);
+        root.scrollLeft = Number(options.left ?? root.scrollLeft);
+      },
+      getComputedStyle(element: HTMLElement) {
+        return {
+          overflowY: element === carousel ? "auto" : "visible",
+          position: element === fixedHeader ? "fixed" : "static",
+        };
+      },
+    } as unknown as Window;
+
+    expect(resolveViewportScrollOwner(doc, win).kind).toBe("document");
+    expect(root.scrollTop).toBe(0);
+    expect(carousel.scrollTop).toBe(0);
+  });
+
+  it("finds a deep inset overflow-hidden shell when only body locks document scrolling", () => {
+    const root = {
+      nodeType: 1,
+      scrollTop: 0,
+      scrollLeft: 0,
+      scrollHeight: 8_000,
+      clientHeight: 960,
+      clientWidth: 412,
+      parentElement: null,
+      getAttribute: () => null,
+      closest: () => null,
+    } as unknown as HTMLElement;
+    const body = { ...root, parentElement: root } as unknown as HTMLElement;
+    let shellTop = 0;
+    const shell = {
+      nodeType: 1,
+      scrollTop: 0,
+      scrollLeft: 0,
+      scrollHeight: 7_000,
+      clientHeight: 920,
+      clientWidth: 388,
+      parentElement: root,
+      isConnected: true,
+      getAttribute: () => null,
+      closest: () => null,
+      getBoundingClientRect: () => ({ left: 12, top: 20, right: 400, bottom: 940, width: 388, height: 920 }),
+      scrollTo(options: ScrollToOptions) {
+        shellTop = Number(options.top ?? shellTop);
+        this.scrollTop = shellTop;
+      },
+    } as unknown as HTMLElement;
+    const child = {
+      nodeType: 1,
+      parentElement: null as Element | null,
+      getAttribute: () => null,
+      closest: () => null,
+      getBoundingClientRect: () => ({ left: 20, top: 120 - shellTop, right: 390, bottom: 220 - shellTop }),
+    } as unknown as HTMLElement;
+    let cursor: HTMLElement = child;
+    for (let depth = 0; depth < 64; depth += 1) {
+      const wrapper = {
+        nodeType: 1,
+        parentElement: null as Element | null,
+        scrollHeight: 0,
+        clientHeight: 0,
+        getAttribute: () => null,
+        closest: () => null,
+      } as unknown as HTMLElement;
+      (cursor as unknown as { parentElement: Element | null }).parentElement = wrapper;
+      cursor = wrapper;
+    }
+    (cursor as unknown as { parentElement: Element | null }).parentElement = shell;
+    const doc = {
+      scrollingElement: root,
+      documentElement: root,
+      body,
+      elementsFromPoint: () => [child],
+    } as unknown as Document;
+    const win = {
+      innerWidth: 412,
+      innerHeight: 960,
+      scrollY: 0,
+      scrollX: 0,
+      getComputedStyle(element: HTMLElement) {
+        return { overflowY: element === body || element === shell ? "hidden" : "auto" };
+      },
+    } as unknown as Window;
+
+    expect(resolveViewportScrollOwner(doc, win).element).toBe(shell);
+  });
+
+  it("re-resolves a swapped nested viewport owner", () => {
+    const root = {
+      nodeType: 1, scrollTop: 0, scrollLeft: 0, scrollHeight: 960,
+      clientHeight: 960, clientWidth: 412, parentElement: null,
+      getAttribute: () => null, closest: () => null,
+    } as unknown as HTMLElement;
+    const makeShell = () => {
+      let offset = 0;
+      const shell = {
+        nodeType: 1, scrollTop: 0, scrollLeft: 0, scrollHeight: 4_000,
+        clientHeight: 960, clientWidth: 412, parentElement: root, isConnected: true,
+        getAttribute: () => null, closest: () => null,
+        getBoundingClientRect: () => ({ left: 0, top: 0, right: 412, bottom: 960, width: 412, height: 960 }),
+        scrollTo(options: ScrollToOptions) {
+          offset = Number(options.top ?? offset);
+          this.scrollTop = offset;
+        },
+      } as unknown as HTMLElement;
+      const child = {
+        nodeType: 1, parentElement: shell, getAttribute: () => null, closest: () => null,
+        getBoundingClientRect: () => ({ left: 0, top: 100 - offset, right: 412, bottom: 200 - offset }),
+      } as unknown as HTMLElement;
+      return { shell, child };
+    };
+    const first = makeShell();
+    const second = makeShell();
+    let active = first;
+    const doc = {
+      scrollingElement: root, documentElement: root, body: root,
+      elementsFromPoint: () => [active.child],
+    } as unknown as Document;
+    const win = {
+      innerWidth: 412, innerHeight: 960, scrollY: 0, scrollX: 0,
+      getComputedStyle: () => ({ overflowY: "hidden" }),
+    } as unknown as Window;
+
+    expect(resolveViewportScrollOwner(doc, win).element).toBe(first.shell);
+    active = second;
+    expect(resolveViewportScrollOwner(doc, win).element).toBe(second.shell);
+  });
+
+  it("retains independent document and newly discovered nested reveal origins", () => {
+    const ledger = createViewportScrollRestorationLedger();
+    const documentOwner = fakeScrollOwner("document", 140, 19);
+    const nestedOwner = fakeScrollOwner("element", 75, 31);
+
+    ledger.observe(documentOwner.owner);
+    documentOwner.setPosition(3_000, 91);
+    ledger.observe(nestedOwner.owner);
+    nestedOwner.setPosition(2_500, 122);
+
+    expect(ledger.positionsForRestore()).toEqual([
+      { owner: nestedOwner.owner, top: 75, left: 31 },
+      { owner: documentOwner.owner, top: 140, left: 19 },
+    ]);
+  });
+
+  it("restores the connected replacement owner's observed reveal origin", () => {
+    const ledger = createViewportScrollRestorationLedger();
+    const first = fakeScrollOwner("element", 45, 12);
+    const replacement = fakeScrollOwner("element", 210, 44);
+    ledger.observe(first.owner);
+    first.setConnected(false);
+    ledger.observe(replacement.owner);
+    replacement.setPosition(3_000, 200);
+
+    expect(ledger.positionsForRestore()).toEqual([
+      { owner: replacement.owner, top: 210, left: 44 },
+    ]);
+  });
+
+  it("requires a fresh quiet window after late reveal mutations", async () => {
+    vi.useFakeTimers();
+    let mutationCallback: MutationCallback = () => undefined;
+    const root = {
+      nodeType: 1,
+      parentElement: null,
+      getAttribute: () => null,
+      closest: () => null,
+    } as unknown as Element;
+    try {
+      const waiting = waitForRevealQuiet({
+        document: { documentElement: root } as unknown as Document,
+        window: {} as Window,
+        measureExtent: () => 1_000,
+        isStale: () => false,
+        createMutationObserver(callback) {
+          mutationCallback = callback;
+          return { observe: vi.fn(), disconnect: vi.fn() };
+        },
+      });
+      await vi.advanceTimersByTimeAsync(200);
+      mutationCallback([{ target: root, type: "childList" } as MutationRecord], {} as MutationObserver);
+      await vi.advanceTimersByTimeAsync(249);
+      let settled = false;
+      void waiting.then(() => { settled = true; });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(waiting).resolves.toEqual({ quiet: true, stale: false, timedOut: false });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignores suppressed composed-subtree churn but resets for an adjacent capture mutation", async () => {
+    vi.useFakeTimers();
+    let mutationCallback: MutationCallback = () => undefined;
+    const root = {
+      nodeType: 1, parentElement: null,
+      getAttribute: () => null, hasAttribute: () => false,
+    } as unknown as Element;
+    const suppressedHost = {
+      nodeType: 1, parentElement: root,
+      getAttribute: (name: string) => name === "data-uf-consent-hidden" ? "true" : null,
+      hasAttribute: (name: string) => name === "data-uf-consent-hidden",
+    } as unknown as Element;
+    const suppressedShadowChild = {
+      nodeType: 1, parentElement: null,
+      getAttribute: () => null, hasAttribute: () => false,
+      getRootNode: () => ({ host: suppressedHost }),
+    } as unknown as Element;
+    const adjacent = {
+      nodeType: 1, parentElement: root,
+      getAttribute: () => null, hasAttribute: () => false,
+    } as unknown as Element;
+    const startProof = () => waitForRevealQuiet({
+      document: { documentElement: root } as unknown as Document,
+      window: {} as Window,
+      measureExtent: () => 1_000,
+      measureResources: () => "capture-resources-stable",
+      measureMotion: () => "capture-motion-stable",
+      measureRows: () => "capture-rows-stable",
+      isStale: () => false,
+      quietMs: 250,
+      timeoutMs: 1_000,
+      resetOnCaptureMutation: true,
+      createMutationObserver(callback) {
+        mutationCallback = callback;
+        return { observe: vi.fn(), disconnect: vi.fn() };
+      },
+    });
+    try {
+      const suppressedProof = startProof();
+      await vi.advanceTimersByTimeAsync(200);
+      mutationCallback([{
+        target: suppressedShadowChild,
+        type: "attributes",
+      } as MutationRecord], {} as MutationObserver);
+      await vi.advanceTimersByTimeAsync(50);
+      await expect(suppressedProof).resolves.toEqual({ quiet: true, stale: false, timedOut: false });
+
+      const adjacentProof = startProof();
+      await vi.advanceTimersByTimeAsync(200);
+      mutationCallback([{
+        target: adjacent,
+        type: "characterData",
+      } as MutationRecord], {} as MutationObserver);
+      await vi.advanceTimersByTimeAsync(249);
+      let settled = false;
+      void adjacentProof.then(() => { settled = true; });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(51);
+      await expect(adjacentProof).resolves.toEqual({ quiet: true, stale: false, timedOut: false });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("requires deterministic rect, resource, motion, and row stability", async () => {
+    vi.useFakeTimers();
+    let resources = 0;
+    let motion = "paused:0";
+    let rows = 4;
+    const root = {
+      nodeType: 1,
+      parentElement: null,
+      getAttribute: () => null,
+      closest: () => null,
+    } as unknown as Element;
+    try {
+      const waiting = waitForRevealQuiet({
+        document: { documentElement: root } as unknown as Document,
+        window: {} as Window,
+        measureExtent: () => 1_000,
+        measureRects: () => "0,0,412,960",
+        measureResources: () => resources,
+        measureMotion: () => motion,
+        measureRows: () => rows,
+        isStale: () => false,
+        quietMs: 2_000,
+        timeoutMs: 5_000,
+        createMutationObserver: () => ({ observe: vi.fn(), disconnect: vi.fn() }),
+      });
+      await vi.advanceTimersByTimeAsync(1_500);
+      resources += 1;
+      await vi.advanceTimersByTimeAsync(1_500);
+      motion = "paused:10";
+      await vi.advanceTimersByTimeAsync(1_000);
+      rows += 1;
+      await vi.advanceTimersByTimeAsync(999);
+      let settled = false;
+      void waiting.then(() => { settled = true; });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(waiting).resolves.toEqual({ quiet: false, stale: false, timedOut: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("times out when capture text keeps changing during the post-freeze proof", async () => {
+    vi.useFakeTimers();
+    let text = "first";
+    const root = {
+      nodeType: 1,
+      parentElement: null,
+      getAttribute: () => null,
+      closest: () => null,
+    } as unknown as Element;
+    try {
+      const waiting = waitForRevealQuiet({
+        document: { documentElement: root } as unknown as Document,
+        window: {} as Window,
+        measureExtent: () => 1_000,
+        measureRows: () => text,
+        isStale: () => false,
+        quietMs: 2_000,
+        timeoutMs: 4_000,
+        createMutationObserver: () => ({ observe: vi.fn(), disconnect: vi.fn() }),
+      });
+      for (let elapsed = 500; elapsed < 4_000; elapsed += 500) {
+        await vi.advanceTimersByTimeAsync(500);
+        text = `text-${elapsed}`;
+      }
+      await vi.advanceTimersByTimeAsync(500);
+      await expect(waiting).resolves.toEqual({ quiet: false, stale: false, timedOut: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resets post-freeze quiet for capture mutations beyond the bounded fingerprint", async () => {
+    vi.useFakeTimers();
+    let mutationCallback: MutationCallback = () => undefined;
+    const observe = vi.fn();
+    const root = {
+      nodeType: 1,
+      parentElement: null,
+      getAttribute: () => null,
+      closest: () => null,
+    } as unknown as Element;
+    try {
+      const waiting = waitForRevealQuiet({
+        document: { documentElement: root } as unknown as Document,
+        window: {} as Window,
+        measureExtent: () => 1_000,
+        measureRows: () => "bounded-prefix-stays-identical",
+        isStale: () => false,
+        quietMs: 2_000,
+        timeoutMs: 4_000,
+        resetOnCaptureMutation: true,
+        createMutationObserver(callback) {
+          mutationCallback = callback;
+          return { observe, disconnect: vi.fn() };
+        },
+      });
+      expect(observe).toHaveBeenCalledWith(root, expect.not.objectContaining({
+        attributeFilter: expect.anything(),
+      }));
+      for (let elapsed = 500; elapsed < 4_000; elapsed += 500) {
+        await vi.advanceTimersByTimeAsync(500);
+        mutationCallback([{
+          target: root,
+          type: elapsed % 1_000 === 0 ? "attributes" : "characterData",
+        } as MutationRecord], {} as MutationObserver);
+      }
+      await vi.advanceTimersByTimeAsync(500);
+      await expect(waiting).resolves.toEqual({ quiet: false, stale: false, timedOut: true });
+    } finally {
+      vi.useRealTimers();
     }
   });
 
@@ -134,10 +1028,10 @@ describe("P5 page stabilization", () => {
       activationStale: false,
       initialScrollHeight: 1,
       scrollTo: () => noScrollSteps.push("unexpected-scroll"),
-      suppressLazyLoading: () => noScrollSteps.push("unexpected-suppress"),
+      suppressLazyLoading: () => noScrollSteps.push("suppress"),
       freezeAtBottom: () => noScrollSteps.push("freeze"),
     })).resolves.toEqual({ skipped: true, lazyExpansions: 0, frozenAtBottom: true });
-    expect(noScrollSteps).toEqual(["freeze"]);
+    expect(noScrollSteps).toEqual(["suppress", "freeze"]);
 
     await expect(runReveal({
       hasVerticalScrollRoom: true,
@@ -147,6 +1041,96 @@ describe("P5 page stabilization", () => {
       suppressLazyLoading: () => steps.push("unexpected-stale"),
       freezeAtBottom: () => steps.push("unexpected-stale"),
     })).resolves.toMatchObject({ skipped: true, frozenAtBottom: false });
+  });
+
+  it("does not acknowledge a prepared reveal when the smooth return to origin fails", async () => {
+    const steps: string[] = [];
+    await expect(runReveal({
+      hasVerticalScrollRoom: true,
+      activationStale: false,
+      initialScrollHeight: 1_000,
+      scrollTo: (position) => {
+        steps.push(position);
+        return position !== "restore";
+      },
+      suppressLazyLoading: () => steps.push("suppress"),
+      freezeAtBottom: () => steps.push("freeze"),
+    })).resolves.toEqual({ skipped: true, lazyExpansions: 0, frozenAtBottom: false });
+    expect(steps).toEqual([
+      "top",
+      "lazy-threshold",
+      "suppress",
+      "bottom",
+      "bottom",
+      "freeze",
+      "restore",
+      "restore",
+    ]);
+  });
+
+  it("reclassifies a short page that gains scroll room before freeze", async () => {
+    const steps: string[] = [];
+    let extent = 960;
+    let settles = 0;
+    const result = await runReveal({
+      hasVerticalScrollRoom: false,
+      activationStale: false,
+      initialScrollHeight: 960,
+      measureExpandedScrollHeight: () => extent,
+      scrollTo(position) {
+        steps.push(position);
+        return true;
+      },
+      waitForSettle: async () => {
+        settles += 1;
+        if (settles === 1) extent = 2_400;
+        return true;
+      },
+      suppressLazyLoading: () => steps.push("suppress"),
+      restoreLazyLoading: () => steps.push("restore-lazy"),
+      freezeAtBottom: () => steps.push("freeze"),
+    });
+
+    expect(result).toEqual({ skipped: false, lazyExpansions: 1, frozenAtBottom: true });
+    expect(steps).toEqual([
+      "suppress",
+      "restore-lazy",
+      "top",
+      "lazy-threshold",
+      "suppress",
+      "bottom",
+      "bottom",
+      "freeze",
+      "restore",
+    ]);
+  });
+
+  it("requires top, midpoint, and the post-freeze quiet proof and restores on failure", async () => {
+    for (const failedPhase of ["top", "lazy-threshold", "post-freeze"] as const) {
+      const steps: string[] = [];
+      const result = await runReveal({
+        hasVerticalScrollRoom: true,
+        activationStale: false,
+        initialScrollHeight: 2_000,
+        scrollTo(position) {
+          steps.push(position);
+          return position !== failedPhase;
+        },
+        waitForSettle: async (phase) => failedPhase !== "post-freeze" || phase !== "post-freeze",
+        suppressLazyLoading: () => steps.push("suppress"),
+        restoreLazyLoading: () => steps.push("restore-lazy"),
+        freezeAtBottom: () => steps.push("freeze"),
+      });
+
+      expect(result).toMatchObject({ skipped: true, frozenAtBottom: false });
+      expect(steps).toContain("restore");
+      if (failedPhase === "top") expect(steps).not.toContain("lazy-threshold");
+      if (failedPhase === "lazy-threshold") expect(steps).not.toContain("suppress");
+      if (failedPhase === "post-freeze") {
+        expect(steps).toContain("freeze");
+        expect(steps.at(-1)).toBe("restore-lazy");
+      }
+    }
   });
 
   it("yields paint between scrolls and freezes at the re-measured bottom", async () => {
@@ -197,6 +1181,96 @@ describe("P5 page stabilization", () => {
       "paint:7",
     ]);
     expect(result).toEqual({ skipped: false, lazyExpansions: 1, frozenAtBottom: true });
+  });
+
+  it("continues a long smooth walk and never freezes before bottom is confirmed", async () => {
+    const steps: string[] = [];
+    const bottomResults = [false, false, true];
+
+    const result = await runReveal({
+      hasVerticalScrollRoom: true,
+      activationStale: false,
+      initialScrollHeight: 20_000,
+      measureExpandedScrollHeight: () => 20_000,
+      scrollTo(position) {
+        steps.push(position);
+        return position === "bottom" ? bottomResults.shift() ?? true : true;
+      },
+      suppressLazyLoading: () => steps.push("suppress"),
+      restoreLazyLoading: () => steps.push("restore-lazy"),
+      freezeAtBottom: () => steps.push("freeze"),
+    });
+
+    expect(steps).toEqual([
+      "top",
+      "lazy-threshold",
+      "suppress",
+      "bottom",
+      "bottom",
+      "bottom",
+      "freeze",
+      "restore",
+    ]);
+    expect(result).toEqual({ skipped: false, lazyExpansions: 0, frozenAtBottom: true });
+  });
+
+  it("fails open without freezing when the bounded walk never reaches bottom", async () => {
+    const steps: string[] = [];
+    const result = await runReveal({
+      hasVerticalScrollRoom: true,
+      activationStale: false,
+      initialScrollHeight: 20_000,
+      maximumBottomPasses: 3,
+      scrollTo(position) {
+        steps.push(position);
+        return position !== "bottom";
+      },
+      suppressLazyLoading: () => steps.push("suppress"),
+      restoreLazyLoading: () => steps.push("restore-lazy"),
+      freezeAtBottom: () => steps.push("freeze"),
+    });
+
+    expect(result).toEqual({ skipped: true, lazyExpansions: 0, frozenAtBottom: false });
+    expect(steps).toEqual([
+      "top",
+      "lazy-threshold",
+      "suppress",
+      "bottom",
+      "bottom",
+      "bottom",
+      "restore",
+      "restore-lazy",
+    ]);
+  });
+
+  it("stops after two confirmed no-progress bottom attempts", async () => {
+    const steps: string[] = [];
+    const result = await runReveal({
+      hasVerticalScrollRoom: true,
+      activationStale: false,
+      initialScrollHeight: 20_000,
+      maximumBottomPasses: 10,
+      scrollTo(position) {
+        steps.push(position);
+        return position === "bottom"
+          ? { reached: false, progressed: false }
+          : { reached: true, progressed: true };
+      },
+      suppressLazyLoading: () => steps.push("suppress"),
+      restoreLazyLoading: () => steps.push("restore-lazy"),
+      freezeAtBottom: () => steps.push("freeze"),
+    });
+
+    expect(result).toEqual({ skipped: true, lazyExpansions: 0, frozenAtBottom: false });
+    expect(steps).toEqual([
+      "top",
+      "lazy-threshold",
+      "suppress",
+      "bottom",
+      "bottom",
+      "restore",
+      "restore-lazy",
+    ]);
   });
 
   it("runs reveal once per page visit until navigation reset", async () => {
@@ -534,6 +1608,8 @@ describe("P5 page stabilization", () => {
     guard.onUrlChange("https://example.com/a");
     guard.arm("https://example.com/a");
     guard.onUrlChange("https://example.com/a");
+    guard.onUrlChange("https://example.com/a#details");
+    guard.onUrlChange("https://example.com/a#other");
     guard.onUrlChange("https://example.com/b");
     guard.disarm();
     guard.onUrlChange("https://example.com/c");

@@ -26,7 +26,7 @@ test("single page-world program is a classic script with the production relay pr
 test("new page-world program is registered at document_start in the MAIN world", () => {
   assert.match(pageWorldEntrypointSource, /defineContentScript\(\{/);
   assert.match(pageWorldEntrypointSource, /runAt:\s*"document_start"/);
-  assert.match(pageWorldEntrypointSource, /allFrames:\s*true/);
+  assert.match(pageWorldEntrypointSource, /allFrames:\s*false/);
   assert.match(pageWorldEntrypointSource, /world:\s*"MAIN"/);
   assert.match(pageWorldEntrypointSource, /matches:\s*\["<all_urls>"\]/);
   assert.match(pageWorldEntrypointSource, /import "\.\.\/page-world\/program\.js";/);

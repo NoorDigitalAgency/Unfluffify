@@ -59,6 +59,9 @@ export function openMarkingContextMenu(options: Readonly<{
     button.disabled = !action.enabled;
     button.textContent = action.label;
     button.addEventListener("click", (event) => {
+      if (event.isTrusted === false) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       if (action.enabled) {

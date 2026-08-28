@@ -247,7 +247,7 @@ describe("popup configuration controller", () => {
 
     await expect(action).resolves.toBe("completed");
     expect(harness.controller.snapshot()).toMatchObject({
-      credentials: { email: "", password: "" },
+      credentials: { email: "user@example.com", password: "" },
       hasStoredToken: true,
       authState: "signed_in",
       authMessage: "Signed in as user@example.com.",
@@ -413,6 +413,46 @@ describe("popup configuration controller", () => {
     });
     expect(harness.controller.setConfirmedRenderMode("rendered")).toBe(false);
     expect(harness.controller.setConfirmedRenderMode("static")).toBe(true);
-    expect(harness.controller.snapshot().property.renderMode).toBe("static");
+    expect(harness.controller.snapshot().property).toMatchObject({
+      renderMode: "static",
+      renderModeSource: "pending",
+    });
+  });
+
+  it("adopts a durable render-mode draft separately from backend authority", async () => {
+    const config = propertyConfig({ renderMode: "rendered" });
+    const harness = createHarness({
+      loadPropertyConfig: vi.fn(async () => ({
+        ok: true,
+        data: {
+          status: "ok",
+          config,
+          renderMode: "rendered",
+          pendingRenderMode: "static",
+          renderModeSource: "backend",
+        },
+      })),
+    });
+    const candidate = await harness.controller.requestPropertyLoad(1);
+    expect(harness.controller.adoptPropertyLoad(candidate!)).toMatchObject({ status: "adopted" });
+    expect(harness.controller.snapshot().property).toMatchObject({
+      config,
+      renderMode: "static",
+      renderModeSource: "pending",
+    });
+    expect(harness.ports.recordActivity).toHaveBeenCalledWith(
+      "Render mode draft restored",
+      "static · pending Save",
+      "warn",
+    );
+
+    harness.controller.adoptAuthoritativeConfig(
+      propertyConfig({ renderMode: "static", propertyRevision: config.propertyRevision + 1 }),
+      "ok",
+    );
+    expect(harness.controller.snapshot().property).toMatchObject({
+      renderMode: "static",
+      renderModeSource: "backend",
+    });
   });
 });

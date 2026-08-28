@@ -57,6 +57,22 @@ describe("operator action controller", () => {
     expect(controller.current()?.stage).toBe("ai-poll");
   });
 
+  it.each([
+    ["marking-disable", "activation"],
+    ["preview-open", "preview"],
+    ["save", "persist"],
+    ["discard", "emulation"],
+    ["candidate-navigation", "navigation"],
+    ["render-mode-set", "persist"],
+  ] as const)("fences the %s lifecycle through %s", (kind, stage) => {
+    const controller = createOperatorActionController();
+    const occurrence = controller.begin(kind, { bindingKey: "tab:4", bindingOccurrence: 1 })!;
+
+    expect(controller.advance(occurrence, stage)).toBe(true);
+    expect(controller.current()).toMatchObject({ kind, stage });
+    expect(controller.clear(occurrence)).toBe(true);
+  });
+
   it("can be released from a finally path without clearing its successor", async () => {
     const onChange = vi.fn();
     const controller = createOperatorActionController({ onChange });

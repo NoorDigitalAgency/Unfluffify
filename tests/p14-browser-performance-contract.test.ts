@@ -1,8 +1,11 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
   BUDGETS,
   FIXTURES,
+  INPUT_LONG_TASK_BUDGET_MS,
+  INPUT_OPERATION_NAMES_BY_MODE,
   LEGACY_SOURCE,
   OPERATION_NAMES,
   SELECTORS,
@@ -13,6 +16,7 @@ import {
   percentile,
   semanticDifference,
   summarizeSamples,
+  validateInputLongTaskWindows,
 } from "../scripts/performance/p14/contract.mjs";
 import { renderFixtureBody, renderFixturePage } from "../scripts/performance/p14/fixture.mjs";
 
@@ -166,9 +170,9 @@ describe("P14 real-browser performance gate contract", () => {
     const stableIds = [...page.matchAll(/\bdata-p14-id="([^"]+)"/g)].map((match) => match[1]!);
     const pageElements = [...page.matchAll(/<[a-z][a-z0-9-]*\b[^>]*>/gi)].map((match) => match[0]);
 
-    expect(stableIds).toHaveLength(2_037);
-    expect(new Set(stableIds).size).toBe(2_037);
-    expect(pageElements).toHaveLength(2_037);
+    expect(stableIds).toHaveLength(2_038);
+    expect(new Set(stableIds).size).toBe(2_038);
+    expect(pageElements).toHaveLength(2_038);
     expect(pageElements.filter((element) => !/\bdata-p14-id="[^"]+"/.test(element))).toEqual([]);
     expect(stableIds).toEqual(expect.arrayContaining([
       "html",
@@ -183,6 +187,7 @@ describe("P14 real-browser performance gate contract", () => {
       "header",
       "fixture-root",
       "control-block",
+      "click-boundary",
       "seed-exclude",
       "seed-include",
       "click-target",
@@ -275,5 +280,67 @@ describe("P14 real-browser performance gate contract", () => {
     expect(summarizeSamples(samples)).toEqual({ count: 21, p50: 11, p95: 20, min: 1, max: 21 });
     expect(samples).toEqual(originalOrder);
     expect(() => percentile([], 50)).toThrow("percentile requires at least one sample");
+  });
+
+  it("requires complete Chromium long-task evidence for every physical input window", () => {
+    expect(INPUT_LONG_TASK_BUDGET_MS).toBe(50);
+    expect(INPUT_OPERATION_NAMES_BY_MODE).toEqual({
+      silent: ["silentScrollReposition"],
+      marking: ["markingHover", "markingClickCommitPaint", "markingScrollReposition"],
+    });
+    const windowFor = (operation: string, duration = 0) => ({
+      operation,
+      startTime: 100,
+      endTime: 200,
+      supported: true,
+      entries: duration > 0
+        ? [{ name: "self", entryType: "longtask", startTime: 120, duration }]
+        : [],
+      maxDurationMs: duration,
+    });
+    const runs = [
+      {
+        sequence: 0,
+        mode: "silent",
+        runtime: "rewrite",
+        inputLongTasks: [windowFor("silentScrollReposition")],
+      },
+      {
+        sequence: 1,
+        mode: "marking",
+        runtime: "rewrite",
+        inputLongTasks: INPUT_OPERATION_NAMES_BY_MODE.marking.map((operation) => windowFor(operation)),
+      },
+    ];
+    expect(validateInputLongTaskWindows(runs)).toMatchObject({ pass: true, budgetMs: 50 });
+    expect(validateInputLongTaskWindows([])).toMatchObject({ pass: false });
+    expect(validateInputLongTaskWindows([{
+      ...runs[1],
+      inputLongTasks: [
+        windowFor("markingHover", 50.001),
+        ...runs[1]!.inputLongTasks.slice(1),
+      ],
+    }])).toMatchObject({ pass: false });
+    expect(validateInputLongTaskWindows([{
+      ...runs[0],
+      inputLongTasks: [],
+    }])).toMatchObject({ pass: false });
+    expect(validateInputLongTaskWindows([{
+      ...runs[0],
+      inputLongTasks: [{ ...windowFor("silentScrollReposition"), supported: false }],
+    }])).toMatchObject({ pass: false });
+    expect(validateInputLongTaskWindows([{
+      ...runs[0],
+      runtime: "legacy",
+      inputLongTasks: [windowFor("silentScrollReposition", 75)],
+    }])).toMatchObject({
+      pass: true,
+      checks: [{ budgetApplies: false, windows: [{ withinBudget: false }] }],
+    });
+
+    const controller = readFileSync("scripts/performance/p14/playwright-controller.js", "utf8");
+    expect(controller).toContain('PerformanceObserver.supportedEntryTypes?.includes("longtask")');
+    expect(controller).toContain('observer?.observe({ type: "longtask", buffered: true })');
+    expect(controller).toContain("capture?.observer?.takeRecords()");
   });
 });

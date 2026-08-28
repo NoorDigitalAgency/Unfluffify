@@ -37,7 +37,7 @@ describe("P16 real-browser durable render-inspection gate contract", () => {
 
   it("rejects missing, duplicate, or failing browser evidence", () => {
     const passing = REQUIRED_CHECK_IDS.map((id) => ({ id, pass: true }));
-    expect(validateCheckCatalog(passing)).toEqual({ pass: true, missing: [], duplicates: [] });
+    expect(validateCheckCatalog(passing)).toEqual({ pass: true, missing: [], duplicates: [], unexpected: [] });
     expect(validateCheckCatalog(passing.slice(1))).toMatchObject({
       pass: false,
       missing: [REQUIRED_CHECK_IDS[0]],
@@ -45,6 +45,10 @@ describe("P16 real-browser durable render-inspection gate contract", () => {
     expect(validateCheckCatalog([...passing, passing[0]!])).toMatchObject({
       pass: false,
       duplicates: [REQUIRED_CHECK_IDS[0]],
+    });
+    expect(validateCheckCatalog([...passing, { id: "unexpected", pass: true }])).toMatchObject({
+      pass: false,
+      unexpected: ["unexpected"],
     });
     expect(validateCheckCatalog(passing.map((entry, index) => ({
       ...entry,

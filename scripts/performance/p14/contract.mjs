@@ -51,6 +51,19 @@ export const OPERATION_NAMES = Object.freeze([
   "markingMutationStabilization",
 ]);
 
+export const INPUT_LONG_TASK_BUDGET_MS = 50;
+
+export const INPUT_OPERATION_NAMES_BY_MODE = Object.freeze({
+  silent: Object.freeze([
+    "silentScrollReposition",
+  ]),
+  marking: Object.freeze([
+    "markingHover",
+    "markingClickCommitPaint",
+    "markingScrollReposition",
+  ]),
+});
+
 const sharedRelative = Object.freeze({
   p50Ratio: 2,
   p95Ratio: 2,
@@ -179,6 +192,75 @@ export function summarizeSamples(values) {
     p95: percentile(values, 95),
     min: Math.min(...values),
     max: Math.max(...values),
+  };
+}
+
+export function validateInputLongTaskWindows(runs) {
+  const checks = (Array.isArray(runs) ? runs : []).map((runItem) => {
+    const modeValid = Object.hasOwn(INPUT_OPERATION_NAMES_BY_MODE, runItem?.mode);
+    const expectedOperations = INPUT_OPERATION_NAMES_BY_MODE[runItem?.mode] ?? [];
+    const runtimeValid = runItem?.runtime === "rewrite" || runItem?.runtime === "legacy";
+    const budgetApplies = runItem?.runtime === "rewrite";
+    const windows = Array.isArray(runItem?.inputLongTasks) ? runItem.inputLongTasks : [];
+    const actualOperations = windows.map((windowItem) => windowItem?.operation);
+    const windowChecks = windows.map((windowItem) => {
+      const entries = Array.isArray(windowItem?.entries) ? windowItem.entries : [];
+      const entryDurations = entries.map((entry) => entry?.duration);
+      const entriesValid = entryDurations.every((duration) =>
+        typeof duration === "number" && Number.isFinite(duration) && duration >= 0
+      );
+      const measuredMaximum = entriesValid && entryDurations.length > 0
+        ? Math.max(...entryDurations)
+        : entriesValid ? 0 : Number.NaN;
+      const reportedMaximum = windowItem?.maxDurationMs;
+      const timingValid = Number.isFinite(windowItem?.startTime)
+        && Number.isFinite(windowItem?.endTime)
+        && windowItem.endTime >= windowItem.startTime;
+      const maximumValid = Number.isFinite(reportedMaximum)
+        && Math.abs(reportedMaximum - measuredMaximum) < 0.001;
+      return {
+        operation: windowItem?.operation ?? null,
+        supported: windowItem?.supported === true,
+        timingValid,
+        entriesValid,
+        maximumValid,
+        withinBudget: measuredMaximum <= INPUT_LONG_TASK_BUDGET_MS,
+        maxDurationMs: maximumValid
+          ? reportedMaximum
+          : Number.isFinite(measuredMaximum) ? measuredMaximum : null,
+        pass: windowItem?.supported === true
+          && timingValid
+          && entriesValid
+          && maximumValid
+          && (!budgetApplies || measuredMaximum <= INPUT_LONG_TASK_BUDGET_MS),
+      };
+    });
+    const operationsMatch = JSON.stringify(actualOperations) === JSON.stringify(expectedOperations);
+    return {
+      sequence: runItem?.sequence ?? null,
+      mode: runItem?.mode ?? null,
+      modeValid,
+      runtime: runItem?.runtime ?? null,
+      runtimeValid,
+      budgetApplies,
+      expectedOperations,
+      actualOperations,
+      operationsMatch,
+      windows: windowChecks,
+      pass: modeValid
+        && runtimeValid
+        && operationsMatch
+        && windowChecks.length === expectedOperations.length
+        && windowChecks.every((check) => check.pass),
+    };
+  });
+  return {
+    pass: Array.isArray(runs)
+      && checks.length > 0
+      && checks.length === runs.length
+      && checks.every((check) => check.pass),
+    budgetMs: INPUT_LONG_TASK_BUDGET_MS,
+    checks,
   };
 }
 

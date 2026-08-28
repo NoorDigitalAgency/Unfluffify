@@ -50,12 +50,14 @@ export type PropertyConfigLoadResult =
     config: ConfigSnapshot;
     reason?: string;
     renderMode?: RenderMode;
+    pendingRenderMode?: RenderMode;
     renderModeSource: "backend";
   }>
   | Readonly<{
     status: "auth_error" | "not_found" | "invalid" | "environment_unconfigured" | "error";
     httpStatus?: number;
     renderMode?: RenderMode;
+    pendingRenderMode?: RenderMode;
     renderModeSource: "backend" | "local";
   }>;
 
@@ -93,7 +95,7 @@ export type ConfigurationSnapshot = Readonly<{
     config: ConfigSnapshot | null;
     selectors: SelectorSet | null;
     renderMode: RenderMode | null;
-    renderModeSource: "backend" | "local";
+    renderModeSource: "backend" | "local" | "pending";
   }>;
 }>;
 
@@ -191,7 +193,7 @@ export function createConfigurationController(ports: ConfigurationPorts): Config
   let propertyConfig: ConfigSnapshot | null = null;
   let propertySelectors: SelectorSet | null = null;
   let confirmedRenderMode: RenderMode | null = null;
-  let renderModeSource: "backend" | "local" = "local";
+  let renderModeSource: "backend" | "local" | "pending" = "local";
 
   const resolvedAuthState = (): PopupAuthState => {
     if (authBusy) {
@@ -368,7 +370,9 @@ export function createConfigurationController(ports: ConfigurationPorts): Config
         ports.onChange();
         return "failed";
       }
-      credentials = EMPTY_POPUP_CREDENTIALS_FORM;
+      // Retain the non-secret account hint for the popup lifetime. Only the
+      // password is cleared after a successful exchange.
+      credentials = { email, password: "" };
       hasStoredToken = true;
       rawAuthState = "signed_in";
       authMessage = `Signed in as ${email}.`;
@@ -459,8 +463,8 @@ export function createConfigurationController(ports: ConfigurationPorts): Config
       const result = response.data;
       propertyStatus = result.status;
       if (result.status !== "ok" && result.status !== "integrity_shrink") {
-        confirmedRenderMode = result.renderMode ?? null;
-        renderModeSource = result.renderModeSource;
+        confirmedRenderMode = result.pendingRenderMode ?? result.renderMode ?? null;
+        renderModeSource = result.pendingRenderMode ? "pending" : result.renderModeSource;
         const projectionInvalidated = result.status === "not_found";
         if (projectionInvalidated) {
           propertyConfig = null;
@@ -478,10 +482,17 @@ export function createConfigurationController(ports: ConfigurationPorts): Config
         ports.onChange();
         return { status: "adopted", projectionInvalidated };
       }
-      renderModeSource = result.renderModeSource;
+      renderModeSource = result.pendingRenderMode ? "pending" : result.renderModeSource;
       propertyConfig = result.config;
       propertySelectors = result.config.selectors;
-      if (ports.isRenderModeConfirmed(result.config)) {
+      if (result.pendingRenderMode) {
+        confirmedRenderMode = result.pendingRenderMode;
+        ports.recordActivity(
+          "Render mode draft restored",
+          `${result.pendingRenderMode} · pending Save`,
+          "warn",
+        );
+      } else if (ports.isRenderModeConfirmed(result.config)) {
         confirmedRenderMode = result.config.renderMode;
         ports.recordActivity("Render mode restored", `${result.config.renderMode} · backend`, "success");
       } else {
@@ -505,16 +516,23 @@ export function createConfigurationController(ports: ConfigurationPorts): Config
       propertyStatus = "";
       propertyConfig = null;
       propertySelectors = null;
+      confirmedRenderMode = null;
+      renderModeSource = "local";
     },
     setConfirmedRenderMode(mode) {
-      if (confirmedRenderMode === mode) {
+      const nextSource = propertyConfig === null
+        ? "local"
+        : propertyConfig.renderMode === mode ? "backend" : "pending";
+      if (confirmedRenderMode === mode && renderModeSource === nextSource) {
         return false;
       }
       confirmedRenderMode = mode;
+      renderModeSource = nextSource;
       return true;
     },
     clearConfirmedRenderMode() {
       confirmedRenderMode = null;
+      renderModeSource = "local";
     },
     adoptAuthoritativeConfig(config, status) {
       propertyConfig = config;

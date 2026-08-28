@@ -22,11 +22,18 @@ export const REQUIRED_CHECK_IDS = Object.freeze([
 
 export function validateCheckCatalog(checks) {
   const ids = checks.map((check) => check.id);
+  const required = new Set(REQUIRED_CHECK_IDS);
   const missing = REQUIRED_CHECK_IDS.filter((id) => !ids.includes(id));
   const duplicates = ids.filter((id, index) => ids.indexOf(id) !== index);
+  const unexpected = ids.filter((id) => !required.has(id));
   return {
-    pass: missing.length === 0 && duplicates.length === 0 && checks.every((check) => check.pass === true),
+    pass: missing.length === 0 &&
+      duplicates.length === 0 &&
+      unexpected.length === 0 &&
+      checks.length === REQUIRED_CHECK_IDS.length &&
+      checks.every((check) => check.pass === true),
     missing,
     duplicates: [...new Set(duplicates)],
+    unexpected: [...new Set(unexpected)],
   };
 }

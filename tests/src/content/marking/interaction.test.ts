@@ -65,7 +65,20 @@ describe("marking interaction controls", () => {
       .toEqual(["include", "exclude", "widen", "clear"]);
     expect(menu.children[1]?.disabled).toBe(true);
 
+    const syntheticPreventDefault = vi.fn();
+    const syntheticStopPropagation = vi.fn();
     menu.children[0]?.listeners.get("click")?.({
+      isTrusted: false,
+      preventDefault: syntheticPreventDefault,
+      stopPropagation: syntheticStopPropagation,
+    } as unknown as Event);
+    expect(run).not.toHaveBeenCalled();
+    expect(menu.removed).toBe(false);
+    expect(syntheticPreventDefault).not.toHaveBeenCalled();
+    expect(syntheticStopPropagation).not.toHaveBeenCalled();
+
+    menu.children[0]?.listeners.get("click")?.({
+      isTrusted: true,
       preventDefault() {},
       stopPropagation() {},
     } as unknown as Event);

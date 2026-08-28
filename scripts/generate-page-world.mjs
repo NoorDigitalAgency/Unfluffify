@@ -8,7 +8,11 @@ const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 const SOURCE_PATH = resolve(REPO_ROOT, "src/page-world/program.ts");
 const GENERATED_PATH = resolve(REPO_ROOT, "src/page-world/program.js");
 const CHECK_ONLY = process.argv.includes("--check");
-const BANNER = "// GENERATED from src/page-world/program.ts. Run: pnpm page-world:generate\n";
+const BANNER = [
+  "// GENERATED from src/page-world/program.ts. Run: pnpm page-world:generate",
+  "/* eslint-disable no-empty -- esbuild removes comments from intentional catch blocks */",
+  "",
+].join("\n");
 
 const result = await build({
   entryPoints: [SOURCE_PATH],

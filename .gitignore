@@ -23,6 +23,11 @@ output/playwright/p14-marking-performance/latest.json
 output/playwright/p14-marking-performance/diagnostic-*.json
 output/playwright/p14-marking-performance/failure-*.json
 output/playwright/p14-marking-performance/smoke-*.json
+# P25 live-comparison runs can contain many screenshots and frame samples. Keep
+# the durable root and its checked-in contract README, but never mix generated
+# run evidence into source status or a build identity.
+output/playwright/p25-live-comparison/*
+!output/playwright/p25-live-comparison/README.md
 
 # Non-Copilot local agent state
 .agents/

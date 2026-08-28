@@ -414,6 +414,83 @@ describe("durable render inspection runtime", () => {
     });
   });
 
+  it("preserves the durable document across the first post-restart hash notification", async () => {
+    const first = harness();
+    await startStatic(first);
+    await bindReplacement(first);
+
+    // The new runtime models an MV3 worker whose lifecycle module has no
+    // process-local last-document entry yet.
+    const restarted = harness({ store: first.store, now: 1_100 });
+    await restarted.runtime.initialize();
+    await expect(restarted.runtime.preservesNavigationCommit({
+      tabId: 7,
+      documentId: "document-b",
+      pageUrl: `${PAGE_URL}#details`,
+    })).resolves.toBe(true);
+    await expect(restarted.runtime.preservesNavigationCommit({
+      tabId: 7,
+      documentId: "document-b",
+      pageUrl: `${PAGE_URL}?sort=recent`,
+    })).resolves.toBe(false);
+    await expect(restarted.runtime.preservesNavigationCommit({
+      tabId: 7,
+      documentId: "document-c",
+      pageUrl: PAGE_URL,
+    })).resolves.toBe(false);
+    await restarted.runtime.navigationCommitted({
+      tabId: 7,
+      documentId: "document-b",
+      pageUrl: `${PAGE_URL}#details`,
+    });
+    await restarted.runtime.navigationCommitted({
+      tabId: 7,
+      documentId: "document-b",
+      pageUrl: PAGE_URL,
+    });
+
+    await expect(restarted.runtime.current(7)).resolves.toMatchObject({
+      status: "active",
+      session: {
+        phase: "adopted",
+        documentId: "document-b",
+        terminalReason: null,
+      },
+    });
+    expect(restarted.javascript).toEqual([{ tabId: 7, enabled: false }]);
+
+    await restarted.runtime.navigationCommitted({
+      tabId: 7,
+      documentId: "document-b",
+      pageUrl: `${PAGE_URL}?sort=recent`,
+    });
+    await expect(restarted.runtime.current(7)).resolves.toMatchObject({
+      status: "terminal",
+      session: { terminalReason: "unexpected-navigation" },
+    });
+    expect(restarted.javascript.at(-1)).toEqual({ tabId: 7, enabled: true });
+  });
+
+  it("still terminalizes a real document replacement after worker restart", async () => {
+    const first = harness();
+    await startStatic(first);
+    await bindReplacement(first);
+    const restarted = harness({ store: first.store, now: 1_100 });
+    await restarted.runtime.initialize();
+
+    await restarted.runtime.navigationCommitted({
+      tabId: 7,
+      documentId: "document-c",
+      pageUrl: `${PAGE_URL}#same-route`,
+    });
+
+    await expect(restarted.runtime.current(7)).resolves.toMatchObject({
+      status: "terminal",
+      session: { terminalReason: "unexpected-navigation" },
+    });
+    expect(restarted.javascript.at(-1)).toEqual({ tabId: 7, enabled: true });
+  });
+
   it("increments from the durable tombstone and fences an old acknowledgement", async () => {
     const h = harness();
     const first = await startStatic(h);

@@ -61,4 +61,26 @@ describe("focused Preview row section", () => {
     expect(debug).toContain("XPath: /html[1]/body[1]/main[1]");
     expect(debug).toContain("preview-sidebar__item--active");
   });
+
+  it("bounds the initial DOM for very large projections", () => {
+    const projection = {
+      ...PROJECTION,
+      projectionId: "large-preview",
+      rows: Array.from({ length: 2_000 }, (_, index) => ({
+        ...PROJECTION.rows[0],
+        id: `row-${index}`,
+        text: `Readable row ${index}`,
+      })),
+    };
+    const markup = renderToStaticMarkup(createElement(PreviewRowList, {
+      projection,
+      debug: false,
+      hoveredRowId: null,
+    }));
+
+    expect(markup.match(/preview-sidebar__item-button/g)).toHaveLength(96);
+    expect(markup).toContain("preview-sidebar__virtual-spacer");
+    expect(markup).toContain('aria-setsize="2000"');
+    expect(markup).not.toContain("Readable row 1999");
+  });
 });

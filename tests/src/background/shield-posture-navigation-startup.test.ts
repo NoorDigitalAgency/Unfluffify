@@ -37,7 +37,8 @@ type MessageListener = (
 
 type BrowserHarness = Readonly<{
   listener: () => MessageListener;
-  commit: (tabId: number, documentId?: string) => void;
+  commit: (tabId: number, documentId?: string, pageUrl?: string) => void;
+  fragment: (tabId: number, documentId: string, pageUrl: string) => void;
   close: (tabId: number) => void;
 }>;
 
@@ -66,6 +67,13 @@ function installBrowserHarness(options: Readonly<{
     tabId: number;
     frameId: number;
     documentId?: string;
+    url?: string;
+  }) => void) | undefined;
+  let referenceFragmentUpdated: ((details: {
+    tabId: number;
+    frameId: number;
+    documentId?: string;
+    url?: string;
   }) => void) | undefined;
   let tabRemoved: ((tabId: number) => void) | undefined;
   globalThis.chrome = {
@@ -95,8 +103,19 @@ function installBrowserHarness(options: Readonly<{
           tabId: number;
           frameId: number;
           documentId?: string;
+          url?: string;
         }) => void) {
           navigationCommitted = listener;
+        },
+      },
+      onReferenceFragmentUpdated: {
+        addListener(listener: (details: {
+          tabId: number;
+          frameId: number;
+          documentId?: string;
+          url?: string;
+        }) => void) {
+          referenceFragmentUpdated = listener;
         },
       },
     },
@@ -107,9 +126,18 @@ function installBrowserHarness(options: Readonly<{
       if (!listener) throw new Error("Background runtime listener was not installed");
       return listener;
     },
-    commit(tabId, documentId) {
+    commit(tabId, documentId, pageUrl) {
       if (!navigationCommitted) throw new Error("Navigation listener was not installed");
-      navigationCommitted({ tabId, frameId: 0, ...(documentId ? { documentId } : {}) });
+      navigationCommitted({
+        tabId,
+        frameId: 0,
+        ...(documentId ? { documentId } : {}),
+        ...(pageUrl ? { url: pageUrl } : {}),
+      });
+    },
+    fragment(tabId, documentId, pageUrl) {
+      if (!referenceFragmentUpdated) throw new Error("Fragment listener was not installed");
+      referenceFragmentUpdated({ tabId, frameId: 0, documentId, url: pageUrl });
     },
     close(tabId) {
       if (!tabRemoved) throw new Error("Tab removal listener was not installed");
@@ -1023,6 +1051,81 @@ describe("P15 shield navigation/startup ordering", () => {
       .resolves.toMatchObject({ ok: true, payload: { status: "stale" } });
     await expect(call("consent.suppression.register", { tabId: 7 }, "content", "doc-d"))
       .resolves.toMatchObject({ ok: true, payload: { status: "ok" } });
+  });
+
+  it("preserves a retained shield posture across the first cold-worker hash without inspection", async () => {
+    const base = createMemoryStore();
+    installServicesWithStore(base);
+    const values: Record<string, unknown> = {};
+    const session = {
+      async get(key: string) {
+        return key in values ? { [key]: values[key] } : {};
+      },
+      async set(next: Record<string, unknown>) {
+        Object.assign(values, next);
+      },
+      async remove(key: string) {
+        delete values[key];
+      },
+    };
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/account/login")) {
+        return new Response(JSON.stringify({ token: "jwt" }), { status: 200 });
+      }
+      if (url.endsWith("/context")) {
+        return new Response(JSON.stringify({
+          status: "managed_non_candidate",
+          environmentKey: "stage.example.com",
+          siteId: 42,
+          baseUrl: "https://example.com",
+          pageKey: "/jobs/1",
+          pageTypes: [],
+          membershipFingerprint: "membership",
+          assignmentFingerprint: "assignment",
+          conflicts: [],
+          upstreamCode: null,
+        }), { status: 200 });
+      }
+      if (url.endsWith("/load")) {
+        return new Response(JSON.stringify(CONFIG), { status: 200 });
+      }
+      return new Response("{}", { status: 500 });
+    }) as typeof fetch;
+
+    try {
+      const firstBrowser = installBrowserHarness({ session });
+      const first = await import("../../../src/background/index");
+      first.startRewriteBackground();
+      firstBrowser.commit(7, "doc-a", "https://example.com/jobs/1");
+      const firstCall = caller(firstBrowser.listener());
+      await configureAndAdopt(firstCall, "doc-a");
+      const retained = await base.get("shieldPosture:7");
+      expect(retained).toMatchObject({
+        adoptedDocument: { documentId: "doc-a" },
+        silentSelectors: CONFIG.selectors,
+      });
+      await vi.waitFor(() => expect(values["uf:main-document-authority:7"]).toEqual({
+        documentId: "doc-a",
+        pageUrl: "https://example.com/jobs/1",
+      }));
+
+      vi.resetModules();
+      installServicesWithStore(base);
+      const restartedBrowser = installBrowserHarness({ session });
+      const restarted = await import("../../../src/background/index");
+      restarted.startRewriteBackground();
+      restartedBrowser.fragment(7, "doc-a", "https://example.com/jobs/1#details");
+
+      // The async durable classifier must complete without invoking the broad
+      // navigation cleanup that clears the adopted document posture.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(await base.get("shieldPosture:7")).toEqual(retained);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("prefers an in-memory commit over an older deferred session document read", async () => {

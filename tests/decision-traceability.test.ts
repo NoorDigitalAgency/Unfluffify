@@ -17,7 +17,7 @@ function expectedDecisionIds(): string[] {
     "U-18e",
   ];
   const diverged = Array.from({ length: 32 }, (_, index) => `D-${String(index + 1).padStart(2, "0")}`);
-  const followUp = Array.from({ length: 13 }, (_, index) => `N-${String(index + 1).padStart(2, "0")}`);
+  const followUp = Array.from({ length: 15 }, (_, index) => `N-${String(index + 1).padStart(2, "0")}`);
   return [...intentional, ...unsure, ...diverged, ...followUp];
 }
 

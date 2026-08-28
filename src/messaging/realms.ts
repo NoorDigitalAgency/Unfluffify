@@ -271,6 +271,7 @@ export const applicationContract = defineContract({
           status: z.literal("ok"),
           config: ConfigSnapshotSchema,
           renderMode: RenderModeSchema.optional(),
+          pendingRenderMode: RenderModeSchema.optional(),
           renderModeSource: z.literal("backend"),
         }),
         z.object({
@@ -278,6 +279,7 @@ export const applicationContract = defineContract({
           config: ConfigSnapshotSchema,
           reason: z.string().min(1),
           renderMode: RenderModeSchema.optional(),
+          pendingRenderMode: RenderModeSchema.optional(),
           renderModeSource: z.literal("backend"),
         }),
         z.object({
@@ -290,6 +292,7 @@ export const applicationContract = defineContract({
           ]),
           httpStatus: z.number().optional(),
           renderMode: RenderModeSchema.optional(),
+          pendingRenderMode: RenderModeSchema.optional(),
           renderModeSource: z.enum(["backend", "local"]),
         }),
       ]),
@@ -471,7 +474,6 @@ export const applicationContract = defineContract({
       request: RenderInspectionAckPaintRequestSchema,
       response: z.discriminatedUnion("status", [
         z.object({ status: z.literal("ready") }),
-        z.object({ status: z.literal("acknowledged") }),
         z.object({ status: z.literal("stale"), reason: z.string().min(1) }),
       ]),
     },

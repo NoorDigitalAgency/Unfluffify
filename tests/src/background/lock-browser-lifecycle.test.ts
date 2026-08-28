@@ -222,4 +222,186 @@ describe("background property-lock browser lifecycle", () => {
       pageUrl: "https://www.dpj.se/search?q=desk",
     }]);
   });
+
+  it("preserves lock, freeze, shield, and continuation on the first durable hash after restart", async () => {
+    const fragmentChanged = event<(details: {
+      tabId: number;
+      frameId: number;
+      documentId?: string;
+      url?: string;
+    }) => void>();
+    const historyChanged = event<(details: {
+      tabId: number;
+      frameId: number;
+      documentId?: string;
+      url?: string;
+    }) => void>();
+    const observed: Array<{ documentId: string | null; pageUrl: string | null }> = [];
+    const terminated = vi.fn();
+    const classifyDurableDocument = vi.fn().mockResolvedValue(true);
+    const restartedLifecycle = createLockBrowserLifecycle({
+      api: {
+        webNavigation: {
+          onReferenceFragmentUpdated: fragmentChanged.api,
+          onHistoryStateUpdated: historyChanged.api,
+        },
+      },
+      onPresenceChanged() {},
+      isDurableSameDocumentNavigation: classifyDurableDocument,
+      onMainDocumentHistoryChanged(_tabId, documentId, pageUrl) {
+        observed.push({ documentId, pageUrl });
+      },
+      onTabTerminated: terminated,
+    });
+    await restartedLifecycle.start();
+
+    // A recreated worker cannot reconstruct lastMainDocumentByTab from process
+    // memory. Durable identity must classify the event before the history hook
+    // or broad onTabTerminated cleanup can clear runtime state.
+    fragmentChanged.emit({
+      tabId: 7,
+      frameId: 0,
+      documentId: "document-b",
+      url: "https://www.dpj.se/#products",
+    });
+    await vi.waitFor(() => expect(classifyDurableDocument).toHaveBeenCalledOnce());
+
+    expect(observed).toEqual([]);
+    expect(terminated).not.toHaveBeenCalled();
+
+    historyChanged.emit({
+      tabId: 7,
+      frameId: 0,
+      documentId: "document-b",
+      url: "https://www.dpj.se/search?q=desk",
+    });
+
+    expect(observed).toEqual([{
+      documentId: "document-b",
+      pageUrl: "https://www.dpj.se/search?q=desk",
+    }]);
+    expect(terminated).toHaveBeenCalledWith(7, "navigation", {
+      documentId: "document-b",
+      pageUrl: "https://www.dpj.se/search?q=desk",
+    });
+  });
+
+  it("does not revive a removed tab when a cold durable classification resolves late", async () => {
+    const historyChanged = event<(details: {
+      tabId: number;
+      frameId: number;
+      documentId?: string;
+      url?: string;
+    }) => void>();
+    const removed = event<(tabId: number) => void>();
+    let resolveClassification!: (preserve: boolean) => void;
+    const classifyDurableDocument = vi.fn(() => new Promise<boolean>((resolve) => {
+      resolveClassification = resolve;
+    }));
+    const observed = vi.fn();
+    const terminated = vi.fn();
+    const lifecycle = createLockBrowserLifecycle({
+      api: {
+        tabs: { onRemoved: removed.api },
+        webNavigation: { onHistoryStateUpdated: historyChanged.api },
+      },
+      onPresenceChanged() {},
+      isDurableSameDocumentNavigation: classifyDurableDocument,
+      onMainDocumentHistoryChanged: observed,
+      onTabTerminated: terminated,
+    });
+    await lifecycle.start();
+
+    historyChanged.emit({
+      tabId: 7,
+      frameId: 0,
+      documentId: "document-a",
+      url: "https://www.dpj.se/#products",
+    });
+    await vi.waitFor(() => expect(classifyDurableDocument).toHaveBeenCalledOnce());
+    removed.emit(7);
+    resolveClassification(false);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(observed).not.toHaveBeenCalled();
+    expect(terminated).toHaveBeenCalledOnce();
+    expect(terminated).toHaveBeenCalledWith(7, "tab-closed", undefined);
+
+    // A queued stale browser event after removal must not start a new durable
+    // classification or recreate the tab's document lifecycle state.
+    historyChanged.emit({
+      tabId: 7,
+      frameId: 0,
+      documentId: "document-a",
+      url: "https://www.dpj.se/search?q=desk",
+    });
+    await Promise.resolve();
+    expect(classifyDurableDocument).toHaveBeenCalledOnce();
+    expect(observed).not.toHaveBeenCalled();
+    expect(terminated).toHaveBeenCalledOnce();
+  });
+
+  it("terminates a real route queued behind a deferred cold fragment classification", async () => {
+    const fragmentChanged = event<(details: {
+      tabId: number;
+      frameId: number;
+      documentId?: string;
+      url?: string;
+    }) => void>();
+    const historyChanged = event<(details: {
+      tabId: number;
+      frameId: number;
+      documentId?: string;
+      url?: string;
+    }) => void>();
+    let resolveFragment!: (preserve: boolean) => void;
+    const classifyDurableDocument = vi.fn(() => new Promise<boolean>((resolve) => {
+      resolveFragment = resolve;
+    }));
+    const observed = vi.fn();
+    const terminated = vi.fn();
+    const lifecycle = createLockBrowserLifecycle({
+      api: {
+        webNavigation: {
+          onReferenceFragmentUpdated: fragmentChanged.api,
+          onHistoryStateUpdated: historyChanged.api,
+        },
+      },
+      onPresenceChanged() {},
+      isDurableSameDocumentNavigation: classifyDurableDocument,
+      onMainDocumentHistoryChanged: observed,
+      onTabTerminated: terminated,
+    });
+    await lifecycle.start();
+
+    fragmentChanged.emit({
+      tabId: 7,
+      frameId: 0,
+      documentId: "document-a",
+      url: "https://www.dpj.se/#products",
+    });
+    await vi.waitFor(() => expect(classifyDurableDocument).toHaveBeenCalledOnce());
+    historyChanged.emit({
+      tabId: 7,
+      frameId: 0,
+      documentId: "document-a",
+      url: "https://www.dpj.se/search?q=desk",
+    });
+
+    resolveFragment(true);
+    await vi.waitFor(() => expect(terminated).toHaveBeenCalledOnce());
+
+    expect(classifyDurableDocument).toHaveBeenCalledOnce();
+    expect(observed).toHaveBeenCalledOnce();
+    expect(observed).toHaveBeenCalledWith(
+      7,
+      "document-a",
+      "https://www.dpj.se/search?q=desk",
+    );
+    expect(terminated).toHaveBeenCalledWith(7, "navigation", {
+      documentId: "document-a",
+      pageUrl: "https://www.dpj.se/search?q=desk",
+    });
+  });
 });

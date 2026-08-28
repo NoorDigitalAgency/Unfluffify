@@ -54,7 +54,7 @@ describe("P15 real-browser frozen interaction-shield gate contract", () => {
 
   it("rejects missing, duplicate, or failing browser evidence", () => {
     const passing = REQUIRED_CHECK_IDS.map((id) => ({ id, pass: true }));
-    expect(validateCheckCatalog(passing)).toEqual({ pass: true, missing: [], duplicates: [] });
+    expect(validateCheckCatalog(passing)).toEqual({ pass: true, missing: [], duplicates: [], unexpected: [] });
     expect(validateCheckCatalog(passing.slice(1))).toMatchObject({
       pass: false,
       missing: [REQUIRED_CHECK_IDS[0]],
@@ -62,6 +62,10 @@ describe("P15 real-browser frozen interaction-shield gate contract", () => {
     expect(validateCheckCatalog([...passing, passing[0]!])).toMatchObject({
       pass: false,
       duplicates: [REQUIRED_CHECK_IDS[0]],
+    });
+    expect(validateCheckCatalog([...passing, { id: "unexpected", pass: true }])).toMatchObject({
+      pass: false,
+      unexpected: ["unexpected"],
     });
     expect(validateCheckCatalog(passing.map((entry, index) => ({
       ...entry,
@@ -97,6 +101,8 @@ describe("P15 real-browser frozen interaction-shield gate contract", () => {
       expect(page).toContain('data-uf-extension-ui');
       expect(page).toContain('data-uf-fixture-spoof-surface');
       expect(page).toContain("attachShadow({ mode: \"open\" })");
+      expect(page).toContain('"RECONCILE"');
+      expect(page).toContain("initialDiscoveryComplete");
       expect(page).toContain("min-height: 3600px");
     }
   });

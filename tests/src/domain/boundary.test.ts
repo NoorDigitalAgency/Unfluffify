@@ -16,12 +16,13 @@ const node = (overrides: Partial<BoundaryNode>): BoundaryNode => ({
 });
 
 describe("P0 boundary predicates (INV-3.5..INV-3.6)", () => {
-  it("requires visibility, non-immutable, non-chrome, and direct text or boundary", () => {
+  it("requires visibility, non-immutable, non-chrome, and direct own text", () => {
     expect(isSelfMarkable(node({ ownsDirectText: true }))).toBe(true);
     expect(isSelfMarkable(node({ visible: false, ownsDirectText: true }))).toBe(false);
     expect(isSelfMarkable(node({ tagName: "svg", ownsDirectText: true }))).toBe(false);
     expect(isSelfMarkable(node({ chrome: true, ownsDirectText: true }))).toBe(false);
-    expect(isSelfMarkable(node({ structuralRole: "section" }))).toBe(true);
+    expect(isSelfMarkable(node({ structuralRole: "section" }))).toBe(false);
+    expect(isSelfMarkable(node({ structuralRole: "section", ownsDirectText: true }))).toBe(true);
   });
 
   it("accepts semantic boundaries and toggleable defaults", () => {
@@ -40,6 +41,10 @@ describe("P0 boundary predicates (INV-3.5..INV-3.6)", () => {
       false,
     );
     expect(isSelfMarkable(node({ structuralRole: "section", pageShell: true }))).toBe(false);
+    // A direct-text shallow wrapper is a tight ordinary target; the shallow
+    // guard applies to descendants-only grouping, not to direct text.
+    expect(isSelfMarkable(node({ structuralRole: "generic", depthFromBody: 1, ownsDirectText: true })))
+      .toBe(true);
   });
 
   it("shares one toggleable-boundary decision for closed and silent surfaces", () => {

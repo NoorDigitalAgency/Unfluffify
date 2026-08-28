@@ -6,10 +6,15 @@ import {
   LEGACY_CONSENT_BYPASS_STYLE_ID,
 } from "../../../../src/content/consent";
 import {
+  forgetInteractionShieldCaptureState,
+  rememberInteractionShieldCaptureState,
+} from "../../../../src/content/interaction-shield-capture";
+import {
   createDomBridgeView,
   createMarkingEngine,
   createOverlayRenderer,
   captureFlattenedHtml,
+  buildPreviewTextMetadata,
   getComposedHitElements,
   installClosedShadowHostInstrumentation,
   isPaintReachable,
@@ -199,6 +204,7 @@ function createRendererTestSeam() {
   const silentRender = vi.fn();
   const silentBranchRender = vi.fn();
   const hoverRender = vi.fn();
+  const focusRender = vi.fn();
   const createRenderer = vi.fn((options: Parameters<typeof createOverlayRenderer>[0]) => {
     const renderer = createOverlayRenderer(options);
     return {
@@ -223,9 +229,13 @@ function createRendererTestSeam() {
         hoverRender(...args);
         renderer.setHover(...args);
       },
+      setFocus(...args: Parameters<typeof renderer.setFocus>): void {
+        focusRender(...args);
+        renderer.setFocus(...args);
+      },
     };
   });
-  return { createRenderer, markingRender, branchRender, silentRender, silentBranchRender, hoverRender };
+  return { createRenderer, markingRender, branchRender, silentRender, silentBranchRender, hoverRender, focusRender };
 }
 
 describe("P6 DOM bridge", () => {
@@ -243,6 +253,59 @@ describe("P6 DOM bridge", () => {
     expect(isPaintReachable(span as unknown as Element, doc as unknown as Document)).toBe(true);
   });
 
+  it("bounds pointer-suppressed recovery to the top visible hit branch", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const target = new FakeElement("BUTTON", rect(10, 10, 100, 30), "Target");
+    const suppressed = new FakeElement("SPAN", rect(15, 15, 60, 20), "Label");
+    suppressed.style.pointerEvents = "none";
+    for (const element of [root, target, suppressed]) {
+      element.ownerDocument = doc;
+    }
+    root.appendChild(target);
+    target.appendChild(suppressed);
+    const decoys = Array.from({ length: 500 }, (_, index) => {
+      const decoy = new FakeElement("DIV", rect(0, 100 + index, 300, 1));
+      decoy.ownerDocument = doc;
+      root.appendChild(decoy);
+      return decoy;
+    });
+    doc.hits = [target, root, doc.documentElement];
+
+    expect(getComposedHitElements(doc as unknown as Document, 20, 20)[0]).toBe(suppressed);
+    expect(decoys.every((decoy) => decoy.clientRectReadCount === 0)).toBe(true);
+  });
+
+  it("prunes hidden consent recovery branches before descendant geometry or style reads", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 412, 960));
+    const hiddenConsent = new FakeElement("DIALOG", rect(0, 0, 412, 960));
+    hiddenConsent.setAttribute("data-uf-consent-hidden", "true");
+    hiddenConsent.style.pointerEvents = "none";
+    const hiddenDescendants = Array.from({ length: 500 }, () =>
+      new FakeElement("DIV", rect(0, 0, 412, 960))
+    );
+    const valid = new FakeElement("BUTTON", rect(20, 20, 120, 40), "Valid target");
+    valid.style.pointerEvents = "none";
+    for (const element of [root, hiddenConsent, valid, ...hiddenDescendants]) {
+      element.ownerDocument = doc;
+    }
+    root.appendChild(hiddenConsent);
+    for (const descendant of hiddenDescendants) hiddenConsent.appendChild(descendant);
+    root.appendChild(valid);
+    doc.hits = [root, doc.documentElement];
+    const styleReads = vi.spyOn(doc.defaultView, "getComputedStyle");
+
+    const hits = getComposedHitElements(doc as unknown as Document, 30, 30);
+
+    expect(hits[0]).toBe(valid);
+    expect(hiddenConsent.clientRectReadCount).toBe(0);
+    expect(hiddenDescendants.every((element) => element.clientRectReadCount === 0)).toBe(true);
+    expect(styleReads.mock.calls.some(([element]) =>
+      element === hiddenConsent || hiddenDescendants.includes(element)
+    )).toBe(false);
+  });
+
   it("rejects genuinely covered elements even when they appear below the top hit", () => {
     const doc = new FakeDocument();
     const target = new FakeElement("P", rect(0, 0, 100, 20), "Covered");
@@ -254,7 +317,7 @@ describe("P6 DOM bridge", () => {
     expect(isPaintReachable(target as unknown as Element, doc as unknown as Document)).toBe(false);
   });
 
-  it("reuses hover resolution until a bridge refresh invalidates it", () => {
+  it("reuses hover target resolution while validating the visible hit branch", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
     const target = new FakeElement("P", rect(10, 10, 100, 20), "Hover copy");
@@ -268,16 +331,16 @@ describe("P6 DOM bridge", () => {
     });
     const hint = { overlayXpath: "/main[1]/p[1]" };
 
-    engine.hoverAtPoint(20, 15, "exclude", false, hint);
+    engine.hoverAtPoint(20, 15, "include", false, hint);
     const firstProbeReads = doc.hitReadCount;
     const firstHoverRenders = rendererSeam.hoverRender.mock.calls.length;
-    engine.hoverAtPoint(40, 15, "exclude", false, hint);
+    engine.hoverAtPoint(40, 15, "include", false, hint);
 
-    expect(doc.hitReadCount).toBe(firstProbeReads);
+    expect(doc.hitReadCount).toBe(firstProbeReads + 1);
     expect(rendererSeam.hoverRender).toHaveBeenCalledTimes(firstHoverRenders);
 
     engine.refresh();
-    engine.hoverAtPoint(40, 15, "exclude", false, hint);
+    engine.hoverAtPoint(40, 15, "include", false, hint);
 
     expect(doc.hitReadCount).toBeGreaterThan(firstProbeReads);
   });
@@ -292,10 +355,86 @@ describe("P6 DOM bridge", () => {
     doc.hits = [target, root];
     const engine = createMarkingEngine(root as unknown as Element);
 
-    expect(engine.resolveAtPoint(20, 15, "exclude", false, {
+    expect(engine.resolveAtPoint(20, 15, "exclude", true, {
       overlayXpath: "/main[1]/stale[1]",
     })?.xpath).toBe("/main[1]/p[1]");
     expect(doc.hitReadCount).toBe(1);
+    engine.dispose();
+  });
+
+  it("keeps an ordinary click unmark-only while Shift admits a new exclusion", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const target = new FakeElement("P", rect(10, 10, 100, 20), "Included copy");
+    root.ownerDocument = doc;
+    target.ownerDocument = doc;
+    root.appendChild(target);
+    doc.hits = [target, root];
+    const engine = createMarkingEngine(root as unknown as Element);
+
+    expect(engine.resolveAtPoint(20, 15, "exclude", false)).toBeNull();
+    expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[1]", excluded: false });
+
+    const shifted = engine.resolveAtPoint(20, 15, "exclude", true);
+    expect(shifted?.xpath).toBe("/main[1]/p[1]");
+    expect(engine.acknowledge(shifted!, "exclude")).toBe(true);
+    expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[1]", excluded: false });
+    expect(engine.toggle(shifted!, "exclude")).toBe(true);
+    expect(engine.rows()).toContainEqual({
+      xpath: "/main[1]/p[1]",
+      excluded: true,
+      explicit: true,
+    });
+    expect(engine.acknowledge(shifted!, "clear")).toBe(true);
+    engine.dispose();
+  });
+
+  it("resolves exact painted exclusion fragments without scanning canonical owners", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const target = new FakeElement("P", rect(10, 10, 210, 20), "Fragmented exclusion");
+    target.clientRects = [rect(10, 10, 80, 20), rect(140, 10, 80, 20)];
+    for (const element of [root, target]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(target);
+    doc.pointHits = (x) => x < 90 || x > 140 ? [target, root] : [root];
+    const engine = createMarkingEngine(root as unknown as Element, { render: true });
+    const shifted = engine.resolveAtPoint(20, 15, "exclude", true)!;
+    engine.toggle(shifted, "exclude");
+
+    doc.hitReadCount = 0;
+    expect(engine.resolveAtPoint(150, 15, "exclude")?.xpath).toBe("/main[1]/p[1]");
+    expect(doc.hitReadCount).toBe(0);
+    // The bounding box spans this gap, but no painted fragment owns it.
+    expect(engine.resolveAtPoint(110, 15, "exclude")).toBeNull();
+    expect(doc.hitReadCount).toBe(1);
+    engine.dispose();
+  });
+
+  it("prefers an overlapping explicit exclusion over a default boundary", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const footer = new FakeElement("FOOTER", rect(10, 10, 160, 40), "Default footer");
+    const paragraph = new FakeElement("P", rect(10, 10, 160, 40), "Explicit paragraph");
+    for (const element of [root, footer, paragraph]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(footer);
+    root.appendChild(paragraph);
+    doc.hits = [paragraph, footer, root];
+    const engine = createMarkingEngine(root as unknown as Element, { render: true });
+    const shifted = engine.resolveAtPoint(20, 20, "exclude", true)!;
+    expect(shifted.xpath).toBe("/main[1]/p[1]");
+    engine.toggle(shifted, "exclude");
+
+    doc.hitReadCount = 0;
+    expect(engine.resolveAtPoint(20, 20, "exclude")?.xpath).toBe("/main[1]/p[1]");
+    expect(doc.hitReadCount).toBe(0);
     engine.dispose();
   });
 
@@ -316,7 +455,7 @@ describe("P6 DOM bridge", () => {
     const engine = createMarkingEngine(root as unknown as Element);
     doc.hitReadCount = 0;
 
-    expect(engine.resolveAtPoint(20, 15, "exclude")?.xpath).toBe("/main[1]/article[1]/p[1]");
+    expect(engine.resolveAtPoint(20, 15, "exclude", true)?.xpath).toBe("/main[1]/article[1]/p[1]");
     expect(doc.hitReadCount).toBe(1);
 
     // Reachability must still use the full point stack before root filtering:
@@ -324,7 +463,7 @@ describe("P6 DOM bridge", () => {
     // candidate, without causing a second native hit-test per candidate.
     doc.hits = [cover, paragraph, article, root];
     doc.hitReadCount = 0;
-    expect(engine.resolveAtPoint(20, 15, "exclude")).toBeNull();
+    expect(engine.resolveAtPoint(20, 15, "exclude", true)).toBeNull();
     expect(doc.hitReadCount).toBe(1);
     engine.dispose();
   });
@@ -432,6 +571,20 @@ describe("P6 DOM bridge", () => {
     expect(view.byElement.get(srOnly as unknown as Element)?.evaluationNode.visible).toBe(true);
   });
 
+  it("keeps above-viewport document content classified when the bridge rebuilds while scrolled", () => {
+    const doc = new FakeDocument();
+    Object.assign(doc.defaultView, { scrollY: 600, pageYOffset: 600 });
+    const root = new FakeElement("MAIN", rect(0, -600, 300, 1_200));
+    const paragraph = new FakeElement("P", rect(0, -500, 120, 20), "Earlier document copy");
+    root.ownerDocument = doc;
+    paragraph.ownerDocument = doc;
+    root.appendChild(paragraph);
+
+    const view = createDomBridgeView(root as unknown as Element);
+
+    expect(view.byElement.get(paragraph as unknown as Element)?.evaluationNode.visible).toBe(true);
+  });
+
   it("keeps silent whitespace in submission only and drops it when text arrives", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
@@ -463,7 +616,7 @@ describe("P6 DOM bridge", () => {
     expect(engine.overlayRoot().children.flatMap((layer) => layer.children).some((overlay) =>
       overlay.getAttribute("data-uf-overlay-xpath") === blankXpath
     )).toBe(false);
-    expect(engine.resolveAtPoint(10, 30, "exclude")?.xpath).not.toBe(blankXpath);
+    expect(engine.resolveAtPoint(10, 30, "exclude")).toBeNull();
 
     blank.childNodes.push({ nodeType: 3, textContent: "Loaded copy" });
     engine.refresh();
@@ -591,7 +744,7 @@ describe("P6 DOM bridge", () => {
     doc.hits = [p, root];
 
     const engine = createMarkingEngine(root as unknown as Element);
-    const target = engine.resolveAtPoint(10, 10, "exclude");
+    const target = engine.resolveAtPoint(10, 10, "exclude", true);
     expect(target?.xpath).toBe("/main[1]/p[1]");
     if (target) {
       engine.toggle(target, "exclude");
@@ -691,6 +844,10 @@ describe("P6 DOM bridge", () => {
     // The stored projection is rebased during refresh, so the old opaque target
     // remains valid before the popup asks for the newer row snapshot.
     expect(engine.emphasizePreviewRow(before.projectionId, original!.id, true)).toBe(true);
+    expect(engine.overlayRoot().children.flatMap((layer) => layer.children).some((overlay) =>
+      overlay.getAttribute("data-uf-overlay-focus") === "/main[1]/p[2]" &&
+      overlay.className === "uf-rect uf-focus"
+    )).toBe(true);
     expect(engine.activatePreviewRow(before.projectionId, original!.id)).toBe(true);
     expect(scrollIntoView).toHaveBeenCalledTimes(1);
     expect(engine.emphasizePreviewRow("stale-projection", original!.id, true)).toBe(false);
@@ -817,7 +974,7 @@ describe("P6 DOM bridge", () => {
     });
     const rowId = projection.rows[0]!.id;
     expect(engine.emphasizePreviewRow(projection.projectionId, rowId, true)).toBe(true);
-    renderer.hoverRender.mockClear();
+    renderer.focusRender.mockClear();
 
     const decoy = new FakeElement("P", rect(0, 0, 120, 20), "Prepended decoy");
     decoy.ownerDocument = doc;
@@ -826,23 +983,23 @@ describe("P6 DOM bridge", () => {
     root.childNodes.unshift(decoy);
     engine.refresh();
 
-    expect(renderer.hoverRender).toHaveBeenLastCalledWith(
+    expect(renderer.focusRender).toHaveBeenLastCalledWith(
       target as unknown as Element,
       "/main[1]/p[2]",
     );
 
-    renderer.hoverRender.mockClear();
+    renderer.focusRender.mockClear();
     target.remove();
     engine.refresh();
-    expect(renderer.hoverRender).toHaveBeenLastCalledWith(null);
+    expect(renderer.focusRender).toHaveBeenLastCalledWith(null);
     expect(engine.emphasizePreviewRow(projection.projectionId, rowId, true)).toBe(false);
 
     // Reappearance alone must not resurrect an emphasis whose identity was
     // cleared when the row disappeared.
-    renderer.hoverRender.mockClear();
+    renderer.focusRender.mockClear();
     root.appendChild(target);
     engine.refresh();
-    expect(renderer.hoverRender).not.toHaveBeenCalled();
+    expect(renderer.focusRender).not.toHaveBeenCalled();
   });
 
   it("clears active preview hover when selector-only reprojection removes the row", () => {
@@ -864,7 +1021,7 @@ describe("P6 DOM bridge", () => {
     });
     const inherited = included.rows.find((row) => row.classification === "implicit-included")!;
     expect(engine.emphasizePreviewRow(included.projectionId, inherited.id, true)).toBe(true);
-    renderer.hoverRender.mockClear();
+    renderer.focusRender.mockClear();
 
     const excluded = engine.projectPreview("https://example.com/page", {
       inclusionSelectors: [],
@@ -872,14 +1029,14 @@ describe("P6 DOM bridge", () => {
     });
     expect(excluded.projectionId).toBe(included.projectionId);
     expect(excluded.rows.some((row) => row.id === inherited.id)).toBe(false);
-    expect(renderer.hoverRender).toHaveBeenLastCalledWith(null);
+    expect(renderer.focusRender).toHaveBeenLastCalledWith(null);
 
-    renderer.hoverRender.mockClear();
+    renderer.focusRender.mockClear();
     engine.projectPreview("https://example.com/page", {
       inclusionSelectors: ["main"],
       exclusionSelectors: [],
     });
-    expect(renderer.hoverRender).not.toHaveBeenCalled();
+    expect(renderer.focusRender).not.toHaveBeenCalled();
   });
 
   it("distinguishes force-open and inaccessible closed-shadow provenance without dropping light children", () => {
@@ -960,6 +1117,51 @@ describe("P6 DOM bridge", () => {
     expect(bounded).toBe(`${"😀".repeat(77)}...`);
   });
 
+  it("builds deeply nested preview labels in one bounded generation pass", () => {
+    const doc = new FakeDocument();
+    const depth = 3_000;
+    const elements = Array.from({ length: depth }, (_, index) =>
+      new FakeElement(index === depth - 1 ? "P" : "DIV", rect(0, 0, 100, 20),
+        index === depth - 1 ? "Deep copy" : "")
+    );
+    for (const element of elements) element.ownerDocument = doc;
+    for (let index = 1; index < elements.length; index += 1) {
+      elements[index - 1]!.appendChild(elements[index]!);
+    }
+    let descendantReads = 0;
+    let innerTextReads = 0;
+    let selectorScans = 0;
+    let closestScans = 0;
+    for (const element of elements) {
+      const childNodes = element.childNodes;
+      Object.defineProperty(element, "childNodes", {
+        configurable: true,
+        get() { descendantReads += 1; return childNodes; },
+      });
+      Object.defineProperty(element, "innerText", {
+        configurable: true,
+        get() { innerTextReads += 1; return "layout traversal must not run"; },
+      });
+      (element as unknown as { querySelectorAll: () => Element[] }).querySelectorAll = () => {
+        selectorScans += 1;
+        return [];
+      };
+      element.closest = () => {
+        closestScans += 1;
+        return null;
+      };
+    }
+
+    const metadata = buildPreviewTextMetadata(elements[0] as unknown as Element);
+
+    expect(metadata.get(elements[0] as unknown as Element)?.text).toBe("Deep copy");
+    expect(metadata.get(elements.at(-1) as unknown as Element)?.text).toBe("Deep copy");
+    expect(descendantReads).toBeLessThanOrEqual(depth);
+    expect(innerTextReads).toBe(0);
+    expect(selectorScans).toBe(0);
+    expect(closestScans).toBe(0);
+  });
+
   it("treats non-string DOM id properties as ordinary content", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
@@ -1003,6 +1205,57 @@ describe("P6 DOM bridge", () => {
     expect(box?.style.left).toBe("20px");
     expect(box?.style.top).toBe("40px");
     expect(box?.getAttribute("data-uf-overlay-xpath")).toBe("/main[1]/section[1]");
+    renderer.dispose();
+  });
+
+  it("searches the legacy-bounded collapsed corpus beyond the old 64-node cutoff", () => {
+    const doc = new FakeDocument();
+    const wrapper = new FakeElement("SECTION", rect(0, 0, 0, 0));
+    wrapper.ownerDocument = doc;
+    for (let index = 0; index < 80; index += 1) {
+      const spacer = new FakeElement("SPAN", rect(0, 0, 0, 0));
+      spacer.ownerDocument = doc;
+      wrapper.appendChild(spacer);
+    }
+    const paragraph = new FakeElement("P", rect(24, 48, 170, 28), "Late visible copy");
+    paragraph.ownerDocument = doc;
+    wrapper.appendChild(paragraph);
+    doc.hits = [paragraph];
+    const renderer = createOverlayRenderer({ document: doc as unknown as Document });
+    const xpath = "/section[1]";
+
+    renderer.render({
+      rows: [{ xpath, excluded: false, explicit: true }],
+      overlay: new Map([[xpath, "explicit-include"]]),
+    }, new Map([[xpath, { element: wrapper as unknown as Element, visible: true }]]));
+
+    const box = renderer.root.children.flatMap((layer) => layer.children).find((candidate) =>
+      candidate.getAttribute("data-uf-overlay-xpath") === xpath
+    );
+    expect(box?.style.left).toBe("24px");
+    expect(box?.style.top).toBe("48px");
+    renderer.dispose();
+  });
+
+  it("does not invent descendant geometry for a textless collapsed boundary", () => {
+    const doc = new FakeDocument();
+    const wrapper = new FakeElement("SECTION", rect(0, 0, 0, 0));
+    const image = new FakeElement("IMG", rect(24, 48, 170, 28));
+    wrapper.ownerDocument = doc;
+    image.ownerDocument = doc;
+    wrapper.appendChild(image);
+    doc.hits = [image];
+    const renderer = createOverlayRenderer({ document: doc as unknown as Document });
+    const xpath = "/section[1]";
+
+    renderer.render({
+      rows: [{ xpath, excluded: false, explicit: true }],
+      overlay: new Map([[xpath, "explicit-include"]]),
+    }, new Map([[xpath, { element: wrapper as unknown as Element, visible: true }]]));
+
+    expect(renderer.root.children.flatMap((layer) => layer.children).some((candidate) =>
+      candidate.getAttribute("data-uf-overlay-xpath") === xpath
+    )).toBe(false);
     renderer.dispose();
   });
 
@@ -1378,7 +1631,7 @@ describe("P6 DOM bridge", () => {
       root.appendChild(paragraph);
       doc.hits = [paragraph, root];
       const engine = createMarkingEngine(root as unknown as Element);
-      const target = engine.resolveAtPoint(20, 18, "exclude");
+      const target = engine.resolveAtPoint(20, 18, "include");
 
       engine.toggle(target!, "include");
 
@@ -1453,7 +1706,7 @@ describe("P6 DOM bridge", () => {
     root.appendChild(paragraph);
     doc.hits = [paragraph, root];
     const engine = createMarkingEngine(root as unknown as Element);
-    const target = engine.resolveAtPoint(20, 15, "exclude");
+    const target = engine.resolveAtPoint(20, 15, "include");
     engine.toggle(target!, "include");
     const overlays = (): FakeElement[] => engine.overlayRoot().children
       .flatMap((layer) => layer.children)
@@ -1484,7 +1737,7 @@ describe("P6 DOM bridge", () => {
     root.appendChild(paragraph);
     doc.hits = [paragraph, root];
     const engine = createMarkingEngine(root as unknown as Element);
-    const target = engine.resolveAtPoint(20, 15, "exclude");
+    const target = engine.resolveAtPoint(20, 15, "exclude", true);
     engine.toggle(target!, "exclude");
     paragraph.style.visibility = "hidden";
     engine.refresh();
@@ -1511,7 +1764,7 @@ describe("P6 DOM bridge", () => {
     modal.appendChild(paragraph);
     doc.hits = [paragraph];
     const engine = createMarkingEngine(root as unknown as Element);
-    const target = engine.resolveAtPoint(20, 15, "exclude");
+    const target = engine.resolveAtPoint(20, 15, "exclude", true);
     engine.toggle(target!, "exclude");
 
     modal.style.opacity = "0";
@@ -1554,6 +1807,50 @@ describe("P6 DOM bridge", () => {
       overlay.getAttribute("data-uf-overlay-xpath") === xpath
       || overlay.getAttribute("data-uf-silent-highlight") === xpath
     )).toBe(false);
+    renderer.dispose();
+  });
+
+  it("does not restore raw immutable geometry when another page surface covers it", () => {
+    const doc = new FakeDocument();
+    const image = new FakeElement("IMG", rect(10, 10, 120, 80));
+    const cover = new FakeElement("DIV", rect(0, 0, 200, 120));
+    image.ownerDocument = doc;
+    cover.ownerDocument = doc;
+    doc.hits = [cover, image];
+    const renderer = createOverlayRenderer({ document: doc as unknown as Document });
+    const xpath = "/img[1]";
+
+    renderer.render({
+      rows: [{ xpath, excluded: true }],
+      overlay: new Map([[xpath, "immutable"]]),
+    }, new Map([[xpath, { element: image as unknown as Element, visible: true }]]), 4);
+
+    expect(renderer.root.children.flatMap((layer) => layer.children).some((overlay) =>
+      overlay.getAttribute("data-uf-overlay-xpath") === xpath
+    )).toBe(false);
+    expect(renderer.paintedExclusionOwnerAtPoint(20, 20, 4)).toBeNull();
+    renderer.dispose();
+  });
+
+  it("uses current paint proof rather than aria-hidden metadata for exclusion paint", () => {
+    const doc = new FakeDocument();
+    const paragraph = new FakeElement("P", rect(10, 10, 120, 20), "Painted aria-hidden copy");
+    paragraph.ownerDocument = doc;
+    paragraph.setAttribute("aria-hidden", "true");
+    doc.hits = [paragraph];
+    const renderer = createOverlayRenderer({ document: doc as unknown as Document });
+    const xpath = "/p[1]";
+
+    renderer.render({
+      rows: [{ xpath, excluded: true, explicit: true }],
+      overlay: new Map([[xpath, "exception"]]),
+    }, new Map([[xpath, { element: paragraph as unknown as Element, visible: true }]]), 9);
+
+    expect(renderer.root.children.flatMap((layer) => layer.children).some((overlay) =>
+      overlay.getAttribute("data-uf-overlay-xpath") === xpath
+    )).toBe(true);
+    expect(renderer.paintedExclusionOwnerAtPoint(20, 15, 8)).toBeNull();
+    expect(renderer.paintedExclusionOwnerAtPoint(20, 15, 9)).toBe(xpath);
     renderer.dispose();
   });
 
@@ -1661,6 +1958,56 @@ describe("P6 DOM bridge", () => {
     expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[3]", excluded: false });
     engine.dispose();
     vi.useRealTimers();
+  });
+
+  it("removes stale exclusions when consent suppression hides a bridged element", () => {
+    const doc = new FakeDocument();
+    const callbacks: Array<(records: MutationRecord[]) => void> = [];
+    const animationFrames: Array<() => void> = [];
+    Object.assign(doc.defaultView, {
+      MutationObserver: class {
+        constructor(callback: (records: MutationRecord[]) => void) {
+          callbacks.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+      requestAnimationFrame(callback: () => void) {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      },
+    });
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const image = new FakeElement("IMG", rect(0, 0, 120, 80));
+    root.ownerDocument = doc;
+    image.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(image);
+    doc.hits = [image, root];
+    const createBridge = vi.fn((element: Element) => createDomBridgeView(element));
+    const engine = createMarkingEngine(root as unknown as Element, {
+      instrumentation: { createBridge },
+    });
+    engine.renderReadOnly();
+    const exclusions = (): FakeElement[] => engine.overlayRoot().children
+      .flatMap((layer) => layer.children)
+      .filter((overlay) => overlay.getAttribute("data-uf-overlay-classification") === "immutable");
+
+    expect(exclusions()).toHaveLength(1);
+    image.setAttribute("data-uf-consent-hidden", "true");
+    callbacks[0]?.([{
+      type: "attributes",
+      target: image,
+      attributeName: "data-uf-consent-hidden",
+      oldValue: null,
+    } as unknown as MutationRecord]);
+
+    expect(animationFrames).toHaveLength(1);
+    animationFrames.shift()?.();
+    expect(exclusions()).toHaveLength(0);
+    expect(createBridge).toHaveBeenCalledTimes(1);
+    engine.dispose();
   });
 
   it("coalesces presentation attribute churn into one quiet structural refresh", () => {
@@ -1839,9 +2186,12 @@ describe("P6 DOM bridge", () => {
       vi.advanceTimersByTime(249);
       expect(engine.overlayRoot().className).toContain("uf-scrolling");
       vi.advanceTimersByTime(1);
-      expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
+      // Retained marking nodes stay faded until their coalesced repaint has
+      // placed current geometry; stale boxes never flash between timer and rAF.
+      expect(engine.overlayRoot().className).toContain("uf-scrolling");
       expect(animationFrames).toHaveLength(1);
       animationFrames.shift()?.();
+      expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
       // A settled viewport scroll goes straight to its repaint. It must not
       // enqueue the general stabilizer's sampling frames first.
       expect(animationFrames).toHaveLength(0);
@@ -1888,18 +2238,24 @@ describe("P6 DOM bridge", () => {
       paragraph.clientRects = [rect(500, 0, 120, 20)];
       doc.hits = [root];
       listeners.get("scroll")?.({ target: doc } as unknown as Event);
-      expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
+      expect(engine.overlayRoot().className).toContain("uf-scrolling");
+      expect(silentBoxes()).toEqual([retainedBox]);
+      expect(retainedBox?.style.left).toBe("0px");
       expect(animationFrames).toHaveLength(1);
 
       animationFrames.shift()?.();
       expect(animationFrames).toHaveLength(0);
+      expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
       expect(silentBoxes()).toEqual([retainedBox]);
       expect(retainedBox?.style.visibility).toBe("hidden");
 
       paragraph.clientRects = [rect(10, 12, 120, 20)];
       doc.hits = [paragraph, root];
       listeners.get("scroll")?.({ target: doc } as unknown as Event);
+      expect(engine.overlayRoot().className).toContain("uf-scrolling");
+      expect(silentBoxes()).toEqual([retainedBox]);
       animationFrames.shift()?.();
+      expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
       expect(silentBoxes()).toEqual([retainedBox]);
       expect(retainedBox?.style.visibility).toBe("");
       expect(retainedBox?.style.left).toBe("10px");
@@ -1997,7 +2353,7 @@ describe("P6 DOM bridge", () => {
     const rightOverlaysBefore = overlays();
     const createdBefore = doc.createElementCount;
 
-    const target = engine.resolveAtPoint(20, 15, "exclude");
+    const target = engine.resolveAtPoint(20, 15, "exclude", true);
     expect(target?.xpath).toBe("/main[1]/article[1]/p[1]");
     engine.toggle(target!, "exclude");
 
@@ -2101,7 +2457,7 @@ describe("P6 DOM bridge", () => {
     }
     stages.length = 0;
 
-    const target = engine.resolveAtPoint(20, 15, "exclude");
+    const target = engine.resolveAtPoint(20, 15, "exclude", true);
     expect(target?.xpath).toBe("/main[1]/article[1]/p[1]");
     expect(engine.toggle(target!, "exclude")).toBe(true);
 
@@ -2130,7 +2486,7 @@ describe("P6 DOM bridge", () => {
     root.appendChild(original);
     doc.hits = [original, root];
     const engine = createMarkingEngine(root as unknown as Element);
-    const staleTarget = engine.resolveAtPoint(10, 10, "exclude");
+    const staleTarget = engine.resolveAtPoint(10, 10, "exclude", true);
     expect(staleTarget).not.toBeNull();
 
     root.replaceChildren();
@@ -2319,7 +2675,7 @@ describe("P6 DOM bridge", () => {
     doc.hits = [shadow, root];
 
     const engine = createMarkingEngine(root as unknown as Element);
-    const shadowTarget = engine.resolveAtPoint(10, 10, "exclude");
+    const shadowTarget = engine.resolveAtPoint(10, 10, "exclude", true);
     expect(shadowTarget?.xpath).toBe("/main[1]/p[1]");
     if (shadowTarget) {
       engine.toggle(shadowTarget, "exclude");
@@ -2355,7 +2711,7 @@ describe("P6 DOM bridge", () => {
 
     const engine = createMarkingEngine(root as unknown as Element);
 
-    expect(engine.resolveAtPoint(10, 10, "exclude")?.xpath).toBe("/main[1]/p[1]");
+    expect(engine.resolveAtPoint(10, 10, "exclude", true)?.xpath).toBe("/main[1]/p[1]");
   });
 
   it("flattens and marks a closed root captured by early instrumentation", () => {
@@ -2417,7 +2773,7 @@ describe("P6 DOM bridge", () => {
     expect([...view.byXpath.keys()]).toContain("/section[1]/div[1]/span[1]");
     expect([...view.byXpath.keys()]).toContain("/section[1]/div[2]");
     expect([...view.byXpath.keys()].some((xpath) => xpath.includes("__closed-shadow"))).toBe(false);
-    expect(engine.resolveAtPoint(10, 10, "exclude")?.xpath).toBe("/section[1]/div[1]");
+    expect(engine.resolveAtPoint(10, 10, "include")?.xpath).toBe("/section[1]/div[1]");
     expect(engine.captureRenderedHtml()).toBe(
       "<section><div>Closed<span>Light</span></div><div>Content</div></section>",
     );
@@ -2570,6 +2926,121 @@ describe("P6 DOM bridge", () => {
     expect(captured).toBe("<main><p>Page content</p></main>");
     expect(submission.pages[0]?.renderedHtml).toBe(captured);
     expect(suppressed.attributes).toEqual(before);
+  });
+
+  it("projects authored top-layer display, inert, and pointer-events through shield neutralization", () => {
+    const doc = new FakeDocument();
+    const dialog = new FakeElement("DIALOG", rect(0, 0, 300, 200), "Authored dialog");
+    dialog.ownerDocument = doc;
+    dialog.setAttribute("style", "color: red; display: none !important; pointer-events: none !important");
+    dialog.setAttribute("inert", "site-lock");
+    rememberInteractionShieldCaptureState(dialog as unknown as Element, {
+      hadStyleAttribute: true,
+      display: { value: "grid", priority: "important" },
+      pointerEvents: { value: "auto", priority: "important" },
+      inertAttribute: "site-lock",
+    });
+
+    try {
+      expect(captureFlattenedHtml(dialog as unknown as Element)).toBe(
+        '<dialog style="color: red; display: grid !important; pointer-events: auto !important" inert="site-lock">Authored dialog</dialog>',
+      );
+      expect(dialog.getAttribute("style")).toBe(
+        "color: red; display: none !important; pointer-events: none !important",
+      );
+      expect(dialog.getAttribute("inert")).toBe("site-lock");
+    } finally {
+      forgetInteractionShieldCaptureState(dialog as unknown as Element);
+    }
+  });
+
+  it("removes extension-added top-layer display, inert, and pointer-events only from capture", () => {
+    const doc = new FakeDocument();
+    const dialog = new FakeElement("DIALOG", rect(0, 0, 300, 200), "Shielded dialog");
+    dialog.ownerDocument = doc;
+    dialog.setAttribute("style", "display: none !important; pointer-events: none !important");
+    dialog.setAttribute("inert", "");
+    rememberInteractionShieldCaptureState(dialog as unknown as Element, {
+      hadStyleAttribute: false,
+      display: { value: "", priority: "" },
+      pointerEvents: { value: "", priority: "" },
+      inertAttribute: null,
+    });
+
+    try {
+      expect(captureFlattenedHtml(dialog as unknown as Element)).toBe(
+        "<dialog>Shielded dialog</dialog>",
+      );
+      expect(dialog.getAttribute("style")).toBe(
+        "display: none !important; pointer-events: none !important",
+      );
+      expect(dialog.getAttribute("inert")).toBe("");
+    } finally {
+      forgetInteractionShieldCaptureState(dialog as unknown as Element);
+    }
+  });
+
+  it("projects a neutralized open-shadow top layer without mutating its live ledger state", () => {
+    const doc = new FakeDocument();
+    const host = new FakeElement("X-MODAL", rect(0, 0, 300, 200));
+    const dialog = new FakeElement("DIALOG", rect(0, 0, 300, 200), "Shadow dialog");
+    for (const element of [host, dialog]) element.ownerDocument = doc;
+    dialog.shadowHost = host;
+    dialog.setAttribute("style", "display: none !important; pointer-events: none !important");
+    dialog.setAttribute("inert", "");
+    host.shadowRoot = {
+      children: [dialog],
+      childNodes: [dialog],
+      elementsFromPoint: () => [dialog],
+    };
+    rememberInteractionShieldCaptureState(dialog as unknown as Element, {
+      hadStyleAttribute: true,
+      display: { value: "grid", priority: "important" },
+      pointerEvents: { value: "auto", priority: "important" },
+      inertAttribute: null,
+    });
+
+    try {
+      expect(captureFlattenedHtml(host as unknown as Element)).toBe(
+        '<x-modal><dialog style="display: grid !important; pointer-events: auto !important">Shadow dialog</dialog></x-modal>',
+      );
+      expect(dialog.getAttribute("style")).toBe(
+        "display: none !important; pointer-events: none !important",
+      );
+      expect(dialog.getAttribute("inert")).toBe("");
+    } finally {
+      forgetInteractionShieldCaptureState(dialog as unknown as Element);
+    }
+  });
+
+  it("leaves neutralized live state untouched when capture serialization throws", () => {
+    const doc = new FakeDocument();
+    const dialog = new FakeElement("DIALOG", rect(0, 0, 300, 200), "Hostile dialog");
+    dialog.ownerDocument = doc;
+    dialog.setAttribute("style", "display: none !important; pointer-events: none !important");
+    dialog.setAttribute("inert", "");
+    dialog.setAttribute("data-hostile", "value");
+    const originalGetAttribute = dialog.getAttribute.bind(dialog);
+    dialog.getAttribute = (name: string): string | null => {
+      if (name === "data-hostile") throw new Error("hostile attribute getter");
+      return originalGetAttribute(name);
+    };
+    rememberInteractionShieldCaptureState(dialog as unknown as Element, {
+      hadStyleAttribute: false,
+      display: { value: "", priority: "" },
+      pointerEvents: { value: "", priority: "" },
+      inertAttribute: null,
+    });
+
+    try {
+      expect(() => captureFlattenedHtml(dialog as unknown as Element)).toThrow("hostile attribute getter");
+      expect(dialog.getAttribute("style")).toBe(
+        "display: none !important; pointer-events: none !important",
+      );
+      expect(dialog.getAttribute("inert")).toBe("");
+    } finally {
+      forgetInteractionShieldCaptureState(dialog as unknown as Element);
+    }
   });
 
   it("omits current and live-update legacy consent bypass styles from every capture path", () => {
@@ -2824,7 +3295,7 @@ describe("P6 DOM bridge", () => {
     root.appendChild(child);
     doc.hits = [root];
     const engine = createMarkingEngine(root as unknown as Element);
-    engine.toggle(engine.resolveAtPoint(10, 10, "exclude")!, "include");
+    engine.toggle(engine.resolveAtPoint(10, 10, "include")!, "include");
     doc.hits = [child, root];
 
     expect(engine.resolveAtPoint(10, 10, "exclude")).toBeNull();
