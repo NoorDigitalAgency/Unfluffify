@@ -703,9 +703,12 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(app).not.toContain("bindPreviewExitButton");
     expect(app).toContain("exposeImmediateBusyCurtain(\"Starting AI run\")");
     expect(app).toContain('id="ui-curtain"');
+    expect(app).toContain('curtain.hidden = curtainKind !== "busy"');
+    expect(app).toContain('compute.disabled = buttons.compute.disabled');
     const probes = readFileSync(resolve(process.cwd(), "scripts/performance/p25/workflow-probes.mjs"), "utf8");
     expect(probes).toContain("'toggle-enabled','desktop-preview-enabled','compute'");
     expect(probes).toContain("element.querySelector('.preview-sidebar__item-copy')");
+    expect(probes).toContain("const busyCurtainVisible = Boolean(busyCurtain && !busyCurtain.hidden");
     const postureProbe = probes.slice(
       probes.indexOf("export async function captureSiteWorkflowPosture"),
       probes.indexOf("export function viewportPostureMatches"),

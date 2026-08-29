@@ -114,6 +114,13 @@ export async function capturePopupState(session) {
       document.querySelector('input[name="render-mode-choice"]:checked')?.value ??
       document.querySelector('#render-mode')?.value ?? null;
     const inspectionView = document.querySelector('[data-render-mode-view]')?.getAttribute('data-render-mode-view') ?? null;
+    const busyCurtain = document.querySelector('[data-transient-surface="popup-busy-curtain"]');
+    const busyCurtainRect = busyCurtain?.getBoundingClientRect();
+    const busyCurtainStyle = busyCurtain ? getComputedStyle(busyCurtain) : null;
+    const busyCurtainVisible = Boolean(busyCurtain && !busyCurtain.hidden &&
+      busyCurtainStyle?.display !== 'none' && busyCurtainStyle?.visibility !== 'hidden' &&
+      Number(busyCurtainStyle?.opacity || '1') > 0 &&
+      Number(busyCurtainRect?.width || 0) > 0 && Number(busyCurtainRect?.height || 0) > 0);
     return ({
     url: location.href,
     view: document.querySelector('main[data-view]')?.getAttribute('data-view') ??
@@ -134,9 +141,9 @@ export async function capturePopupState(session) {
     }),
     renderChoiceRaw: checkedChoice,
     renderInspectionViewRaw: inspectionView,
-    busy: Boolean(document.querySelector('[data-transient-surface="popup-busy-curtain"]')),
+    busy: busyCurtainVisible,
     temporarilyDisabled: document.querySelector('[data-temp-disabled="true"]') !== null,
-    curtainText: document.querySelector('[data-transient-surface="popup-busy-curtain"]')?.textContent?.trim() ?? null,
+    curtainText: busyCurtainVisible ? busyCurtain?.textContent?.trim() ?? null : null,
     toast: (() => {
       const node = document.querySelector('[data-popup-toast]');
       return node ? {

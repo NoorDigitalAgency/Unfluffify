@@ -861,9 +861,16 @@ async function capturePopupAiFeedback(popup) {
   return await popup.evaluate(`(() => {
     const compute = document.querySelector('#compute');
     const spinner = document.querySelector('[role="status"], .spinner, .activity');
+    const busyCurtain = document.querySelector('[data-transient-surface="popup-busy-curtain"]');
+    const busyCurtainRect = busyCurtain?.getBoundingClientRect();
+    const busyCurtainStyle = busyCurtain ? getComputedStyle(busyCurtain) : null;
+    const busyCurtainVisible = Boolean(busyCurtain && !busyCurtain.hidden &&
+      busyCurtainStyle?.display !== 'none' && busyCurtainStyle?.visibility !== 'hidden' &&
+      Number(busyCurtainStyle?.opacity || '1') > 0 &&
+      Number(busyCurtainRect?.width || 0) > 0 && Number(busyCurtainRect?.height || 0) > 0);
     return {
       capturedAtEpochMs: Date.now(),
-      busy: Boolean(document.querySelector('[data-transient-surface="popup-busy-curtain"]')),
+      busy: busyCurtainVisible,
       computeDisabled: compute instanceof HTMLButtonElement ? compute.disabled : null,
       computeAriaBusy: compute?.getAttribute('aria-busy') === 'true',
       spinnerText: spinner?.textContent?.trim() ?? null,

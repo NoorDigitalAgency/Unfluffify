@@ -241,10 +241,17 @@ export async function captureWorkflowPopupState(session) {
     const legacySend = document.getElementById('lynx-checklist-send');
     const checklistPhase = explicitPhase || (checklistRoot ? legacyChecking ? 'checking' : legacySend && !legacySend.disabled ? 'ready' : 'error' : null);
     const toggle = document.getElementById('toggle-enabled');
+    const busyCurtain = document.querySelector('[data-transient-surface="popup-busy-curtain"]');
+    const busyCurtainRect = busyCurtain?.getBoundingClientRect();
+    const busyCurtainStyle = busyCurtain ? getComputedStyle(busyCurtain) : null;
+    const busyCurtainVisible = Boolean(busyCurtain && !busyCurtain.hidden &&
+      busyCurtainStyle?.display !== 'none' && busyCurtainStyle?.visibility !== 'hidden' &&
+      Number(busyCurtainStyle?.opacity || '1') > 0 &&
+      Number(busyCurtainRect?.width || 0) > 0 && Number(busyCurtainRect?.height || 0) > 0);
     return {
       at: Date.now(),
       view: document.querySelector('main[data-view]')?.getAttribute('data-view') ?? null,
-      busy: Boolean(document.querySelector('[data-transient-surface="popup-busy-curtain"]')),
+      busy: busyCurtainVisible,
       silentAcknowledged: document.querySelector('[data-silent-mode="active"]') !== null || (toggle instanceof HTMLInputElement && !toggle.checked && document.getElementById('preview-latest') !== null),
       controls: ['toggle-enabled','desktop-preview-enabled','compute','marking-preview','page-save','page-revert','preview-exit','preview-latest','save-excludes','discard-confirm','lynx-checklist-cancel','lynx-checklist-send'].map(control),
       preview: {

@@ -616,10 +616,24 @@ export function App({
   });
   React.useLayoutEffect(() => {
     // The trusted click primes this existing node without waiting for a React
-    // tree reconciliation. Once React has adopted either posture, retire the
-    // one-frame provenance marker so it cannot leak into the next operation.
-    busyCurtainRef.current?.removeAttribute("data-immediate-busy");
-  }, [curtainKind]);
+    // tree reconciliation. Direct DOM writes are invisible to React's previous
+    // virtual tree, so explicitly restore every field we primed after *every*
+    // render. Limiting this to curtainKind changes can strand a visible curtain
+    // when an operation terminalizes without changing that derived kind.
+    const curtain = busyCurtainRef.current;
+    if (curtain) {
+      curtain.hidden = curtainKind !== "busy";
+      curtain.removeAttribute("data-immediate-busy");
+      const title = curtain.querySelector(".ui-curtain__title");
+      if (title) title.textContent = presentation.curtainText;
+    }
+    const compute = document.getElementById("compute");
+    if (compute instanceof HTMLButtonElement) {
+      compute.disabled = buttons.compute.disabled;
+      if (curtainKind === "busy") compute.setAttribute("aria-busy", "true");
+      else compute.removeAttribute("aria-busy");
+    }
+  });
   React.useEffect(() => {
     if (!panelBlocking || typeof document === "undefined" || typeof window === "undefined" || !document.body) {
       return;
