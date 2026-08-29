@@ -1218,6 +1218,61 @@ preserves the stronger architecture.
     fails normal render acceptance (`clicked=false`, `terminal=false`). This
     preserves the render failure while allowing marking, workflow, silent, and
     publication cells to be measured in an unpoisoned fresh legacy session.
+132. **Confirmed rewrite P0 — repeated viewport-owner discovery can make a
+    valid reveal/freeze ritual fail and is unbounded inside quiet sampling.**
+    Production Assist24 and ArkivIT each passed preflight and both render-mode
+    inspections, but real marking activation returned
+    `page-visit-stabilization-skipped`. The ritual currently calls the complete
+    viewport-owner resolver from extent measurement and quiet sampling. That
+    resolver can walk 1,500 nodes, retain 1,600 candidates, read computed style,
+    and physically movement-probe up to 12 candidates. Repeating it can switch
+    authority mid-walk and adds page work precisely while the quiet proof is
+    looking for settlement. The fix is one ritual-owned scroll owner, observed
+    by the restoration ledger, with a forced re-proof only after disconnection
+    or a proved stalled movement. True-bottom and restore tolerances are not
+    relaxed.
+133. **Confirmed rewrite P0 — Preview exit can remain visibly open after a
+    trusted Exit click.** Acne Specialisten, Arno, and Teknikhallen completed
+    current-run AI and both Content List focus directions, then remained in the
+    Preview view for the full 20-second terminal budget. The popup sends
+    `previewExitRequested` and performs one signal pull, but does not bind the
+    operator occurrence to the content-owned `preview.exited` completion edge.
+    Silent posture and publication failures after this point are cascades, not
+    independent renderer failures. Exit must await the falling preview-active
+    edge, retain truthful pending UI, and surface a visible terminal reason.
+134. **Confirmed rewrite P1 — exclusion presentation can borrow a visible
+    descendant rectangle for a canonical source with no reachable box.** Arno
+    painted two and Teknikhallen four exclusion sources that the independent
+    top-hit oracle could not reach. The common renderer geometry helper falls
+    back from an unmeasurable semantic wrapper to the first visible descendant
+    while keeping the wrapper XPath on the overlay. That violates the direct
+    user contract that an invisible exclusion owner must have no visible
+    marking. Exclusion presentation will require own reachable geometry;
+    canonical extraction decisions and non-painted Content List rows remain.
+135. **Evidence classification — several candidate reds are dependent or
+    external, not additional product defects.** Assist24/ArkivIT marking,
+    workflow, and silent cells follow their failed activation and zero renderer
+    roots. Acne/Arno/Teknikhallen silent and publication cells follow the stuck
+    Preview exit. Acapedia served a live HTTP 403 with only `403 Forbidden`, so
+    its candidate workflow is N/A for that immutable run. The supplied 3D Prima
+    page remains a site-owned 404, and Hub supplies no authoritative Bigbag
+    candidate. Aleris live preflight proved substantive content and its rewrite
+    workflow passed, promoting it for that run despite the registry's retained
+    runtime-validation warning.
+136. **Confirmed legacy divergence P0 — the pinned baseline is not a passing
+    oracle on any current candidate.** Every production pair is red because the
+    authentic legacy build cannot terminalize extension-owned render inspection;
+    observe-only downstream runs intentionally leave both render cells red.
+    Legacy also recorded 132–404 ms DPJ input Long Tasks and up to 409 ms on
+    Teknikhallen resize. The rewrite's clean DPJ, Ledigajobb, Aleris, and
+    Humanova workflows pass with zero extension-owned DPJ input Long Tasks, but
+    parity cannot be declared by pretending the legacy stall succeeded.
+137. **Evidence integrity P1 — the first ten-property matrix spans two rewrite
+    source identities.** DPJ was captured on `7264839f`; the remaining current
+    runs were captured after harness-only commit `2a07034d`. Bundle identity is
+    coherent, but the matrix correctly rejects a single-authority claim. The
+    final matrix must be rebuilt from one clean pushed HEAD after this
+    remediation wave; immutable earlier artifacts remain diagnostic evidence.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1289,7 +1344,9 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 131. Immutable
+Implementation remediation is code-complete through finding 131; findings
+132–134 are the final candidate-matrix implementation wave, findings 135–137
+bind the resulting evidence and rerun authority. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun,
 findings 126–128 are closed by the clean aggregate, finding 129 is closed by its

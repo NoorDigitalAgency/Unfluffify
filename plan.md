@@ -1061,6 +1061,40 @@ headed-validation gates.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 
+#### Final candidate-matrix remediation wave
+
+- [ ] Pin one viewport-scroll owner for each reveal/freeze ritual and re-prove
+  only after disconnection or a genuinely stalled movement. Measuring quiet or
+  extent must not rescan, style-read, and movement-probe up to 1,600 candidates
+  on every sample. Preserve growth-aware bottom confirmation, the restoration
+  ledger, nested-owner support, lazy-loading suppression, and exact lifecycle
+  fencing.
+- [ ] Make Preview exit a terminal content-owned operation. The popup must keep
+  the request occurrence pending until `preview.exited` is observed, expose a
+  reason if it cannot terminalize, and always retire page focus plus restore the
+  silent/marking posture before later workflow stages can proceed.
+- [ ] Stop painting exclusion geometry borrowed from a different descendant
+  source. A hard/default/explicit/silent exclusion may paint only an own,
+  currently visible, paint-reachable fragment of its canonical source. Keep
+  canonical hidden decisions and Content List rows; this is a presentation-only
+  filter and must not weaken payload extraction.
+- [ ] Harden P25 gesture evidence for already-configured pages: search across
+  bounded viewport sweeps, distinguish “no clean target exists” from an input
+  failure, and retain exact owner/capability rejection counts. Never manufacture
+  a selector or clear durable production marks merely to make the probe pass.
+- [ ] Attribute resize stalls against the same-page pinned-legacy sample. A
+  shared site-owned task remains a reported performance cost, while a rewrite
+  regression is a task or p95 above the strict `1.05x` parity budget. Do not
+  relabel raw Long Tasks or discard their frame evidence.
+- [ ] Rerun every parity-eligible rewrite candidate from the same clean pushed
+  HEAD, then regenerate pair and production matrices. Acapedia's live 403,
+  3D Prima's site-owned 404, and Bigbag's absent Hub candidate remain explicit
+  N/A/external dispositions. Debug remains diagnostic-only because pinned
+  legacy has no authentic debug artifact.
+- [ ] Keep all failed immutable runs, finalize every new run, and retain the
+  run-lifetime zero-attempt Lynx publication guard. The checklist may open, but
+  final selector publication stays forbidden.
+
 - Write `.reimplementation/p25-legacy-parity-closure-report-2026-08-28.md` with
   the new overall result, contract matrix, per-property results, performance,
   accuracy, similarity, payload, external blockers, and retained artifact paths.
