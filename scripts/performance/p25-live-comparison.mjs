@@ -904,6 +904,9 @@ function viewportMatches(posture, width, height) {
 }
 
 async function runRenderInspection(popup, { implementation, renderMode, timeoutMs }) {
+  const proveMode = (state, mode) => proveRequestedRenderMode(state, mode, {
+    requireInspectionLifecycle: implementation === "rewrite",
+  });
   const controlId = implementation === "legacy"
     ? renderMode === "with-javascript" ? "render-mode-inspect-with-javascript" : "render-mode-inspect-without-javascript"
     : renderMode === "with-javascript" ? "render-mode-with-js" : "render-mode-without-js";
@@ -939,12 +942,12 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
     while (Date.now() < viewDeadline) {
       before = await capturePopupState(popup);
       control = before.controls.find((candidate) => candidate.id === controlId);
-      const proof = proveRequestedRenderMode(before, renderMode);
+      const proof = proveMode(before, renderMode);
       if (control && control.visible !== false && (!control.disabled || (before.busy === false && proof.modeProven))) break;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
   }
-  const settledProof = proveRequestedRenderMode(before, renderMode);
+  const settledProof = proveMode(before, renderMode);
   if (control?.disabled && before.busy === false && settledProof.modeProven) {
     const alternateMode = renderMode === "with-javascript" ? "without-javascript" : "with-javascript";
     const alternateId = implementation === "legacy"
@@ -971,7 +974,7 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
     while (Date.now() < preconditionDeadline) {
       last = await capturePopupState(popup);
       const requestedControl = last.controls.find((candidate) => candidate.id === controlId);
-      const proof = proveRequestedRenderMode(last, alternateMode);
+      const proof = proveMode(last, alternateMode);
       if (last.busy === false && requestedControl && !requestedControl.disabled && requestedControl.visible !== false && proof.modeProven) {
         preconditionSwitch = {
           requestedMode: alternateMode,
@@ -1015,7 +1018,7 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
       ? currentControl?.visible !== false
       : currentControl?.disabled === false;
     const terminal = transitionObserved && last.busy === false && terminalControlSettled;
-    const { modeProven, proofSource } = proveRequestedRenderMode(last, renderMode);
+    const { modeProven, proofSource } = proveMode(last, renderMode);
     if (terminal && modeProven) {
       return {
         requestedMode: renderMode,
@@ -1637,7 +1640,9 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
     const inspectionProof = diagnosticObserveOnlyReason
       ? await withPopupSession(targets.popup, async (session) => {
         const observed = await capturePopupState(session);
-        const proof = proveRequestedRenderMode(observed, renderMode);
+        const proof = proveRequestedRenderMode(observed, renderMode, {
+          requireInspectionLifecycle: identity.implementation === "rewrite",
+        });
         return {
           requestedMode: renderMode,
           controlId: null,

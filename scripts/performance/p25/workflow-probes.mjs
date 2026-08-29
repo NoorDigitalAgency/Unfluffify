@@ -205,9 +205,11 @@ export function validateCandidateDispositionRecord(record, identity, document = 
   return { pass: failures.length === 0, failures };
 }
 
-export function proveRequestedRenderMode(state, requestedMode) {
+export function proveRequestedRenderMode(state, requestedMode, options = {}) {
   if (state?.renderInspectionView === requestedMode) return { modeProven: true, proofSource: "inspection-lifecycle" };
-  if (state?.renderChoice === requestedMode) return { modeProven: true, proofSource: "confirmed-render-choice" };
+  if (options.requireInspectionLifecycle !== true && state?.renderChoice === requestedMode) {
+    return { modeProven: true, proofSource: "confirmed-render-choice" };
+  }
   return { modeProven: false, proofSource: null };
 }
 

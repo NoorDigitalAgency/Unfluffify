@@ -458,6 +458,19 @@ describe("P25 implementation-neutral render-mode proof", () => {
       .toEqual({ modeProven: true, proofSource: "confirmed-render-choice" });
   });
 
+  it("does not substitute a retained rewrite choice for current inspection lifecycle proof", () => {
+    expect(proveRequestedRenderMode(
+      { renderChoice: "without-javascript", renderInspectionView: "with-javascript" },
+      "without-javascript",
+      { requireInspectionLifecycle: true },
+    )).toEqual({ modeProven: false, proofSource: null });
+    expect(proveRequestedRenderMode(
+      { renderChoice: "without-javascript", renderInspectionView: "without-javascript" },
+      "without-javascript",
+      { requireInspectionLifecycle: true },
+    )).toEqual({ modeProven: true, proofSource: "inspection-lifecycle" });
+  });
+
   it("rejects the wrong requested mode even for a legacy-shaped popup", () => {
     const legacyPopup = { renderChoice: "with-javascript", renderInspectionView: null };
     expect(proveRequestedRenderMode(legacyPopup, "without-javascript"))
