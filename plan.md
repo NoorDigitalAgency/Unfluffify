@@ -986,6 +986,18 @@ headed-validation gates.
   ms versus 216.6 ms. Its aggregate is red only for the mandatory clean-source
   identity check; full verification, checkpoint commit/push, and the exact
   clean-source rerun remain.
+- Pushed commit `8b22d7d4` closes that automated remediation checkpoint. Full
+  verification passes 141 files / 1,434 tests, production build, and seven
+  manifest checks. Standalone clean P14 artifact
+  `acceptance-2026-08-29T07-26-19-164Z.json` passes all 192 scenarios; the
+  complete clean P25 aggregate
+  `acceptance-2026-08-29T07-43-12-778Z.json` validates P14, P15, P16, P17, P18,
+  P20, and P23 in the required order with no missing or failed child. In its
+  fresh embedded performance sample, rewrite small marking-scroll p95 is 301.8
+  ms versus legacy 317.2 ms, large marking-scroll is 299.8 ms versus 333.3 ms,
+  and large silent-scroll is 186.3 ms versus 214.7 ms. Findings 126–128 are
+  closed; the remaining P25 work is immutable headed rewrite/debug/legacy
+  evidence on DPJ and the complete valid-candidate matrix.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

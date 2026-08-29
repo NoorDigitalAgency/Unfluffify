@@ -1088,7 +1088,7 @@ preserves the stronger architecture.
     failures; the aggregate correctly failed only its mandatory clean-source
     identity check. A clean checkpoint rerun and a fresh immutable headed run
     remain required.
-126. **Remediated, clean rerun pending P1 — the P17 phase oracle required
+126. **Closed P1 — the P17 phase oracle required
     canonical Preview churn for geometry-only fixture setup.** Clean
     pushed-source P14, P15, and P16 gates on `ffae6bdc` pass with 192 performance
     scenarios, 36/36 frozen-shield checks, and 13/13 inspection lifecycle
@@ -1101,10 +1101,10 @@ preserves the stronger architecture.
     `reproject` immediately after the pin. The oracle now requires only the
     physical layout endpoint, retaining the subsequent explicit projection and
     active-hover mutation proofs. A source regression forbids reintroducing the
-    revision condition. Focused coverage passes 6/6 and the dirty-source browser
-    rerun reaches all 19/19 checks with clean teardown; only the mandatory clean
-    source identity check remains until checkpoint/rerun.
-127. **Remediated, clean rerun pending P1 — P23 conflated immediate scroll
+    revision condition. Focused coverage passes 6/6, and clean pushed aggregate
+    `acceptance-2026-08-29T07-43-12-778Z.json` validates the retained P17 child
+    at all 19/19 checks with clean teardown.
+127. **Closed P1 — P23 conflated immediate scroll
     feedback with legacy-matched quiet geometry settlement.** Clean pushed-source
     P17, P18, and P20 gates on `664e1f22` pass at 19/19, 14/14, and 4/4. P23
     passed every semantic, identity, retention, scheduler, and error check but
@@ -1119,9 +1119,10 @@ preserves the stronger architecture.
     bounded scheduling/frame slack. A source assertion binds the gate's quiet
     constant to production so they cannot drift again. The strengthened
     dirty-source run records a 0.3 ms fade, 143.5 ms settlement, identical eight
-    silent nodes, unchanged canonical rows, and 25/25 passing checks; only clean
-    source identity remains pending.
-128. **Remediated, clean rerun pending P1 — silent-only geometry scanned absent
+    silent nodes, and unchanged canonical rows. Clean pushed aggregate
+    `acceptance-2026-08-29T07-43-12-778Z.json` validates the retained P23 child
+    at 25/25 checks.
+128. **Closed P1 — silent-only geometry scanned absent
     marking state and interactive restore requested paint one frame late.** The
     first complete P25 aggregate on clean `c9574633` retained one 51 ms input
     Long Task in large silent scroll and missed the small marking-scroll strict
@@ -1141,8 +1142,13 @@ preserves the stronger architecture.
     activation, mutation-pressure, or input Long Task failures. Small
     marking-scroll p95 is 305.6 ms versus legacy 317.2 ms; large marking-scroll
     is 300.0 ms versus 349.9 ms; large silent-scroll is 184.7 ms versus 216.6
-    ms. Only mandatory clean-source identity keeps that measurement artifact
-    red; checkpoint and exact clean-source rerun remain required.
+    ms. Pushed commit `8b22d7d4` passes full verification at 141 files / 1,434
+    tests plus production build and seven manifest checks. Standalone clean P14
+    artifact `acceptance-2026-08-29T07-26-19-164Z.json` passes all 192 scenarios,
+    and clean aggregate `acceptance-2026-08-29T07-43-12-778Z.json` validates all
+    seven ordered P25 children. Its fresh embedded sample records rewrite small
+    marking-scroll p95 301.8 ms versus legacy 317.2 ms, large marking-scroll
+    299.8 ms versus 333.3 ms, and large silent-scroll 186.3 ms versus 214.7 ms.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1217,7 +1223,7 @@ preserves the stronger architecture.
 Implementation remediation is code-complete through finding 128. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun, and
-findings 126–128 await their clean phase-gate reruns. P25 remains open until the exact
+findings 126–128 are closed by the clean aggregate. P25 remains open until the exact
 clean pushed commit completes every valid candidate's observer-free headed
 rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,
