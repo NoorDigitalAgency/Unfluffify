@@ -5133,6 +5133,111 @@ describe("rewrite popup entrypoint", () => {
     expect(render.mock.calls.at(-1)?.[0].props.presentation.discardDisabled).toBe(true);
   });
 
+  it("retires a stale Preview occurrence when replacement content is silent", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({
+      createRoot: vi.fn(() => ({ render })),
+    }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
+    const tabsSendMessage = makeTabsSendMessage(() => ({
+      ok: true,
+      active: false,
+      dirty: false,
+      pageUrl: "https://example.com",
+      markedCount: 0,
+      sessionState: { name: "silent", lastConsumedSeq: 0 },
+      tree: "rewrite",
+    }));
+    let signalSeq = 4;
+    let pendingSignals: Record<string, unknown>[] = [
+      {
+        kind: "uf-signal/1", tabId: 77, seq: 1, name: "marking.enabled",
+        source: "brain", cause: "activate-ok", at: 1,
+        payload: { pageUrl: "https://example.com" },
+      },
+      {
+        kind: "uf-signal/1", tabId: 77, seq: 2, name: "run.started",
+        source: "brain", cause: "ai-run", at: 2,
+        payload: { pageUrl: "https://example.com", sessionId: "run-1" },
+      },
+      {
+        kind: "uf-signal/1", tabId: 77, seq: 3, name: "run.completed",
+        source: "brain", cause: "ai-run", at: 3,
+        payload: {
+          pageUrl: "https://example.com",
+          sessionId: "run-1",
+          selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+        },
+      },
+      {
+        kind: "uf-signal/1", tabId: 77, seq: 4, name: "preview.opened",
+        source: "brain", cause: "preview", at: 4,
+        payload: { pageUrl: "https://example.com", origin: "post_ai" },
+      },
+    ];
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "fact.reported") {
+        const facts = (message.payload as {
+          sensation?: { facts?: { markingEnabled?: boolean; previewActive?: boolean } };
+        }).sensation?.facts;
+        if (facts?.markingEnabled === false && facts.previewActive === false) {
+          pendingSignals.push(
+            {
+              kind: "uf-signal/1", tabId: 77, seq: ++signalSeq, name: "marking.disabled",
+              source: "brain", cause: "deactivate-ok", at: signalSeq,
+              payload: { pageUrl: "https://example.com" },
+            },
+            {
+              kind: "uf-signal/1", tabId: 77, seq: ++signalSeq, name: "preview.exited",
+              source: "brain", cause: "preview", at: signalSeq,
+              payload: { pageUrl: "https://example.com", restored: false },
+            },
+          );
+        }
+        return undefined;
+      }
+      if (message.name === "signals.pull") {
+        const pending = pendingSignals;
+        pendingSignals = [];
+        return replyFrame(message, pending);
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: {
+        ...runtime,
+      },
+      tabs: {
+        query,
+        sendMessage: tabsSendMessage,
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await flushEntrypointWork();
+    await flushEntrypointWork();
+
+    expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
+      name: "fact.reported",
+      payload: expect.objectContaining({
+        sensation: expect.objectContaining({
+          reason: "content-reconciliation",
+          facts: expect.objectContaining({
+            markingEnabled: false,
+            previewActive: false,
+            previewExitRequested: false,
+          }),
+        }),
+      }),
+    }));
+    expect(render.mock.calls.at(-1)?.[0].props.presentation).toMatchObject({
+      silentModeActive: true,
+      temporarilyDisabledOverlay: false,
+      previewVisible: false,
+    });
+  });
+
   it("does not call a seeded session dirty, however many rows it has", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     const render = createReactRenderProbe();

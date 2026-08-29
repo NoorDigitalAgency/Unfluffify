@@ -834,8 +834,25 @@ function dispatchSignal(signal: BrainSignal): void {
 }
 
 function popupStateHasOpenPreview(state: PopupState): boolean {
-  const visibleState = state.name === "locked" ? state.priorState : state.name;
+  const visibleState = state.name === "locked"
+    ? state.priorState === "inspecting"
+      ? state.overlayPriorState
+      : state.priorState
+    : state.name === "inspecting"
+      ? state.priorState
+      : state.name;
   return visibleState === "preview_open" || visibleState === "silent_preview";
+}
+
+function popupStateRequiresActiveContent(state: PopupState): boolean {
+  const visibleState = state.name === "locked"
+    ? state.priorState === "inspecting"
+      ? state.overlayPriorState
+      : state.priorState
+    : state.name === "inspecting"
+      ? state.priorState
+      : state.name;
+  return visibleState !== undefined && visibleState !== "boot" && visibleState !== "silent";
 }
 
 function signalMatchesBinding(signal: BrainSignal, tabId: number, requestKey: string | null): boolean {
@@ -2714,6 +2731,24 @@ async function reconcileContentStatus(context: TargetTabContext, requestKey = bo
       postSaveLocalRecovery = null;
       silentSelectorsAppliedKey = null;
       notifyBoundEvent(recovery.binding, "Session saved", recovery.baseUrl, "success");
+    }
+  }
+  if (
+    status.active === false &&
+    recovery === null &&
+    popupStateRequiresActiveContent(store.getState())
+  ) {
+    // The content document is the authority for its physical session posture.
+    // A replacement document can be silent while the durable brain still
+    // remembers a marking/Preview occurrence from the prior realm. Reconcile
+    // both edges so the brain, rather than the popup, emits the terminal signals.
+    const reported = await reportPopupFact(context, "content-reconciliation", {
+      markingEnabled: false,
+      previewActive: false,
+      previewExitRequested: false,
+    }, requestKey);
+    if (reported) {
+      await pullSignals(context.tabId, requestKey);
     }
   }
   if (status.active === true && store.getState().name === "silent") {

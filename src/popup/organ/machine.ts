@@ -113,6 +113,31 @@ export function transitionPopupState(state: PopupState, signal: BrainSignal): Po
       lockBanner: state.lockBanner,
     };
   }
+  if (
+    state.name === "inspecting" &&
+    (
+      signal.name === "marking.disabled" ||
+      signal.name === "preview.exited" ||
+      signal.name === "session.saved" ||
+      signal.name === "session.discarded" ||
+      signal.name === "session.navigated"
+    )
+  ) {
+    // Render Inspection is an overlay over the editor session. A terminal
+    // session fact that arrives while it owns the popup must update that
+    // suspended underlay; merely consuming the sequence would resurrect a
+    // preview or marking state that the replacement document no longer owns.
+    const underlay = transitionPopupState({
+      ...state,
+      name: state.priorState ?? "silent",
+      priorState: undefined,
+    }, signal);
+    return {
+      ...underlay,
+      name: "inspecting",
+      priorState: underlay.name,
+    };
+  }
   const base = { ...state, lastConsumedSeq: signal.seq };
   switch (signal.name) {
     case "lock.blocked": {

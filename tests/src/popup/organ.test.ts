@@ -62,6 +62,34 @@ describe("rewrite popup FSM", () => {
     expect(silent).toMatchObject({ name: "silent", priorState: undefined, selectors: draft.selectors });
   });
 
+  it("terminalizes a suspended Preview when its document goes silent during inspection", () => {
+    let state = transitionPopupState(
+      {
+        name: "preview_open",
+        lastConsumedSeq: 1,
+        reconciliationReason: "post_ai",
+        priorState: "post_ai_clean",
+        previewProjection: {
+          projectionId: "projection-1",
+          revision: 1,
+          pageUrl: "https://example.com",
+          rows: [],
+        },
+      },
+      signal(2, "inspection.started", { pageUrl: "https://example.com" }),
+    );
+    state = transitionPopupState(state, signal(3, "marking.disabled", { pageUrl: "https://example.com" }));
+
+    expect(state).toMatchObject({
+      name: "inspecting",
+      priorState: "silent",
+      previewProjection: undefined,
+    });
+
+    state = transitionPopupState(state, signal(4, "inspection.ended", { pageUrl: "https://example.com" }));
+    expect(state).toMatchObject({ name: "silent", priorState: undefined });
+  });
+
   it("rehydrates selector-bearing completion after a clean marking enable", () => {
     let state = transitionPopupState({ name: "silent", lastConsumedSeq: 1, reconciliationReason: "" }, signal(2, "marking.enabled", { pageUrl: "https://example.com" }));
     state = transitionPopupState(state, signal(3, "run.started", { pageUrl: "https://example.com", sessionId: "run-1" }));
