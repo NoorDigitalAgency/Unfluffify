@@ -947,6 +947,23 @@ export function createMarkingEngine(
       return byXpathElements();
     }
     const targets = new Map<string, OverlayRenderTarget>();
+    const presentationXpaths = renderer.viewportPresentationXpaths();
+    const retainTarget = (xpath: string): void => {
+      if (!presentationXpaths.has(xpath)) return;
+      const target = overlayTargets.get(xpath);
+      if (target) {
+        targets.set(xpath, target);
+      }
+    };
+    // A viewport transaction only has to move or retire presentation that is
+    // already painted. IntersectionObserver boundary changes below admit the
+    // newly entering targets. Reprocessing every stable intersecting source is
+    // both redundant and pathological on dense commerce pages: hundreds of
+    // transparent/nested sources can be intersecting while only a few dozen
+    // boxes are paint-reachable, keeping the whole layer faded for seconds.
+    for (const xpath of renderer.retainedViewportXpaths()) {
+      retainTarget(xpath);
+    }
     if (!intersectionSnapshotReady) {
       // IntersectionObserver is allowed to deliver a large observed corpus in
       // several tasks. Falling back to every bridge target while that snapshot
@@ -955,31 +972,16 @@ export function createMarkingEngine(
       // painted corpus is the exact safe fallback: it covers every stale box
       // that must move or disappear, while partial positive observations admit
       // newly entering targets. Once the initial snapshot closes, the observer
-      // schedules one authoritative follow-up below.
+      // schedules one bounded authoritative follow-up below.
       incompleteIntersectionFallbackUsed = true;
-      for (const xpath of renderer.retainedViewportXpaths()) {
-        const target = overlayTargets.get(xpath);
-        if (target) {
-          targets.set(xpath, target);
-        }
+      for (const xpath of intersectingXpaths) {
+        retainTarget(xpath);
       }
     } else {
       incompleteIntersectionFallbackUsed = false;
     }
-    const presentationXpaths = renderer.viewportPresentationXpaths();
-    for (const xpath of intersectingXpaths) {
-      if (!presentationXpaths.has(xpath)) continue;
-      const target = overlayTargets.get(xpath);
-      if (target) {
-        targets.set(xpath, target);
-      }
-    }
     for (const xpath of intersectionDirtyXpaths) {
-      if (!presentationXpaths.has(xpath)) continue;
-      const target = overlayTargets.get(xpath);
-      if (target) {
-        targets.set(xpath, target);
-      }
+      retainTarget(xpath);
     }
     intersectionDirtyXpaths.clear();
     return targets;

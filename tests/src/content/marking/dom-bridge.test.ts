@@ -3412,7 +3412,7 @@ describe("P6 DOM bridge", () => {
     }
   });
 
-  it("uses the settled intersection corpus for large viewport geometry work", () => {
+  it("bounds settled viewport geometry to retained paint instead of stable intersections", () => {
     vi.useFakeTimers();
     try {
       const doc = new FakeDocument();
@@ -3433,6 +3433,7 @@ describe("P6 DOM bridge", () => {
       }
       Object.assign(doc.defaultView, {
         IntersectionObserver: FakeIntersectionObserver,
+        innerHeight: 200,
         requestAnimationFrame(callback: () => void) {
           animationFrames.push(callback);
           return animationFrames.length;
@@ -3466,7 +3467,10 @@ describe("P6 DOM bridge", () => {
         render: true,
         instrumentation: { createRenderer: renderer.createRenderer },
       });
-      const intersecting = new Set<Element>([root, ...paragraphs.slice(0, 8)] as unknown as Element[]);
+      const retainedXpaths = new Set(
+        renderer.createRenderer.mock.results[0]?.value.retainedViewportXpaths() ?? [],
+      );
+      const intersecting = new Set<Element>([root, ...paragraphs] as unknown as Element[]);
       intersectionCallback?.(observed.map((target) => ({
         target,
         isIntersecting: intersecting.has(target),
@@ -3486,8 +3490,16 @@ describe("P6 DOM bridge", () => {
       while (animationFrames.length > 0) animationFrames.shift()?.();
       expect(renderer.geometryBranchRender.mock.calls.every(([count]) => count <= 2)).toBe(true);
       expect(renderer.geometryBranchRender).toHaveBeenLastCalledWith(expect.any(Number), true);
-      expect(paragraphs.slice(0, 8).every((paragraph) => paragraph.clientRectReadCount > 0)).toBe(true);
-      expect(paragraphs.slice(8).every((paragraph) => paragraph.clientRectReadCount === 0)).toBe(true);
+      const retainedParagraphs = paragraphs.filter((_paragraph, index) =>
+        retainedXpaths.has(`/main[1]/p[${index + 1}]`)
+      );
+      const stableUnpaintedParagraphs = paragraphs.filter((_paragraph, index) =>
+        !retainedXpaths.has(`/main[1]/p[${index + 1}]`)
+      );
+      expect(retainedParagraphs.length).toBeGreaterThan(0);
+      expect(stableUnpaintedParagraphs.length).toBeGreaterThan(50);
+      expect(retainedParagraphs.every((paragraph) => paragraph.clientRectReadCount > 0)).toBe(true);
+      expect(stableUnpaintedParagraphs.every((paragraph) => paragraph.clientRectReadCount === 0)).toBe(true);
       expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
       engine.dispose();
     } finally {
@@ -3787,11 +3799,13 @@ describe("P6 DOM bridge", () => {
       vi.advanceTimersByTime(120);
       animationFrames.shift()?.();
 
-      // Only the semantic silent row is geometry-bearing; its structural root
-      // remains in the observer corpus without entering the paint transaction.
-      expect(renderer.geometryRender).toHaveBeenLastCalledWith(1);
+      // Both retained semantic rows are geometry-bearing even when the
+      // observer has already reported one outside the viewport: the retained
+      // box still has to be measured once so it can be hidden without losing
+      // identity. Its structural root remains outside the paint transaction.
+      expect(renderer.geometryRender).toHaveBeenLastCalledWith(2);
       expect(first.clientRectReadCount).toBeGreaterThan(0);
-      expect(second.clientRectReadCount).toBe(0);
+      expect(second.clientRectReadCount).toBeGreaterThan(0);
       expect(silentBox("/main[1]/p[2]")).toBe(secondBox);
       expect(secondBox?.style.visibility).toBe("hidden");
 
