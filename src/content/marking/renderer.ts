@@ -600,6 +600,12 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     const drawPresentation = (xpath: string, requestedPresentation: string): void => {
       const target = byXpath.get(xpath);
       if (!target) {
+        if (preserveUnmeasured) {
+          // A bounded viewport corpus deliberately omits offscreen sources.
+          // Retain their keyed nodes hidden so scrolling never destroys and
+          // recreates presentation identity.
+          unmeasured.add(xpath);
+        }
         return;
       }
       const isExcludedPresentation = requestedPresentation.includes("uf-silent-immutable")
@@ -629,11 +635,6 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         // mounted until it is measurable again; structural/silent renders do
         // not use this exception and remain authoritative for removals.
         unmeasured.add(xpath);
-        for (const record of silentBoxes.values()) {
-          if (record.xpath === xpath) {
-            record.overlay.style.visibility = "hidden";
-          }
-        }
       }
       for (let index = 0; index < rects.length; index += 1) {
         const key = silentKey(xpath, presentation, index);
@@ -672,10 +673,13 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       }
     }
     for (const [key, record] of silentBoxes) {
+      if (unmeasured.has(record.xpath)) {
+        record.overlay.style.visibility = "hidden";
+        continue;
+      }
       if (
         (!affected || affected.has(record.xpath))
         && !used.has(key)
-        && !unmeasured.has(record.xpath)
       ) {
         record.overlay.remove();
         silentBoxes.delete(key);

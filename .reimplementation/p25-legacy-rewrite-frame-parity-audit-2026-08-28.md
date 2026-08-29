@@ -1149,6 +1149,29 @@ preserves the stronger architecture.
     seven ordered P25 children. Its fresh embedded sample records rewrite small
     marking-scroll p95 301.8 ms versus legacy 317.2 ms, large marking-scroll
     299.8 ms versus 333.3 ms, and large silent-scroll 186.3 ms versus 214.7 ms.
+129. **Remediated, immutable rerun pending P0 — live silent geometry still
+    measured every markable target after its quiet window.** Clean production
+    DPJ run `2026-08-29T07-46-14-018Z-6a7bca79-rewrite-dpj` passed every stage
+    through silent visual, including both paint-acknowledged render modes, exact
+    marking gestures, the complete AI/Content List/Save workflow, one current
+    renderer root, and correct 1920×1080 desktop posture. Its physical wheel
+    then overlapped a 71 ms Long Task and resize overlapped 61 ms and 58 ms Long
+    Tasks. The tasks begin at the 120 ms geometry commits. Only 35–56 silent
+    sources were visible while the engine supplied all 787 markable targets to
+    the renderer, forcing document-wide client-rect measurement on DPJ's complex
+    layout. Viewport motion now always uses the current plus crossing
+    IntersectionObserver corpus. The renderer treats omitted sources as
+    intentionally unmeasured: it keeps their keyed nodes connected and hidden,
+    measures only supplied targets, and restores the same nodes in place when
+    they re-enter. This preserves retained identity, fade, and no-flicker
+    semantics while bounding forced layout. A focused browser-model regression
+    proves two measured targets instead of three, zero reads for the offscreen
+    source, hidden retained identity, and same-node restoration; four focused
+    files / 167 tests, lint, and all TypeScript projects pass. Full verification
+    passes 141 files / 1,435 tests, production build, and seven manifest checks;
+    dirty-source P23 passes 25/25 behavioral checks. The failed run is finalized
+    with publication attempt count zero; checkpoint, clean automated gates, and
+    an exact headed rerun remain.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1220,10 +1243,11 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 128. Immutable
+Implementation remediation is code-complete through finding 129. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
-recurrence watch, finding 125 awaits an exact clean pushed headed rerun, and
-findings 126–128 are closed by the clean aggregate. P25 remains open until the exact
+recurrence watch, finding 125 awaits an exact clean pushed headed rerun,
+findings 126–128 are closed by the clean aggregate, and finding 129 awaits its
+exact clean pushed rerun. P25 remains open until the exact
 clean pushed commit completes every valid candidate's observer-free headed
 rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,

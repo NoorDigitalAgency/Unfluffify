@@ -3126,6 +3126,101 @@ describe("P6 DOM bridge", () => {
     }
   });
 
+  it("bounds silent viewport geometry while retaining offscreen node identity", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const animationFrames: Array<() => void> = [];
+      const listeners = new Map<string, (event?: Event) => void>();
+      const observed: Element[] = [];
+      let intersectionCallback: IntersectionObserverCallback | null = null;
+      class FakeIntersectionObserver {
+        constructor(callback: IntersectionObserverCallback) {
+          intersectionCallback = callback;
+        }
+        observe(target: Element): void {
+          observed.push(target);
+        }
+        disconnect(): void {
+          observed.splice(0);
+        }
+      }
+      Object.assign(doc.defaultView, {
+        IntersectionObserver: FakeIntersectionObserver,
+        requestAnimationFrame(callback: () => void) {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+        addEventListener(type: string, listener: (event?: Event) => void) {
+          listeners.set(type, listener);
+        },
+        removeEventListener(type: string) {
+          listeners.delete(type);
+        },
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+      const first = new FakeElement("P", rect(0, 0, 120, 20), "First");
+      const second = new FakeElement("P", rect(0, 30, 120, 20), "Second");
+      for (const element of [root, first, second]) {
+        element.ownerDocument = doc;
+      }
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      root.appendChild(first);
+      root.appendChild(second);
+      doc.pointHits = (_x, y) => y < 25 ? [first, root] : [second, root];
+      const renderer = createRendererTestSeam();
+      const engine = createMarkingEngine(root as unknown as Element, {
+        instrumentation: { createRenderer: renderer.createRenderer },
+      });
+      engine.renderSilentHighlights();
+      const silentBox = (xpath: string): FakeElement | undefined => engine.overlayRoot().children
+        .flatMap((layer) => layer.children)
+        .find((overlay) => overlay.getAttribute("data-uf-silent-highlight") === xpath);
+      const secondBox = silentBox("/main[1]/p[2]");
+      expect(secondBox).toBeDefined();
+
+      intersectionCallback?.(observed.map((target) => ({
+        target,
+        isIntersecting: target !== second as unknown as Element,
+        intersectionRatio: target !== second as unknown as Element ? 1 : 0,
+      } as IntersectionObserverEntry)), {} as IntersectionObserver);
+      first.clientRectReadCount = 0;
+      second.clientRectReadCount = 0;
+      second.clientRects = [rect(500, 0, 120, 20)];
+      renderer.geometryRender.mockClear();
+
+      listeners.get("scroll")?.({ target: doc } as unknown as Event);
+      vi.advanceTimersByTime(120);
+      animationFrames.shift()?.();
+
+      expect(renderer.geometryRender).toHaveBeenLastCalledWith(2);
+      expect(first.clientRectReadCount).toBeGreaterThan(0);
+      expect(second.clientRectReadCount).toBe(0);
+      expect(silentBox("/main[1]/p[2]")).toBe(secondBox);
+      expect(secondBox?.style.visibility).toBe("hidden");
+
+      second.clientRects = [rect(0, 40, 120, 20)];
+      doc.pointHits = (_x, y) => y < 25 ? [first, root] : [second, root];
+      intersectionCallback?.([{
+        target: second as unknown as Element,
+        isIntersecting: true,
+        intersectionRatio: 1,
+      } as IntersectionObserverEntry], {} as IntersectionObserver);
+      listeners.get("scroll")?.({ target: doc } as unknown as Event);
+      vi.advanceTimersByTime(120);
+      animationFrames.shift()?.();
+
+      expect(renderer.geometryRender).toHaveBeenLastCalledWith(3);
+      expect(silentBox("/main[1]/p[2]")).toBe(secondBox);
+      expect(secondBox?.style.visibility).toBe("");
+      expect(secondBox?.style.top).toBe("40px");
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("repositions silent geometry through the bounded fallback when page rAF starves", () => {
     vi.useFakeTimers();
     try {

@@ -998,6 +998,24 @@ headed-validation gates.
   and large silent-scroll is 186.3 ms versus 214.7 ms. Findings 126–128 are
   closed; the remaining P25 work is immutable headed rewrite/debug/legacy
   evidence on DPJ and the complete valid-candidate matrix.
+- Clean production DPJ run
+  `2026-08-29T07-46-14-018Z-6a7bca79-rewrite-dpj` passed preflight, both
+  observer-free render modes, activation/network, every marking visual and
+  gesture contract, marking scroll/resize, the complete AI/Content List/
+  dirty/Discard/Save workflow, silent visual ownership, and the zero-attempt
+  publication fence. It then exposed two input Long Tasks at the silent
+  geometry commits: 71 ms after wheel and 61 ms after resize. DPJ had only
+  35–56 visible silent sources but 787 markable targets; the 120 ms quiet
+  transaction measured the entire document on each commit. Viewport motion now
+  supplies only current and crossing IntersectionObserver targets. Missing
+  offscreen silent projections remain as hidden keyed nodes, so identity and
+  no-flicker behavior are preserved without document-scale layout reads. A
+  focused regression proves bounded read cardinality, hidden retention, and
+  same-node restoration; four focused files / 167 tests, lint, and every
+  TypeScript project pass. Full verification passes 141 files / 1,435 tests,
+  production build, and seven manifest checks; dirty-source P23 passes all
+  25/25 behavioral checks and is red only for source identity. Checkpoint
+  commit/push, clean automated gates, and an exact fresh DPJ rerun remain.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

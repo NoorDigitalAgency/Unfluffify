@@ -1181,14 +1181,11 @@ export function createMarkingEngine(
         }
         return;
       }
-      // Silent preview owns a small retained presentation set. Keep its source
-      // nodes across viewport motion and let the renderer hide/reveal each box
-      // from current geometry; pruning the map to the latest IntersectionObserver
-      // corpus would delete boxes on scroll and recreate them later. Large
-      // interactive marking documents still use the bounded intersection corpus.
-      const byXpath = silentHighlightsArmed && !interactiveMarkingRendered
-        ? byXpathElements()
-        : viewportGeometryTargets();
+      // Viewport motion measures only sources that currently intersect or just
+      // crossed the viewport. The renderer retains missing silent projections
+      // as hidden keyed nodes, so bounded geometry no longer trades node
+      // identity for document-scale layout reads.
+      const byXpath = viewportGeometryTargets();
       const progressive = interactiveMarkingRendered &&
         byXpath.size > PROGRESSIVE_GEOMETRY_TARGET_THRESHOLD;
       if (nextWork === "silent-geometry" && silentHighlightsArmed) {
