@@ -627,7 +627,7 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).toContain("diagnostic-observe-only-no-render-control-dispatch");
     expect(harness).toContain("diagnosticObserveOnly: true");
     expect(harness).toContain("const initialBefore = await ensurePopupSessionView(popup, identity.implementation)");
-    expect(harness).toContain('const recoveryIds = ["lock-confirm-discard", "lock-continue-here", ...exitIds]');
+    expect(harness).toContain('"lock-take-over",');
     expect(harness).toContain("if (recovery?.id)");
     expect(harness).toContain("state.renderInspectionView !== state.renderChoice");
     expect(harness).toContain("renderMode: state.renderChoice");

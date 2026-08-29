@@ -1032,7 +1032,12 @@ async function ensurePopupSessionView(popup, implementation, timeoutMs = 30_000)
     // required user workflow, not a privileged state mutation. Confirm first if
     // the two-step prompt is already open, then handle the initial action or an
     // outstanding Render Inspection view.
-    const recoveryIds = ["lock-confirm-discard", "lock-continue-here", ...exitIds];
+    const recoveryIds = [
+      "lock-confirm-discard",
+      "lock-continue-here",
+      "lock-take-over",
+      ...exitIds,
+    ];
     const recovery = recoveryIds
       .map((id) => state.controls.find((control) => control.id === id))
       .find((control) => control && !control.disabled && control.visible !== false);

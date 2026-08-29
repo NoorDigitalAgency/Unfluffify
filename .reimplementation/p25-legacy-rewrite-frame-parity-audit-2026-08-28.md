@@ -1350,6 +1350,15 @@ preserves the stronger architecture.
     again. The synchronous trusted-click proof prevents duplicate activation;
     the product's bounded fact/ack retries remain responsible only after the
     handler has actually started.
+146. **Closed evidence P1 — a closed headed session could mature from same-user
+    continuation into the explicit takeover state before the next run.** The
+    clean Assist24 rerun encountered the retained lock as `Take over`, not
+    `Continue here`; the prior recovery loop therefore waited while all marking
+    controls correctly remained fenced. The implementation-neutral workflow now
+    physically accepts `Take over` as well as `Continue here`, then handles the
+    same visible discard confirmation if one is required. This does not mutate
+    lock storage or bypass the lock organ; it exercises the operator-facing
+    transfer path and retains the rotated revision/fence returned by authority.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1422,7 +1431,7 @@ preserves the stronger architecture.
 ## Acceptance headline
 
 Implementation remediation is code-complete through finding 134; findings
-135–145 bind the resulting evidence and rerun authority. Immutable
+135–146 bind the resulting evidence and rerun authority. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun,
 findings 126–128 are closed by the clean aggregate, finding 129 is closed by its
