@@ -192,6 +192,31 @@ describe("content consent lifecycle", () => {
     expect(harness.onHidden).toHaveBeenLastCalledWith(1);
   });
 
+  it("accepts non-string DOM id properties without aborting the observer", async () => {
+    const root = {
+      nodeType: 1,
+      tagName: "svg",
+      id: { baseVal: "page-icon" },
+      isConnected: true,
+      parentElement: null,
+      getAttribute: () => null,
+      hasAttribute: () => false,
+    } as unknown as ConsentElement;
+    const hideExactRoots = vi.fn(() => ({ hidden: 1, bypassInstalled: true }));
+    const harness = createHarness({ hideExactRoots });
+    harness.lifecycle.adoptProperty(PROPERTY_A);
+
+    expect(() => harness.observers[0]?.callback([{
+      type: "attributes",
+      target: root,
+      attributeName: "class",
+    } as unknown as MutationRecord])).not.toThrow();
+    await Promise.resolve();
+
+    expect(hideExactRoots).toHaveBeenCalledOnce();
+    expect(hideExactRoots).toHaveBeenCalledWith(harness.document, [root]);
+  });
+
   it("does not rescan consent selectors for extension-owned DOM mutations", async () => {
     const extensionRoot = {
       nodeType: 1,

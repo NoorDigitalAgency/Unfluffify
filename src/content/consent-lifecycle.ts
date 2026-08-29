@@ -112,9 +112,14 @@ function defaultObserver(callback: (records?: readonly MutationRecord[]) => void
 }
 
 function isExtensionOwnedMutationNode(value: unknown): boolean {
-  let element = value as (ConsentElement & Readonly<{ id?: string }>) | null | undefined;
+  let element = value as (ConsentElement & Readonly<{ id?: unknown }>) | null | undefined;
   while (element?.nodeType === 1) {
-    const id = element.getAttribute?.("id") ?? element.id ?? "";
+    const attributeId = element.getAttribute?.("id");
+    const id = typeof attributeId === "string"
+      ? attributeId
+      : typeof element.id === "string"
+        ? element.id
+        : "";
     const tagName = String(element.tagName ?? "").toLowerCase();
     if (
       element.getAttribute?.("data-uf-extension-ui") === "true" ||
