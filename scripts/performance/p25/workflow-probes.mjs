@@ -721,9 +721,15 @@ export function validateExactMarkingGestureEvidence(evidence, options = {}) {
   const operations = new Map((evidence?.operations ?? []).map((operation) => [operation.id, operation]));
   const shiftOperation = operations.get("shift-expand");
   const clearOperation = operations.get("plain-exact-unmark");
+  const expectedShiftOwnerXpath = evidence?.target?.shiftedOwnerXpath ?? null;
+  const expectedShiftRelation = expectedShiftOwnerXpath && evidence?.target?.xpath === expectedShiftOwnerXpath
+    ? "exact"
+    : "ancestor";
   const unpaintedExclusionPair = Boolean(
     shiftOperation?.interactionAcknowledgement?.kind === "explicit-exclusion" &&
-    shiftOperation?.interactionAcknowledgement?.ownerRelation === "ancestor" &&
+    shiftOperation?.interactionAcknowledgement?.ownerRelation === expectedShiftRelation &&
+    (expectedShiftOwnerXpath === null ||
+      shiftOperation?.interactionAcknowledgement?.ownerXpath === expectedShiftOwnerXpath) &&
     clearOperation?.interactionAcknowledgement?.kind === "explicit-exclusion" &&
     clearOperation?.interactionAcknowledgement?.ownerXpath ===
       shiftOperation?.interactionAcknowledgement?.ownerXpath,
@@ -739,8 +745,9 @@ export function validateExactMarkingGestureEvidence(evidence, options = {}) {
   requireOperation("plain-no-create", (value) => value.targetDelta?.created.length === 0 && value.targetDelta?.removed.length === 0 && value.targetDelta?.changed.length === 0, "target-mutated");
   requireOperation("shift-expand", (value) => (
     value.assertion?.kind === "explicit-exclusion" &&
-    value.assertion?.ownerRelation === "ancestor" &&
-    value.assertion?.breadthIncreased === true
+    value.assertion?.ownerRelation === expectedShiftRelation &&
+    (expectedShiftOwnerXpath === null || value.assertion?.ownerXpath === expectedShiftOwnerXpath) &&
+    (expectedShiftRelation === "exact" || value.assertion?.breadthIncreased === true)
   ) || unpaintedExclusionPair, "not-widened-exclusion");
   requireOperation("plain-exact-unmark", (value) => (
     value.assertion?.removedExactOwner === true && value.assertion?.remainingTargetOwned === 0

@@ -1453,11 +1453,15 @@ const resolveIncludedHoverOwner = (session, target) => resolveModifiedHoverOwner
 });
 
 export function preparedMarkingTargetIsUsable({ target, includedOwnerXpath, shiftedOwnerXpath, decision }) {
+  const shiftedOwnerMatches = Boolean(
+    target &&
+    typeof shiftedOwnerXpath === "string" &&
+    (shiftedOwnerXpath === target.xpath || target.xpath.startsWith(`${shiftedOwnerXpath}/`)),
+  );
   return Boolean(
     target &&
     includedOwnerXpath === target.xpath &&
-    typeof shiftedOwnerXpath === "string" &&
-    target.xpath.startsWith(`${shiftedOwnerXpath}/`) &&
+    shiftedOwnerMatches &&
     Array.isArray(decision?.targetOwned) &&
     decision.targetOwned.length === 0
   );
@@ -1532,7 +1536,10 @@ function markingTargetRejectionReason(authority) {
   if (!authority.target) return "owner-normalization";
   if (authority.includedOwnerXpath !== authority.target.xpath) return "alt-owner-mismatch";
   if (typeof authority.shiftedOwnerXpath !== "string") return "shift-owner-missing";
-  if (!authority.target.xpath.startsWith(`${authority.shiftedOwnerXpath}/`)) return "shift-owner-not-ancestor";
+  if (
+    authority.shiftedOwnerXpath !== authority.target.xpath &&
+    !authority.target.xpath.startsWith(`${authority.shiftedOwnerXpath}/`)
+  ) return "shift-owner-not-contractual";
   if (!Array.isArray(authority.decision?.targetOwned)) return "owner-decision-missing";
   if (authority.decision.targetOwned.length > 0) return "explicitly-owned";
   return "authority-unstable";
@@ -1642,11 +1649,30 @@ async function searchCleanMarkingTarget(session, options = {}) {
               confirmation.target,
             );
             if (preparedMarkingContextIsClean(afterContextMenu)) {
+              // Clearing a configured ancestor can change the legacy C-TGT-4
+              // outcome for the same physical point. Re-prove both modifiers
+              // after that mutation so an exact toggleable boundary is not
+              // misreported as a stale ancestor widen (or vice versa).
+              const cleanInitialAuthority = await markingTargetAuthority(
+                session,
+                confirmation.target,
+              );
+              const cleanConfirmation = cleanInitialAuthority.target
+                ? await markingTargetAuthority(session, cleanInitialAuthority.target)
+                : cleanInitialAuthority;
+              if (!stablePreparedMarkingTargetAuthority(cleanInitialAuthority, cleanConfirmation)) {
+                reject("context-preclean-authority-unstable", confirmation.target, {
+                  beforeShiftedOwnerXpath: confirmation.shiftedOwnerXpath,
+                  afterShiftedOwnerXpath: cleanConfirmation.shiftedOwnerXpath,
+                });
+                skippedXpaths.push(target.xpath);
+                continue;
+              }
               return {
                 target: {
-                  ...confirmation.target,
-                  includedOwnerXpath: confirmation.includedOwnerXpath,
-                  shiftedOwnerXpath: confirmation.shiftedOwnerXpath,
+                  ...cleanConfirmation.target,
+                  includedOwnerXpath: cleanConfirmation.includedOwnerXpath,
+                  shiftedOwnerXpath: cleanConfirmation.shiftedOwnerXpath,
                   selectionAttempt: attempts,
                   selectionSweep: sweep,
                   precleaned: true,
@@ -1664,6 +1690,8 @@ async function searchCleanMarkingTarget(session, options = {}) {
                     dispatchLatencyMs,
                     beforeContextMenu: contextMenu,
                     afterContextMenu,
+                    beforeShiftedOwnerXpath: confirmation.shiftedOwnerXpath,
+                    afterShiftedOwnerXpath: cleanConfirmation.shiftedOwnerXpath,
                   },
                 },
               };
@@ -1835,15 +1863,19 @@ function markingDelta(before, after) {
   };
 }
 
-function markingAssertion(id, before, after, targetDelta) {
+function markingAssertion(id, before, after, targetDelta, expectedOwnerXpath = null) {
   if (id === "plain-no-create") return { noTargetMutation: targetDelta.created.length === 0 && targetDelta.removed.length === 0 && targetDelta.changed.length === 0 };
   if (id === "shift-expand") {
-    const widened = after.targetOwned.find((record) => record.kind === "explicit-exclusion" && record.ownerRelation === "ancestor");
+    const shifted = after.targetOwned.find((record) =>
+      record.kind === "explicit-exclusion" &&
+      (expectedOwnerXpath === null ? record.ownerRelation === "ancestor" : record.ownerXpath === expectedOwnerXpath)
+    );
     return {
-      kind: widened?.kind ?? null,
-      ownerXpath: widened?.ownerXpath ?? null,
-      ownerRelation: widened?.ownerRelation ?? null,
-      breadthIncreased: Boolean(widened && widened.breadth > after.targetBreadth),
+      kind: shifted?.kind ?? null,
+      ownerXpath: shifted?.ownerXpath ?? null,
+      ownerRelation: shifted?.ownerRelation ?? null,
+      breadthIncreased: Boolean(shifted && shifted.breadth > after.targetBreadth),
+      expectedOwnerXpath,
     };
   }
   const expectedKind = id.includes("include") ? "explicit-inclusion" : "explicit-exclusion";
@@ -1898,9 +1930,13 @@ async function waitForGestureAcknowledgement(
     }
     last = await session.evaluate(markingDecisionExpression(target));
     const delta = markingDelta(before, last);
-    const assertion = markingAssertion(id, before, last, delta);
+    const assertion = markingAssertion(id, before, last, delta, expectedAcknowledgementXpath);
+    const shiftContractSatisfied = assertion.kind === "explicit-exclusion" &&
+      assertion.ownerXpath === expectedAcknowledgementXpath &&
+      (assertion.ownerRelation === "exact" ||
+        (assertion.ownerRelation === "ancestor" && assertion.breadthIncreased === true));
     const correct = id === "plain-no-create" ? assertion.noTargetMutation === true
-      : id === "shift-expand" ? assertion.kind === "explicit-exclusion" && assertion.ownerRelation === "ancestor" && assertion.breadthIncreased === true
+      : id === "shift-expand" ? shiftContractSatisfied
       : id === "alt-include" ? assertion.kind === "explicit-inclusion" && assertion.ownerRelation === "exact"
           : id.includes("unmark") ? assertion.removedExactOwner === true && assertion.remainingTargetOwned === 0
             : false;
@@ -2016,7 +2052,13 @@ export async function probeMarkingGestures(session, preparedTarget = null, optio
       before,
       after,
       targetDelta,
-      assertion: acknowledgement?.assertion ?? markingAssertion(id, before, after, targetDelta),
+      assertion: acknowledgement?.assertion ?? markingAssertion(
+        id,
+        before,
+        after,
+        targetDelta,
+        expectedAcknowledgementXpath,
+      ),
       interactionAcknowledgement: acknowledgement?.interactionAcknowledgement ?? null,
     };
     operations.push(operation);

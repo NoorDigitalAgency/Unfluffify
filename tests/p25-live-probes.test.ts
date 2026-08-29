@@ -457,11 +457,20 @@ describe("P25 frame collector Long Task evidence", () => {
 describe("P25 prepared marking target authority", () => {
   const target = { xpath: "/html[1]/body[1]/main[1]/h1[1]" };
 
-  it("accepts only an exact Alt owner, strict Shift ancestor, and clean final owner set", () => {
+  it("accepts an exact Alt owner, a contractual Shift owner, and a clean final owner set", () => {
     expect(preparedMarkingTargetIsUsable({
       target,
       includedOwnerXpath: target.xpath,
       shiftedOwnerXpath: "/html[1]/body[1]/main[1]",
+      decision: { targetOwned: [] },
+    })).toBe(true);
+  });
+
+  it("accepts the clicked node when the legacy widening ladder keeps a meaningful boundary exact", () => {
+    expect(preparedMarkingTargetIsUsable({
+      target,
+      includedOwnerXpath: target.xpath,
+      shiftedOwnerXpath: target.xpath,
       decision: { targetOwned: [] },
     })).toBe(true);
   });
@@ -492,7 +501,7 @@ describe("P25 prepared marking target authority", () => {
     expect(markingOwnerBelongsToCandidate(target.xpath, "/html[1]/body[1]/aside[1]")).toBe(false);
   });
 
-  it("requires the exact Alt owner and strict Shift ancestor to survive a second authority observation", () => {
+  it("requires the exact Alt owner and contractual Shift owner to survive a second authority observation", () => {
     const initial = {
       target,
       includedOwnerXpath: target.xpath,
@@ -514,7 +523,6 @@ describe("P25 prepared marking target authority", () => {
   it.each([
     ["late ancestor ownership", target.xpath, "/html[1]/body[1]/main[1]", [{ ownerRelation: "ancestor" }]],
     ["descendant Alt owner", `${target.xpath}/a[1]`, "/html[1]/body[1]/main[1]", []],
-    ["same-node Shift owner", target.xpath, target.xpath, []],
     ["descendant Shift owner", target.xpath, `${target.xpath}/span[1]`, []],
   ])("rejects %s", (_label, includedOwnerXpath, shiftedOwnerXpath, targetOwned) => {
     expect(preparedMarkingTargetIsUsable({

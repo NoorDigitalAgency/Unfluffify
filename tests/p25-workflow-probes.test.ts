@@ -488,6 +488,24 @@ describe("P25 exact marking gesture acceptance", () => {
     expect(validateExactMarkingGestureEvidence(exactGestureEvidence())).toEqual({ pass: true, failures: [] });
   });
 
+  it("accepts Shift creation on a meaningful boundary that legacy keeps exact", () => {
+    const evidence = exactGestureEvidence();
+    const xpath = "/html[1]/body[1]/main[1]/p[1]";
+    Object.assign(evidence, { target: { xpath, shiftedOwnerXpath: xpath } });
+    evidence.operations[1] = {
+      id: "shift-expand",
+      acknowledged: true,
+      acknowledgementLatencyMs: 13,
+      assertion: {
+        kind: "explicit-exclusion",
+        ownerXpath: xpath,
+        ownerRelation: "exact",
+        breadthIncreased: false,
+      },
+    } as never;
+    expect(validateExactMarkingGestureEvidence(evidence)).toEqual({ pass: true, failures: [] });
+  });
+
   it("validates only shared gestures when pinned legacy has no action-menu contract", () => {
     const evidence = exactGestureEvidence();
     const legacyEvidence = {
