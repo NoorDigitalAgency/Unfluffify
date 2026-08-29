@@ -1766,6 +1766,7 @@ function markingTargetRejectionReason(authority) {
 }
 
 async function markingTargetAuthority(session, candidate) {
+  await ensureMarkingDecisionProbe(session);
   const includedOwnerXpath = await resolveIncludedHoverOwner(session, candidate);
   const shiftedOwnerXpath = await resolveShiftedHoverOwner(session, candidate);
   const target = await session.evaluate(normalizeMarkingTargetExpression(candidate, includedOwnerXpath));
@@ -1990,12 +1991,13 @@ async function dispatchPhysicalGesture(session, target, { shift = false, alt = f
   return performance.now() - started;
 }
 
-const markingDecisionExpression = (targetEvidence) => `(() => {
+const MARKING_DECISION_PROBE_KEY = "__unfluffifyP25MarkingDecisionProbeV2";
+
+export const markingDecisionProbeInstallerExpression = () => `(() => {
+  const key = ${JSON.stringify(MARKING_DECISION_PROBE_KEY)};
+  if (typeof globalThis[key] === 'function') return { installed: false, available: true, key };
   const resolveBridgeXpath = ${resolveBridgeXpath.toString()};
-  const targetEvidence = ${JSON.stringify(targetEvidence)};
-  const targetXpath = targetEvidence.xpath;
-  const targetDomXpath = targetEvidence.domXpath || targetXpath;
-  const bridgeMode = targetEvidence.xpathMode === 'bridge';
+  const collectOverlayRoots = ${collectOverlayRoots.toString()};
   const xpathFor = (element) => {
     const parts = [];
     for (let node = element; node instanceof Element; node = node.parentElement) {
@@ -2010,58 +2012,93 @@ const markingDecisionExpression = (targetEvidence) => `(() => {
     try { return document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue; }
     catch { return null; }
   };
-  const relation = (ownerXpath) => ownerXpath === targetXpath ? 'exact'
-    : targetXpath.startsWith(ownerXpath + '/') ? 'ancestor'
-      : ownerXpath.startsWith(targetXpath + '/') ? 'descendant' : 'unrelated';
-  const target = nodeForXpath(targetDomXpath);
-  const records = new Map();
-  const overlays = [...document.querySelectorAll('[data-uf-overlay-xpath], [data-mc-mark-id]')];
-  for (const overlay of overlays) {
-    const layer = overlay.closest('[data-layer]')?.getAttribute('data-layer') || overlay.getAttribute('data-mc-mark-kind') || '';
-    const classes = overlay.className || '';
-    const classification = overlay.getAttribute('data-uf-overlay-classification') || '';
-    const explicitSurface = /explicit/i.test(layer) || /uf-explicit-(?:include|exclude)/.test(classes);
-    if (!explicitSurface || /interaction|hover|focus/i.test(layer) || /uf-interaction-ack|uf-hover|uf-focus/.test(classes)) continue;
-    const markId = overlay.getAttribute('data-mc-mark-id');
-    const source = markId ? document.querySelector('[data-uf-mark-id="' + CSS.escape(markId) + '"]') : null;
-    const ownerXpath = overlay.getAttribute('data-uf-overlay-xpath') || (source instanceof Element ? xpathFor(source) : '');
-    if (!ownerXpath) continue;
-    const kind = /include/i.test(layer + ' ' + classes + ' ' + classification) ? 'explicit-inclusion'
-      : /exclude|exception/i.test(layer + ' ' + classes + ' ' + classification) ? 'explicit-exclusion' : 'unknown';
-    const owner = source instanceof Element
-      ? source
-      : bridgeMode
-        ? resolveBridgeXpath(ownerXpath, { document })
-        : nodeForXpath(ownerXpath);
-    const key = ownerXpath + '\\u0000' + kind + '\\u0000' + layer;
-    const record = records.get(key) || {
-      ownerXpath,
-      kind,
-      layer,
-      ownerRelation: relation(ownerXpath),
-      breadth: owner instanceof Element ? owner.querySelectorAll('*').length + 1 : 0,
-      fragments: 0,
-    };
-    record.fragments += 1;
-    records.set(key, record);
-  }
-  const canonical = [...records.values()].sort((left, right) => left.ownerXpath.localeCompare(right.ownerXpath) || left.kind.localeCompare(right.kind));
-  const acknowledgements = [...document.querySelectorAll('[data-uf-interaction-ack], .uf-interaction-ack')].map((overlay) => {
-    const markId = overlay.getAttribute('data-mc-mark-id');
-    const source = markId ? document.querySelector('[data-uf-mark-id="' + CSS.escape(markId) + '"]') : null;
-    const ownerXpath = overlay.getAttribute('data-uf-interaction-ack') || (source instanceof Element ? xpathFor(source) : '');
-    const token = (overlay.getAttribute('data-mc-mark-kind') || '') + ' ' + (overlay.className || '');
-    return { ownerXpath, ownerRelation: ownerXpath ? relation(ownerXpath) : 'unrelated', kind: /include/i.test(token) ? 'explicit-inclusion' : /exclude/i.test(token) ? 'explicit-exclusion' : 'unknown' };
-  }).filter((value) => value.ownerXpath);
-  return {
-    atPerformanceMs: performance.now(),
-    targetXpath,
-    targetBreadth: target instanceof Element ? target.querySelectorAll('*').length + 1 : 0,
-    canonical,
-    targetOwned: canonical.filter((record) => record.ownerRelation !== 'unrelated'),
-    acknowledgements,
+  const overlayElements = (selector) => {
+    const values = [];
+    const seen = new Set();
+    for (const root of collectOverlayRoots(document)) {
+      for (const element of root.querySelectorAll(selector)) {
+        if (seen.has(element)) continue;
+        seen.add(element);
+        values.push(element);
+      }
+    }
+    return values;
   };
+  globalThis[key] = (targetEvidence) => {
+    const targetXpath = targetEvidence.xpath;
+    const targetDomXpath = targetEvidence.domXpath || targetXpath;
+    const bridgeMode = targetEvidence.xpathMode === 'bridge';
+    const relation = (ownerXpath) => ownerXpath === targetXpath ? 'exact'
+      : targetXpath.startsWith(ownerXpath + '/') ? 'ancestor'
+        : ownerXpath.startsWith(targetXpath + '/') ? 'descendant' : 'unrelated';
+    const target = nodeForXpath(targetDomXpath);
+    const sourceByMarkId = new Map();
+    const sourceForMarkId = (markId) => {
+      if (!markId) return null;
+      if (sourceByMarkId.has(markId)) return sourceByMarkId.get(markId);
+      const source = document.querySelector('[data-uf-mark-id="' + CSS.escape(markId) + '"]');
+      sourceByMarkId.set(markId, source);
+      return source;
+    };
+    const records = new Map();
+    const overlays = overlayElements('[data-uf-overlay-xpath], [data-mc-mark-id]');
+    for (const overlay of overlays) {
+      const layer = overlay.closest('[data-layer]')?.getAttribute('data-layer') || overlay.getAttribute('data-mc-mark-kind') || '';
+      const classes = overlay.className || '';
+      const classification = overlay.getAttribute('data-uf-overlay-classification') || '';
+      const explicitSurface = /explicit/i.test(layer) || /uf-explicit-(?:include|exclude)/.test(classes);
+      if (!explicitSurface || /interaction|hover|focus/i.test(layer) || /uf-interaction-ack|uf-hover|uf-focus/.test(classes)) continue;
+      const markId = overlay.getAttribute('data-mc-mark-id');
+      const source = sourceForMarkId(markId);
+      const ownerXpath = overlay.getAttribute('data-uf-overlay-xpath') || (source instanceof Element ? xpathFor(source) : '');
+      if (!ownerXpath) continue;
+      const kind = /include/i.test(layer + ' ' + classes + ' ' + classification) ? 'explicit-inclusion'
+        : /exclude|exception/i.test(layer + ' ' + classes + ' ' + classification) ? 'explicit-exclusion' : 'unknown';
+      const owner = source instanceof Element
+        ? source
+        : bridgeMode
+          ? resolveBridgeXpath(ownerXpath, { document })
+          : nodeForXpath(ownerXpath);
+      const recordKey = ownerXpath + '\\u0000' + kind + '\\u0000' + layer;
+      const record = records.get(recordKey) || {
+        ownerXpath,
+        kind,
+        layer,
+        ownerRelation: relation(ownerXpath),
+        breadth: owner instanceof Element ? owner.querySelectorAll('*').length + 1 : 0,
+        fragments: 0,
+      };
+      record.fragments += 1;
+      records.set(recordKey, record);
+    }
+    const canonical = [...records.values()].sort((left, right) => left.ownerXpath.localeCompare(right.ownerXpath) || left.kind.localeCompare(right.kind));
+    const acknowledgements = overlayElements('[data-uf-interaction-ack], .uf-interaction-ack').map((overlay) => {
+      const markId = overlay.getAttribute('data-mc-mark-id');
+      const source = sourceForMarkId(markId);
+      const ownerXpath = overlay.getAttribute('data-uf-interaction-ack') || (source instanceof Element ? xpathFor(source) : '');
+      const token = (overlay.getAttribute('data-mc-mark-kind') || '') + ' ' + (overlay.className || '');
+      return { ownerXpath, ownerRelation: ownerXpath ? relation(ownerXpath) : 'unrelated', kind: /include/i.test(token) ? 'explicit-inclusion' : /exclude/i.test(token) ? 'explicit-exclusion' : 'unknown' };
+    }).filter((value) => value.ownerXpath);
+    return {
+      atPerformanceMs: performance.now(),
+      targetXpath,
+      targetBreadth: target instanceof Element ? target.querySelectorAll('*').length + 1 : 0,
+      canonical,
+      targetOwned: canonical.filter((record) => record.ownerRelation !== 'unrelated'),
+      acknowledgements,
+    };
+  };
+  return { installed: true, available: true, key };
 })()`;
+
+export const markingDecisionExpression = (targetEvidence) =>
+  `globalThis[${JSON.stringify(MARKING_DECISION_PROBE_KEY)}](${JSON.stringify(targetEvidence)})`;
+
+export async function ensureMarkingDecisionProbe(session) {
+  const installed = await session.evaluate(markingDecisionProbeInstallerExpression());
+  if (!installed?.available) throw new Error("Marking decision probe could not be installed");
+  return installed;
+}
 
 function markingDelta(before, after) {
   const key = (record) => `${record.ownerXpath}\u0000${record.kind}\u0000${record.layer}`;
@@ -2229,6 +2266,10 @@ export async function performPhysicalShiftExclusion(session, options = {}) {
 }
 
 export async function probeMarkingGestures(session, preparedTarget = null, options = {}) {
+  // Compile the document/overlay inspection probe before the accepted input
+  // window. Repeated snapshots invoke only a tiny stable global call, so the
+  // observer cannot manufacture the Long Task it is meant to detect.
+  await ensureMarkingDecisionProbe(session);
   const target = preparedTarget ?? await selectCleanMarkingTarget(session);
   if (!target) throw new Error("No visible non-consent marking target is available");
   await refreshPreparedMarkingTargetPoint(session, target);

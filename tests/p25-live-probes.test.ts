@@ -25,6 +25,8 @@ import {
   bridgeXpathForElement,
   captureResizeGeometrySnapshot,
   collectOverlayRoots,
+  markingDecisionExpression,
+  markingDecisionProbeInstallerExpression,
   resolveBridgeXpath,
 } from "../scripts/performance/p25/live-probes.mjs";
 
@@ -149,6 +151,23 @@ describe("P25 active overlay frame authority", () => {
 
     expect(collectOverlayRoots(documentNode)).toEqual([legacy, silent, rewrite]);
     expect(querySelectorAll).not.toHaveBeenCalled();
+  });
+
+  it("installs the heavy marking decision probe once and keeps timed calls compile-light", () => {
+    const installer = markingDecisionProbeInstallerExpression();
+    const call = markingDecisionExpression({
+      xpath: "/html[1]/body[1]/main[1]/h1[1]",
+      domXpath: "/html[1]/body[1]/main[1]/h1[1]",
+      xpathMode: "bridge",
+    });
+
+    expect(installer).toContain("__unfluffifyP25MarkingDecisionProbeV2");
+    expect(installer).toContain("collectOverlayRoots(document)");
+    expect(installer).toContain("root.querySelectorAll(selector)");
+    expect(installer).not.toContain("document.querySelectorAll('[data-uf-overlay-xpath]");
+    expect(call).toContain("globalThis[\"__unfluffifyP25MarkingDecisionProbeV2\"]");
+    expect(call).not.toContain("querySelectorAll");
+    expect(call.length).toBeLessThan(400);
   });
 
   it("selects the painted current root and the newest root when paint counts tie", () => {
