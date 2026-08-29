@@ -644,6 +644,31 @@ preserves the stronger architecture.
     apply or content activation occurs early, then proves exact ordered
     activation after release; existing A→B→A and one-post-Save-refresh contracts
     remain green.
+106. **Remediated, clean headed diagnostic passed; immutable rerun pending P0 —
+    one responsive header class change rebuilt the complete marking bridge.** The
+    exact Ledigajobb resize stage restored 412×960 but recorded 616 ms and 438 ms
+    Long Tasks. Source-mapped cold profiles attributed the extension work to a
+    full 760-node bridge pass: composed-child flattening, geometry/visibility,
+    XPath construction, and store/index recreation. The page emitted net-zero
+    `min-height: 48px → auto → 48px` churn plus one genuine terminal
+    `#page-header` class change from `sticky-top` to
+    `sticky-top no-transition`; the latter kept forcing the full rebuild after
+    same-batch and cross-callback net-zero coalescing correctly removed the style
+    noise. Stable presentation attributes now refresh only shallow, non-overlapping
+    affected bridge branches. The refresh recomputes descendant visibility and
+    silent-whitespace state, preserves element/key/XPath topology and canonical
+    marks, refreshes evaluation/candidate/Preview projection state, retains text
+    and IntersectionObserver caches, and repaints only those branches. Child-list,
+    character-data, `role`, and consent-boundary changes still rebuild the full
+    bridge. Geometry fallback work is additionally bounded to 12 targets per
+    frame. A fresh production cold probe restored exact 388→412 posture with
+    zero Long Tasks, 16.7 ms p95, and a 16.8 ms worst frame. A separate
+    non-profiled 60-cycle run restored exact posture 60/60 times with zero Long
+    Tasks, max reported p95 16.8 ms, and a 50 ms worst frame. The scoped
+    visibility, hidden-text reevaluation, net-zero churn, class-branch, and
+    role/full-rebuild regressions pass in the 111-test DOM bridge suite; the next
+    clean pushed run must repeat the immutable marking-resize stage before this
+    blocker enters the comparison denominator.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -715,7 +740,7 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 105, but P25 remains
+Implementation remediation is code-complete through finding 106, but P25 remains
 open until the committed source passes clean automated gates and every valid candidate completes an
 observer-free headed rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,

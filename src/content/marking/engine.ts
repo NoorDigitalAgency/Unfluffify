@@ -11,6 +11,7 @@ import type { PreviewProjection, PreviewRow } from "../../domain/schema/preview"
 import {
   captureFlattenedHtml,
   createDomBridgeView,
+  refreshDomBridgePresentation,
   type DomBridgeOptions,
   type DomBridgeView,
 } from "./dom-view";
@@ -388,8 +389,12 @@ const DEFERRED_BRANCH_RENDER_TARGET_THRESHOLD = 200;
 // the retained overlay root is faded, then publish the complete generation in
 // one atomic reveal. This is deliberately target-count bounded rather than
 // timing based so production and deterministic test clocks follow one path.
-const PROGRESSIVE_GEOMETRY_TARGET_THRESHOLD = 96;
-const PROGRESSIVE_GEOMETRY_CHUNK_SIZE = 24;
+// Native paint reachability (`elementsFromPoint`) and layout can dominate the
+// JavaScript around a geometry pass. Keep both the single-frame fast path and
+// every progressive chunk below the measured 50 ms input-frame budget even on
+// a layout-heavy responsive page.
+const PROGRESSIVE_GEOMETRY_TARGET_THRESHOLD = 12;
+const PROGRESSIVE_GEOMETRY_CHUNK_SIZE = 12;
 // Newly inserted or removed content needs to become markable on roughly the
 // same cadence as the legacy renderer. Presentation attributes are noisier
 // (carousels commonly emit them in short trains), so retain the longer quiet
@@ -398,6 +403,14 @@ const PROGRESSIVE_GEOMETRY_CHUNK_SIZE = 24;
 const STRUCTURAL_CHILD_LIST_QUIET_MS = 100;
 const STRUCTURAL_PRESENTATION_QUIET_MS = 150;
 const STRUCTURAL_MUTATION_IDLE_TIMEOUT_MS = 1_200;
+const PRESENTATION_MUTATION_ATTRIBUTES = new Set([
+  "class",
+  "style",
+  "hidden",
+  "open",
+  "aria-hidden",
+  "aria-expanded",
+]);
 
 /**
  * Resolve both selector groups against the already captured composed DOM. This is
@@ -710,9 +723,14 @@ export function createMarkingEngine(
     return targets;
   };
 
-  const rebuildBridgeIndexes = (): void => {
+  const rebuildBridgeIndexes = (indexOptions: Readonly<{
+    refreshPreviewTextMetadata?: boolean;
+    rebindIntersections?: boolean;
+  }> = {}): void => {
     bridgeGeneration += 1;
-    previewTextMetadata = buildPreviewTextMetadata(rootElement);
+    if (indexOptions.refreshPreviewTextMetadata !== false) {
+      previewTextMetadata = buildPreviewTextMetadata(rootElement);
+    }
     overlayTargets = new Map([...bridge.byXpath].map(([xpath, value]) => [xpath, {
       element: value.element,
       visible: value.evaluationNode.visible,
@@ -725,7 +743,9 @@ export function createMarkingEngine(
     }
     const evaluation = store.currentEvaluation();
     candidateByXpath = buildCandidateIndex(bridge.root, evaluation.overlay, store.canonicalSet().rows);
-    rebindIntersectionTargets();
+    if (indexOptions.rebindIntersections !== false) {
+      rebindIntersectionTargets();
+    }
     reportWorkStage("candidate-index");
   };
 
@@ -966,6 +986,47 @@ export function createMarkingEngine(
     });
     deferredBranchRenderHandle = deferredHandle || null;
   };
+  const refreshPresentationBranches = (mutationTargets: readonly Element[]): void => {
+    beginWorkCycle();
+    hoverResolution = null;
+    const refreshed = refreshDomBridgePresentation(bridge, mutationTargets);
+    if (refreshed.branchRoots.length === 0) {
+      return;
+    }
+    const progressiveGeometryCancelled = cancelProgressiveGeometryRender();
+    if (deferredBranchRenderHandle !== null) {
+      presentationClock.cancelFrame(deferredBranchRenderHandle);
+      deferredBranchRenderHandle = null;
+      deferredBranchTargets.clear();
+    }
+    try {
+      if (refreshed.view !== bridge) {
+        const previousMarks = store.canonicalSet();
+        bridge = refreshed.view;
+        const next = initialMarksForBridge(bridge, previousMarks, undefined);
+        store = createMarkingStore({ root: bridge.root }, next.marks);
+        reportWorkStage("store-evaluate");
+        // Attribute-only presentation changes retain element/XPath topology and
+        // text. Keep the existing IntersectionObserver snapshot and preview text
+        // cache instead of disconnecting and walking the complete document.
+        rebuildBridgeIndexes({
+          refreshPreviewTextMetadata: false,
+          rebindIntersections: false,
+        });
+        refreshCurrentPreviewProjection();
+        reconcilePreviewEmphasis();
+      }
+      const evaluation = store.currentEvaluation();
+      for (const branchRoot of refreshed.branchRoots) {
+        renderChangedBranch(evaluation, branchRoot);
+      }
+    } finally {
+      if (progressiveGeometryCancelled) {
+        revealMarkingAfterRender = false;
+        renderer.setScrolling(false);
+      }
+    }
+  };
   const renderGeometryProgressively = (
     byXpath: ReadonlyMap<string, OverlayRenderTarget>,
     includeSilent: boolean,
@@ -1105,6 +1166,8 @@ export function createMarkingEngine(
     let structuralFallbackHandle: ReturnType<typeof setTimeout> | null = null;
     let structuralRenderInFlight = false;
     let structuralTrailingQuietMs: number | null = null;
+    let pendingStructuralNonAttributeMutation = false;
+    const pendingStructuralAttributeOldValues = new Map<Element, Map<string, string | null>>();
     const cancelStructuralDispatch = (): void => {
       if (structuralIdleHandle !== null) {
         idleView?.cancelIdleCallback?.(structuralIdleHandle);
@@ -1121,8 +1184,26 @@ export function createMarkingEngine(
     };
     const dispatchStructuralRefresh = (): void => {
       cancelStructuralDispatch();
+      let fullBridgeChange = pendingStructuralNonAttributeMutation;
+      const presentationTargets = new Set<Element>();
+      pendingStructuralNonAttributeMutation = false;
+      for (const [element, byAttribute] of pendingStructuralAttributeOldValues) {
+        for (const [attributeName, oldValue] of byAttribute) {
+          if (oldValue !== element.getAttribute(attributeName)) {
+            if (PRESENTATION_MUTATION_ATTRIBUTES.has(attributeName)) {
+              presentationTargets.add(element);
+            } else {
+              fullBridgeChange = true;
+            }
+          }
+        }
+      }
+      pendingStructuralAttributeOldValues.clear();
+      if (!fullBridgeChange && presentationTargets.size === 0) {
+        return;
+      }
       structuralRenderInFlight = true;
-      structuralRenderSettled = () => {
+      const settleMutationRefresh = (): void => {
         structuralRenderInFlight = false;
         const trailingQuietMs = structuralTrailingQuietMs;
         structuralTrailingQuietMs = null;
@@ -1130,7 +1211,16 @@ export function createMarkingEngine(
           scheduleStructuralRefresh(trailingQuietMs);
         }
       };
-      scheduleRender("structural");
+      if (fullBridgeChange) {
+        structuralRenderSettled = settleMutationRefresh;
+        scheduleRender("structural");
+        return;
+      }
+      try {
+        refreshPresentationBranches([...presentationTargets]);
+      } finally {
+        settleMutationRefresh();
+      }
     };
     const scheduleStructuralRefresh = (quietMs: number): void => {
       if (structuralRenderInFlight) {
@@ -1155,6 +1245,29 @@ export function createMarkingEngine(
         }
         dispatchStructuralRefresh();
       }, quietMs);
+    };
+    const rememberStructuralMutations = (records: MutationRecord[]): void => {
+      for (const record of records) {
+        if (
+          record.type !== "attributes"
+          || record.attributeName === null
+          || record.target.nodeType !== 1
+        ) {
+          pendingStructuralNonAttributeMutation = true;
+          continue;
+        }
+        const element = record.target as Element;
+        const byAttribute = pendingStructuralAttributeOldValues.get(element)
+          ?? new Map<string, string | null>();
+        if (!byAttribute.has(record.attributeName)) {
+          // Preserve the value from before the entire quiet window, not merely
+          // before this MutationObserver delivery. Responsive scripts often
+          // publish A→B and B→A in separate microtasks; rebuilding at B even
+          // though the terminal DOM is A caused a 500–600 ms cold resize stall.
+          byAttribute.set(record.attributeName, record.oldValue);
+          pendingStructuralAttributeOldValues.set(element, byAttribute);
+        }
+      }
     };
     const isExtractionIrrelevantNode = (node: Node): boolean => {
       const element = node.nodeType === 1 ? node as Element : node.parentElement;
@@ -1235,21 +1348,61 @@ export function createMarkingEngine(
       const current = (record.target as Element).getAttribute("class");
       return withoutCursorClasses(record.oldValue) === withoutCursorClasses(current);
     };
+    const coalesceNetMutationRecords = (records: MutationRecord[]): MutationRecord[] => {
+      const firstAttributeRecordByElement = new Map<Element, Map<string, MutationRecord>>();
+      for (const record of records) {
+        if (
+          record.type !== "attributes"
+          || record.attributeName === null
+          || record.target.nodeType !== 1
+        ) {
+          continue;
+        }
+        const element = record.target as Element;
+        const byAttribute = firstAttributeRecordByElement.get(element) ?? new Map<string, MutationRecord>();
+        if (!byAttribute.has(record.attributeName)) {
+          byAttribute.set(record.attributeName, record);
+          firstAttributeRecordByElement.set(element, byAttribute);
+        }
+      }
+      const netAttributeRecords = new Set<MutationRecord>();
+      for (const [element, byAttribute] of firstAttributeRecordByElement) {
+        for (const [attributeName, firstRecord] of byAttribute) {
+          // MutationObserver batches can contain A→B→A attribute churn. The
+          // first record's old value is the pre-batch value and the live
+          // attribute is the terminal value, so equal endpoints cannot change
+          // extraction, identity, visibility, or paint. Keeping only one net
+          // record also prevents responsive page scripts from rebuilding the
+          // complete bridge for every intermediate class/style write.
+          if (firstRecord.oldValue !== element.getAttribute(attributeName)) {
+            netAttributeRecords.add(firstRecord);
+          }
+        }
+      }
+      return records.filter((record) =>
+        record.type !== "attributes"
+        || record.attributeName === null
+        || record.target.nodeType !== 1
+        || netAttributeRecords.has(record)
+      );
+    };
     if (view?.MutationObserver) {
       const observer = new view.MutationObserver((records) => {
-        if (records.some(suppressedMutationTouchesBridge)) {
+        const netRecords = coalesceNetMutationRecords(records);
+        if (netRecords.some(suppressedMutationTouchesBridge)) {
           // Consent suppression is intentionally extraction-irrelevant, but it
           // can hide or remove elements that already own marking rectangles.
           // Reconcile their presentation on the next paint without rebuilding
           // the extraction bridge or admitting the suppressed subtree.
           scheduleRender("geometry");
         }
-        const relevantRecords = records.filter((record) =>
+        const relevantRecords = netRecords.filter((record) =>
           !isExtractionIrrelevantMutation(record) && !isExtensionCursorClassMutation(record)
         );
         if (relevantRecords.length === 0) {
           return;
         }
+        rememberStructuralMutations(relevantRecords);
         scheduleStructuralRefresh(relevantRecords.some((record) => record.type === "childList")
           ? STRUCTURAL_CHILD_LIST_QUIET_MS
           : STRUCTURAL_PRESENTATION_QUIET_MS);
@@ -1374,6 +1527,8 @@ export function createMarkingEngine(
       structuralTrailingQuietMs = null;
       structuralRenderInFlight = false;
       structuralRenderSettled = null;
+      pendingStructuralNonAttributeMutation = false;
+      pendingStructuralAttributeOldValues.clear();
       if (viewportScrollHandle !== null) {
         clearTimeout(viewportScrollHandle);
         viewportScrollHandle = null;

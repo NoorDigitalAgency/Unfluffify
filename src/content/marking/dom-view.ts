@@ -3,7 +3,7 @@ import type { PreviewShadowProvenance } from "../../domain/schema/preview";
 import { isStructuralBoundary as isDomainStructuralBoundary } from "../../domain/boundary";
 import { isImmutableTag } from "../../domain/taxonomy";
 import { isUserVisible, type VisibilityGeometry } from "../../domain/visibility";
-import type { XPathNodeView } from "../../domain/xpath";
+import { isXPathInSubtree, type XPathNodeView } from "../../domain/xpath";
 import {
   CONSENT_HIDDEN_ATTR,
   LEGACY_CONSENT_BYPASS_STYLE_ID,
@@ -38,6 +38,12 @@ export type DomBridgeOptions = Readonly<{
   keyForElement?: (element: Element) => string;
 }>;
 
+export type DomBridgePresentationRefresh = Readonly<{
+  view: DomBridgeView;
+  /** Shallow, non-overlapping roots whose retained presentation must repaint. */
+  branchRoots: readonly EvaluationNode[];
+}>;
+
 type DomBridgePass = Readonly<{
   childrenByElement: WeakMap<Element, Element[]>;
   geometryByElement: WeakMap<Element, VisibilityGeometry>;
@@ -48,6 +54,19 @@ type DomBridgePass = Readonly<{
   srOnlyByElement: WeakMap<Element, boolean>;
   interactionGatedByElement: WeakMap<Element, boolean>;
 }>;
+
+function createDomBridgePass(): DomBridgePass {
+  return {
+    childrenByElement: new WeakMap(),
+    geometryByElement: new WeakMap(),
+    landmarkCountByElement: new WeakMap(),
+    styleByElement: new WeakMap(),
+    styleHiddenByElement: new WeakMap(),
+    ariaHiddenByElement: new WeakMap(),
+    srOnlyByElement: new WeakMap(),
+    interactionGatedByElement: new WeakMap(),
+  };
+}
 
 function ownsDirectText(element: Element): boolean {
   return flattenedChildNodes(element).some((node) =>
@@ -478,16 +497,7 @@ export function createDomBridgeView(rootElement: Element, options: DomBridgeOpti
   const byElement = new WeakMap<Element, DomBridgeNode>();
   const byKey = new Map<string, DomBridgeNode>();
   const byXpath = new Map<string, DomBridgeNode>();
-  const pass: DomBridgePass = {
-    childrenByElement: new WeakMap(),
-    geometryByElement: new WeakMap(),
-    landmarkCountByElement: new WeakMap(),
-    styleByElement: new WeakMap(),
-    styleHiddenByElement: new WeakMap(),
-    ariaHiddenByElement: new WeakMap(),
-    srOnlyByElement: new WeakMap(),
-    interactionGatedByElement: new WeakMap(),
-  };
+  const pass = createDomBridgePass();
   const root = buildNode(
     rootElement,
     null,
@@ -506,6 +516,121 @@ export function createDomBridgeView(rootElement: Element, options: DomBridgeOpti
     byElement,
     byKey,
     byXpath,
+  };
+}
+
+/**
+ * Refresh visibility-derived bridge fields without rebuilding stable DOM/XPath
+ * topology. Presentation attributes can change an authored subtree's computed
+ * style, but they cannot add/remove bridge nodes or renumber sibling XPaths.
+ * Reusing the existing identities keeps responsive page chrome from turning a
+ * small class change into a full-document layout and extraction pass.
+ */
+export function refreshDomBridgePresentation(
+  current: DomBridgeView,
+  mutationTargets: readonly Element[],
+): DomBridgePresentationRefresh {
+  const rootEntries = new Map<string, DomBridgeNode>();
+  for (const target of mutationTargets) {
+    let cursor: Element | null = target;
+    let entry: DomBridgeNode | undefined;
+    while (cursor && !entry) {
+      entry = current.byElement.get(cursor);
+      cursor = entry ? null : composedParent(cursor);
+    }
+    if (entry) {
+      rootEntries.set(entry.evaluationNode.xpath, entry);
+    }
+  }
+  const entries = [...rootEntries.values()];
+  const shallowEntries = entries.filter((candidate) =>
+    !entries.some((other) =>
+      other !== candidate && isXPathInSubtree(
+        candidate.evaluationNode.xpath,
+        other.evaluationNode.xpath,
+      )
+    )
+  );
+  if (shallowEntries.length === 0) {
+    return { view: current, branchRoots: [] };
+  }
+
+  const pass = createDomBridgePass();
+  const presentationByKey = new Map<string, Readonly<{
+    visible: boolean;
+    silentWhitespaceExclusion: boolean;
+  }>>();
+  const capture = (node: EvaluationNode): void => {
+    const entry = current.byKey.get(node.key);
+    if (!entry) {
+      return;
+    }
+    const geometry = geometryFor(entry.element, pass);
+    const visible = isUserVisible(entry.element, geometry);
+    presentationByKey.set(node.key, {
+      visible,
+      silentWhitespaceExclusion: node.immutable !== true && isSilentWhitespaceExclusion(
+        entry.element,
+        visible,
+        styleFor(entry.element, pass),
+      ),
+    });
+    for (const child of node.children ?? []) {
+      capture(child);
+    }
+  };
+  for (const entry of shallowEntries) {
+    capture(entry.evaluationNode);
+  }
+
+  let presentationChanged = false;
+  const evaluationByKey = new Map<string, EvaluationNode>();
+  const clone = (node: EvaluationNode): EvaluationNode => {
+    const children = node.children?.map(clone);
+    const childrenChanged = Boolean(children?.some((child, index) => child !== node.children?.[index]));
+    const presentation = presentationByKey.get(node.key);
+    const ownChanged = Boolean(presentation && (
+      presentation.visible !== node.visible ||
+      presentation.silentWhitespaceExclusion !== (node.silentWhitespaceExclusion === true)
+    ));
+    const next = ownChanged || childrenChanged
+      ? {
+        ...node,
+        ...(presentation ?? {}),
+        ...(children ? { children } : {}),
+      }
+      : node;
+    presentationChanged ||= ownChanged;
+    evaluationByKey.set(node.key, next);
+    return next;
+  };
+  const root = clone(current.root);
+  if (!presentationChanged) {
+    return {
+      view: current,
+      branchRoots: shallowEntries.map((entry) => entry.evaluationNode),
+    };
+  }
+
+  const byElement = new WeakMap<Element, DomBridgeNode>();
+  const byKey = new Map<string, DomBridgeNode>();
+  const byXpath = new Map<string, DomBridgeNode>();
+  for (const [xpath, entry] of current.byXpath) {
+    const evaluationNode = evaluationByKey.get(entry.evaluationNode.key) ?? entry.evaluationNode;
+    const nextEntry = evaluationNode === entry.evaluationNode
+      ? entry
+      : { ...entry, evaluationNode };
+    byElement.set(entry.element, nextEntry);
+    byKey.set(evaluationNode.key, nextEntry);
+    byXpath.set(xpath, nextEntry);
+  }
+  const view: DomBridgeView = { root, byElement, byKey, byXpath };
+  return {
+    view,
+    branchRoots: shallowEntries.flatMap((entry) => {
+      const next = view.byKey.get(entry.evaluationNode.key)?.evaluationNode;
+      return next ? [next] : [];
+    }),
   };
 }
 

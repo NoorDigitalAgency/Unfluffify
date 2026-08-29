@@ -21,6 +21,7 @@ import {
   MARKING_OVERLAY_STYLE_ID,
   markClosedShadowHost,
   previewTextForElement,
+  refreshDomBridgePresentation,
 } from "../../../../src/content/marking";
 import { stripUncapturableHtml } from "../../../../src/content/marking/submit";
 
@@ -253,6 +254,38 @@ function createRendererTestSeam() {
 }
 
 describe("P6 DOM bridge", () => {
+  it("refreshes visibility only inside stable presentation branches", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const header = new FakeElement("HEADER", rect(0, 0, 300, 80));
+    const label = new FakeElement("P", rect(10, 10, 120, 20), "Header copy");
+    const article = new FakeElement("ARTICLE", rect(0, 100, 300, 160), "Body copy");
+    for (const element of [root, header, label, article]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(header);
+    header.appendChild(label);
+    root.appendChild(article);
+    const bridge = createDomBridgeView(root as unknown as Element);
+    const rootReads = root.rectReadCount;
+    const articleReads = article.rectReadCount;
+
+    header.style.display = "none";
+    const refreshed = refreshDomBridgePresentation(bridge, [
+      label as unknown as Element,
+      header as unknown as Element,
+    ]);
+
+    expect(refreshed.branchRoots.map((node) => node.xpath)).toEqual(["/main[1]/header[1]"]);
+    expect(refreshed.view.byElement.get(header as unknown as Element)?.evaluationNode.visible).toBe(false);
+    expect(refreshed.view.byElement.get(label as unknown as Element)?.evaluationNode.visible).toBe(false);
+    expect(bridge.byElement.get(label as unknown as Element)?.evaluationNode.visible).toBe(true);
+    expect(root.rectReadCount).toBe(rootReads);
+    expect(article.rectReadCount).toBe(articleReads);
+  });
+
   it("pierces pointer-events-suppressed descendants and accepts ancestor transparency as reachable", () => {
     const doc = new FakeDocument();
     const header = new FakeElement("HEADER", rect(0, 0, 300, 80));
@@ -2077,7 +2110,7 @@ describe("P6 DOM bridge", () => {
     vi.useRealTimers();
   });
 
-  it("coalesces presentation attribute churn into one quiet structural refresh", () => {
+  it("coalesces presentation attribute churn into one quiet branch refresh", () => {
     vi.useFakeTimers();
     try {
       const doc = new FakeDocument();
@@ -2104,8 +2137,9 @@ describe("P6 DOM bridge", () => {
       doc.documentElement.appendChild(root);
       root.appendChild(paragraph);
       const createBridge = vi.fn((element: Element) => createDomBridgeView(element));
+      const renderer = createRendererTestSeam();
       const engine = createMarkingEngine(root as unknown as Element, {
-        instrumentation: { createBridge },
+        instrumentation: { createBridge, createRenderer: renderer.createRenderer },
       });
 
       callbacks[0]?.([{
@@ -2123,9 +2157,148 @@ describe("P6 DOM bridge", () => {
       vi.advanceTimersByTime(149);
       expect(animationFrames).toHaveLength(0);
       vi.advanceTimersByTime(1);
+      expect(animationFrames).toHaveLength(0);
+      expect(renderer.branchRender).toHaveBeenCalledTimes(1);
+      expect(createBridge).toHaveBeenCalledTimes(1);
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("re-evaluates hidden text through the branch path without rebuilding topology", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const callbacks: Array<(records: MutationRecord[]) => void> = [];
+      Object.assign(doc.defaultView, {
+        MutationObserver: class {
+          constructor(callback: (records: MutationRecord[]) => void) {
+            callbacks.push(callback);
+          }
+          observe() {}
+          disconnect() {}
+        },
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+      const paragraph = new FakeElement("P", rect(0, 0, 120, 20), "Visible copy");
+      root.ownerDocument = doc;
+      paragraph.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      root.appendChild(paragraph);
+      const createBridge = vi.fn((element: Element) => createDomBridgeView(element));
+      const renderer = createRendererTestSeam();
+      const engine = createMarkingEngine(root as unknown as Element, {
+        instrumentation: { createBridge, createRenderer: renderer.createRenderer },
+      });
+      expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[1]", excluded: false });
+
+      paragraph.style.display = "none";
+      paragraph.setAttribute("style", "display: none;");
+      callbacks[0]?.([{
+        type: "attributes",
+        target: paragraph,
+        attributeName: "style",
+        oldValue: null,
+      }] as unknown as MutationRecord[]);
+      vi.advanceTimersByTime(150);
+
+      expect(createBridge).toHaveBeenCalledTimes(1);
+      expect(renderer.branchRender).toHaveBeenCalledTimes(1);
+      expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[1]", excluded: true });
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops net-zero responsive churn, branch-refreshes class, and rebuilds role", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const callbacks: Array<(records: MutationRecord[]) => void> = [];
+      const animationFrames: Array<() => void> = [];
+      Object.assign(doc.defaultView, {
+        MutationObserver: class {
+          constructor(callback: (records: MutationRecord[]) => void) {
+            callbacks.push(callback);
+          }
+          observe() {}
+          disconnect() {}
+        },
+        requestAnimationFrame(callback: () => void) {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+      const header = new FakeElement("DIV", rect(0, 0, 300, 48), "Header");
+      root.ownerDocument = doc;
+      header.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      root.appendChild(header);
+      header.setAttribute("class", "sticky-top no-transition");
+      header.setAttribute("style", "min-height: 48px;");
+      const createBridge = vi.fn((element: Element) => createDomBridgeView(element));
+      const renderer = createRendererTestSeam();
+      const engine = createMarkingEngine(root as unknown as Element, {
+        instrumentation: { createBridge, createRenderer: renderer.createRenderer },
+      });
+
+      header.setAttribute("style", "min-height: auto;");
+      callbacks[0]?.([{
+        type: "attributes",
+        target: header,
+        attributeName: "class",
+        oldValue: "sticky-top no-transition",
+      }, {
+        type: "attributes",
+        target: header,
+        attributeName: "style",
+        oldValue: "min-height: 48px;",
+      }] as unknown as MutationRecord[]);
+      vi.advanceTimersByTime(75);
+      header.setAttribute("style", "min-height: 48px;");
+      callbacks[0]?.([{
+        type: "attributes",
+        target: header,
+        attributeName: "style",
+        oldValue: "min-height: auto;",
+      }] as unknown as MutationRecord[]);
+      vi.advanceTimersByTime(500);
+      expect(animationFrames).toHaveLength(0);
+      expect(renderer.branchRender).not.toHaveBeenCalled();
+      expect(createBridge).toHaveBeenCalledTimes(1);
+
+      header.setAttribute("class", "sticky-top compact");
+      callbacks[0]?.([{
+        type: "attributes",
+        target: header,
+        attributeName: "class",
+        oldValue: "sticky-top no-transition",
+      }, {
+        type: "attributes",
+        target: header,
+        attributeName: "class",
+        oldValue: "sticky-top measuring",
+      }] as unknown as MutationRecord[]);
+      vi.advanceTimersByTime(150);
+      expect(animationFrames).toHaveLength(0);
+      expect(renderer.branchRender).toHaveBeenCalledTimes(1);
+      expect(createBridge).toHaveBeenCalledTimes(1);
+
+      header.setAttribute("role", "navigation");
+      callbacks[0]?.([{
+        type: "attributes",
+        target: header,
+        attributeName: "role",
+        oldValue: null,
+      }] as unknown as MutationRecord[]);
+      vi.advanceTimersByTime(150);
       expect(animationFrames).toHaveLength(1);
       animationFrames.shift()?.();
-
       expect(createBridge).toHaveBeenCalledTimes(2);
       engine.dispose();
     } finally {
@@ -2316,7 +2489,7 @@ describe("P6 DOM bridge", () => {
       animationFrames.shift()?.();
 
       expect(renderer.geometryBranchRender).toHaveBeenCalledTimes(1);
-      expect(renderer.geometryBranchRender).toHaveBeenLastCalledWith(24, false);
+      expect(renderer.geometryBranchRender).toHaveBeenLastCalledWith(12, false);
       expect(engine.overlayRoot().className).toContain("uf-scrolling");
       expect(animationFrames).toHaveLength(1);
 
@@ -2324,7 +2497,7 @@ describe("P6 DOM bridge", () => {
         animationFrames.shift()?.();
       }
       expect(renderer.geometryBranchRender.mock.calls.length).toBeGreaterThan(1);
-      expect(renderer.geometryBranchRender.mock.calls.every(([count]) => count <= 24)).toBe(true);
+      expect(renderer.geometryBranchRender.mock.calls.every(([count]) => count <= 12)).toBe(true);
       expect(renderer.geometryBranchRender).toHaveBeenLastCalledWith(expect.any(Number), true);
       expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
       engine.dispose();

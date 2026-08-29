@@ -620,6 +620,23 @@ headed-validation gates.
   resume one refresh after release. The new held-Refresh regression plus the
   existing navigation, Save, polling, and transition suites pass; repeat the
   immutable headed run from a clean pushed commit.
+- The following exact marking-resize stage isolated a separate cold performance
+  defect: Ledigajobb's responsive header commits one terminal
+  `sticky-top → sticky-top no-transition` class change plus net-zero min-height
+  churn, and the rewrite treated both like arbitrary DOM topology changes. That
+  rebuilt all 760 bridge nodes and produced 616 ms and 438 ms Long Tasks. Net
+  attribute coalescing now removes same-batch and cross-callback endpoint churn;
+  genuine class/style/hidden/open/ARIA presentation changes refresh only shallow
+  affected bridge branches while child/text/role/consent-boundary changes retain
+  the full rebuild. The scoped path preserves DOM/XPath identities, marks, text,
+  and intersection authority while recomputing visibility, silent-whitespace,
+  evaluation, candidate, Preview, and retained branch paint state. Geometry
+  fallback chunks are bounded to 12 targets. A fresh production cold probe had
+  zero Long Tasks, 16.7 ms p95, and a 16.8 ms worst frame; a separate
+  non-profiled 60-cycle run restored exact posture 60/60 with zero Long Tasks,
+  max p95 16.8 ms, and a 50 ms worst frame. The 111-test DOM bridge suite, type
+  checks, and lint pass. Commit/push this exact source, rerun the immutable
+  marking-resize stage, then resume the remaining Ledigajobb workflow and matrix.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 
