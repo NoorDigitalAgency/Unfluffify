@@ -78,7 +78,6 @@ type SavedZIndex = Readonly<{
 }>;
 
 const SHIELD_STYLE = Object.freeze({
-  all: "initial",
   position: "fixed",
   inset: "auto",
   display: "block",
@@ -1327,7 +1326,7 @@ export function createInteractionShield(
       const root = document.documentElement;
       const layeringChanged = records.length === 0 || records.some((record) =>
         record.target === document ||
-        record.target === root ||
+        (record.target === root && record.type === "childList") ||
         record.target === shield ||
         mountedSurfaces.has(record.target as HTMLElement) ||
         neutralizedTopLayers.has(record.target as HTMLElement)

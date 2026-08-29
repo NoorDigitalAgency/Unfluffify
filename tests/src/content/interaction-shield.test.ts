@@ -74,6 +74,7 @@ class FakeEventTarget {
 
 class FakeStyle {
   private readonly values = new Map<string, Readonly<{ value: string; priority: string }>>();
+  setPropertyCount = 0;
 
   constructor(private readonly onMutation: (cssText: string) => void) {}
 
@@ -84,14 +85,24 @@ class FakeStyle {
   }
 
   getPropertyValue(property: string): string {
+    if (property === "all" && [...this.values.keys()].some((key) => key !== "all")) {
+      return "";
+    }
     return this.values.get(property)?.value ?? "";
   }
 
   getPropertyPriority(property: string): string {
+    if (property === "all" && [...this.values.keys()].some((key) => key !== "all")) {
+      return this.values.get(property)?.priority ?? "";
+    }
     return this.values.get(property)?.priority ?? "";
   }
 
   setProperty(property: string, value: string, priority = ""): void {
+    this.setPropertyCount += 1;
+    if (property === "all") {
+      this.values.clear();
+    }
     this.values.set(property, { value, priority });
     this.commit();
   }
@@ -440,7 +451,7 @@ describe("interaction shield controller", () => {
     expect(shield.getAttribute("role")).toBeNull();
     expect(shield.getAttribute("tabindex")).toBeNull();
     expect(styleOf(shield, "position")).toEqual(["fixed", "important"]);
-    expect(styleOf(shield, "all")).toEqual(["initial", "important"]);
+    expect(styleOf(shield, "all")).toEqual(["", ""]);
     expect(styleOf(shield, "pointer-events")).toEqual(["auto", "important"]);
     expect(styleOf(shield, "max-width")).toEqual(["none", "important"]);
     expect(styleOf(shield, "max-height")).toEqual(["none", "important"]);
@@ -579,6 +590,36 @@ describe("interaction shield controller", () => {
     controller.refresh();
     expect(styleOf(shield, "width")).toEqual(["412px", "important"]);
     expect(styleOf(shield, "height")).toEqual(["960px", "important"]);
+  });
+
+  it("keeps stable shield styling idempotent and ignores root presentation churn", async () => {
+    const context = harness();
+    const controller = createInteractionShield({
+      document: asDocument(context.document),
+      window: asWindow(context.window),
+      createMutationObserver: (callback) => {
+        const observer = new FakeMutationObserver(callback);
+        context.observers.push(observer);
+        return observer;
+      },
+    });
+    controller.activate("silent-highlighting");
+    const shield = controller.element() as unknown as FakeElement;
+    const observer = context.observers[0]!;
+    const writesAfterMount = shield.style.setPropertyCount;
+
+    controller.refresh();
+    expect(shield.style.setPropertyCount).toBe(writesAfterMount);
+
+    const disconnectsAfterRefresh = observer.disconnectCount;
+    observer.trigger([{
+      type: "attributes",
+      target: context.document.documentElement,
+      attributeName: "class",
+    } as MutationRecord]);
+    await Promise.resolve();
+    expect(observer.disconnectCount).toBe(disconnectsAfterRefresh);
+    expect(shield.style.setPropertyCount).toBe(writesAfterMount);
   });
 
   it("retains an active lease until a document-start root becomes available", () => {
