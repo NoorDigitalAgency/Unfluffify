@@ -1149,7 +1149,7 @@ preserves the stronger architecture.
     seven ordered P25 children. Its fresh embedded sample records rewrite small
     marking-scroll p95 301.8 ms versus legacy 317.2 ms, large marking-scroll
     299.8 ms versus 333.3 ms, and large silent-scroll 186.3 ms versus 214.7 ms.
-129. **Remediated, immutable rerun pending P0 — live silent geometry still
+129. **Closed P0 — live silent geometry still
     measured every markable target after its quiet window.** Clean production
     DPJ run `2026-08-29T07-46-14-018Z-6a7bca79-rewrite-dpj` passed every stage
     through silent visual, including both paint-acknowledged render modes, exact
@@ -1173,7 +1173,33 @@ preserves the stronger architecture.
     with publication attempt count zero. Pushed source `fb446685` then passes
     clean P23 at 25/25 and complete clean P25 aggregate
     `acceptance-2026-08-29T08-06-59-992Z.json`, whose seven ordered children are
-    all present and validated. An exact headed rerun remains.
+    all present and validated. Exact clean production headed run
+    `2026-08-29T08-08-12-287Z-1b3fcddb-rewrite-dpj` then passes every one of
+    the 13 required stages and finalizes green. Silent wheel and resize each
+    record zero Long Tasks, 16.7 ms median animation frames, 33.3 ms p95, one
+    current renderer root, correct fade/reposition/restore, and exact retained
+    silent-desktop posture. The full real-control workflow completes both AI
+    generations, automatic and bidirectional Content List routing, immediate
+    dirty projection, Discard, exactly one current-page Save with authoritative
+    adoption, and payload hygiene. The publication guard records zero attempts.
+130. **Closed evidence P1 — the live harness treated an authentic legacy busy
+    curtain as a terminal non-physical control.** Two finalized pinned legacy
+    DPJ attempts prove that opening Render Inspection can trigger a long
+    `Calculating highlightings...` `ui-curtain`; the curtain physically covers
+    the alternate mode and session-return controls, while the already-selected
+    mode is disabled. Immediate hit-target failure preserved safety but stopped
+    the comparison before the steady-state legacy workflow. The shared physical
+    activation probe now has an explicit bounded readiness option which waits
+    only when the actual center-point blocker is `#ui-curtain` or the typed
+    popup busy curtain. It retains the initial blocker, attempt count, and wait
+    duration, still rejects every unrelated overlay immediately, and dispatches
+    only trusted pointer/keyboard input after the real control becomes the hit
+    target. The legacy render probe physically switches away when the requested
+    mode is already selected, proves that terminal, then physically clicks the
+    requested mode; returning to the session also requires the curtain to clear
+    and the marking toggle to be enabled. Focused coverage passes 37/37. The
+    retained wait remains legacy latency evidence rather than being hidden or
+    charged to the rewrite.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1245,11 +1271,12 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 129. Immutable
+Implementation remediation is code-complete through finding 130. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun,
-findings 126–128 are closed by the clean aggregate, and finding 129 awaits its
-exact clean pushed rerun. P25 remains open until the exact
+findings 126–128 are closed by the clean aggregate, finding 129 is closed by its
+exact clean headed rerun, and finding 130 closes the legacy evidence-collection
+gap. P25 remains open until the exact
 clean pushed commit completes every valid candidate's observer-free headed
 rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,

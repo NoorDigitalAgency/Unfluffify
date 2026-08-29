@@ -82,8 +82,80 @@ describe("P25 physical popup activation", () => {
       "Input.dispatchMouseEvent",
     ]);
     expect(evidence.before.hitMatches).toBe(true);
+    expect(evidence.readiness).toMatchObject({ waitMs: expect.any(Number), attempts: 1, initialBlocker: null });
     expect(evidence.dispatchedAtEpochMs).toEqual(expect.any(Number));
     expect(evidence.dispatchedAt).toBe(new Date(evidence.dispatchedAtEpochMs).toISOString());
+  });
+
+  it("waits only for the real busy curtain and records the physical readiness delay", async () => {
+    const sends: Array<{ method: string; params?: unknown }> = [];
+    let evaluation = 0;
+    const session = {
+      async evaluate() {
+        evaluation += 1;
+        return {
+          id: "render-mode-edit",
+          tag: "BUTTON",
+          disabled: false,
+          checked: null,
+          rect: { x: 20, y: 30, width: 80, height: 30 },
+          viewport: { width: 400, height: 700 },
+          hitMatches: evaluation > 1,
+          hit: evaluation > 1
+            ? { id: "render-mode-edit", tag: "BUTTON", className: "", transientSurface: null }
+            : { id: "ui-curtain", tag: "DIV", className: "ui-curtain", transientSurface: "popup-busy-curtain" },
+        };
+      },
+      async send(method: string, params?: unknown) {
+        sends.push({ method, params });
+      },
+    };
+
+    const evidence = await physicalActivatePopupControl(
+      session,
+      "render-mode-edit",
+      "pointer",
+      null,
+      { hitTargetTimeoutMs: 100, pollIntervalMs: 0 },
+    );
+
+    expect(evaluation).toBe(2);
+    expect(evidence.readiness.attempts).toBe(2);
+    expect(evidence.readiness.initialBlocker.hit.id).toBe("ui-curtain");
+    expect(sends.slice(-3).map(({ method }) => method)).toEqual([
+      "Input.dispatchMouseEvent",
+      "Input.dispatchMouseEvent",
+      "Input.dispatchMouseEvent",
+    ]);
+  });
+
+  it("never waits through an unrelated overlay", async () => {
+    let evaluation = 0;
+    const session = {
+      async evaluate() {
+        evaluation += 1;
+        return {
+          id: "toggle-enabled",
+          tag: "INPUT",
+          disabled: false,
+          checked: false,
+          rect: { x: 20, y: 30, width: 16, height: 16 },
+          viewport: { width: 400, height: 700 },
+          hitMatches: false,
+          hit: { id: "unexpected-overlay", tag: "DIV", className: "", transientSurface: null },
+        };
+      },
+      async send() {},
+    };
+
+    await expect(physicalActivatePopupControl(
+      session,
+      "toggle-enabled",
+      "pointer",
+      null,
+      { hitTargetTimeoutMs: 100, pollIntervalMs: 0 },
+    )).rejects.toThrow("not the physical hit target");
+    expect(evaluation).toBe(1);
   });
 
   it("proves native semantic preview-row activation with a trusted Space click", async () => {

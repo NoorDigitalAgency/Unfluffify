@@ -837,6 +837,10 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
     : renderMode === "with-javascript" ? "render-mode-with-js" : "render-mode-without-js";
   let before = await capturePopupState(popup);
   let control = before.controls.find((candidate) => candidate.id === controlId);
+  const activationOptions = implementation === "legacy"
+    ? { hitTargetTimeoutMs: timeoutMs, pollIntervalMs: 100 }
+    : undefined;
+  let preconditionSwitch = null;
   if (!control || control.visible === false) {
     const openerId = implementation === "legacy" ? "render-mode-open-view" : "render-mode-open";
     const toggleId = implementation === "legacy" ? "config-toggle" : "header-kebab-toggle";
@@ -846,7 +850,7 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
       if (!toggle || toggle.disabled || toggle.visible === false) {
         throw new Error(`Render Inspection menu toggle #${toggleId} is unavailable: ${JSON.stringify(toggle)}`);
       }
-      await physicalActivatePopupControl(popup, toggleId, "pointer");
+      await physicalActivatePopupControl(popup, toggleId, "pointer", null, activationOptions);
       const openerDeadline = Date.now() + Math.min(timeoutMs, 10_000);
       while (Date.now() < openerDeadline) {
         before = await capturePopupState(popup);
@@ -858,19 +862,61 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
     if (!opener || opener.disabled || opener.visible === false) {
       throw new Error(`Render Inspection opener #${openerId} is unavailable: ${JSON.stringify(opener)}`);
     }
-    await physicalActivatePopupControl(popup, openerId, "pointer");
+    await physicalActivatePopupControl(popup, openerId, "pointer", null, activationOptions);
     const viewDeadline = Date.now() + Math.min(timeoutMs, 10_000);
     while (Date.now() < viewDeadline) {
       before = await capturePopupState(popup);
       control = before.controls.find((candidate) => candidate.id === controlId);
-      if (control && !control.disabled && control.visible !== false) break;
+      const proof = proveRequestedRenderMode(before, renderMode);
+      if (control && control.visible !== false && (!control.disabled || (before.busy === false && proof.modeProven))) break;
       await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+  const settledProof = proveRequestedRenderMode(before, renderMode);
+  if (control?.disabled && before.busy === false && settledProof.modeProven) {
+    const alternateMode = renderMode === "with-javascript" ? "without-javascript" : "with-javascript";
+    const alternateId = implementation === "legacy"
+      ? alternateMode === "with-javascript" ? "render-mode-inspect-with-javascript" : "render-mode-inspect-without-javascript"
+      : alternateMode === "with-javascript" ? "render-mode-with-js" : "render-mode-without-js";
+    const alternate = before.controls.find((candidate) => candidate.id === alternateId);
+    if (!alternate || alternate.disabled || alternate.visible === false) {
+      throw new Error(`Cannot switch away from the already-selected ${renderMode} mode: ${JSON.stringify(alternate)}`);
+    }
+    const preconditionStartedAt = new Date().toISOString();
+    const activation = await physicalActivatePopupControl(popup, alternateId, "pointer", null, activationOptions);
+    const preconditionDeadline = Date.now() + timeoutMs;
+    let last = before;
+    while (Date.now() < preconditionDeadline) {
+      last = await capturePopupState(popup);
+      const requestedControl = last.controls.find((candidate) => candidate.id === controlId);
+      const proof = proveRequestedRenderMode(last, alternateMode);
+      if (last.busy === false && requestedControl && !requestedControl.disabled && requestedControl.visible !== false && proof.modeProven) {
+        preconditionSwitch = {
+          requestedMode: alternateMode,
+          controlId: alternateId,
+          activation,
+          startedAt: preconditionStartedAt,
+          finishedAt: new Date().toISOString(),
+          terminal: true,
+          modeProven: true,
+          proofSource: proof.proofSource,
+          before,
+          after: last,
+        };
+        before = last;
+        control = requestedControl;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    if (!preconditionSwitch) {
+      throw new Error(`Timed out switching away from the already-selected ${renderMode} mode; last=${JSON.stringify(last)}`);
     }
   }
   if (!control || control.disabled) throw new Error(`Render Inspection control #${controlId} is unavailable: ${JSON.stringify(control)}`);
   const startedAt = new Date().toISOString();
   const initialInspectionView = before.renderInspectionView;
-  const controlActivation = await physicalActivatePopupControl(popup, controlId, "pointer");
+  const controlActivation = await physicalActivatePopupControl(popup, controlId, "pointer", null, activationOptions);
   const deadline = Date.now() + timeoutMs;
   let sawBusy = false;
   let sawControlDisabled = false;
@@ -883,7 +929,10 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
     const transitionObserved = sawBusy || sawControlDisabled || (
       last.renderInspectionView === renderMode && initialInspectionView !== renderMode
     );
-    const terminal = transitionObserved && last.busy === false && currentControl?.disabled === false;
+    const terminalControlSettled = implementation === "legacy"
+      ? currentControl?.visible !== false
+      : currentControl?.disabled === false;
+    const terminal = transitionObserved && last.busy === false && terminalControlSettled;
     const { modeProven, proofSource } = proveRequestedRenderMode(last, renderMode);
     if (terminal && modeProven) {
       return {
@@ -891,6 +940,7 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
         controlId,
         clicked: true,
         controlActivation,
+        preconditionSwitch,
         startedAt,
         finishedAt: new Date().toISOString(),
         sawBusy,
@@ -921,12 +971,18 @@ async function ensurePopupSessionView(popup, implementation, timeoutMs = 30_000)
   if (!exit?.id) {
     throw new Error(`Cannot return from ${state.view ?? "unknown"} to the marking session: ${JSON.stringify(exitIds)}`);
   }
-  await physicalActivatePopupControl(popup, exit.id, "pointer");
+  await physicalActivatePopupControl(
+    popup,
+    exit.id,
+    "pointer",
+    null,
+    implementation === "legacy" ? { hitTargetTimeoutMs: timeoutMs, pollIntervalMs: 100 } : undefined,
+  );
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     state = await capturePopupState(popup);
     toggle = state.controls.find((control) => control.id === "toggle-enabled");
-    if (toggle && toggle.visible !== false && state.busy === false) return state;
+    if (toggle && !toggle.disabled && toggle.visible !== false && state.busy === false) return state;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(`Timed out returning to the marking session; last=${JSON.stringify(state)}`);

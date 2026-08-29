@@ -270,32 +270,60 @@ export async function captureWorkflowPopupState(session) {
   })()`);
 }
 
-export async function physicalActivatePopupControl(session, id, method = "pointer", fallbackSelector = null) {
+export async function physicalActivatePopupControl(
+  session,
+  id,
+  method = "pointer",
+  fallbackSelector = null,
+  { hitTargetTimeoutMs = 0, pollIntervalMs = 100 } = {},
+) {
   await session.send("Page.enable");
   await session.send("Page.bringToFront");
-  const before = await session.evaluate(`(() => {
-    const element = document.getElementById(${JSON.stringify(id)}) || (${JSON.stringify(fallbackSelector)} ? document.querySelector(${JSON.stringify(fallbackSelector)}) : null);
-    if (!(element instanceof HTMLElement)) return null;
-    element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
-    const rect = element.getBoundingClientRect();
-    const x = rect.left + rect.width / 2;
-    const y = rect.top + rect.height / 2;
-    const hit = document.elementFromPoint(x, y);
-    const label = element.closest('label') || ('labels' in element ? element.labels?.[0] : null);
-    const hitMatches = hit === element || Boolean(hit && element.contains(hit)) || Boolean(hit && label?.contains(hit));
-    return {
-      id: element.id,
-      tag: element.tagName,
-      disabled: Boolean(element.disabled),
-      checked: 'checked' in element ? Boolean(element.checked) : null,
-      rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
-      viewport: { width: innerWidth, height: innerHeight },
-      hitMatches,
-      hit: hit instanceof HTMLElement ? { id: hit.id, tag: hit.tagName, className: hit.className } : null,
-    };
-  })()`);
-  if (!before || before.disabled || before.rect.width <= 0 || before.rect.height <= 0) throw new Error(`Real popup control #${id} is unavailable: ${JSON.stringify(before)}`);
-  if (!before.hitMatches) throw new Error(`Real popup control #${id} is not the physical hit target: ${JSON.stringify(before)}`);
+  const readinessStartedAtEpochMs = Date.now();
+  const deadline = readinessStartedAtEpochMs + Math.max(0, Number(hitTargetTimeoutMs) || 0);
+  const pollMs = Math.max(0, Number(pollIntervalMs) || 0);
+  let before;
+  let initialBlocker = null;
+  let readinessAttempts = 0;
+  while (true) {
+    readinessAttempts += 1;
+    before = await session.evaluate(`(() => {
+      const element = document.getElementById(${JSON.stringify(id)}) || (${JSON.stringify(fallbackSelector)} ? document.querySelector(${JSON.stringify(fallbackSelector)}) : null);
+      if (!(element instanceof HTMLElement)) return null;
+      element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+      const rect = element.getBoundingClientRect();
+      const x = rect.left + rect.width / 2;
+      const y = rect.top + rect.height / 2;
+      const hit = document.elementFromPoint(x, y);
+      const label = element.closest('label') || ('labels' in element ? element.labels?.[0] : null);
+      const hitMatches = hit === element || Boolean(hit && element.contains(hit)) || Boolean(hit && label?.contains(hit));
+      return {
+        id: element.id,
+        tag: element.tagName,
+        disabled: Boolean(element.disabled),
+        checked: 'checked' in element ? Boolean(element.checked) : null,
+        rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+        viewport: { width: innerWidth, height: innerHeight },
+        hitMatches,
+        hit: hit instanceof HTMLElement ? {
+          id: hit.id,
+          tag: hit.tagName,
+          className: hit.className,
+          transientSurface: hit.getAttribute('data-transient-surface'),
+        } : null,
+      };
+    })()`);
+    const available = Boolean(before && !before.disabled && before.rect.width > 0 && before.rect.height > 0);
+    if (available && before.hitMatches) break;
+    const transientBlocker = before?.hit?.id === "ui-curtain" || before?.hit?.transientSurface === "popup-busy-curtain";
+    initialBlocker ??= before;
+    if (!transientBlocker || Date.now() >= deadline) {
+      if (!available) throw new Error(`Real popup control #${id} is unavailable: ${JSON.stringify({ before, readinessAttempts, initialBlocker })}`);
+      throw new Error(`Real popup control #${id} is not the physical hit target: ${JSON.stringify({ before, readinessAttempts, initialBlocker })}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+  const readyAtEpochMs = Date.now();
   let dispatchedAtEpochMs;
   if (method === "keyboard") {
     await session.evaluate(`(document.getElementById(${JSON.stringify(id)}) || (${JSON.stringify(fallbackSelector)} ? document.querySelector(${JSON.stringify(fallbackSelector)}) : null))?.focus()`);
@@ -313,6 +341,13 @@ export async function physicalActivatePopupControl(session, id, method = "pointe
   return {
     method,
     before,
+    readiness: {
+      startedAtEpochMs: readinessStartedAtEpochMs,
+      readyAtEpochMs,
+      waitMs: readyAtEpochMs - readinessStartedAtEpochMs,
+      attempts: readinessAttempts,
+      initialBlocker,
+    },
     dispatchedAtEpochMs,
     dispatchedAt: new Date(dispatchedAtEpochMs).toISOString(),
   };

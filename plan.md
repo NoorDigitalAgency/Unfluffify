@@ -1019,8 +1019,28 @@ headed-validation gates.
 - Pushed source `fb446685` passes clean P23 at 25/25 and complete clean P25
   aggregate `acceptance-2026-08-29T08-06-59-992Z.json`; all seven P14, P15,
   P16, P17, P18, P20, and P23 children are present, ordered, validated, and
-  green. The exact fresh production DPJ rerun is the remaining closure proof
-  for finding 129 before debug, legacy, and the candidate matrix resume.
+  green. Exact production DPJ run
+  `2026-08-29T08-08-12-287Z-1b3fcddb-rewrite-dpj` then passes all 13 headed
+  stages and finalizes green: both render modes, activation, marking visuals and
+  gestures, scroll/resize, the measured AI/Content List/dirty/Discard/one-Save
+  workflow, silent visuals, silent scroll/resize, payload hygiene, and the
+  zero-attempt publication fence. Silent wheel and resize each record zero Long
+  Tasks, 16.7 ms median frames, and 33.3 ms p95 frames while retaining one
+  renderer root. Finding 129 is closed.
+- The first pinned legacy DPJ launch exposed a comparison-harness gap rather
+  than a product escape: legacy repeatedly covers real Render Inspection and
+  session controls with its `ui-curtain` while recalculating highlights, and it
+  disables the already-selected render-mode button. Two finalized immutable
+  attempts retain the blocked-control evidence. The physical-control helper now
+  waits only for that exact transient busy curtain, records the wait and first
+  blocker, still rejects unrelated overlays immediately, and never synthesizes
+  a click. When the requested legacy mode is already selected, the harness
+  physically switches to the alternate mode, waits for its proved terminal,
+  then physically selects the requested mode. Session-view return likewise
+  waits for the authentic curtain and an enabled marking toggle. Focused P25
+  workflow coverage passes 37/37. Commit/push and a fresh pinned legacy run are
+  next; the startup stalls remain measured legacy latency, not suppressed
+  evidence.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 
