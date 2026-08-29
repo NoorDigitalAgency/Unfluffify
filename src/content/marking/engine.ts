@@ -588,8 +588,8 @@ const DEFERRED_BRANCH_RENDER_TARGET_THRESHOLD = 200;
 // JavaScript around a geometry pass. Keep both the single-frame fast path and
 // every progressive chunk below the measured 50 ms input-frame budget even on
 // a layout-heavy responsive page.
-const PROGRESSIVE_GEOMETRY_TARGET_THRESHOLD = 12;
-const PROGRESSIVE_GEOMETRY_CHUNK_SIZE = 6;
+const PROGRESSIVE_GEOMETRY_TARGET_THRESHOLD = 6;
+const PROGRESSIVE_GEOMETRY_CHUNK_SIZE = 3;
 // Newly inserted or removed content needs to become markable on roughly the
 // same cadence as the legacy renderer. Presentation attributes are noisier
 // (carousels commonly emit them in short trains), so retain the longer quiet
@@ -974,6 +974,7 @@ export function createMarkingEngine(
     if (!candidateByXpath) {
       const evaluation = store.currentEvaluation();
       candidateByXpath = buildCandidateIndex(bridge.root, evaluation.overlay, store.canonicalSet().rows);
+      reportWorkStage("candidate-index");
     }
     return candidateByXpath;
   };
@@ -2111,6 +2112,7 @@ export function createMarkingEngine(
       const canonicalRowsByXpath = new Map(
         store.canonicalSet().rows.map((row) => [row.xpath, row]),
       );
+      const currentOverlayEvaluation = store.currentEvaluation().overlay;
       for (const element of hits) {
         const xpath = bridge.byElement.get(element)?.evaluationNode.xpath;
         let candidate = xpath ? candidatesByXpath.get(xpath) : undefined;
@@ -2132,15 +2134,23 @@ export function createMarkingEngine(
             // that old horizontal snapshot, so restore only this path's live
             // markability without rebuilding or rescanning the document.
             const candidateXpath = candidate.xpath;
+            const ownRow = canonicalRowsByXpath.get(candidateXpath);
             const selfMarkable = liveNode
               ? isToggleableBoundary(
                 liveNode.visible ? liveNode : { ...liveNode, visible: true },
                 { hasOwnMark: () => canonicalRowsByXpath.has(candidateXpath) },
               )
               : candidate.selfMarkable;
-            candidates.push(selfMarkable === candidate.selfMarkable
+            const excluded = currentOverlayEvaluation.get(candidateXpath) === "exception";
+            const explicitInclude = ownRow?.excluded === false && ownRow.explicit === true;
+            const explicitExclude = ownRow?.excluded === true && ownRow.explicit === true;
+            const current = selfMarkable === candidate.selfMarkable &&
+              excluded === Boolean(candidate.excluded) &&
+              explicitInclude === Boolean(candidate.explicitInclude) &&
+              explicitExclude === Boolean(candidate.explicitExclude)
               ? candidate
-              : { ...candidate, selfMarkable });
+              : { ...candidate, selfMarkable, excluded, explicitInclude, explicitExclude };
+            candidates.push(current);
           }
           candidate = candidate.parent ?? undefined;
         }
@@ -2264,7 +2274,9 @@ export function createMarkingEngine(
       try {
         renderer.acknowledge(current.element, current.node.xpath, mode);
         const toggled = store.toggle(current.node, mode);
-        candidateByXpath = null;
+        // Mark-only changes do not alter the bridge topology. Retain the
+        // document-scale candidate index; resolveAtPoint hydrates the tiny
+        // composed hit path from the current canonical/evaluation state.
         interactiveMarkingRendered = true;
         renderChangedBranch(toggled, toggled.branchRoot);
         return true;
@@ -2295,7 +2307,8 @@ export function createMarkingEngine(
         if (!cleared) {
           return false;
         }
-        candidateByXpath = null;
+        // Clearing a row changes dynamic classification only, not candidate
+        // ancestry or markability topology. See the path hydration above.
         interactiveMarkingRendered = true;
         renderChangedBranch(cleared, cleared.branchRoot);
         return true;

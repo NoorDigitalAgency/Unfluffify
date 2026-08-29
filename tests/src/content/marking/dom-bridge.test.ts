@@ -3203,7 +3203,7 @@ describe("P6 DOM bridge", () => {
       animationFrames.shift()?.();
 
       expect(renderer.geometryBranchRender).toHaveBeenCalledTimes(1);
-      expect(renderer.geometryBranchRender).toHaveBeenLastCalledWith(6, false);
+      expect(renderer.geometryBranchRender).toHaveBeenLastCalledWith(3, false);
       expect(engine.overlayRoot().className).toContain("uf-scrolling");
       expect(animationFrames).toHaveLength(1);
 
@@ -3211,7 +3211,7 @@ describe("P6 DOM bridge", () => {
         animationFrames.shift()?.();
       }
       expect(renderer.geometryBranchRender.mock.calls.length).toBeGreaterThan(1);
-      expect(renderer.geometryBranchRender.mock.calls.every(([count]) => count <= 6)).toBe(true);
+      expect(renderer.geometryBranchRender.mock.calls.every(([count]) => count <= 3)).toBe(true);
       expect(renderer.geometryBranchRender).toHaveBeenLastCalledWith(expect.any(Number), true);
       expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
 
@@ -3221,7 +3221,7 @@ describe("P6 DOM bridge", () => {
       listeners.get("scroll")?.({ target: doc } as unknown as Event);
       vi.advanceTimersByTime(230);
       animationFrames.shift()?.();
-      expect(renderer.geometryBranchRender).toHaveBeenCalledWith(6, false);
+      expect(renderer.geometryBranchRender).toHaveBeenCalledWith(3, false);
       while (animationFrames.length > 0) animationFrames.shift()?.();
       expect(renderer.geometryBranchRender).toHaveBeenLastCalledWith(expect.any(Number), true);
       expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
@@ -3300,7 +3300,11 @@ describe("P6 DOM bridge", () => {
       vi.advanceTimersByTime(230);
       animationFrames.shift()?.();
 
-      expect(renderer.geometryBranchRender).not.toHaveBeenCalled();
+      expect(renderer.geometryBranchRender).toHaveBeenCalledWith(3, false);
+      expect(engine.overlayRoot().className).toContain("uf-scrolling");
+      while (animationFrames.length > 0) animationFrames.shift()?.();
+      expect(renderer.geometryBranchRender.mock.calls.every(([count]) => count <= 3)).toBe(true);
+      expect(renderer.geometryBranchRender).toHaveBeenLastCalledWith(expect.any(Number), true);
       expect(paragraphs.slice(0, 8).every((paragraph) => paragraph.clientRectReadCount > 0)).toBe(true);
       expect(paragraphs.slice(8).every((paragraph) => paragraph.clientRectReadCount === 0)).toBe(true);
       expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
@@ -3840,13 +3844,18 @@ describe("P6 DOM bridge", () => {
     doc.documentElement.appendChild(root);
     root.appendChild(paragraph);
     doc.hits = [paragraph];
-    const engine = createMarkingEngine(root as unknown as Element);
+    const workStages: string[] = [];
+    const engine = createMarkingEngine(root as unknown as Element, {
+      instrumentation: { onWorkStage: (stage) => workStages.push(stage) },
+    });
     const include = engine.resolveAtPoint(40, 30, "include", false);
     expect(include?.xpath).toBe("/main[1]/p[1]");
     expect(engine.toggle(include!, "include")).toBe(true);
     expect(engine.hasExplicitMark(include!)).toBe(true);
 
+    workStages.splice(0);
     const plainOwner = engine.resolveAtPoint(40, 30, "exclude", false);
+    expect(workStages).not.toContain("candidate-index");
     expect(plainOwner?.xpath).toBe("/main[1]/p[1]");
     expect(engine.clear(plainOwner!)).toBe(true);
     expect(engine.hasExplicitMark(plainOwner!)).toBe(false);
