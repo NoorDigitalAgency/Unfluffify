@@ -559,6 +559,7 @@ describe("C4 rewrite content entrypoints", () => {
     expect(source).toContain("const reprovedOwner = refreshScrollOwner(true)");
     expect(source).toContain("const matchingPreparedRitual = completedPageVisitRitual");
     expect(source).toContain("revealController.resetForPresentationLeaseLoss()");
+    expect(source).toContain("completedPageVisitRitual = null;\n  pendingPageVisitRitual = null;\n  revealController.resetForPresentationLeaseLoss();");
   });
 
   it("registers the rewrite activation bridge without loading legacy content-main", async () => {

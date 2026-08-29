@@ -2196,6 +2196,14 @@ function terminateInteractionShieldAuthority(
   options: Readonly<{ failOpenCleanupFence?: boolean }> = {},
 ): void {
   contentLifecycleGeneration += 1;
+  // Authority termination is also the terminal boundary for the current
+  // reveal/freeze presentation lease. The content realm can survive render
+  // inspection and ordinary deactivation, so leaving either cache intact here
+  // makes a later same-document activation reuse a historical outcome while
+  // the reveal controller rejects the replacement walk as already completed.
+  completedPageVisitRitual = null;
+  pendingPageVisitRitual = null;
+  revealController.resetForPresentationLeaseLoss();
   renderInspectionAdoptionGeneration += 1;
   pendingRenderInspectionAdoptionGeneration = null;
   provisionalBfcacheRenderInspectionFence = false;
