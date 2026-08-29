@@ -946,6 +946,17 @@ headed-validation gates.
   failures; its aggregate correctly remained red only because clean committed
   source is mandatory. Commit/push, a clean-source P14 rerun, and fresh
   production/debug/legacy evidence remain.
+- Clean pushed-source P14, P15, and P16 gates on `ffae6bdc` pass at 192
+  performance scenarios, 36/36 frozen-shield checks, and 13/13 inspection
+  lifecycle checks. P17 then passed its first 16 browser checks but timed out
+  before the final three because fixture setup required a canonical Preview
+  revision after changing only `position`, `left`, and `top`. Geometry-only
+  refresh deliberately preserves an otherwise identical projection, and the
+  fixture explicitly reprojects on the next line. The gate now waits for the
+  exact physical `top=80` endpoint without demanding row churn. A focused source
+  contract passes 6/6, and the dirty-source browser rerun reaches 19/19 with
+  clean teardown; its aggregate remains intentionally red until the harness
+  checkpoint is committed and rerun cleanly.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

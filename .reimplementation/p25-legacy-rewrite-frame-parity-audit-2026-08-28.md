@@ -1088,6 +1088,22 @@ preserves the stronger architecture.
     failures; the aggregate correctly failed only its mandatory clean-source
     identity check. A clean checkpoint rerun and a fresh immutable headed run
     remain required.
+126. **Remediated, clean rerun pending P1 — the P17 phase oracle required
+    canonical Preview churn for geometry-only fixture setup.** Clean
+    pushed-source P14, P15, and P16 gates on `ffae6bdc` pass with 192 performance
+    scenarios, 36/36 frozen-shield checks, and 13/13 inspection lifecycle
+    checks. P17 then passed 16 checks with no browser or console errors before a
+    deterministic timeout while pinning the explicit target. The fixture set
+    only `position`, `left`, and `top`, but waited for both physical `top=80`
+    and a new Preview projection revision. The optimized renderer intentionally
+    handles layout-only style mutations as presentation geometry without
+    replacing canonically identical rows; the controller explicitly calls
+    `reproject` immediately after the pin. The oracle now requires only the
+    physical layout endpoint, retaining the subsequent explicit projection and
+    active-hover mutation proofs. A source regression forbids reintroducing the
+    revision condition. Focused coverage passes 6/6 and the dirty-source browser
+    rerun reaches all 19/19 checks with clean teardown; only the mandatory clean
+    source identity check remains until checkpoint/rerun.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1159,10 +1175,10 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 125. Immutable
+Implementation remediation is code-complete through finding 126. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
-recurrence watch, and finding 125 awaits an exact clean pushed rerun. P25 remains
-open until the exact
+recurrence watch, finding 125 awaits an exact clean pushed headed rerun, and
+finding 126 awaits its clean phase-gate rerun. P25 remains open until the exact
 clean pushed commit completes every valid candidate's observer-free headed
 rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,

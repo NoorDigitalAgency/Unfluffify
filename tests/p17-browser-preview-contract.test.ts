@@ -122,4 +122,19 @@ describe("P17 real-browser canonical preview gate contract", () => {
     expect(runtime).toContain('box.getAttribute("data-uf-overlay-focus")');
     expect(runtime).not.toContain('querySelectorAll<HTMLElement>("[data-uf-overlay-hover]")');
   });
+
+  it("treats fixture pinning as geometry-only setup before explicit reprojection", () => {
+    const controller = readFileSync(
+      new URL("../scripts/performance/p17/playwright-controller.js", import.meta.url),
+      "utf8",
+    );
+    const pinning = controller.slice(
+      controller.indexOf('await runtimeCall("pinFixtureTargetForHover", "explicit")'),
+      controller.indexOf('const activeMutationBaseline = await runtimeCall("mutationBaseline", "explicit")'),
+    );
+
+    expect(pinning).toContain("Math.abs(snapshot.targetRect.top - 80) <= 1");
+    expect(pinning).toContain('await runtimeCall("reproject")');
+    expect(pinning).not.toContain("projection?.revision > revision");
+  });
 });

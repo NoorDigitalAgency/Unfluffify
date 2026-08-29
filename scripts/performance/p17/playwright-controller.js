@@ -512,17 +512,18 @@ async (page) => {
       return { staleResponse, beforeStale, afterStale };
     });
 
-    const beforePinProjection = await runtimeCall("engineProjection");
     await runtimeCall("pinFixtureTargetForHover", "explicit");
+    // Pinning changes only viewport geometry. The optimized content renderer
+    // refreshes presentation without replacing an otherwise identical Preview
+    // projection, and this fixture explicitly reprojects immediately below.
+    // Require the physical layout endpoint here, not canonical row churn.
     await page.waitForFunction(
-      ({ fixtureId, revision }) => {
-        const projection = window.__p17Runtime.engineProjection();
+      (fixtureId) => {
         const snapshot = window.__p17Runtime.targetSnapshot(fixtureId);
-        return projection?.revision > revision &&
-          snapshot.targetRect &&
+        return snapshot.targetRect &&
           Math.abs(snapshot.targetRect.top - 80) <= 1;
       },
-      { fixtureId: "explicit", revision: beforePinProjection.revision },
+      "explicit",
       { timeout: 10_000 },
     );
     await runtimeCall("reproject");
