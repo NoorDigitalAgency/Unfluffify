@@ -1480,6 +1480,22 @@ describe("P6 DOM bridge", () => {
     expect(metadata.get(link as unknown as Element)?.text).toBe("Kontakta oss");
   });
 
+  it("labels an unlabeled wrapper from its sole semantic link destination", () => {
+    const doc = new FakeDocument();
+    const wrapper = new FakeElement("SPAN", rect(0, 0, 47, 47));
+    const link = new FakeElement("A", rect(0, 0, 47, 47));
+    const icon = new FakeElement("I", rect(12, 12, 23, 23));
+    link.setAttribute("href", "/sparade-aktiviteter/");
+    for (const element of [wrapper, link, icon]) element.ownerDocument = doc;
+    link.appendChild(icon);
+    wrapper.appendChild(link);
+
+    const metadata = buildPreviewTextMetadata(wrapper as unknown as Element);
+
+    expect(metadata.get(link as unknown as Element)?.text).toBe("sparade aktiviteter");
+    expect(metadata.get(wrapper as unknown as Element)?.text).toBe("sparade aktiviteter");
+  });
+
   it("treats non-string DOM id properties as ordinary content", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));

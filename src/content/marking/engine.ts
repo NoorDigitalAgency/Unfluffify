@@ -193,6 +193,33 @@ function normalizePreviewText(value: string): string {
     .trim();
 }
 
+function previewLinkDestinationLabel(element: Element): string {
+  if (element.tagName.toUpperCase() !== "A") {
+    return "";
+  }
+  const href = normalizePreviewText(element.getAttribute("href") ?? "");
+  if (!href || href === "#" || /^(?:javascript|mailto|tel):/iu.test(href)) {
+    return "";
+  }
+  let pathname = href;
+  try {
+    pathname = new URL(
+      href,
+      element.ownerDocument.baseURI || "https://preview.invalid/",
+    ).pathname;
+  } catch {
+    // A malformed authored URL can still expose a useful final path segment.
+  }
+  const segment = pathname.split("/").filter(Boolean).at(-1) ?? "";
+  let decoded = segment;
+  try {
+    decoded = decodeURIComponent(segment);
+  } catch {
+    // Preserve the authored segment when percent decoding fails.
+  }
+  return normalizePreviewText(decoded.replace(/[-_]+/gu, " "));
+}
+
 type PreviewTextMetadata = Readonly<{
   text: string;
   hasExcludedDescendant: boolean;
@@ -209,7 +236,10 @@ function boundedPreviewText(value: string): string {
  * O(N²) allocation pattern on deeply nested pages. */
 export function buildPreviewTextMetadata(root: Element): WeakMap<Element, PreviewTextMetadata> {
   const metadata = new WeakMap<Element, PreviewTextMetadata>();
-  type StoredMetadata = PreviewTextMetadata & Readonly<{ subtreeText: string }>;
+  type StoredMetadata = PreviewTextMetadata & Readonly<{
+    subtreeText: string;
+    semanticText: string;
+  }>;
   const storedMetadata = new WeakMap<Element, StoredMetadata>();
   const branchExclusion = new WeakMap<Element, boolean>();
   const composedParent = (element: Element): Element | null => {
@@ -295,6 +325,7 @@ export function buildPreviewTextMetadata(root: Element): WeakMap<Element, Previe
     }
     let subtreeText = "";
     let hasExcludedDescendant = false;
+    const descendantSemanticTexts = new Set<string>();
     const append = (value: string): void => {
       if (!value || subtreeText.endsWith("...")) return;
       subtreeText = boundedPreviewText(`${subtreeText}${subtreeText ? " " : ""}${value}`);
@@ -314,13 +345,23 @@ export function buildPreviewTextMetadata(root: Element): WeakMap<Element, Previe
       if (!childMetadata) continue;
       hasExcludedDescendant ||= childMetadata.hasExcludedDescendant;
       append(childMetadata.subtreeText);
+      if (childMetadata.semanticText) descendantSemanticTexts.add(childMetadata.semanticText);
     }
-    const text = subtreeText ||
-      normalizePreviewText(element.getAttribute("aria-label") ?? "") ||
+    const explicitText = normalizePreviewText(element.getAttribute("aria-label") ?? "") ||
       normalizePreviewText(element.getAttribute("alt") ?? "") ||
-      normalizePreviewText(element.getAttribute("title") ?? "") ||
-      element.tagName.toLowerCase();
-    const stored = { text: boundedPreviewText(text), subtreeText, hasExcludedDescendant };
+      normalizePreviewText(element.getAttribute("title") ?? "");
+    const inheritedSemanticText = descendantSemanticTexts.size === 1
+      ? descendantSemanticTexts.values().next().value ?? ""
+      : "";
+    const semanticText = subtreeText || explicitText ||
+      previewLinkDestinationLabel(element) || inheritedSemanticText;
+    const text = semanticText || element.tagName.toLowerCase();
+    const stored = {
+      text: boundedPreviewText(text),
+      subtreeText,
+      semanticText: boundedPreviewText(semanticText),
+      hasExcludedDescendant,
+    };
     storedMetadata.set(element, stored);
     metadata.set(element, stored);
   }
@@ -345,7 +386,7 @@ export function buildPreviewTextMetadata(root: Element): WeakMap<Element, Previe
       if (cursorTagName === "BODY" || cursorTagName === "HTML") break;
       const explicitLabel = normalizePreviewText(cursor.getAttribute("aria-label") ?? "") ||
         normalizePreviewText(cursor.getAttribute("title") ?? "");
-      const contextual = storedMetadata.get(cursor)?.subtreeText ?? "";
+      const contextual = storedMetadata.get(cursor)?.semanticText ?? "";
       const semanticBoundary = PREVIEW_TEXT_LABEL_BOUNDARIES.has(cursorTagName) ||
         PREVIEW_TEXT_LABEL_ROLES.has((cursor.getAttribute("role") ?? "").trim().toLowerCase());
       const label = explicitLabel || (semanticBoundary ? contextual : "");
