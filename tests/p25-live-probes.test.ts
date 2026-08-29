@@ -23,6 +23,7 @@ import {
   topHitPaintEvidence,
   waitForPresentationOpportunity,
   bridgeXpathForElement,
+  captureResizeGeometrySnapshot,
   resolveBridgeXpath,
 } from "../scripts/performance/p25/live-probes.mjs";
 
@@ -159,6 +160,26 @@ function fakeEnvironment(elementsFromPoint: () => FakeElement[] = () => []) {
 }
 
 describe("P25 authoritative resize probe posture", () => {
+  it("keeps expensive paint and full-document visibility diagnostics outside the timed resize window", async () => {
+    let expression = "";
+    await captureResizeGeometrySnapshot({
+      async evaluate(value: string) {
+        expression = value;
+        return {
+          viewport: { width: 388, height: 960 },
+          sourceRectSignature: "/html[1]/body[1]/h1[1]:8,8,371,37",
+        };
+      },
+    });
+
+    expect(expression).toContain("sourceRectSignature");
+    expect(expression).toContain("getClientRects");
+    expect(expression).not.toContain("elementsFromPoint");
+    expect(expression).not.toContain("querySelectorAll('body *')");
+    expect(expression).not.toContain("composedVisibilityEvidence");
+    expect(expression).not.toContain("topHitPaintEvidence");
+  });
+
   it("does not demand movement when only a non-responsive layout viewport changes", () => {
     const before = {
       viewport: { width: 981, height: 2284 },

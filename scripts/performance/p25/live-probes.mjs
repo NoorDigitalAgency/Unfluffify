@@ -813,6 +813,61 @@ export async function captureVisualSnapshot(session) {
   return session.evaluate(VISUAL_SNAPSHOT_EXPRESSION);
 }
 
+const RESIZE_GEOMETRY_SNAPSHOT_EXPRESSION = `(() => {
+  const xpathNode = (${resolveBridgeXpath.toString()});
+  const sourceId = (element) => element.getAttribute('data-uf-overlay-xpath') ||
+    element.getAttribute('data-uf-silent-highlight') || element.getAttribute('data-xpath') ||
+    (element.getAttribute('data-mc-mark-id') ? 'mark:' + element.getAttribute('data-mc-mark-id') : null);
+  const sourceNode = (id) => {
+    if (!id) return null;
+    if (id.startsWith('/')) return xpathNode(id);
+    if (id.startsWith('mark:')) return document.querySelector('[data-uf-mark-id="' + CSS.escape(id.slice(5)) + '"]');
+    return null;
+  };
+  const sourceIds = new Set();
+  for (const overlay of document.querySelectorAll(
+    '[data-uf-overlay-xpath], [data-uf-silent-highlight], [data-xpath], [data-mc-mark-id]'
+  )) {
+    if (!overlay.closest(
+      '#unfluffify-overlay, #unfluffify-silent-highlight-overlay, .uf-marking-layer-root, [data-uf-marking-layer-root], [data-uf-silent-layer-root]'
+    )) continue;
+    const id = sourceId(overlay);
+    if (id) sourceIds.add(id);
+  }
+  const sourceRectParts = [];
+  for (const id of sourceIds) {
+    const source = sourceNode(id);
+    if (!(source instanceof Element)) continue;
+    const rects = [...source.getClientRects()].map((rect) => [
+      rect.left,
+      rect.top,
+      rect.width,
+      rect.height,
+    ].map((value) => Math.round(value * 10) / 10).join(','));
+    sourceRectParts.push(id + ':' + rects.join(';'));
+  }
+  return {
+    at: Date.now(),
+    viewport: { width: innerWidth, height: innerHeight },
+    interactiveViewport: {
+      width: visualViewport?.width ?? innerWidth,
+      height: visualViewport?.height ?? innerHeight,
+    },
+    sourceCount: sourceIds.size,
+    sourceRectSignature: sourceRectParts.sort().join('|'),
+  };
+})()`;
+
+/**
+ * Capture only the layout facts needed to decide whether a resize could move
+ * a currently highlighted source. This runs inside the timed perturbation, so
+ * it deliberately excludes paint reachability, full-document markability, and
+ * all elementsFromPoint work from the product's Long Task measurement.
+ */
+export async function captureResizeGeometrySnapshot(session) {
+  return session.evaluate(RESIZE_GEOMETRY_SNAPSHOT_EXPRESSION);
+}
+
 export async function captureScreenshot(session, path) {
   await mkdir(dirname(path), { recursive: true });
   await session.send("Page.enable");
@@ -1271,7 +1326,7 @@ export async function probeResize(session, { artifactDirectory, name }) {
         resizedWidth,
         async () => {
           await sleep(180);
-          probeSnapshot = await captureVisualSnapshot(session);
+          probeSnapshot = await captureResizeGeometrySnapshot(session);
         },
       );
       return {
