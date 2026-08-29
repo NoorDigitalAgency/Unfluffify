@@ -547,11 +547,19 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
 
   const drawCurrentClassifications = (byXpath: ReadonlyMap<string, OverlayRenderTarget>): void => {
     const used = new Set<string>();
-    for (const [xpath, classification] of classificationByXpath) {
+    // Geometry-only work owns an intersection-bounded target corpus. Iterate
+    // that corpus directly: walking every classification just to discover that
+    // almost all have no measured target made a small resize pay O(document)
+    // ancestor checks before drawing the few visible rectangles.
+    for (const [xpath, target] of byXpath) {
+      const classification = classificationByXpath.get(xpath);
+      if (!classification) {
+        continue;
+      }
       if (classification === "exception" && hasProjectedExceptionAncestor(xpath, classificationByXpath)) {
         continue;
       }
-      drawClassification(xpath, classification, byXpath.get(xpath), used);
+      drawClassification(xpath, classification, target, used);
     }
     finalizeClassification(used);
   };

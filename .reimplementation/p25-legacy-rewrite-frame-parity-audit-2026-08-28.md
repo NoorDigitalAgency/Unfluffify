@@ -971,6 +971,30 @@ preserves the stronger architecture.
     next physical activation. Focused marking, popup, App, and P25 coverage
     passes five files / 310 tests; the complete gate is green at 140 files /
     1,424 tests.
+122. **Remediated, immutable rerun pending P0 — responsive presentation work
+    could preempt resize geometry twice.** Clean production DPJ run
+    `2026-08-29T05-14-00-298Z-140ffc0e-rewrite-dpj` on pushed checkpoint
+    `594564b8` passed preflight, both render modes, activation, marking visuals,
+    every shared/rewrite-only gesture, and scroll fade. Resize then measured one
+    76 ms task and no temporary 388 px rectangle signature. Debug run
+    `2026-08-29T05-20-38-881Z-4cfca8af-rewrite-dpj` reproduced it with exact
+    phase evidence: the 150 ms presentation quiet edge evaluated the full store
+    for 72 ms while the harness's probe was still active; the blocked 180 ms
+    restore then caused a second 91 ms presentation evaluation. At the same time,
+    Chromium's induced scrollY adjustment reset the shared geometry timer from
+    the 50 ms marking-resize deadline to the 250 ms scroll deadline. Resize now
+    retains priority over induced scroll; Window, VisualViewport, and root
+    observer duplicates are deduplicated by normalized viewport signature while
+    a real width change remains admissible. Presentation records retain their
+    first old value for the full 250 ms marking window, so the 180 ms A→B→A
+    round-trip terminalizes without evaluation. Geometry classification iterates
+    only the measured target corpus rather than every document classification.
+    The regression fires 20 duplicate observer/scroll rounds, proves a single
+    50 ms repaint at both probe and restore, and extends the existing net-zero
+    responsive test past the old 150 ms failure edge. Focused marking coverage
+    passes four files / 152 tests; the complete gate passes lint, page-world
+    parity, every TypeScript project, 140 files / 1,425 tests, a fresh production
+    build, and seven manifest checks.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1042,9 +1066,9 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 121; findings
+Implementation remediation is code-complete through finding 122; findings
 110–112 are closed by the immutable pushed-source DPJ gesture run. Findings 108
-and 113–121 await exact clean pushed reruns, while finding 109 remains a
+and 113–122 await exact clean pushed reruns, while finding 109 remains a
 recurrence watch. P25 remains open until the exact
 clean pushed commit completes every valid candidate's observer-free headed
 rewrite flow. Rewrite marking

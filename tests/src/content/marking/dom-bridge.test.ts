@@ -2227,7 +2227,7 @@ describe("P6 DOM bridge", () => {
     } as unknown as MutationRecord]);
 
     expect(animationFrames).toHaveLength(0);
-    vi.advanceTimersByTime(149);
+    vi.advanceTimersByTime(249);
     expect(animationFrames).toHaveLength(0);
     vi.advanceTimersByTime(1);
     expect(animationFrames).toHaveLength(1);
@@ -2289,7 +2289,7 @@ describe("P6 DOM bridge", () => {
         attributeName: "style",
         oldValue: "transform: translateX(0)",
       } as unknown as MutationRecord]);
-      vi.advanceTimersByTime(149);
+      vi.advanceTimersByTime(249);
       expect(animationFrames).toHaveLength(0);
       vi.advanceTimersByTime(1);
       expect(animationFrames).toHaveLength(0);
@@ -2337,7 +2337,7 @@ describe("P6 DOM bridge", () => {
         attributeName: "style",
         oldValue: null,
       }] as unknown as MutationRecord[]);
-      vi.advanceTimersByTime(150);
+      vi.advanceTimersByTime(250);
 
       expect(createBridge).toHaveBeenCalledTimes(1);
       expect(renderer.branchRender).toHaveBeenCalledTimes(1);
@@ -2394,7 +2394,10 @@ describe("P6 DOM bridge", () => {
         attributeName: "style",
         oldValue: "min-height: 48px;",
       }] as unknown as MutationRecord[]);
-      vi.advanceTimersByTime(75);
+      // The real P25 probe restores its viewport after 180 ms. Presentation
+      // authority must retain the first oldValue beyond that point so this
+      // responsive A -> B -> A train is discarded without two full evaluations.
+      vi.advanceTimersByTime(180);
       header.setAttribute("style", "min-height: 48px;");
       callbacks[0]?.([{
         type: "attributes",
@@ -2419,7 +2422,7 @@ describe("P6 DOM bridge", () => {
         attributeName: "class",
         oldValue: "sticky-top measuring",
       }] as unknown as MutationRecord[]);
-      vi.advanceTimersByTime(150);
+      vi.advanceTimersByTime(250);
       expect(animationFrames).toHaveLength(0);
       expect(renderer.branchRender).toHaveBeenCalledTimes(1);
       expect(createBridge).toHaveBeenCalledTimes(1);
@@ -2431,7 +2434,7 @@ describe("P6 DOM bridge", () => {
         attributeName: "role",
         oldValue: null,
       }] as unknown as MutationRecord[]);
-      vi.advanceTimersByTime(150);
+      vi.advanceTimersByTime(250);
       expect(animationFrames).toHaveLength(1);
       animationFrames.shift()?.();
       expect(createBridge).toHaveBeenCalledTimes(2);
@@ -2598,6 +2601,104 @@ describe("P6 DOM bridge", () => {
       engine.dispose();
       expect(listeners.has("resize")).toBe(false);
       expect(viewportListeners.has("resize")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the marking resize deadline ahead of induced scroll and duplicate observers", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const animationFrames: Array<() => void> = [];
+      const listeners = new Map<string, EventListener>();
+      const viewportListeners = new Map<string, EventListener>();
+      let resizeObserverCallback: ResizeObserverCallback | null = null;
+      class FakeResizeObserver {
+        constructor(callback: ResizeObserverCallback) {
+          resizeObserverCallback = callback;
+        }
+        observe(): void {}
+        disconnect(): void {}
+      }
+      const visualViewport = {
+        width: 412,
+        height: 960,
+        scale: 1,
+        addEventListener(type: string, listener: EventListener) {
+          viewportListeners.set(type, listener);
+        },
+        removeEventListener(type: string) {
+          viewportListeners.delete(type);
+        },
+      };
+      Object.assign(doc.defaultView, {
+        innerWidth: 412,
+        innerHeight: 960,
+        ResizeObserver: FakeResizeObserver,
+        visualViewport,
+        requestAnimationFrame(callback: () => void) {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+        addEventListener(type: string, listener: EventListener) {
+          listeners.set(type, listener);
+        },
+        removeEventListener(type: string) {
+          listeners.delete(type);
+        },
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 412, 960));
+      const paragraph = new FakeElement("P", rect(0, 0, 120, 20), "First");
+      root.ownerDocument = doc;
+      paragraph.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      root.appendChild(paragraph);
+      doc.hits = [paragraph, root];
+      const renderer = createRendererTestSeam();
+      const engine = createMarkingEngine(root as unknown as Element, {
+        render: true,
+        instrumentation: { createRenderer: renderer.createRenderer },
+      });
+      renderer.geometryRender.mockClear();
+
+      Object.assign(doc.defaultView, { innerWidth: 388 });
+      Object.assign(visualViewport, { width: 388 });
+      listeners.get("resize")?.({ target: doc.defaultView } as unknown as Event);
+      for (let index = 0; index < 20; index += 1) {
+        // Chromium reports the metrics change through all three sources and can
+        // adjust scrollY as part of the same emulation transaction.
+        listeners.get("scroll")?.({ target: doc } as unknown as Event);
+        viewportListeners.get("resize")?.({} as Event);
+        resizeObserverCallback?.([], {} as ResizeObserver);
+      }
+
+      vi.advanceTimersByTime(49);
+      expect(animationFrames).toHaveLength(0);
+      vi.advanceTimersByTime(1);
+      expect(animationFrames).toHaveLength(1);
+      animationFrames.shift()?.();
+      expect(renderer.geometryRender).toHaveBeenCalledTimes(1);
+
+      Object.assign(doc.defaultView, { innerWidth: 412 });
+      Object.assign(visualViewport, { width: 412 });
+      listeners.get("resize")?.({ target: doc.defaultView } as unknown as Event);
+      vi.advanceTimersByTime(50);
+      animationFrames.shift()?.();
+      expect(renderer.geometryRender).toHaveBeenCalledTimes(2);
+      vi.advanceTimersByTime(500);
+      expect(animationFrames).toHaveLength(0);
+      expect(renderer.geometryRender).toHaveBeenCalledTimes(2);
+
+      // A root-only layout shift with stable viewport dimensions remains real
+      // geometry authority; deduplication is scoped per source.
+      Object.assign(root.rect, rect(0, 0, 400, 960));
+      resizeObserverCallback?.([], {} as ResizeObserver);
+      vi.advanceTimersByTime(50);
+      animationFrames.shift()?.();
+      expect(renderer.geometryRender).toHaveBeenCalledTimes(3);
+      engine.dispose();
     } finally {
       vi.useRealTimers();
     }

@@ -56,9 +56,17 @@ producing repeated rewrite-only geometry/classification tasks while pinned
 legacy recorded zero Long Tasks. The first pinned-legacy rerun exposed finding
 121 in the harness: it captured the asynchronously opened Render Inspection
 menu before the opener became visible. All three continuation repairs are now
-implemented. The obsolete four-frame stabilizer has been removed, focused
-coverage passes five files / 310 tests, and the complete gate passes 140 files /
-1,424 tests plus both production and debug builds. Fresh immutable
+implemented and synchronized in pushed checkpoint `594564b8`. Its clean
+production rerun passed through gestures and scroll before finding 122: marking
+resize retained one 76 ms task and never painted the temporary 388 px posture.
+The matching debug run measured two presentation evaluations—72 ms during the
+probe and 91 ms after restore—and proved that resize-induced scroll had replaced
+the 50 ms resize deadline with the 250 ms scroll deadline. The transaction now
+keeps resize authority over induced scroll, deduplicates observer delivery by a
+normalized viewport signature, retains the first presentation old value for the
+complete 250 ms A→B→A train, and iterates only the measured geometry corpus.
+Focused marking coverage passes four files / 152 tests and the complete gate
+passes 140 files / 1,425 tests plus the production build. Fresh immutable
 production/debug and legacy reruns remain required before the candidate matrix
 continues. P25 stays open until the observer-free headed matrix and final evidence
 commit are synchronized.
@@ -219,6 +227,11 @@ audit 50 and 54 retain headed-validation gates.
   scroll trains, then commit one geometry-only redraw after 120 ms silent,
   250 ms marking-scroll, or 50 ms marking-resize quiet. Intersection updates
   fold into that transaction and never delete an unmeasured retained silent box.
+- Keep a resize transaction authoritative over the scrollY adjustment Chromium
+  emits while applying device metrics. Deduplicate same-viewport observer
+  deliveries by normalized dimensions, but admit a genuinely new width. Retain
+  presentation old values for 250 ms so a 180 ms responsive probe/restore is
+  net-zero, and walk only the measured corpus during a geometry repaint.
 - Make desktop/mobile posture adoption retire stale generation/XPath geometry
   before new paint. Shield and overlays must derive from the same confirmed
   viewport generation.
@@ -853,6 +866,18 @@ headed-validation gates.
   fresh production build, a fresh debug build, and seven manifest checks. Commit
   and push this source checkpoint, then repeat both DPJ implementations before
   advancing the matrix.
+- Pushed checkpoint `594564b8` passed production DPJ through both render modes,
+  serialized activation, visuals, gestures, and scroll. Marking resize then
+  retained a 76 ms Long Task and no 388 px rectangle signature. Its debug repeat
+  recorded a 72 ms presentation evaluation at the 150 ms quiet edge and a 91 ms
+  repeat after the 180 ms restore; induced scroll had also replaced the 50 ms
+  resize deadline with 250 ms. Resize now owns that induced scroll, observer
+  duplicates with the same normalized viewport cannot extend its deadline,
+  presentation churn uses a 250 ms first-old-value window, and geometry scans
+  only measured targets. Focused marking coverage passes four files / 152 tests;
+  the complete gate passes lint, page-world parity, every TypeScript project,
+  140 files / 1,425 tests, a fresh production build, and seven manifest checks.
+  Commit/push and exact DPJ production/debug reruns remain before legacy/matrix.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

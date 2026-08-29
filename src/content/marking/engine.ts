@@ -419,7 +419,11 @@ const PROGRESSIVE_GEOMETRY_CHUNK_SIZE = 12;
 // window for those records without making authoritative child-list changes pay
 // that latency on every refresh.
 const STRUCTURAL_CHILD_LIST_QUIET_MS = 100;
-const STRUCTURAL_PRESENTATION_QUIET_MS = 150;
+// Responsive scripts commonly publish the probe posture and restore it within
+// the legacy 250 ms marking quiet window. Keep the first oldValue across that
+// whole train so A -> B -> A class/style churn terminalizes as net-zero instead
+// of evaluating the complete marking tree twice during one resize gesture.
+const STRUCTURAL_PRESENTATION_QUIET_MS = 250;
 const STRUCTURAL_MUTATION_IDLE_TIMEOUT_MS = 1_200;
 // Pinned legacy keeps stale viewport-fixed borders hidden until one quiet
 // redraw: 120 ms for silent preview and 250 ms for interactive marking. A
@@ -1517,9 +1521,37 @@ export function createMarkingEngine(
         intersectionDirtyXpaths.clear();
       });
     }
+    const visualViewport = view?.visualViewport;
+    type ViewportGeometryKind = "scroll" | "resize";
+    type ResizeGeometrySource = "viewport" | "root";
     let viewportGeometryHandle: ReturnType<typeof setTimeout> | null = null;
+    let viewportGeometryKind: ViewportGeometryKind | null = null;
+    let pendingResizeSource: ResizeGeometrySource | null = null;
+    let pendingResizeSignature = "";
+    const committedResizeSignatures: Record<ResizeGeometrySource, string> = {
+      viewport: "",
+      root: "",
+    };
+    const currentViewportResizeSignature = (): string => {
+      const documentElement = rootElement.ownerDocument.documentElement;
+      return [
+        view?.innerWidth ?? documentElement.clientWidth,
+        view?.innerHeight ?? documentElement.clientHeight,
+        visualViewport?.width ?? "",
+        visualViewport?.height ?? "",
+        visualViewport?.scale ?? "",
+        documentElement.clientWidth,
+        documentElement.clientHeight,
+      ].join(":");
+    };
     const finishViewportGeometry = (): void => {
+      if (viewportGeometryKind === "resize" && pendingResizeSource) {
+        committedResizeSignatures[pendingResizeSource] = pendingResizeSignature;
+      }
       viewportGeometryHandle = null;
+      viewportGeometryKind = null;
+      pendingResizeSource = null;
+      pendingResizeSignature = "";
       // The event train has already been quiet for the mode-specific debounce.
       // Commit once on the next captured presentation frame and reveal only
       // after that exact geometry/classification transaction completes.
@@ -1527,9 +1559,44 @@ export function createMarkingEngine(
       scheduleRender("geometry");
     };
     const scheduleTrailingGeometry = (
+      kind: ViewportGeometryKind,
       quietMs: number,
       hideStaleGeometry: boolean,
+      resize: Readonly<{ source: ResizeGeometrySource; signature: string }> | null = null,
     ): void => {
+      if (
+        kind === "scroll"
+        && viewportGeometryHandle !== null
+        && viewportGeometryKind === "resize"
+      ) {
+        // Chromium can adjust scrollY while applying device metrics. That
+        // induced scroll belongs to the already-owned resize transaction and
+        // must not upgrade its 50 ms deadline to the 250 ms marking-scroll one.
+        return;
+      }
+      if (
+        kind === "resize"
+        && resize
+        && (
+          (viewportGeometryHandle !== null
+            && viewportGeometryKind === "resize"
+            && (
+              // Root layout observation is still valuable when it occurs on
+              // its own, but it cannot extend an authoritative viewport resize
+              // already headed for its 50/120 ms paint deadline.
+              (pendingResizeSource === "viewport" && resize.source === "root")
+              || (pendingResizeSource === resize.source
+                && pendingResizeSignature === resize.signature)
+            ))
+          || (viewportGeometryHandle === null
+            && committedResizeSignatures[resize.source] === resize.signature)
+        )
+      ) {
+        // Window, VisualViewport, and root ResizeObserver can all describe the
+        // same physical viewport. The normalized signature, not callback count,
+        // owns whether this is new geometry.
+        return;
+      }
       revealMarkingAfterRender = false;
       cancelProgressiveGeometryRender();
       if (hideStaleGeometry) {
@@ -1538,6 +1605,9 @@ export function createMarkingEngine(
       if (viewportGeometryHandle !== null) {
         clearTimeout(viewportGeometryHandle);
       }
+      viewportGeometryKind = kind;
+      pendingResizeSource = resize?.source ?? null;
+      pendingResizeSignature = resize?.signature ?? "";
       viewportGeometryHandle = setTimeout(finishViewportGeometry, quietMs);
     };
     const scheduleGeometryRender = (event?: Event): void => {
@@ -1550,6 +1620,7 @@ export function createMarkingEngine(
         || target === document.body;
       if (viewportScroll) {
         scheduleTrailingGeometry(
+          "scroll",
           interactiveMarkingRendered
             ? MARKING_VIEWPORT_SCROLL_QUIET_MS
             : SILENT_VIEWPORT_GEOMETRY_QUIET_MS,
@@ -1561,28 +1632,42 @@ export function createMarkingEngine(
       // must not blank unrelated page borders. Coalesce its event storm into
       // the same one-commit path while leaving the retained layer visible.
       scheduleTrailingGeometry(
+        "scroll",
         interactiveMarkingRendered
           ? MARKING_VIEWPORT_SCROLL_QUIET_MS
           : SILENT_VIEWPORT_GEOMETRY_QUIET_MS,
         false,
       );
     };
-    const scheduleResizeRender = (): void => scheduleTrailingGeometry(
+    const scheduleViewportResizeRender = (): void => scheduleTrailingGeometry(
+      "resize",
       interactiveMarkingRendered
         ? MARKING_VIEWPORT_RESIZE_QUIET_MS
         : SILENT_VIEWPORT_GEOMETRY_QUIET_MS,
       true,
+      { source: "viewport", signature: currentViewportResizeSignature() },
     );
+    const scheduleRootResizeRender = (entries?: readonly ResizeObserverEntry[]): void => {
+      const observed = entries?.find((entry) => entry.target === rootElement)?.contentRect
+        ?? rootElement.getBoundingClientRect();
+      scheduleTrailingGeometry(
+        "resize",
+        interactiveMarkingRendered
+          ? MARKING_VIEWPORT_RESIZE_QUIET_MS
+          : SILENT_VIEWPORT_GEOMETRY_QUIET_MS,
+        true,
+        { source: "root", signature: `${observed.width}:${observed.height}` },
+      );
+    };
     if (view?.ResizeObserver) {
-      const observer = new view.ResizeObserver(scheduleResizeRender);
+      const observer = new view.ResizeObserver(scheduleRootResizeRender);
       observer.observe(rootElement);
       cleanups.push(() => observer.disconnect());
     }
-    const visualViewport = view?.visualViewport;
     view?.addEventListener?.("scroll", scheduleGeometryRender, true);
-    view?.addEventListener?.("resize", scheduleResizeRender);
-    visualViewport?.addEventListener?.("scroll", scheduleResizeRender);
-    visualViewport?.addEventListener?.("resize", scheduleResizeRender);
+    view?.addEventListener?.("resize", scheduleViewportResizeRender);
+    visualViewport?.addEventListener?.("scroll", scheduleViewportResizeRender);
+    visualViewport?.addEventListener?.("resize", scheduleViewportResizeRender);
     cleanups.push(() => {
       cancelStructuralDispatch();
       structuralTrailingQuietMs = null;
@@ -1594,12 +1679,17 @@ export function createMarkingEngine(
         clearTimeout(viewportGeometryHandle);
         viewportGeometryHandle = null;
       }
+      viewportGeometryKind = null;
+      pendingResizeSource = null;
+      pendingResizeSignature = "";
+      committedResizeSignatures.viewport = "";
+      committedResizeSignatures.root = "";
       renderer.setScrolling(false);
       revealMarkingAfterRender = false;
       view?.removeEventListener?.("scroll", scheduleGeometryRender, true);
-      view?.removeEventListener?.("resize", scheduleResizeRender);
-      visualViewport?.removeEventListener?.("scroll", scheduleResizeRender);
-      visualViewport?.removeEventListener?.("resize", scheduleResizeRender);
+      view?.removeEventListener?.("resize", scheduleViewportResizeRender);
+      visualViewport?.removeEventListener?.("scroll", scheduleViewportResizeRender);
+      visualViewport?.removeEventListener?.("resize", scheduleViewportResizeRender);
     });
     return () => cleanups.forEach((cleanup) => cleanup());
   };

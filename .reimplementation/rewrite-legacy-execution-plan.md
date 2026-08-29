@@ -189,8 +189,10 @@ contracts from all predecessors and does not modify their source of truth.
 
 - Port legacy observer coalescing, geometry caching, and pointer-hit caching
   onto the canonical evaluator. Window, VisualViewport, root resize, and scroll
-  sources feed one mode-specific trailing geometry transaction; they do not run
-  an observer-driven multi-frame projection loop.
+  sources feed one mode-specific geometry transaction; they do not run an
+  observer-driven multi-frame projection loop. Resize retains authority over
+  induced scroll, duplicate viewport signatures cannot extend its deadline, and
+  responsive presentation old values span the full 250 ms marking quiet window.
 - Keep pointermove/scroll paths to repositioning and O(1) hover resolution; no
   full document walk from a hover, scroll frame, or extension-owned mutation.
 - Implement the right-click marking-action menu, duplicate physical-click
