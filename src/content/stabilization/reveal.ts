@@ -126,10 +126,18 @@ export async function runReveal(input: RevealRunInput): Promise<RevealRunResult>
     }
 
     restoreRequired = true;
-    const top = await input.scrollTo("top", input.initialScrollHeight);
-    const topReached = reached(top);
+    let top = await input.scrollTo("top", input.initialScrollHeight);
     await settled("step");
-    if (!topReached) {
+    if (!reached(top) && !activationStale()) {
+      // Responsive reflow, focus restoration, and site scroll handlers can
+      // displace the proved owner while the first smooth pass is painting.
+      // Legacy lets that motion settle before correcting to the same physical
+      // top. Keep the correction finite and preserve the reach contract: the
+      // ritual proceeds only when one of the two owned passes proves the top.
+      top = await input.scrollTo("top", input.initialScrollHeight);
+      await settled("step");
+    }
+    if (!reached(top)) {
       return skippedReveal("top-not-reached");
     }
     if (activationStale()) {

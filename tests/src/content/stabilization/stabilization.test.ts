@@ -1292,7 +1292,10 @@ describe("P5 page stabilization", () => {
 
       expect(result).toMatchObject({ skipped: true, frozenAtBottom: false });
       expect(steps).toContain("restore");
-      if (failedPhase === "top") expect(steps).not.toContain("lazy-threshold");
+      if (failedPhase === "top") {
+        expect(steps.filter((step) => step === "top")).toHaveLength(2);
+        expect(steps).not.toContain("lazy-threshold");
+      }
       if (failedPhase === "lazy-threshold") {
         expect(steps.filter((step) => step === "lazy-threshold")).toHaveLength(2);
         expect(steps).not.toContain("suppress");
@@ -1375,6 +1378,38 @@ describe("P5 page stabilization", () => {
     expect(steps).toEqual([
       "top",
       "lazy-threshold",
+      "lazy-threshold",
+      "suppress",
+      "bottom",
+      "bottom",
+      "freeze",
+      "restore",
+    ]);
+  });
+
+  it("corrects one transient top snap before walking the lazy threshold", async () => {
+    const steps: string[] = [];
+    let topAttempts = 0;
+    const result = await runReveal({
+      hasVerticalScrollRoom: true,
+      activationStale: false,
+      initialScrollHeight: 2_000,
+      scrollTo(position) {
+        steps.push(position);
+        if (position === "top") {
+          topAttempts += 1;
+          return topAttempts > 1;
+        }
+        return true;
+      },
+      suppressLazyLoading: () => steps.push("suppress"),
+      freezeAtBottom: () => steps.push("freeze"),
+    });
+
+    expect(result).toEqual({ skipped: false, lazyExpansions: 0, frozenAtBottom: true });
+    expect(steps).toEqual([
+      "top",
+      "top",
       "lazy-threshold",
       "suppress",
       "bottom",
