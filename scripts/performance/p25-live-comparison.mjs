@@ -1468,11 +1468,37 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
   if (id === "render-mode-with-javascript" || id === "render-mode-without-javascript") {
     const renderMode = id === "render-mode-with-javascript" ? "with-javascript" : "without-javascript";
     if (required(options, "render-mode") !== renderMode) throw new Error(`Stage ${id} requires --render-mode ${renderMode}`);
-    const inspectionProof = await withPopupSession(targets.popup, (session) => runRenderInspection(session, {
-      implementation: identity.implementation,
-      renderMode,
-      timeoutMs: integerOption(options, "render-timeout-ms", 180_000),
-    }));
+    const diagnosticObserveOnlyReason = typeof options["diagnostic-observe-only-reason"] === "string"
+      ? options["diagnostic-observe-only-reason"].trim()
+      : "";
+    const inspectionProof = diagnosticObserveOnlyReason
+      ? await withPopupSession(targets.popup, async (session) => {
+        const observed = await capturePopupState(session);
+        const proof = proveRequestedRenderMode(observed, renderMode);
+        return {
+          requestedMode: renderMode,
+          controlId: null,
+          clicked: false,
+          controlActivation: null,
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          sawBusy: observed.busy === true,
+          sawControlDisabled: false,
+          initialInspectionView: observed.renderInspectionView,
+          modeProven: proof.modeProven,
+          proofSource: proof.proofSource,
+          terminal: false,
+          diagnosticObserveOnly: true,
+          diagnosticObserveOnlyReason,
+          before: observed,
+          after: observed,
+        };
+      })
+      : await withPopupSession(targets.popup, (session) => runRenderInspection(session, {
+        implementation: identity.implementation,
+        renderMode,
+        timeoutMs: integerOption(options, "render-timeout-ms", 180_000),
+      }));
     const { document, siteShot } = await withSiteSession(targets.site, async (session) => ({
       document: await captureDocumentIdentity(session, identity.expectedUrl),
       siteShot: await captureScreenshot(session, join(screenshotDirectory, `${id}-site.png`)),
@@ -1482,7 +1508,19 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
       popupShot: await captureScreenshot(session, join(screenshotDirectory, `${id}-popup.png`)),
     }));
     const screenshots = { site: siteShot, popup: popupShot };
-    return { data: { renderMode, popup, inspectionProof, observerBoundary: "site-observer-attached-after-extension-terminal-acknowledgement" }, document, screenshots, renderMode };
+    return {
+      data: {
+        renderMode,
+        popup,
+        inspectionProof,
+        observerBoundary: diagnosticObserveOnlyReason
+          ? "diagnostic-observe-only-no-render-control-dispatch"
+          : "site-observer-attached-after-extension-terminal-acknowledgement",
+      },
+      document,
+      screenshots,
+      renderMode,
+    };
   }
   if (id === "activation-network") {
     const popup = await new CdpSession(targets.popup).connect();

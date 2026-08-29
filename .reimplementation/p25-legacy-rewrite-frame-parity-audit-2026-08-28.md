@@ -1200,6 +1200,24 @@ preserves the stronger architecture.
     and the marking toggle to be enabled. Focused coverage passes 37/37. The
     retained wait remains legacy latency evidence rather than being hidden or
     charged to the rewrite.
+131. **Confirmed legacy divergence P0 — JavaScript-disabled inspection never
+    terminalizes on live DPJ and poisons later workflow evidence.** Clean pinned
+    legacy run `2026-08-29T08-31-33-092Z-cee475eb-legacy-dpj` physically starts
+    the alternate inspection. After the complete 180-second lifecycle budget,
+    legacy still reports `Reloading page with JavaScript disabled` and
+    `Inspecting page...`, has no terminal inspection identity, and retains the
+    prior JavaScript render choice. A reciprocal 60-second probe records 585
+    physical center-point attempts with `#ui-curtain` continuously covering the
+    enabled control; a 30-second session-return probe records another 294
+    blocked attempts. Re-enabling JavaScript and reloading the same managed tab
+    does not recover the operation; the popup cycles between inspection and
+    highlight calculation. The immutable run is finalized failed and records
+    zero publication attempts. P25 now supports an explicit diagnostic
+    observe-only render stage for the independent follow-up run. It dispatches
+    no render control, captures the real popup/page/screenshots, and necessarily
+    fails normal render acceptance (`clicked=false`, `terminal=false`). This
+    preserves the render failure while allowing marking, workflow, silent, and
+    publication cells to be measured in an unpoisoned fresh legacy session.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1271,12 +1289,13 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 130. Immutable
+Implementation remediation is code-complete through finding 131. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun,
 findings 126–128 are closed by the clean aggregate, finding 129 is closed by its
-exact clean headed rerun, and finding 130 closes the legacy evidence-collection
-gap. P25 remains open until the exact
+exact clean headed rerun, finding 130 closes the legacy evidence-collection
+gap, and finding 131 retains the resulting legacy render stall without
+poisoning independent downstream measurements. P25 remains open until the exact
 clean pushed commit completes every valid candidate's observer-free headed
 rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,

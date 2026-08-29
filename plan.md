@@ -1041,6 +1041,23 @@ headed-validation gates.
   workflow coverage passes 37/37. Commit/push and a fresh pinned legacy run are
   next; the startup stalls remain measured legacy latency, not suppressed
   evidence.
+- Clean pinned legacy DPJ run
+  `2026-08-29T08-31-33-092Z-cee475eb-legacy-dpj` proves the deeper legacy
+  failure after the readiness correction. A trusted click starts the alternate
+  JavaScript-disabled inspection, but after the full 180-second lifecycle
+  budget the popup still says `Reloading page with JavaScript disabled` and
+  `Inspecting page...`, exposes no terminal inspection identity, and retains
+  the prior JavaScript choice. The reciprocal probe retains 585 center-point
+  polls with `#ui-curtain` still covering the real control after 60 seconds;
+  session return retains another 294 blocked polls after 30 seconds. Explicitly
+  re-enabling JavaScript and reloading the same managed tab only cycles back
+  into `Calculating highlightings...` and `Inspecting page...`. The run is
+  finalized failed with the publication guard intact. A new explicit
+  diagnostic observe-only render option records popup/page/screenshots without
+  dispatching or pretending success; the ordinary stage acceptance still fails
+  because `clicked` and `terminal` remain false. It permits a separate fresh
+  legacy run to measure marking, workflow, silent, and publication behavior
+  without letting the confirmed render stall poison those independent cells.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

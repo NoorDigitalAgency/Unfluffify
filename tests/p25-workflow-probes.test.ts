@@ -491,6 +491,9 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).toContain('integerOption(options, "ai-timeout-ms", AI_WORKFLOW_TIMEOUT_MS)');
     expect(harness).toContain("const initialInspectionView = before.renderInspectionView");
     expect(harness).toContain("last.renderInspectionView === renderMode && initialInspectionView !== renderMode");
+    expect(harness).toContain('options["diagnostic-observe-only-reason"]');
+    expect(harness).toContain("diagnostic-observe-only-no-render-control-dispatch");
+    expect(harness).toContain("diagnosticObserveOnly: true");
     expect(harness).toContain("const initialBefore = await ensurePopupSessionView(popup, identity.implementation)");
     expect(harness).toContain('physicalActivatePopupControl(popup, "desktop-preview-enabled", "pointer")');
     expect(harness).toContain("viewportMatches(data.silentDesktopSetup?.posture, 1920, 1080)");
