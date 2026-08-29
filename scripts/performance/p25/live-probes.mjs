@@ -284,6 +284,13 @@ export function composedVisibilityEvidence(element, environment = globalThis) {
     }
     if (Number(style.opacity || "1") <= 0) return { visible: false, suppressed: false, reason: "composed-ancestor-opacity" };
     if (style.contentVisibility === "hidden") return { visible: false, suppressed: false, reason: "composed-ancestor-content-visibility" };
+    const clipPath = String(style.clipPath || "").replaceAll(" ", "").toLowerCase();
+    const clip = String(style.clip || "").replaceAll(" ", "").toLowerCase();
+    const zeroClipPath = /^(circle\(0(?:px|%)?(?:at[^)]*)?\)|ellipse\(0(?:px|%)?0(?:px|%)?(?:at[^)]*)?\)|inset\((?:50%){1,4}\))$/.test(clipPath);
+    const zeroRectClip = /^rect\((?:0(?:px)?[,]?){4}\)$/.test(clip);
+    if (zeroClipPath || zeroRectClip) {
+      return { visible: false, suppressed: false, reason: "composed-ancestor-clip-path" };
+    }
     if (current !== element) {
       const ancestorRect = current.getBoundingClientRect();
       const overflowX = style.overflowX || style.overflow || "visible";
@@ -296,9 +303,6 @@ export function composedVisibilityEvidence(element, environment = globalThis) {
         paintTop = Math.max(paintTop, ancestorRect.top);
         paintBottom = Math.min(paintBottom, ancestorRect.bottom);
       }
-      const clipPath = String(style.clipPath || "").replaceAll(" ", "").toLowerCase();
-      const zeroClipPath = /^(circle\(0(?:px|%)?(?:at[^)]*)?\)|ellipse\(0(?:px|%)?0(?:px|%)?(?:at[^)]*)?\)|inset\((?:50%){1,4}\))$/.test(clipPath);
-      if (zeroClipPath) return { visible: false, suppressed: false, reason: "composed-ancestor-clip-path" };
       if (!(paintRight > paintLeft && paintBottom > paintTop)) {
         return { visible: false, suppressed: false, reason: "composed-ancestor-clipped" };
       }
@@ -348,6 +352,16 @@ export function topHitPaintEvidence(element, environment = globalThis) {
     }
     return false;
   };
+  const hasPointerEventsSuppressedPath = (source, ancestor) => {
+    const visited = new Set();
+    let current = source;
+    while (current instanceof ElementType && !visited.has(current) && current !== ancestor) {
+      visited.add(current);
+      if (environment.getComputedStyle(current).pointerEvents !== "none") return false;
+      current = composedParent(current);
+    }
+    return current === ancestor;
+  };
   const rect = element.getBoundingClientRect();
   const left = Math.max(0, rect.left);
   const top = Math.max(0, rect.top);
@@ -371,9 +385,14 @@ export function topHitPaintEvidence(element, environment = globalThis) {
     const topHit = documentValue.elementsFromPoint(x, y).find((hit) => hit instanceof ElementType && !isExtensionUi(hit));
     if (!(topHit instanceof ElementType)) continue;
     sampledPointCount += 1;
-    // A visible descendant proves the source paints here. A returned ancestor
-    // does not: it is also what hit-testing returns for a clipped child.
-    if (isComposedAncestor(element, topHit)) reachablePointCount += 1;
+    // A visible descendant proves the source paints here. A composed ancestor
+    // also proves a source whose complete path to that ancestor deliberately
+    // suppresses pointer events (common for SVG icons inside buttons). The
+    // separate composed-visibility proof rejects clipped/off-canvas sources.
+    if (
+      isComposedAncestor(element, topHit) ||
+      (isComposedAncestor(topHit, element) && hasPointerEventsSuppressedPath(element, topHit))
+    ) reachablePointCount += 1;
   }
   return {
     reachable: reachablePointCount > 0,

@@ -31,7 +31,9 @@ type FakeStyle = Readonly<{
   overflow?: string;
   overflowX?: string;
   overflowY?: string;
+  clip?: string;
   clipPath?: string;
+  pointerEvents?: string;
 }>;
 
 class FakeElement {
@@ -40,7 +42,13 @@ class FakeElement {
   root: Readonly<{ host?: FakeElement }> = {};
   readonly attributes = new Map<string, string>();
   readonly children: FakeElement[] = [];
-  style: FakeStyle = { display: "block", visibility: "visible", opacity: "1", contentVisibility: "visible" };
+  style: FakeStyle = {
+    display: "block",
+    visibility: "visible",
+    opacity: "1",
+    contentVisibility: "visible",
+    pointerEvents: "auto",
+  };
   rect = { left: 10, top: 10, right: 110, bottom: 70, width: 100, height: 60 };
 
   append(child: FakeElement): FakeElement {
@@ -314,6 +322,17 @@ describe("P25 composed visual visibility evidence", () => {
     });
   });
 
+  it("rejects the source element's own screen-reader clipping", () => {
+    const source = new FakeElement();
+    source.style = { ...source.style, clip: "rect(0px, 0px, 0px, 0px)" };
+
+    expect(composedVisibilityEvidence(source, fakeEnvironment())).toEqual({
+      visible: false,
+      suppressed: false,
+      reason: "composed-ancestor-clip-path",
+    });
+  });
+
   it("rejects a nonzero source rect that is fully clipped by a composed ancestor", () => {
     const clipper = new FakeElement();
     clipper.style = { ...clipper.style, overflow: "hidden" };
@@ -357,6 +376,19 @@ describe("P25 composed visual visibility evidence", () => {
     const overlay = extensionRoot.append(new FakeElement());
 
     expect(topHitPaintEvidence(source, fakeEnvironment(() => [overlay, descendant, source]))).toMatchObject({
+      reachable: true,
+      sampledPointCount: 5,
+      reachablePointCount: 5,
+      reason: null,
+    });
+  });
+
+  it("accepts a visible pointer-suppressed SVG through its first interactive ancestor", () => {
+    const button = new FakeElement();
+    const source = button.append(new FakeElement());
+    source.style = { ...source.style, pointerEvents: "none" };
+
+    expect(topHitPaintEvidence(source, fakeEnvironment(() => [button]))).toMatchObject({
       reachable: true,
       sampledPointCount: 5,
       reachablePointCount: 5,
