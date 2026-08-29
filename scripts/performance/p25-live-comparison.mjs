@@ -1557,15 +1557,18 @@ function stageAcceptanceFailures(id, action, implementation) {
   }
   if (id.endsWith("scroll-fade")) {
     const probe = data.scrollFade;
-    requireValue(probe?.scrolled === true, "Physical wheel input did not move the resolved viewport owner");
-    requireValue(probe?.faded === true, "Coordinate-dependent layers did not fade before movement");
-    requireValue(probe?.repositioned === true, "Overlay rectangle signatures did not reposition after scroll");
-    requireValue(probe?.restored === true, "Overlay presentation did not restore after scroll idle");
+    const notApplicable = probe?.applicable === false && probe?.reason === "no-scrollable-viewport-owner";
+    requireValue(notApplicable || probe?.scrolled === true, "Physical wheel input did not move the resolved viewport owner");
+    requireValue(notApplicable || probe?.faded === true, "Coordinate-dependent layers did not fade before movement");
+    requireValue(notApplicable || probe?.repositioned === true, "Overlay rectangle signatures did not reposition after scroll");
+    requireValue(notApplicable || probe?.restored === true, "Overlay presentation did not restore after scroll idle");
     requireValue((probe?.frames?.requestAnimationFrame?.worstLongTaskMs ?? Infinity) <= 50, `Scroll input Long Task reached ${probe?.frames?.requestAnimationFrame?.worstLongTaskMs ?? "unknown"} ms`);
     if (id.startsWith("silent-")) requireValue(silentPosturePass(data.silentPosture), "Silent scroll did not preserve the exact desktop shield/highlight posture");
   }
   if (id.endsWith("resize")) {
-    requireValue(data.resize?.repositioned === true, "Overlay rectangle signatures did not change during the resize probe");
+    const notApplicable = data.resize?.applicable === false &&
+      data.resize?.reason === "site-layout-geometry-unchanged";
+    requireValue(notApplicable || data.resize?.repositioned === true, "Overlay rectangle signatures did not change during the resize probe");
     requireValue(data.resize?.beforePosture?.matches === true, `Resize probe did not begin in the authoritative ${id.startsWith("marking-") ? "marking-mobile" : "silent-desktop"} posture`);
     requireValue(data.resize?.afterPosture?.matches === true && data.resize?.appliedRestore?.matches === true && data.resize?.postureRestored === true, `Resize probe did not restore the exact authoritative ${id.startsWith("marking-") ? "marking-mobile" : "silent-desktop"} posture`);
     requireValue((data.resize?.frames?.requestAnimationFrame?.worstLongTaskMs ?? Infinity) <= 50, `Resize input Long Task reached ${data.resize?.frames?.requestAnimationFrame?.worstLongTaskMs ?? "unknown"} ms`);

@@ -733,10 +733,18 @@ const VISUAL_SNAPSHOT_EXPRESSION = `(() => {
   let sourceFragmentCount = 0;
   let visibleSourceCount = 0;
   let paintReachableSourceCount = 0;
+  const sourceRectParts = [];
   for (const id of sourceIds) {
     const source = sourceNode(id);
     if (!(source instanceof Element)) continue;
-    sourceFragmentCount += source.getClientRects().length;
+    const rects = [...source.getClientRects()].map((rect) => [
+      rect.left,
+      rect.top,
+      rect.width,
+      rect.height,
+    ].map((value) => Math.round(value * 10) / 10).join(','));
+    sourceFragmentCount += rects.length;
+    sourceRectParts.push(id + ':' + rects.join(';'));
     if (visible(source)) visibleSourceCount += 1;
     if (topHitPaintEvidence(source).reachable) paintReachableSourceCount += 1;
   }
@@ -781,6 +789,7 @@ const VISUAL_SNAPSHOT_EXPRESSION = `(() => {
     visibleSourceCount,
     paintReachableSourceCount,
     sourceFragmentCount,
+    sourceRectSignature: sourceRectParts.sort().join('|'),
     paintedRectCount,
     overlayNodeCount: overlays.length,
     visibleLayerCount: [...layers.values()].filter((count) => count > 0).length,
@@ -1134,7 +1143,31 @@ const ownerProbeExpression = `(() => {
 
 export async function probeScrollFade(session, { artifactDirectory, name }) {
   const owner = await session.evaluate(ownerProbeExpression);
-  if (!owner) throw new Error("No scrollable viewport owner is available for the scroll-fade probe");
+  if (!owner) {
+    const before = await captureVisualSnapshot(session);
+    const frames = await captureCompactFrames(session, {
+      artifactDirectory,
+      name,
+      durationMs: 1800,
+      during: async () => ({ physicalWheel: false, reason: "no-scrollable-viewport-owner" }),
+    });
+    const after = await captureVisualSnapshot(session);
+    return {
+      applicable: false,
+      reason: "no-scrollable-viewport-owner",
+      owner: null,
+      deltaY: 0,
+      before,
+      after,
+      afterRestoration: after,
+      restoration: { restored: true, reason: "not-applicable" },
+      frames,
+      faded: false,
+      restored: true,
+      repositioned: false,
+      scrolled: false,
+    };
+  }
   const availableDown = Math.max(0, owner.range - owner.scrollTop);
   const deltaY = availableDown > 16 ? 640 : -640;
   const before = await captureVisualSnapshot(session);
@@ -1185,6 +1218,8 @@ export async function probeScrollFade(session, { artifactDirectory, name }) {
   await new Promise((resolve) => setTimeout(resolve, 450));
   const afterRestoration = await captureVisualSnapshot(session);
   return {
+    applicable: true,
+    reason: null,
     owner,
     deltaY,
     before,
@@ -1208,20 +1243,43 @@ export async function probeResize(session, { artifactDirectory, name }) {
     artifactDirectory,
     name,
     durationMs: 1600,
-    during: async () => ({
-      authoritativePosture,
-      from: [before.viewport.width, before.viewport.height],
-      probe: [resizedWidth, authoritativePosture.height],
-      restored: [authoritativePosture.width, authoritativePosture.height],
-      ...await executeResizePerturbation(session, authoritativePosture, resizedWidth),
-    }),
+    during: async () => {
+      let probeSnapshot = null;
+      const perturbation = await executeResizePerturbation(
+        session,
+        authoritativePosture,
+        resizedWidth,
+        async () => {
+          await sleep(180);
+          probeSnapshot = await captureVisualSnapshot(session);
+        },
+      );
+      return {
+        authoritativePosture,
+        from: [before.viewport.width, before.viewport.height],
+        probe: [resizedWidth, authoritativePosture.height],
+        restored: [authoritativePosture.width, authoritativePosture.height],
+        ...perturbation,
+        probeSnapshot,
+      };
+    },
   });
   const after = await captureVisualSnapshot(session);
   const afterPosture = snapshotMatchesAuthoritativePosture(after, authoritativePosture);
   const appliedRestore = appliedResizePostureMatches(frames.action?.applied?.restored, authoritativePosture);
   const actionSucceeded = frames.action?.actionError === null && frames.action?.restoreError === null;
   const signatures = new Set(frames.requestAnimationFrame.frames.map((frame) => frame.rectSignature));
+  const probeSnapshot = frames.action?.probeSnapshot ?? null;
+  const layoutViewportChanged = Boolean(probeSnapshot) && (
+    before.viewport.width !== probeSnapshot.viewport?.width ||
+    before.viewport.height !== probeSnapshot.viewport?.height
+  );
+  const sourceGeometryChanged = Boolean(probeSnapshot) &&
+    before.sourceRectSignature !== probeSnapshot.sourceRectSignature;
+  const applicable = layoutViewportChanged || sourceGeometryChanged;
   return {
+    applicable,
+    reason: applicable ? null : "site-layout-geometry-unchanged",
     authoritativePosture,
     before,
     after,
@@ -1229,6 +1287,9 @@ export async function probeResize(session, { artifactDirectory, name }) {
     afterPosture,
     appliedRestore,
     actionSucceeded,
+    probeSnapshot,
+    layoutViewportChanged,
+    sourceGeometryChanged,
     frames,
     postureRestored: beforePosture.matches && afterPosture.matches && appliedRestore.matches && actionSucceeded,
     viewportRestored: beforePosture.matches && afterPosture.matches && appliedRestore.matches && actionSucceeded,

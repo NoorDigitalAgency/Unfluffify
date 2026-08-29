@@ -382,6 +382,38 @@ describe("P25 live-comparison stage and aggregate contract", () => {
       .toEqual(expect.arrayContaining(["stage-completeness", "stage-exits", "zero-publish-attempts"]));
   });
 
+  it("accepts only the exact non-applicable scroll and resize evidence produced by the live probes", () => {
+    const run = aggregate();
+    run.probes.markingScrollFade = {
+      applicable: false,
+      reason: "no-scrollable-viewport-owner",
+      scrolled: false,
+      faded: false,
+      repositioned: false,
+      restored: true,
+    };
+    run.probes.silentScrollFade = { ...run.probes.markingScrollFade };
+    run.probes.markingResize = {
+      applicable: false,
+      reason: "site-layout-geometry-unchanged",
+      repositioned: false,
+      viewportRestored: true,
+    };
+    run.probes.silentResize = { ...run.probes.markingResize };
+
+    expect(validateRunAggregate(run).checks.find((check) => check.id === "scroll-fade-resize-proof"))
+      .toMatchObject({ pass: true });
+
+    run.probes.markingScrollFade.reason = "unknown-scroll-failure";
+    expect(validateRunAggregate(run).checks.find((check) => check.id === "scroll-fade-resize-proof"))
+      .toMatchObject({ pass: false });
+
+    run.probes.markingScrollFade.reason = "no-scrollable-viewport-owner";
+    run.probes.markingResize.reason = "unknown-resize-failure";
+    expect(validateRunAggregate(run).checks.find((check) => check.id === "scroll-fade-resize-proof"))
+      .toMatchObject({ pass: false });
+  });
+
   it("accepts unrelated dynamic overlay churn when a plain click leaves its target untouched", () => {
     const run = aggregate();
     const operation = run.probes.markingGestures.operations.find((candidate) => candidate.id === "plain-no-create")!;

@@ -433,19 +433,19 @@ export function validateRunAggregate(aggregate) {
   });
   pushCheck(checks, "independent-cardinality", disposition?.parityEligible === false || ["sourceCount", "sourceFragmentCount", "paintedRectCount", "visibleLayerCount", "physicalHitCount", "markableCandidateCount"].every((key) => Number.isInteger(aggregate?.probes?.cardinality?.[key]) && aggregate.probes.cardinality[key] >= 0), aggregate?.probes?.cardinality ?? null);
   pushCheck(checks, "border-layer-proof", disposition?.parityEligible === false || ((aggregate?.probes?.borders?.length ?? 0) > 0 && (aggregate?.probes?.layers?.length ?? 0) > 0), { borders: aggregate?.probes?.borders?.length ?? 0, layers: aggregate?.probes?.layers?.length ?? 0 });
+  const scrollFadePass = (probe) => probe?.applicable === false
+    ? probe.reason === "no-scrollable-viewport-owner"
+    : probe?.scrolled === true && probe?.faded === true &&
+      probe?.repositioned === true && probe?.restored === true;
+  const resizePass = (probe) => probe?.viewportRestored === true && (
+    probe?.repositioned === true ||
+    (probe?.applicable === false && probe?.reason === "site-layout-geometry-unchanged")
+  );
   pushCheck(checks, "scroll-fade-resize-proof", disposition?.parityEligible === false || (
-    aggregate?.probes?.markingScrollFade?.scrolled === true &&
-    aggregate?.probes?.markingScrollFade?.faded === true &&
-    aggregate?.probes?.markingScrollFade?.repositioned === true &&
-    aggregate?.probes?.markingScrollFade?.restored === true &&
-    aggregate?.probes?.silentScrollFade?.scrolled === true &&
-    aggregate?.probes?.silentScrollFade?.faded === true &&
-    aggregate?.probes?.silentScrollFade?.repositioned === true &&
-    aggregate?.probes?.silentScrollFade?.restored === true &&
-    aggregate?.probes?.markingResize?.repositioned === true &&
-    aggregate?.probes?.markingResize?.viewportRestored === true &&
-    aggregate?.probes?.silentResize?.repositioned === true &&
-    aggregate?.probes?.silentResize?.viewportRestored === true
+    scrollFadePass(aggregate?.probes?.markingScrollFade) &&
+    scrollFadePass(aggregate?.probes?.silentScrollFade) &&
+    resizePass(aggregate?.probes?.markingResize) &&
+    resizePass(aggregate?.probes?.silentResize)
   ), {
     markingScrollFade: aggregate?.probes?.markingScrollFade ?? null,
     silentScrollFade: aggregate?.probes?.silentScrollFade ?? null,
