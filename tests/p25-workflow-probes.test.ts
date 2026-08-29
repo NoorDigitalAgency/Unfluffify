@@ -641,6 +641,7 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).toContain("await physicalActivatePreviewPageTarget(site)");
     expect(harness).toContain("allowContextPreclean: identity.implementation === \"rewrite\"");
     expect(harness).toContain("preparationReset");
+    expect(harness).toContain("integerOption(options, \"activation-timeout-ms\", 45_000)");
     expect(harness).toContain("await runDiscardWorkflow(popup)");
     expect(harness).toContain("waitForDirtyFreshnessProjection(popup, dirtyEdit.inputDispatchedAtEpochMs)");
     expect(harness).toContain("waitForDirtyFreshnessProjection(popup, saveEdit.inputDispatchedAtEpochMs)");
@@ -666,7 +667,7 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).toContain('options["diagnostic-observe-only-reason"]');
     expect(harness).toContain("diagnostic-observe-only-no-render-control-dispatch");
     expect(harness).toContain("diagnosticObserveOnly: true");
-    expect(harness).toContain("const initialBefore = await ensurePopupSessionView(popup, identity.implementation)");
+    expect(harness).toContain("const initialBefore = await ensurePopupSessionView(");
     expect(harness).toContain('"lock-take-over",');
     expect(harness).toContain("if (recovery?.id)");
     expect(harness).toContain("state.renderInspectionView !== state.renderChoice");

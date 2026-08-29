@@ -1668,7 +1668,11 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
     const popup = await new CdpSession(targets.popup).connect();
     try {
       await popup.send("Runtime.enable");
-      const initialBefore = await ensurePopupSessionView(popup, identity.implementation);
+      const initialBefore = await ensurePopupSessionView(
+        popup,
+        identity.implementation,
+        integerOption(options, "activation-timeout-ms", 45_000),
+      );
       let silentDesktopSetup = null;
       if (identity.implementation === "rewrite") {
         const initialDesktopControl = workflowControl(initialBefore, "desktop-preview-enabled");
