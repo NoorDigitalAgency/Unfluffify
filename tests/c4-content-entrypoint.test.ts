@@ -557,6 +557,7 @@ describe("C4 rewrite content entrypoints", () => {
     expect(source).toContain("measureExpandedScrollHeight: currentScrollExtent");
     expect(source).toContain("if (!scroll.stale && !progressed)");
     expect(source).toContain("const reprovedOwner = refreshScrollOwner(true)");
+    expect(source).toContain("!inspectionOwnsScroll()\n  ) {\n    void runPageVisitRitual(pageUrl");
     expect(source).toContain("const matchingPreparedRitual = completedPageVisitRitual");
     expect(source).toContain("revealController.resetForPresentationLeaseLoss()");
     expect(source).toContain("completedPageVisitRitual = null;\n  pendingPageVisitRitual = null;\n  revealController.resetForPresentationLeaseLoss();");

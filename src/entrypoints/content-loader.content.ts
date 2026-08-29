@@ -2959,7 +2959,16 @@ async function resolvePageContext(options: Readonly<{ ritualRequiresCandidate?: 
   const wanted = candidate || !hasPageRecords;
   const suspended = response.data.status === "suspended_candidate_removed" ||
     response.data.status === "suspended_candidate_feed_conflict";
-  if (response.data.renderModeSet && wanted && !suspended) {
+  if (
+    response.data.renderModeSet &&
+    wanted &&
+    !suspended &&
+    // Inspection owns this document's scroll and may reload it again. Starting
+    // the page-load ritual underneath that exact curtain creates a doomed
+    // occurrence that a later real activation can accidentally join. The
+    // terminal inspection path explicitly calls preparePageVisit instead.
+    !inspectionOwnsScroll()
+  ) {
     void runPageVisitRitual(pageUrl, requireCandidate ? "page-load" : "render-mode-established");
   }
 }
