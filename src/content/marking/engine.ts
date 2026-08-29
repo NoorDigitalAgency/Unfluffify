@@ -2233,16 +2233,20 @@ export function createMarkingEngine(
           }
           const element = bridge.byKey.get(node.key)?.element;
           const view = element?.ownerDocument.defaultView;
-          if (!element || !view || !isCurrentlyVisuallyVisible(element)) {
+          if (!element || !view) {
             liveVisibility.set(node.key, false);
             return false;
           }
           const rect = element.getBoundingClientRect();
           const viewportWidth = Number.isFinite(view.innerWidth) ? view.innerWidth : Number.POSITIVE_INFINITY;
           const viewportHeight = Number.isFinite(view.innerHeight) ? view.innerHeight : Number.POSITIVE_INFINITY;
-          const visible = rect.width > 0 && rect.height > 0 &&
+          const intersectsViewport = rect.width > 0 && rect.height > 0 &&
             rect.right > 0 && rect.left < viewportWidth &&
             rect.bottom > 0 && rect.top < viewportHeight;
+          // A sibling outside the physical viewport cannot influence this
+          // Shift expansion. Reject it before the composed ancestor style walk;
+          // visible candidates still receive the complete live proof.
+          const visible = intersectsViewport && isCurrentlyVisuallyVisible(element, rect);
           liveVisibility.set(node.key, visible);
           return visible;
         };

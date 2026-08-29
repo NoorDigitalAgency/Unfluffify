@@ -297,20 +297,26 @@ function cssRectClipHasNoPaint(value: string): boolean {
  * such elements pointer-addressable. Recheck the live composed ancestor chain
  * before drawing an exclusion while leaving the evaluator's extraction state
  * untouched. */
-export function isCurrentlyVisuallyVisible(element: Element): boolean {
+export function isCurrentlyVisuallyVisible(
+  element: Element,
+  measuredSourceRect?: RectLike,
+): boolean {
   const view = element.ownerDocument.defaultView;
   const connection = element as Element & { isConnected?: boolean };
   if (!view || connection.isConnected === false) {
     return false;
   }
-  const sourceRect = element.getBoundingClientRect();
+  // Gesture resolution may already have measured the candidate to reject
+  // offscreen siblings. Reuse that same-task rectangle so a live visibility
+  // proof never forces a duplicate layout read.
+  const sourceRect = measuredSourceRect ?? element.getBoundingClientRect();
   if (!(sourceRect.width > 0 && sourceRect.height > 0)) {
     return false;
   }
   let paintLeft = sourceRect.left;
   let paintTop = sourceRect.top;
-  let paintRight = sourceRect.right;
-  let paintBottom = sourceRect.bottom;
+  let paintRight = sourceRect.left + sourceRect.width;
+  let paintBottom = sourceRect.top + sourceRect.height;
   let current: Element | null = element;
   while (current) {
     const html = current as HTMLElement;

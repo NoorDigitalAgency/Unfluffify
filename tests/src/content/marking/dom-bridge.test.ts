@@ -461,12 +461,16 @@ describe("P6 DOM bridge", () => {
     const card = new FakeElement("ARTICLE", rect(-500, 10, 260, 120));
     const title = new FakeElement("H2", rect(-480, 20, 180, 24), "Late visible title");
     const copy = new FakeElement("P", rect(-480, 54, 180, 40), "Late visible copy");
-    for (const element of [root, card, title, copy]) {
+    const offscreenSiblings = Array.from({ length: 120 }, (_, index) =>
+      new FakeElement("DIV", rect(-900, 140 + index * 20, 180, 18), `Offscreen ${index}`)
+    );
+    for (const element of [root, card, title, copy, ...offscreenSiblings]) {
       element.ownerDocument = doc;
     }
     root.appendChild(card);
     card.appendChild(title);
     card.appendChild(copy);
+    for (const sibling of offscreenSiblings) card.appendChild(sibling);
     doc.hits = [title, card, root];
     const engine = createMarkingEngine(root as unknown as Element);
 
@@ -479,8 +483,11 @@ describe("P6 DOM bridge", () => {
     const include = engine.resolveAtPoint(40, 30, "include");
     expect(include?.xpath).toBe("/main[1]/article[1]/h2[1]");
 
+    const styleReads = vi.spyOn(doc.defaultView, "getComputedStyle");
+    styleReads.mockClear();
     const widened = engine.resolveAtPoint(40, 30, "exclude", true);
     expect(widened?.xpath).toBe("/main[1]/article[1]");
+    expect(styleReads.mock.calls.some(([element]) => offscreenSiblings.includes(element))).toBe(false);
     expect(engine.acknowledge(include!, "include")).toBe(true);
     expect(engine.toggle(include!, "include")).toBe(true);
     expect(engine.rows()).toContainEqual({
