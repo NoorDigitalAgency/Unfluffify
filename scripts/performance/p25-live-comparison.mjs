@@ -1395,6 +1395,7 @@ async function runMeasuredFullWorkflow({ popup, site, guard, identity, options }
   const contentList = await runContentListWorkflow(popup, site, initialAi);
   const markingTargetOptions = {
     requireContextAuthority: identity.implementation === "rewrite",
+    allowContextPreclean: identity.implementation === "rewrite",
   };
 
   const dirtyEdit = await withSiteSession(
@@ -1788,6 +1789,7 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
     const rewriteContextMenu = identity.implementation === "rewrite";
     const preparation = await withSiteSession(targets.site, (session) => prepareMarkingGestureTarget(session, {
       requireContextAuthority: rewriteContextMenu,
+      allowContextPreclean: rewriteContextMenu,
     }));
     const target = preparation.target;
     if (!target) {
@@ -1802,9 +1804,48 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
       }),
     }));
     const gestures = frames.action;
+    const preparationReset = preparation.diagnostics.preclean
+      ? await withPopupSession(targets.popup, async (popup) => {
+        const before = await captureWorkflowPopupState(popup);
+        const discard = workflowControl(before, "page-revert");
+        if (!discard || discard.disabled) {
+          return { required: false, before, discard: null, markingRestored: true };
+        }
+        const restored = await runDiscardWorkflow(popup);
+        let terminal = restored.terminal;
+        let toggle = workflowControl(terminal, "toggle-enabled");
+        let markingActivation = null;
+        if (toggle?.checked !== true) {
+          markingActivation = await physicalActivatePopupControl(popup, "toggle-enabled", "pointer");
+          terminal = await waitForWorkflowPopupState(
+            popup,
+            (state) => workflowControl(state, "toggle-enabled")?.checked === true && !state.busy,
+            45_000,
+          );
+          toggle = workflowControl(terminal, "toggle-enabled");
+        }
+        return {
+          required: true,
+          before,
+          discard: restored,
+          markingActivation,
+          terminal,
+          markingRestored: toggle?.checked === true,
+        };
+      })
+      : null;
     const document = await withSiteSession(targets.site, (session) => captureDocumentIdentity(session, identity.expectedUrl));
     const screenshots = await captureStageScreenshots({ ...targets, runDirectory, id });
-    return { data: { gestures, frames, targetPreparation: preparation.diagnostics }, document, screenshots };
+    return {
+      data: {
+        gestures,
+        frames,
+        targetPreparation: preparation.diagnostics,
+        preparationReset,
+      },
+      document,
+      screenshots,
+    };
   }
   if (id === "marking-scroll-fade" || id === "silent-scroll-fade") {
     const probe = await withSiteSession(targets.site, (session) => probeScrollFade(session, { artifactDirectory: frameDirectory, name: id }));

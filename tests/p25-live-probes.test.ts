@@ -12,6 +12,7 @@ import {
   filterLongTasksToCollectorWindow,
   markingOwnerBelongsToCandidate,
   preparedMarkingContextIsClean,
+  preparedMarkingContextCanBeCleared,
   preparedMarkingTargetIsUsable,
   stablePreparedMarkingTargetAuthority,
   resolveCollectorPerformanceWindow,
@@ -111,6 +112,22 @@ describe("P25 live site-session visibility", () => {
     expect(source).toContain("const deadline = Date.now() + 500");
     expect(source).toContain("document.querySelectorAll('[data-uf-marking-menu=\"true\"]')");
     expect(source).toContain("Marking context menu did not dismiss after trusted Escape input");
+  });
+});
+
+describe("P25 configured-target preparation", () => {
+  const actions = (clearDisabled: boolean) => [
+    { action: "include", disabled: false },
+    { action: "exclude", disabled: clearDisabled ? false : true },
+    { action: "widen", disabled: true },
+    { action: "clear", disabled: clearDisabled },
+  ];
+
+  it("distinguishes a clean target from a physically clearable configured target", () => {
+    expect(preparedMarkingContextIsClean(actions(true))).toBe(true);
+    expect(preparedMarkingContextCanBeCleared(actions(true))).toBe(false);
+    expect(preparedMarkingContextIsClean(actions(false))).toBe(false);
+    expect(preparedMarkingContextCanBeCleared(actions(false))).toBe(true);
   });
 });
 

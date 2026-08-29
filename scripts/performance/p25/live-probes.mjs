@@ -1481,6 +1481,12 @@ export function preparedMarkingContextIsClean(actions) {
     byAction.get("clear")?.disabled === true;
 }
 
+export function preparedMarkingContextCanBeCleared(actions) {
+  const clear = (Array.isArray(actions) ? actions : [])
+    .find((action) => action?.action === "clear");
+  return clear?.disabled === false;
+}
+
 async function waitForVisibleMarkingContextMenu(session, timeoutMs = 1_500) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -1620,6 +1626,55 @@ async function searchCleanMarkingTarget(session, options = {}) {
       if (options.requireContextAuthority === true) {
         contextMenu = await preparedMarkingContextAuthority(session, confirmation.target);
         if (!preparedMarkingContextIsClean(contextMenu)) {
+          if (
+            options.allowContextPreclean === true &&
+            preparedMarkingContextCanBeCleared(contextMenu)
+          ) {
+            const inputDispatchedAtEpochMs = Date.now();
+            const dispatchLatencyMs = await dispatchPhysicalGesture(
+              session,
+              confirmation.target,
+              {},
+            );
+            await waitForPresentationOpportunity(session, { frameCount: 2 });
+            const afterContextMenu = await preparedMarkingContextAuthority(
+              session,
+              confirmation.target,
+            );
+            if (preparedMarkingContextIsClean(afterContextMenu)) {
+              return {
+                target: {
+                  ...confirmation.target,
+                  includedOwnerXpath: confirmation.includedOwnerXpath,
+                  shiftedOwnerXpath: confirmation.shiftedOwnerXpath,
+                  selectionAttempt: attempts,
+                  selectionSweep: sweep,
+                  precleaned: true,
+                },
+                diagnostics: {
+                  attempts,
+                  sweeps: sweep,
+                  durationMs: Date.now() - startedAt,
+                  rejectedCounts,
+                  lastRejections,
+                  contextMenu: afterContextMenu,
+                  preclean: {
+                    trustedPhysicalInput: true,
+                    inputDispatchedAtEpochMs,
+                    dispatchLatencyMs,
+                    beforeContextMenu: contextMenu,
+                    afterContextMenu,
+                  },
+                },
+              };
+            }
+            reject("context-preclean-failed", confirmation.target, {
+              contextMenu,
+              afterContextMenu,
+            });
+            skippedXpaths.push(target.xpath);
+            continue;
+          }
           reject("context-not-clean", confirmation.target, { contextMenu });
           skippedXpaths.push(target.xpath);
           continue;

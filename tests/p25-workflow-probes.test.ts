@@ -639,6 +639,8 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).toContain("await physicalActivatePreviewRow(popup, firstPaint.preview.rowCount > 1 ? 1 : 0)");
     expect(harness).toContain("activatedRow: rowActivation.before");
     expect(harness).toContain("await physicalActivatePreviewPageTarget(site)");
+    expect(harness).toContain("allowContextPreclean: identity.implementation === \"rewrite\"");
+    expect(harness).toContain("preparationReset");
     expect(harness).toContain("await runDiscardWorkflow(popup)");
     expect(harness).toContain("waitForDirtyFreshnessProjection(popup, dirtyEdit.inputDispatchedAtEpochMs)");
     expect(harness).toContain("waitForDirtyFreshnessProjection(popup, saveEdit.inputDispatchedAtEpochMs)");
