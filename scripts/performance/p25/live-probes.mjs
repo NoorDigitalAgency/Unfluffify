@@ -928,9 +928,13 @@ export function resolveCollectorPerformanceWindow(action, startedAt, endedAt) {
 }
 
 export function selectActiveOverlayRoot(roots) {
+  const candidates = Array.from(roots ?? []);
+  if (candidates.length <= 1) {
+    return candidates[0] ?? null;
+  }
   let selected = null;
   let selectedPaintCount = -1;
-  for (const root of Array.from(roots ?? [])) {
+  for (const root of candidates) {
     const paintCount = typeof root?.querySelectorAll === "function"
       ? root.querySelectorAll('[data-uf-overlay-xpath], [data-uf-silent-highlight], .uf-rect').length
       : 0;
@@ -944,10 +948,27 @@ export function selectActiveOverlayRoot(roots) {
   return selected;
 }
 
+export function collectOverlayRoots(documentNode) {
+  const roots = [];
+  const seen = new Set();
+  const include = (root) => {
+    if (!root || seen.has(root)) return;
+    seen.add(root);
+    roots.push(root);
+  };
+  include(documentNode?.getElementById?.("unfluffify-overlay"));
+  include(documentNode?.getElementById?.("unfluffify-silent-highlight-overlay"));
+  for (const root of Array.from(documentNode?.getElementsByClassName?.("uf-marking-layer-root") ?? [])) {
+    include(root);
+  }
+  return roots;
+}
+
 function frameCollectorExpression(collectorKey, ownerXPath, durationMs) {
   return `(() => {
     const collectorWindowShouldContinue = ${collectorWindowShouldContinue.toString()};
     const selectActiveOverlayRoot = ${selectActiveOverlayRoot.toString()};
+    const collectOverlayRoots = ${collectOverlayRoots.toString()};
     const serializeLongTaskEntry = ${serializeLongTaskEntry.toString()};
     const key = ${JSON.stringify(collectorKey)};
     const ownerXPath = ${JSON.stringify(ownerXPath)};
@@ -980,7 +1001,11 @@ function frameCollectorExpression(collectorKey, ownerXPath, durationMs) {
     } catch {}
     let previous = state.startedAt;
     const tick = (now) => {
-      const roots = document.querySelectorAll('#unfluffify-overlay, #unfluffify-silent-highlight-overlay, .uf-marking-layer-root');
+      // Keep the observer cheaper than the presentation being measured. IDs
+      // and the browser's class index avoid a document-scale selector walk on
+      // every frame of dense pages; geometry queries stay scoped to the tiny
+      // extension-owned overlay root.
+      const roots = collectOverlayRoots(document);
       const root = selectActiveOverlayRoot(roots);
       const style = root instanceof Element ? getComputedStyle(root) : null;
       const layerStyles = root instanceof Element

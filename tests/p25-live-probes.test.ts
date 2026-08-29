@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "./file-kit.ts";
 import {
   AUTHORITATIVE_RESIZE_POSTURES,
@@ -24,6 +24,7 @@ import {
   waitForPresentationOpportunity,
   bridgeXpathForElement,
   captureResizeGeometrySnapshot,
+  collectOverlayRoots,
   resolveBridgeXpath,
 } from "../scripts/performance/p25/live-probes.mjs";
 
@@ -135,6 +136,21 @@ describe("P25 configured-target preparation", () => {
 });
 
 describe("P25 active overlay frame authority", () => {
+  it("collects roots through indexed document lookups without a document selector walk", () => {
+    const legacy = {};
+    const silent = {};
+    const rewrite = {};
+    const querySelectorAll = vi.fn();
+    const documentNode = {
+      querySelectorAll,
+      getElementById: vi.fn((id: string) => id === "unfluffify-overlay" ? legacy : silent),
+      getElementsByClassName: vi.fn(() => [rewrite, legacy]),
+    };
+
+    expect(collectOverlayRoots(documentNode)).toEqual([legacy, silent, rewrite]);
+    expect(querySelectorAll).not.toHaveBeenCalled();
+  });
+
   it("selects the painted current root and the newest root when paint counts tie", () => {
     const root = (paintCount: number) => ({
       querySelectorAll: () => Array.from({ length: paintCount }),
@@ -146,6 +162,13 @@ describe("P25 active overlay frame authority", () => {
     expect(selectActiveOverlayRoot([stale, current])).toBe(current);
     expect(selectActiveOverlayRoot([stale, newestEmpty])).toBe(newestEmpty);
     expect(selectActiveOverlayRoot([])).toBeNull();
+  });
+
+  it("does not inspect descendants when there is only one current root", () => {
+    const root = { querySelectorAll: vi.fn() };
+
+    expect(selectActiveOverlayRoot([root])).toBe(root);
+    expect(root.querySelectorAll).not.toHaveBeenCalled();
   });
 });
 
