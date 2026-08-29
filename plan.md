@@ -15,7 +15,12 @@ landed in pushed commit `9161a3bb`. Immutable DPJ run
 exposed physical-target preparation finding 110 before any gesture input. The
 same-browser diagnosis also proved finding 111: explicit-include clearing and
 context capabilities could depend on a temporarily retired painted-owner index.
-Both remediations are complete-gate green and await a rebuilt pushed-source run.
+Those remediations landed in pushed commit `81850ffc`. Immutable rerun
+`2026-08-29T02-46-05-129Z-244a5cc6-rewrite-dpj` again passed stages 00–04, then
+exposed finding 112: the semantic inclusion owner was still discarded by the
+final unmark-only classification guard while the spatial fast path was fenced.
+The guard repair and its forced-fast-path-unavailable regression are complete-
+gate green and await another pushed-source run.
 The observer-free
 headed matrix remains in progress; P25 stays open until it and the final evidence
 commit are synchronized.
@@ -722,6 +727,19 @@ headed-validation gates.
   checks, 140 files / 1,415 tests, the production build, and seven generated-
   manifest checks. Commit/push, rebuild, and repeat DPJ from a new immutable run
   before proceeding.
+- The first immutable run on `81850ffc`,
+  `2026-08-29T02-46-05-129Z-244a5cc6-rewrite-dpj`, passed stages 00–04 but
+  proved that the preceding semantic fix was incomplete. When the renderer
+  owner index was generation-fenced, `resolveTarget` returned the explicit
+  inclusion correctly and the final unmark-only guard rejected it solely
+  because an inclusion evaluates as content rather than exception. Admit either
+  explicit decision at that guard while retaining no-create behavior for every
+  unmarked content node. Force both renderer fast paths unavailable in the DOM
+  regression and prove immediate context ownership plus plain clear. The
+  focused marking/P25 gate is green at five files / 219 tests. The complete gate
+  passes lint, all page-world/TypeScript checks, 140 files / 1,415 tests, the
+  production build, and seven generated-manifest checks. Commit/push, rebuild,
+  and repeat DPJ from a new immutable run.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

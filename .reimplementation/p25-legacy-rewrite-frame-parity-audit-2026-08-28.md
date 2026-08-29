@@ -781,6 +781,27 @@ preserves the stronger architecture.
     lint, every page-world/TypeScript check, 140 files / 1,415 tests, the
     production build, and seven generated-manifest checks. A rebuilt headed DPJ
     rerun is still required before this finding is closed.
+112. **Remediated, headed verification pending P0 — the
+    semantic explicit-include fallback was still rejected by the final
+    unmark-only classification guard.** Immutable pushed-source DPJ run
+    `2026-08-29T02-46-05-129Z-244a5cc6-rewrite-dpj` passed stages 00–04 on
+    `81850ffc`, then deterministically failed the exact stage-05 sequence after
+    Alt inclusion: the immediate context menu enabled Exclude, disabled Widen,
+    and the following plain click left the inclusion intact. Frame evidence kept
+    the target connected and stationary; a later physical click cleared it.
+    The renderer's current spatial index bypassed the problem once available.
+    While that index was generation-fenced, the pure resolver correctly
+    returned the closed explicit-inclusion owner, but the final plain-exclude
+    guard accepted only nodes whose evaluated classification was `exception`.
+    An explicit inclusion is classified as content, so the guard discarded the
+    exact owner it was meant to clear. Plain input now accepts either explicit
+    decision kind while continuing to reject every unmarked/non-excluded node.
+    A regression forces both painted-owner fast paths unavailable and proves
+    immediate context ownership plus plain clear through the semantic path. The
+    focused marking/P25 gate passes five files / 219 tests. The complete gate
+    passes lint, every page-world/TypeScript check, 140 files / 1,415 tests, the
+    production build, and seven generated-manifest checks. A new immutable DPJ
+    run remains required.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -852,8 +873,8 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 111; findings 108,
-110, and 111 await exact clean pushed reruns, while finding 109 remains a
+Implementation remediation is code-complete through finding 112; findings 108,
+110, 111, and 112 await exact clean pushed reruns, while finding 109 remains a
 recurrence watch. P25 remains open until the exact
 clean pushed commit completes every valid candidate's observer-free headed
 rewrite flow. Rewrite marking

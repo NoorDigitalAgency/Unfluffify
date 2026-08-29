@@ -1649,7 +1649,17 @@ export function createMarkingEngine(
       if (!resolved) {
         return null;
       }
-      if (mode === "exclude" && !shiftActive && resolved.excluded !== true) {
+      // Plain exclusion input may only remove an existing decision. An
+      // explicit inclusion is such a decision even though its evaluated
+      // classification is content rather than exception; keep it clearable
+      // while the renderer's generation-fenced owner fast path catches up.
+      if (
+        mode === "exclude" &&
+        !shiftActive &&
+        resolved.excluded !== true &&
+        resolved.explicitInclude !== true &&
+        resolved.explicitExclude !== true
+      ) {
         return null;
       }
       if (shiftActive && mode === "exclude") {

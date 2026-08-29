@@ -3752,9 +3752,25 @@ describe("P6 DOM bridge", () => {
     doc.documentElement.appendChild(root);
     root.appendChild(child);
     doc.hits = [root];
-    const engine = createMarkingEngine(root as unknown as Element);
+    const engine = createMarkingEngine(root as unknown as Element, {
+      instrumentation: {
+        // The renderer's spatial owner index is intentionally unavailable for
+        // a short generation-fenced window after a paint/scroll refresh. The
+        // semantic fallback must still recognize and clear the closed explicit
+        // include owner immediately instead of waiting for that fast path.
+        createRenderer: (options) => ({
+          ...createOverlayRenderer(options),
+          paintedExplicitOwnerAtPoint: () => null,
+          paintedExclusionOwnerAtPoint: () => null,
+        }),
+      },
+    });
     engine.toggle(engine.resolveAtPoint(10, 10, "include")!, "include");
     doc.hits = [child, root];
+
+    const context = engine.resolveContextAtPoint(10, 10);
+    expect(context.include?.xpath).toBe("/section[1]");
+    expect(context.existingExclude?.xpath).toBe("/section[1]");
 
     const plainOwner = engine.resolveAtPoint(10, 10, "exclude");
     expect(plainOwner?.xpath).toBe("/section[1]");
