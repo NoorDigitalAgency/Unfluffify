@@ -822,6 +822,7 @@ async function waitForPopupRefreshTerminal(popup, timeoutMs) {
   let last = null;
   const timeline = [];
   let lastFingerprint = "";
+  let stableIdleSamples = 0;
   while (Date.now() < deadline) {
     last = await capturePopupState(popup);
     const refresh = last.controls.find((control) => control.id === "lock-refresh");
@@ -839,12 +840,35 @@ async function waitForPopupRefreshTerminal(popup, timeoutMs) {
       timeline.push(sample);
       lastFingerprint = fingerprint;
     }
-    if (sawBusy && !busy && last.busy === false) {
-      return { state: last, timeline };
+    const terminalIdle = !busy && last.busy === false && refresh?.disabled === false;
+    stableIdleSamples = terminalIdle ? stableIdleSamples + 1 : 0;
+    if (sawBusy && terminalIdle) {
+      return { state: last, timeline, sawBusy, terminalKind: "busy-to-idle" };
+    }
+    // A cached/no-op authority refresh can complete between the trusted click
+    // acknowledgement and the first CDP sample. Accept only a stable, enabled
+    // idle terminal; the stage's independently captured extension traffic and
+    // marking activation still prove that the physical workflow proceeded.
+    if (stableIdleSamples >= 3 && Date.now() - startedAt >= 100) {
+      return { state: last, timeline, sawBusy, terminalKind: "stable-idle-fast-terminal" };
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error(`Timed out waiting for explicit Refresh to terminalize; evidence=${JSON.stringify({ sawBusy, timeline, last })}`);
+}
+
+async function capturePopupAiFeedback(popup) {
+  return await popup.evaluate(`(() => {
+    const compute = document.querySelector('#compute');
+    const spinner = document.querySelector('[role="status"], .spinner, .activity');
+    return {
+      capturedAtEpochMs: Date.now(),
+      busy: Boolean(document.querySelector('[data-transient-surface="popup-busy-curtain"]')),
+      computeDisabled: compute instanceof HTMLButtonElement ? compute.disabled : null,
+      computeAriaBusy: compute?.getAttribute('aria-busy') === 'true',
+      spinnerText: spinner?.textContent?.trim() ?? null,
+    };
+  })()`);
 }
 
 async function waitForSiteWorkflowPosture(target, predicate, timeoutMs) {
@@ -1127,6 +1151,16 @@ async function runCurrentAi(popup, guard, options) {
   let contentListFirstPaintMs = null;
   const controlActivation = await physicalActivatePopupControl(popup, "compute", "pointer");
   const feedbackStartedAt = controlActivation.dispatchedAtEpochMs ?? started;
+  const initialFeedback = await capturePopupAiFeedback(popup);
+  if (
+    initialFeedback.busy ||
+    initialFeedback.computeDisabled === true ||
+    initialFeedback.computeAriaBusy === true ||
+    initialFeedback.spinnerText
+  ) {
+    feedbackMs = Math.max(0, initialFeedback.capturedAtEpochMs - feedbackStartedAt);
+    operationObserved = true;
+  }
   const deadline = started + integerOption(options, "ai-timeout-ms", AI_WORKFLOW_TIMEOUT_MS);
   let terminal = null;
   while (Date.now() < deadline) {
@@ -1187,6 +1221,7 @@ async function runCurrentAi(popup, guard, options) {
     success: Boolean(terminal?.previewReady && !terminal.visibleFailure && requestSucceeded),
     durationMs,
     feedbackMs,
+    initialFeedback,
     requestCount: requests.length,
     requests,
     transitions,

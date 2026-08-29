@@ -273,10 +273,22 @@ export function isCurrentlyVisuallyVisible(element: Element): boolean {
   if (!view || connection.isConnected === false) {
     return false;
   }
+  const sourceRect = element.getBoundingClientRect();
+  if (!(sourceRect.width > 0 && sourceRect.height > 0)) {
+    return false;
+  }
+  let paintLeft = sourceRect.left;
+  let paintTop = sourceRect.top;
+  let paintRight = sourceRect.right;
+  let paintBottom = sourceRect.bottom;
   let current: Element | null = element;
   while (current) {
     const html = current as HTMLElement;
     const style = view.getComputedStyle(current);
+    const clipPath = String(style.clipPath ?? "").replaceAll(" ", "").toLowerCase();
+    const clip = String(style.clip ?? "").replaceAll(" ", "").toLowerCase();
+    const zeroClipPath = /^(?:circle\(0(?:px|%)?(?:at[^)]*)?\)|ellipse\(0(?:px|%)?0(?:px|%)?(?:at[^)]*)?\)|inset\((?:50%){1,4}\))$/u.test(clipPath);
+    const zeroRectClip = /^rect\((?:0(?:px)?[,]?){4}\)$/u.test(clip);
     if (
       html.hidden === true ||
       current.hasAttribute("hidden") ||
@@ -284,9 +296,28 @@ export function isCurrentlyVisuallyVisible(element: Element): boolean {
       style.display === "none" ||
       style.visibility === "hidden" ||
       style.visibility === "collapse" ||
-      Number(style.opacity) <= 0.01
+      style.contentVisibility === "hidden" ||
+      Number(style.opacity) <= 0.01 ||
+      zeroClipPath ||
+      zeroRectClip
     ) {
       return false;
+    }
+    if (current !== element) {
+      const ancestorRect = current.getBoundingClientRect();
+      const overflowX = style.overflowX || style.overflow || "visible";
+      const overflowY = style.overflowY || style.overflow || "visible";
+      if (/^(?:hidden|clip|scroll|auto)$/u.test(overflowX)) {
+        paintLeft = Math.max(paintLeft, ancestorRect.left);
+        paintRight = Math.min(paintRight, ancestorRect.right);
+      }
+      if (/^(?:hidden|clip|scroll|auto)$/u.test(overflowY)) {
+        paintTop = Math.max(paintTop, ancestorRect.top);
+        paintBottom = Math.min(paintBottom, ancestorRect.bottom);
+      }
+      if (!(paintRight - paintLeft > 1 && paintBottom - paintTop > 1)) {
+        return false;
+      }
     }
     current = composedParentElement(current);
   }
@@ -332,6 +363,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   const silentBoxes = new Map<string, SilentBox>();
   const hoverBoxes = new Map<string, HTMLElement>();
   const focusBoxes = new Map<string, HTMLElement>();
+  const latestTargetByXpath = new Map<string, OverlayRenderTarget>();
   let hoverElement: Element | null = null;
   let hoverXpath = "";
   let focusElement: Element | null = null;
@@ -383,6 +415,69 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     const measured = clientRectsFor(element, options.document);
     geometryBatch?.set(element, measured);
     return measured;
+  };
+
+  const adoptTargets = (
+    byXpath: ReadonlyMap<string, OverlayRenderTarget>,
+    replace = false,
+  ): void => {
+    if (replace) {
+      latestTargetByXpath.clear();
+    }
+    for (const [xpath, target] of byXpath) {
+      latestTargetByXpath.set(xpath, target);
+    }
+  };
+
+  const exclusionPresentationIsPaintable = (xpath: string): boolean => {
+    const target = latestTargetByXpath.get(xpath);
+    return Boolean(
+      target &&
+      isCurrentlyVisuallyVisible(target.element) &&
+      ownPaintReachableClientRectsFor(target.element, options.document).length > 0,
+    );
+  };
+
+  const pruneInvisibleExclusions = (): number => {
+    beginGeometryBatch();
+    let removed = 0;
+    const paintableByXpath = new Map<string, boolean>();
+    const paintable = (xpath: string): boolean => {
+      const retained = paintableByXpath.get(xpath);
+      if (retained !== undefined) {
+        return retained;
+      }
+      const next = exclusionPresentationIsPaintable(xpath);
+      paintableByXpath.set(xpath, next);
+      return next;
+    };
+    try {
+      for (const [key, record] of classificationBoxes) {
+        if (
+          LIVE_VISIBILITY_EXCLUSION_CLASSIFICATIONS.has(record.classification) &&
+          !paintable(record.xpath)
+        ) {
+          record.overlay.remove();
+          classificationBoxes.delete(key);
+          removed += 1;
+        }
+      }
+      for (const [key, record] of silentBoxes) {
+        const exclusion = record.presentation.includes("uf-silent-immutable") ||
+          record.presentation.includes("uf-silent-excluded");
+        if (exclusion && !paintable(record.xpath)) {
+          record.overlay.remove();
+          silentBoxes.delete(key);
+          removed += 1;
+        }
+      }
+    } finally {
+      endGeometryBatch();
+    }
+    if (removed > 0) {
+      rebuildPaintedOwnerIndex(renderGeneration);
+    }
+    return removed;
   };
 
   const rebuildPaintedOwnerIndex = (generation: number): void => {
@@ -807,6 +902,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       generation = renderGeneration + 1,
     ): void {
       beginRetainedGeometryBatch();
+      adoptTargets(byXpath, true);
       adoptEvaluationMetadata(evaluation);
       const submittedXpaths = new Set(evaluation.rows.map((row) => row.xpath));
       classificationByXpath.clear();
@@ -828,6 +924,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       generation = renderGeneration,
     ): void {
       beginRetainedGeometryBatch();
+      adoptTargets(byXpath);
       adoptEvaluationMetadata(evaluation);
       const affected = new Set(byXpath.keys());
       const submittedXpaths = new Set(evaluation.rows.map((row) => row.xpath));
@@ -940,6 +1037,15 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         endGeometryBatch();
       }
     },
+    refreshFocus(): void {
+      beginGeometryBatch();
+      try {
+        drawFocus();
+      } finally {
+        endGeometryBatch();
+      }
+    },
+    pruneInvisibleExclusions,
     paintedExclusionOwnerAtPoint(
       x: number,
       y: number,
@@ -994,6 +1100,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         excludedXpaths?: readonly string[];
       }> = {},
     ): void {
+      adoptTargets(byXpath, true);
       silentPresentationByXpath.clear();
       for (const xpath of categories.immutableXpaths ?? []) {
         silentPresentationByXpath.set(xpath, "uf-silent-immutable");
@@ -1021,6 +1128,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         excludedXpaths?: readonly string[];
       }> = {},
     ): void {
+      adoptTargets(byXpath);
       const affected = new Set(byXpath.keys());
       for (const xpath of affected) {
         silentPresentationByXpath.delete(xpath);
@@ -1133,6 +1241,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     },
     dispose(): void {
       clearBoxes();
+      latestTargetByXpath.clear();
       root.remove();
       releaseStyles();
     },

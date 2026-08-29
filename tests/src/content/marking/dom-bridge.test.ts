@@ -19,6 +19,7 @@ import {
   getComposedHitElements,
   installClosedShadowHostInstrumentation,
   isPaintReachable,
+  isCurrentlyVisuallyVisible,
   MARKING_OVERLAY_STYLE_ID,
   markClosedShadowHost,
   previewTextForElement,
@@ -162,7 +163,12 @@ class FakeDocument {
       display: element.style.display ?? "block",
       visibility: element.style.visibility ?? "visible",
       opacity: element.style.opacity ?? "1",
-      overflowY: element.style.overflowY ?? "visible",
+      clip: element.style.clip ?? "auto",
+      clipPath: element.style.clipPath ?? "none",
+      contentVisibility: element.style.contentVisibility ?? "visible",
+      overflow: element.style.overflow ?? "visible",
+      overflowX: element.style.overflowX ?? element.style.overflow ?? "visible",
+      overflowY: element.style.overflowY ?? element.style.overflow ?? "visible",
       pointerEvents: element.style.pointerEvents ?? "auto",
     }),
   };
@@ -209,6 +215,7 @@ function createRendererTestSeam() {
   const geometryBranchRender = vi.fn();
   const hoverRender = vi.fn();
   const focusRender = vi.fn();
+  const focusRefresh = vi.fn();
   const createRenderer = vi.fn((options: Parameters<typeof createOverlayRenderer>[0]) => {
     const renderer = createOverlayRenderer(options);
     return {
@@ -245,6 +252,10 @@ function createRendererTestSeam() {
         focusRender(...args);
         renderer.setFocus(...args);
       },
+      refreshFocus(): void {
+        focusRefresh();
+        renderer.refreshFocus();
+      },
     };
   });
   return {
@@ -257,6 +268,7 @@ function createRendererTestSeam() {
     geometryBranchRender,
     hoverRender,
     focusRender,
+    focusRefresh,
   };
 }
 
@@ -965,6 +977,83 @@ describe("P6 DOM bridge", () => {
     });
     expect(engine.emphasizeXpath("/main[1]/missing[1]")).toBe(false);
     expect(engine.scrollXpathIntoView("/main[1]/missing[1]")).toBe(false);
+    engine.dispose();
+  });
+
+  it("scrolls before focus paint and refreshes that exact Preview target on captured frames", () => {
+    const doc = new FakeDocument();
+    const animationFrames: Array<() => void> = [];
+    Object.assign(doc.defaultView, {
+      requestAnimationFrame(callback: () => void) {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      },
+      cancelAnimationFrame() {},
+    });
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 900));
+    const target = new FakeElement("P", rect(0, 640, 120, 20), "Preview target");
+    const order: string[] = [];
+    Object.assign(target, { scrollIntoView: () => order.push("scroll") });
+    for (const element of [root, target]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(target);
+    doc.hits = [target, root];
+    const renderer = createRendererTestSeam();
+    renderer.focusRender.mockImplementation(() => order.push("focus"));
+    renderer.focusRefresh.mockImplementation(() => order.push("refresh"));
+    const engine = createMarkingEngine(root as unknown as Element, {
+      instrumentation: { createRenderer: renderer.createRenderer },
+    });
+    const projection = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: ["p"],
+      exclusionSelectors: [],
+    });
+    const row = projection.rows.find((candidate) => candidate.text === "Preview target");
+
+    expect(engine.emphasizePreviewRow(projection.projectionId, row!.id, true)).toBe(true);
+    order.splice(0);
+    expect(engine.activatePreviewRow(projection.projectionId, row!.id)).toBe(true);
+    expect(order.slice(0, 3)).toEqual(["scroll", "focus", "refresh"]);
+    expect(animationFrames).toHaveLength(1);
+    animationFrames.shift()?.();
+    expect(order.at(-1)).toBe("refresh");
+    expect(animationFrames).toHaveLength(1);
+    animationFrames.shift()?.();
+    expect(renderer.focusRefresh).toHaveBeenCalledTimes(3);
+    engine.dispose();
+  });
+
+  it("keeps clipped and overflow-clipped technical rows but never advertises a visible route", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const clipped = new FakeElement("A", rect(0, 0, 1, 1), "Skip to footer");
+    const viewport = new FakeElement("DIV", rect(0, 20, 120, 30));
+    const overflowClipped = new FakeElement("SPAN", rect(0, 90, 80, 20), "Screen-reader status");
+    clipped.style.clip = "rect(0px, 0px, 0px, 0px)";
+    viewport.style.overflow = "hidden";
+    for (const element of [root, clipped, viewport, overflowClipped]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(clipped);
+    root.appendChild(viewport);
+    viewport.appendChild(overflowClipped);
+
+    expect(isCurrentlyVisuallyVisible(clipped as unknown as Element)).toBe(false);
+    expect(isCurrentlyVisuallyVisible(overflowClipped as unknown as Element)).toBe(false);
+    const engine = createMarkingEngine(root as unknown as Element);
+    const projection = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: [],
+      exclusionSelectors: ["a", "span"],
+    });
+    expect(projection.rows.find((row) => row.text === "Skip to footer")?.target)
+      .toEqual({ state: "unavailable", reason: "not-visible" });
+    expect(projection.rows.find((row) => row.text === "Screen-reader status")?.target)
+      .toEqual({ state: "unavailable", reason: "not-visible" });
     engine.dispose();
   });
 
@@ -2109,6 +2198,58 @@ describe("P6 DOM bridge", () => {
     expect(engine.overlayRoot().children.flatMap((layer) => layer.children).some((overlay) =>
       overlay.getAttribute("data-uf-overlay-xpath") === "/main[1]/section[1]/p[1]"
     )).toBe(false);
+    engine.dispose();
+  });
+
+  it("prunes a newly invisible exclusion in the mutation delivery before the structural quiet window", () => {
+    const doc = new FakeDocument();
+    const callbacks: Array<(records: MutationRecord[]) => void> = [];
+    Object.assign(doc.defaultView, {
+      MutationObserver: class {
+        constructor(callback: (records: MutationRecord[]) => void) {
+          callbacks.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    });
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const modal = new FakeElement("SECTION", rect(0, 0, 260, 120));
+    const paragraph = new FakeElement("P", rect(10, 10, 120, 20), "Transient exclusion");
+    for (const element of [root, modal, paragraph]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(modal);
+    modal.appendChild(paragraph);
+    doc.hits = [paragraph, modal, root];
+    const engine = createMarkingEngine(root as unknown as Element);
+    const target = engine.resolveAtPoint(20, 15, "exclude", true);
+    engine.toggle(target!, "exclude");
+    engine.renderReadOnly();
+    const painted = (): boolean => engine.overlayRoot().children
+      .flatMap((layer) => layer.children)
+      .some((overlay) =>
+        overlay.getAttribute("data-uf-overlay-xpath") === "/main[1]/section[1]/p[1]"
+      );
+    expect(painted()).toBe(true);
+
+    modal.style.opacity = "0";
+    modal.setAttribute("style", "opacity: 0");
+    callbacks[0]?.([{
+      type: "attributes",
+      target: modal,
+      attributeName: "style",
+      oldValue: null,
+    } as unknown as MutationRecord]);
+
+    expect(painted()).toBe(false);
+    expect(engine.rows()).toContainEqual({
+      xpath: "/main[1]/section[1]/p[1]",
+      excluded: true,
+      explicit: true,
+    });
     engine.dispose();
   });
 

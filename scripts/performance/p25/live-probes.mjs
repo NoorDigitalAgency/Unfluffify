@@ -1008,6 +1008,8 @@ const ownerProbeExpression = `(() => {
 export async function probeScrollFade(session, { artifactDirectory, name }) {
   const owner = await session.evaluate(ownerProbeExpression);
   if (!owner) throw new Error("No scrollable viewport owner is available for the scroll-fade probe");
+  const availableDown = Math.max(0, owner.range - owner.scrollTop);
+  const deltaY = availableDown > 16 ? 640 : -640;
   const before = await captureVisualSnapshot(session);
   const frames = await captureCompactFrames(session, {
     artifactDirectory,
@@ -1016,8 +1018,8 @@ export async function probeScrollFade(session, { artifactDirectory, name }) {
     ownerXPath: owner.xpath,
     during: async () => {
       await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: owner.x, y: owner.y });
-      await session.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: owner.x, y: owner.y, deltaX: 0, deltaY: 640 });
-      return { physicalWheel: true, x: owner.x, y: owner.y, deltaY: 640 };
+      await session.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: owner.x, y: owner.y, deltaX: 0, deltaY });
+      return { physicalWheel: true, x: owner.x, y: owner.y, deltaY };
     },
   });
   const after = await captureVisualSnapshot(session);
@@ -1034,7 +1036,40 @@ export async function probeScrollFade(session, { artifactDirectory, name }) {
     : false;
   const repositioned = new Set(rAF.map((frame) => frame.rectSignature)).size > 1;
   const scrolled = rAF.some((frame) => (frame.ownerScrollTop ?? frame.windowScrollY) !== (rAF[0]?.ownerScrollTop ?? rAF[0]?.windowScrollY));
-  return { owner, before, after, frames, faded, restored, repositioned, scrolled };
+  const restoration = await session.evaluate(`(() => {
+    const target = document.evaluate(
+      ${JSON.stringify(owner.xpath)},
+      document,
+      null,
+      XPathResult.FIRST_ORDERED_NODE_TYPE,
+      null,
+    ).singleNodeValue;
+    if (!(target instanceof Element)) return { restored: false, reason: 'owner-missing' };
+    target.scrollTop = ${JSON.stringify(owner.scrollTop)};
+    return {
+      restored: Math.abs(target.scrollTop - ${JSON.stringify(owner.scrollTop)}) <= 2,
+      expectedScrollTop: ${JSON.stringify(owner.scrollTop)},
+      actualScrollTop: Math.round(target.scrollTop),
+    };
+  })()`);
+  // Let the restoration's own scroll fade and trailing geometry transaction
+  // terminalize so the next workflow stage never inherits a probe-created
+  // terminal scroll position or hidden layer.
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  const afterRestoration = await captureVisualSnapshot(session);
+  return {
+    owner,
+    deltaY,
+    before,
+    after,
+    afterRestoration,
+    restoration,
+    frames,
+    faded,
+    restored,
+    repositioned,
+    scrolled,
+  };
 }
 
 export async function probeResize(session, { artifactDirectory, name }) {

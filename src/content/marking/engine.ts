@@ -111,11 +111,11 @@ function previewTargetStatus(element: Element): PreviewTargetStatus {
   if ((element as Element & { isConnected?: boolean }).isConnected === false) {
     return { state: "unavailable", reason: "detached" };
   }
-  if (!isCurrentlyVisuallyVisible(element)) {
-    return { state: "unavailable", reason: "not-visible" };
-  }
   if (!hasRenderableTargetGeometry(element)) {
     return { state: "unavailable", reason: "no-rendered-box" };
+  }
+  if (!isCurrentlyVisuallyVisible(element)) {
+    return { state: "unavailable", reason: "not-visible" };
   }
   if (!hasScrollReachablePreviewGeometry(element)) {
     return { state: "unavailable", reason: "not-visible" };
@@ -758,6 +758,8 @@ export function createMarkingEngine(
   let previewTextMetadata = new WeakMap<Element, PreviewTextMetadata>();
   let toggleInProgress = false;
   let previewEmphasizedRowId: string | null = null;
+  let previewFocusRefreshHandle: number | null = null;
+  let previewFocusRefreshCycle = 0;
   let lastPreviewRequest: Readonly<{ pageUrl: string; selectors: SelectorSet }> | null = null;
   let currentPreviewProjection: PreviewProjection | null = null;
   const generationByNode = new WeakMap<EvaluationNode, number>();
@@ -964,6 +966,55 @@ export function createMarkingEngine(
     // The Element identity can survive while its positional XPath changes. Move
     // the physical emphasis to the freshly bridged element/current diagnostic.
     renderer.setFocus(target.element, target.evaluationNode.xpath);
+  };
+
+  const cancelPreviewFocusRefresh = (): void => {
+    previewFocusRefreshCycle += 1;
+    if (previewFocusRefreshHandle !== null) {
+      presentationClock.cancelFrame(previewFocusRefreshHandle);
+      previewFocusRefreshHandle = null;
+    }
+  };
+
+  const focusAfterPreviewScroll = (
+    element: Element,
+    xpath: string,
+    rowFence: Readonly<{ projectionId: string; rowId: string }> | null = null,
+  ): void => {
+    cancelPreviewFocusRefresh();
+    const cycle = previewFocusRefreshCycle;
+    const generation = bridgeGeneration;
+    scrollPreviewTargetIntoView(element);
+    renderer.setFocus(element, xpath);
+    // A row can already own focus because pointer hover precedes click. Force a
+    // fresh measurement after the scroll even when setFocus therefore no-ops.
+    renderer.refreshFocus();
+    let remainingFrames = 2;
+    const refresh = (): void => {
+      previewFocusRefreshHandle = null;
+      const exactTargetStillCurrent =
+        !disposed &&
+        cycle === previewFocusRefreshCycle &&
+        generation === bridgeGeneration &&
+        bridge.byXpath.get(xpath)?.element === element &&
+        (element as Element & { isConnected?: boolean }).isConnected !== false;
+      const exactRowStillCurrent = !rowFence || (
+        previewEmphasizedRowId === rowFence.rowId &&
+        currentPreviewProjection?.projectionId === rowFence.projectionId &&
+        currentPreviewProjection.rows.some((row) => row.id === rowFence.rowId)
+      );
+      if (!exactTargetStillCurrent || !exactRowStillCurrent) {
+        return;
+      }
+      renderer.refreshFocus();
+      remainingFrames -= 1;
+      if (remainingFrames > 0) {
+        const handle = presentationClock.requestFrame(refresh);
+        previewFocusRefreshHandle = handle || null;
+      }
+    };
+    const handle = presentationClock.requestFrame(refresh);
+    previewFocusRefreshHandle = handle || null;
   };
 
   const refreshBridge = (refreshOptions: MarkingEngineRefreshOptions = {}): boolean => {
@@ -1565,6 +1616,20 @@ export function createMarkingEngine(
     if (view?.MutationObserver) {
       const observer = new view.MutationObserver((records) => {
         const netRecords = coalesceNetMutationRecords(records);
+        if (netRecords.some((record) =>
+          record.type !== "characterData" &&
+          !isExtensionCursorClassMutation(record) &&
+          (
+            !isExtractionIrrelevantMutation(record) ||
+            suppressedMutationTouchesBridge(record)
+          )
+        )) {
+          // Paint truth is latency-sensitive and bounded by the rectangles that
+          // are actually mounted. Prune a newly hidden/covered exclusion in the
+          // observer delivery itself; retain the quiet/idle structural refresh
+          // for topology, selectors, and canonical extraction state.
+          renderer.pruneInvisibleExclusions();
+        }
         if (netRecords.some(suppressedMutationTouchesBridge)) {
           // Consent suppression is intentionally extraction-irrelevant, but it
           // can hide or remove elements that already own marking rectangles.
@@ -2191,6 +2256,7 @@ export function createMarkingEngine(
       renderer.setHover(element, node?.xpath ?? "");
     },
     clearHover(): void {
+      cancelPreviewFocusRefresh();
       previewEmphasizedRowId = null;
       renderer.setHover(null);
       renderer.setFocus(null);
@@ -2221,6 +2287,7 @@ export function createMarkingEngine(
       return currentPreviewProjection;
     },
     retirePreviewProjection(): void {
+      cancelPreviewFocusRefresh();
       previewEmphasizedRowId = null;
       lastPreviewRequest = null;
       currentPreviewProjection = null;
@@ -2236,6 +2303,7 @@ export function createMarkingEngine(
       }
       if (!active) {
         if (previewEmphasizedRowId === rowId) {
+          cancelPreviewFocusRefresh();
           previewEmphasizedRowId = null;
           renderer.setFocus(null);
         }
@@ -2246,6 +2314,7 @@ export function createMarkingEngine(
         return false;
       }
       previewEmphasizedRowId = rowId;
+      cancelPreviewFocusRefresh();
       renderer.setFocus(target.element, target.evaluationNode.xpath);
       return true;
     },
@@ -2261,8 +2330,10 @@ export function createMarkingEngine(
         return false;
       }
       previewEmphasizedRowId = rowId;
-      renderer.setFocus(target.element, target.evaluationNode.xpath);
-      scrollPreviewTargetIntoView(target.element);
+      focusAfterPreviewScroll(target.element, target.evaluationNode.xpath, {
+        projectionId: targetProjectionId,
+        rowId,
+      });
       return true;
     },
     previewRowAtPoint(x: number, y: number): Readonly<{ projectionId: string; rowId: string }> | null {
@@ -2280,6 +2351,7 @@ export function createMarkingEngine(
       return null;
     },
     emphasizeXpath(xpath: string): boolean {
+      cancelPreviewFocusRefresh();
       const target = byXpathElements().get(xpath);
       if (!target) {
         renderer.setFocus(null);
@@ -2293,8 +2365,7 @@ export function createMarkingEngine(
       if (!target) {
         return false;
       }
-      renderer.setFocus(target.element, xpath);
-      scrollPreviewTargetIntoView(target.element);
+      focusAfterPreviewScroll(target.element, xpath);
       return true;
     },
     renderSilentHighlights(): readonly string[] {
@@ -2302,6 +2373,7 @@ export function createMarkingEngine(
       return renderSilent();
     },
     clearOverlays(): void {
+      cancelPreviewFocusRefresh();
       if (cancelProgressiveGeometryRender()) {
         renderer.setScrolling(false);
       }
@@ -2316,6 +2388,7 @@ export function createMarkingEngine(
       renderer.clear();
     },
     parkPresentation(): void {
+      cancelPreviewFocusRefresh();
       if (cancelProgressiveGeometryRender()) {
         renderer.setScrolling(false);
       }
@@ -2332,6 +2405,7 @@ export function createMarkingEngine(
     },
     dispose(): void {
       disposed = true;
+      cancelPreviewFocusRefresh();
       cancelProgressiveGeometryRender();
       if (deferredBranchRenderHandle !== null) {
         presentationClock.cancelFrame(deferredBranchRenderHandle);

@@ -651,6 +651,7 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).toContain('implementation === "legacy" ? "render-mode-open-view" : "render-mode-open"');
     expect(harness).toContain("const openerDeadline = Date.now() + Math.min(timeoutMs, 10_000)");
     expect(harness).toContain("waitForPopupRefreshTerminal(");
+    expect(harness).toContain('terminalKind: "stable-idle-fast-terminal"');
     expect(harness).toContain('physicalActivatePopupControl(popup, "lock-refresh", "pointer")');
     expect(harness).toContain("Timed out waiting for explicit Refresh to terminalize; evidence=");
     expect(harness).toContain("Timed out waiting for marking toggle=${expectedChecked}; evidence=");
@@ -674,6 +675,8 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).toContain("viewportMatches(data.silentDesktopSetup?.posture, 1920, 1080)");
     expect(harness).toContain("viewportMatches(data.markingPosture, 412, 960)");
     expect(harness).toContain("data.workflow.freshAi.feedbackMs <= 100");
+    expect(harness).toContain("const initialFeedback = await capturePopupAiFeedback(popup)");
+    expect(harness).toContain("initialFeedback.capturedAtEpochMs - feedbackStartedAt");
     const app = readFileSync(resolve(process.cwd(), "src/popup/App.tsx"), "utf8");
     expect(app).toContain("onClick={onExitPreview}");
     expect(app).not.toContain("bindPreviewExitButton");
@@ -683,6 +686,10 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(probes).toContain("describe(underlay.exact) || describe(underlay.source) || xpathTerminalTag(xpath)");
     expect(probes).toContain('#unfluffify-overlay [data-layer="ai-content"] .uf-rect');
     expect(probes).toContain("'[data-uf-interaction-shield=\"true\"], #unfluffify-overlay'");
+    const liveProbes = readFileSync(resolve(process.cwd(), "scripts/performance/p25/live-probes.mjs"), "utf8");
+    expect(liveProbes).toContain("const deltaY = availableDown > 16 ? 640 : -640");
+    expect(liveProbes).toContain("expectedScrollTop");
+    expect(liveProbes).toContain("afterRestoration");
   });
 
   it("requires every real-control route and authoritative mutation boundary", () => {
