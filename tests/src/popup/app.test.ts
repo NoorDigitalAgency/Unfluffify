@@ -984,6 +984,19 @@ describe("popup App surface", () => {
     expect(free).not.toMatch(/id="toggle-enabled"[^>]*disabled/);
   });
 
+  it("makes explicit Refresh a visible input fence until authority settles", () => {
+    const markup = renderToStaticMarkup(createElement(App, {
+      presentation: memoryFor(SILENT),
+      diagnostics: { ...EMPTY_POPUP_DIAGNOSTICS, ...SIGNED_IN, renderMode: "rendered" },
+      refreshBusy: true,
+      ...FULL_HANDLERS,
+    }));
+
+    expect(markup).toMatch(/id="lock-refresh"[^>]*disabled/);
+    expect(markup).toMatch(/id="lock-refresh"[^>]*aria-busy="true"/);
+    expect(markup).toMatch(/id="toggle-enabled"[^>]*disabled/);
+  });
+
   it("marks actions as not-implemented when no handler is wired", () => {
     const markup = renderApp(
       { name: "post_ai_clean", lastConsumedSeq: 9, reconciliationReason: "", enableToggleChecked: true },

@@ -3032,6 +3032,12 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
     bindingOccurrence: boundTabOccurrence,
   });
   if (!action) {
+    notifyEvent(
+      enabled ? "Enable marking unavailable" : "Disable marking unavailable",
+      "another action is still finishing",
+      "warn",
+    );
+    render();
     return;
   }
   render();
@@ -3425,9 +3431,11 @@ async function refreshPopup(): Promise<void> {
   const tracked = operation.finally(() => {
     if (popupRefreshInFlight === tracked) {
       popupRefreshInFlight = null;
+      render();
     }
   });
   popupRefreshInFlight = tracked;
+  render();
   return await tracked;
 }
 
@@ -4825,6 +4833,7 @@ function render(): void {
       lynxChecklist={lynxChecklist}
       appearance={appearance}
       toast={toastController.current()}
+      refreshBusy={popupRefreshInFlight !== null}
       onToastDismiss={(id) => { toastController.dismiss(id); }}
       onEnableChange={(enabled) => { void setMarkingEnabled(enabled); }}
       onDesktopPreviewChange={(enabled) => { void setDesktopPreviewEnabled(enabled); }}

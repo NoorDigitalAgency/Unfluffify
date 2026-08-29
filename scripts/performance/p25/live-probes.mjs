@@ -126,6 +126,7 @@ export async function capturePopupState(session) {
         id: element.id || null,
         label: element.getAttribute('aria-label') || element.textContent?.trim() || null,
         disabled: Boolean(element.disabled),
+        ariaBusy: element.getAttribute('aria-busy') === 'true',
         checked: 'checked' in element ? Boolean(element.checked) : null,
         visible: !element.hidden && style.display !== 'none' && style.visibility !== 'hidden' &&
           Number(style.opacity || '1') > 0 && rect.width > 0 && rect.height > 0,
@@ -134,6 +135,16 @@ export async function capturePopupState(session) {
     renderChoiceRaw: checkedChoice,
     renderInspectionViewRaw: inspectionView,
     busy: Boolean(document.querySelector('[data-transient-surface="popup-busy-curtain"]')),
+    temporarilyDisabled: document.querySelector('[data-temp-disabled="true"]') !== null,
+    curtainText: document.querySelector('[data-transient-surface="popup-busy-curtain"]')?.textContent?.trim() ?? null,
+    toast: (() => {
+      const node = document.querySelector('[data-popup-toast]');
+      return node ? {
+        id: node.getAttribute('data-toast-id'),
+        text: node.textContent?.trim() ?? '',
+        tone: [...node.classList].find((value) => value.startsWith('popup-toast--')) ?? null,
+      } : null;
+    })(),
     spinnerText: document.querySelector('[role="status"], .spinner, .activity')?.textContent?.trim() ?? null,
   }); })()`);
   return {

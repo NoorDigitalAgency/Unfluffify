@@ -379,6 +379,11 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).not.toContain("getElementById('lynx-checklist-send').click");
     expect(harness).toContain('implementation === "legacy" ? "config-toggle" : "header-kebab-toggle"');
     expect(harness).toContain('implementation === "legacy" ? "render-mode-open-view" : "render-mode-open"');
+    expect(harness).toContain("const openerDeadline = Date.now() + Math.min(timeoutMs, 10_000)");
+    expect(harness).toContain("waitForPopupRefreshTerminal(");
+    expect(harness).toContain('physicalActivatePopupControl(popup, "lock-refresh", "pointer")');
+    expect(harness).toContain("Timed out waiting for explicit Refresh to terminalize; evidence=");
+    expect(harness).toContain("Timed out waiting for marking toggle=${expectedChecked}; evidence=");
     expect(harness).toContain('"AI returned to idle without opening a usable Content List or showing a failure"');
     expect(harness).toContain("[state.bodyLead, state.spinnerText]");
     expect(harness).toContain("Property lock unavailable|saved endpoints did not answer|site lookup");

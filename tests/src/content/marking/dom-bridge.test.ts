@@ -204,6 +204,7 @@ function createRendererTestSeam() {
   const branchRender = vi.fn();
   const silentRender = vi.fn();
   const silentBranchRender = vi.fn();
+  const geometryRender = vi.fn();
   const geometryBranchRender = vi.fn();
   const hoverRender = vi.fn();
   const focusRender = vi.fn();
@@ -227,6 +228,10 @@ function createRendererTestSeam() {
         silentBranchRender();
         renderer.renderSilentHighlightsBranch(...args);
       },
+      reposition(...args: Parameters<typeof renderer.reposition>): void {
+        geometryRender(args[0].size);
+        renderer.reposition(...args);
+      },
       repositionBranch(...args: Parameters<typeof renderer.repositionBranch>): void {
         geometryBranchRender(args[0].size, args[1]?.final === true);
         renderer.repositionBranch(...args);
@@ -247,6 +252,7 @@ function createRendererTestSeam() {
     branchRender,
     silentRender,
     silentBranchRender,
+    geometryRender,
     geometryBranchRender,
     hoverRender,
     focusRender,
@@ -2515,6 +2521,88 @@ describe("P6 DOM bridge", () => {
     expect(visualViewport.removeEventListener).toHaveBeenCalledWith("resize", expect.any(Function));
   });
 
+  it("coalesces window, visual viewport, and root resize into one silent geometry commit", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const animationFrames: Array<() => void> = [];
+      const listeners = new Map<string, EventListener>();
+      const viewportListeners = new Map<string, EventListener>();
+      let resizeObserverCallback: ResizeObserverCallback | null = null;
+      class FakeResizeObserver {
+        constructor(callback: ResizeObserverCallback) {
+          resizeObserverCallback = callback;
+        }
+        observe(): void {}
+        disconnect(): void {}
+      }
+      const visualViewport = {
+        addEventListener(type: string, listener: EventListener) {
+          viewportListeners.set(type, listener);
+        },
+        removeEventListener(type: string) {
+          viewportListeners.delete(type);
+        },
+      };
+      Object.assign(doc.defaultView, {
+        ResizeObserver: FakeResizeObserver,
+        visualViewport,
+        requestAnimationFrame(callback: () => void) {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+        addEventListener(type: string, listener: EventListener) {
+          listeners.set(type, listener);
+        },
+        removeEventListener(type: string) {
+          listeners.delete(type);
+        },
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+      const paragraph = new FakeElement("P", rect(0, 0, 120, 20), "First");
+      root.ownerDocument = doc;
+      paragraph.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      root.appendChild(paragraph);
+      doc.hits = [paragraph, root];
+      const renderer = createRendererTestSeam();
+      const engine = createMarkingEngine(root as unknown as Element, {
+        instrumentation: { createRenderer: renderer.createRenderer },
+      });
+      engine.renderSilentHighlights();
+      renderer.silentRender.mockClear();
+      renderer.geometryRender.mockClear();
+
+      for (let index = 0; index < 20; index += 1) {
+        listeners.get("resize")?.({} as Event);
+        viewportListeners.get("resize")?.({} as Event);
+        resizeObserverCallback?.([], {} as ResizeObserver);
+      }
+
+      expect(engine.overlayRoot().className).toContain("uf-scrolling");
+      expect(animationFrames).toHaveLength(0);
+      expect(renderer.silentRender).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(119);
+      expect(animationFrames).toHaveLength(0);
+      vi.advanceTimersByTime(1);
+      expect(animationFrames).toHaveLength(1);
+      animationFrames.shift()?.();
+
+      // Viewport motion reuses the approved silent presentation. Rebuilding
+      // selector classifications here was the DPJ resize hot loop.
+      expect(renderer.silentRender).not.toHaveBeenCalled();
+      expect(renderer.geometryRender).toHaveBeenCalledTimes(1);
+      expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
+      expect(animationFrames).toHaveLength(0);
+      engine.dispose();
+      expect(listeners.has("resize")).toBe(false);
+      expect(viewportListeners.has("resize")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps the 250 ms marking debounce when silent highlights are also armed", () => {
     vi.useFakeTimers();
     try {
@@ -2561,8 +2649,8 @@ describe("P6 DOM bridge", () => {
       expect(animationFrames).toHaveLength(1);
       animationFrames.shift()?.();
       expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
-      // A settled viewport scroll goes straight to its repaint. It must not
-      // enqueue the general stabilizer's sampling frames first.
+      // A settled viewport scroll goes straight to its one repaint. It must not
+      // enqueue another observer sampling loop first.
       expect(animationFrames).toHaveLength(0);
       engine.dispose();
     } finally {
@@ -2764,7 +2852,7 @@ describe("P6 DOM bridge", () => {
     }
   });
 
-  it("retains and repositions a silent-only engine on the next scroll frame", () => {
+  it("retains silent nodes while one quiet scroll transaction repositions them", () => {
     vi.useFakeTimers();
     try {
       const doc = new FakeDocument();
@@ -2804,6 +2892,10 @@ describe("P6 DOM bridge", () => {
       expect(engine.overlayRoot().className).toContain("uf-scrolling");
       expect(silentBoxes()).toEqual([retainedBox]);
       expect(retainedBox?.style.left).toBe("0px");
+      expect(animationFrames).toHaveLength(0);
+      vi.advanceTimersByTime(119);
+      expect(animationFrames).toHaveLength(0);
+      vi.advanceTimersByTime(1);
       expect(animationFrames).toHaveLength(1);
 
       animationFrames.shift()?.();
@@ -2817,6 +2909,7 @@ describe("P6 DOM bridge", () => {
       listeners.get("scroll")?.({ target: doc } as unknown as Event);
       expect(engine.overlayRoot().className).toContain("uf-scrolling");
       expect(silentBoxes()).toEqual([retainedBox]);
+      vi.advanceTimersByTime(120);
       animationFrames.shift()?.();
       expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
       expect(silentBoxes()).toEqual([retainedBox]);
@@ -2861,14 +2954,14 @@ describe("P6 DOM bridge", () => {
       const readsBefore = paragraph.clientRectReadCount;
 
       listeners.get("scroll")?.({ target: doc } as unknown as Event);
-      vi.advanceTimersByTime(19);
+      vi.advanceTimersByTime(139);
       expect(paragraph.clientRectReadCount).toBe(readsBefore);
       vi.advanceTimersByTime(1);
       expect(paragraph.clientRectReadCount).toBeGreaterThan(readsBefore);
       const readsAfterFirstFallback = paragraph.clientRectReadCount;
 
       listeners.get("scroll")?.({ target: doc } as unknown as Event);
-      vi.advanceTimersByTime(20);
+      vi.advanceTimersByTime(140);
       expect(paragraph.clientRectReadCount).toBeGreaterThan(readsAfterFirstFallback);
       expect(animationFrames).toHaveLength(2);
       engine.dispose();

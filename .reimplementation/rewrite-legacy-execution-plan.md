@@ -187,8 +187,10 @@ contracts from all predecessors and does not modify their source of truth.
 
 **Work**
 
-- Port legacy observer coalescing, geometry caching, pointer-hit caching, and
-  bounded multi-sample stabilization onto the canonical evaluator.
+- Port legacy observer coalescing, geometry caching, and pointer-hit caching
+  onto the canonical evaluator. Window, VisualViewport, root resize, and scroll
+  sources feed one mode-specific trailing geometry transaction; they do not run
+  an observer-driven multi-frame projection loop.
 - Keep pointermove/scroll paths to repositioning and O(1) hover resolution; no
   full document walk from a hover, scroll frame, or extension-owned mutation.
 - Implement the right-click marking-action menu, duplicate physical-click
@@ -1069,7 +1071,7 @@ in the owning phase and rerun its focused gate plus P9–P11.
     [`p22-cross-property-workflow-remediation-report-2026-08-27.md`](./p22-cross-property-workflow-remediation-report-2026-08-27.md).
 
 - [x] P23 — Frozen-surface presentation performance
-  - Decouple marking hover, marking/silent geometry, and bounded stabilization
+  - Decouple marking hover, marking/silent geometry, and trailing transactions
     from the page animation clock through one captured, exactly-once content
     presentation scheduler with a 20 ms starvation fallback.
   - Port only behavior-preserving legacy hot-path adaptations: coalesced latest

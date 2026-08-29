@@ -224,6 +224,7 @@ export function App({
   lynxChecklist = EMPTY_LYNX_CHECKLIST_STATE,
   appearance = DEFAULT_POPUP_APPEARANCE,
   toast = null,
+  refreshBusy = false,
   onEnableChange,
   onDesktopPreviewChange,
   onRunAi,
@@ -267,6 +268,7 @@ export function App({
   lynxChecklist?: LynxChecklistState;
   appearance?: PopupAppearance;
   toast?: TransientToast | null;
+  refreshBusy?: boolean;
   onEnableChange?: (enabled: boolean) => void;
   onDesktopPreviewChange?: (enabled: boolean) => void;
   onRunAi?: () => void;
@@ -877,7 +879,8 @@ export function App({
             id="lock-refresh"
             type="button"
             className="property-lock__button u-btn-secondary"
-            disabled={!onRefresh}
+            disabled={!onRefresh || refreshBusy}
+            aria-busy={refreshBusy}
             onClick={onRefresh}
           >
             <i className="mdi mdi-refresh btn-icon" aria-hidden="true" />
@@ -1082,7 +1085,13 @@ export function App({
             /* A lock block and an unchosen render mode are the two cases where
                enabling can never succeed — marks taken under an unestablished
                render mode describe a page nobody has looked at. */
-            disabled={!onEnableChange || presentation.lockBanner.visible || !renderModeSet}
+            disabled={
+              !onEnableChange ||
+              presentation.lockBanner.visible ||
+              !renderModeSet ||
+              refreshBusy ||
+              presentation.temporarilyDisabledOverlay
+            }
             onChange={(event) => {
               const enabled = event.currentTarget.checked;
               if (markingDisableNeedsConfirmation(enabled, diagnostics.sessionPending)) {

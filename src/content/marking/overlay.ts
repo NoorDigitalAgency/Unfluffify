@@ -83,9 +83,9 @@ export const MARKING_OVERLAY_STYLES = `
 .uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="silent-immutable"],
 .uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="silent-content"],
 .uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="silent-excluded"] {
-  /* Silent-only scrolling repositions on the next presentation frame. Hide
-     its stale coordinate snapshot synchronously, then let the base transition
-     restore the retained layers after current geometry has been committed. */
+  /* Match pinned legacy's quiet transaction: hide stale fixed coordinates
+     synchronously, retain the nodes through the event train, then let the base
+     transition restore them after the one committed redraw. */
   transition-duration: 0s;
 }
 .uf-marking-layer-root.uf-marking-temporarily-disabled .uf-layer {

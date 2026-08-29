@@ -746,14 +746,63 @@ async function captureStageScreenshots({ site, popup, runDirectory, id }) {
 
 async function waitForPopupToggle(popup, expectedChecked, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
+  const startedAt = Date.now();
   let last = null;
+  const timeline = [];
+  let lastFingerprint = "";
   while (Date.now() < deadline) {
     last = await capturePopupState(popup);
     const toggle = last.controls.find((control) => control.id === "toggle-enabled");
+    const sample = {
+      offsetMs: Date.now() - startedAt,
+      checked: toggle?.checked ?? null,
+      disabled: toggle?.disabled ?? null,
+      popupBusy: last.busy,
+      temporarilyDisabled: last.temporarilyDisabled,
+      curtainText: last.curtainText,
+      toast: last.toast,
+    };
+    const fingerprint = JSON.stringify({ ...sample, offsetMs: 0 });
+    if (fingerprint !== lastFingerprint) {
+      timeline.push(sample);
+      lastFingerprint = fingerprint;
+    }
     if (toggle?.checked === expectedChecked && toggle.disabled === false && last.busy === false) return last;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error(`Timed out waiting for marking toggle=${expectedChecked}; last popup state: ${JSON.stringify(last)}`);
+  throw new Error(`Timed out waiting for marking toggle=${expectedChecked}; evidence=${JSON.stringify({ timeline, last })}`);
+}
+
+async function waitForPopupRefreshTerminal(popup, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  const startedAt = Date.now();
+  let sawBusy = false;
+  let last = null;
+  const timeline = [];
+  let lastFingerprint = "";
+  while (Date.now() < deadline) {
+    last = await capturePopupState(popup);
+    const refresh = last.controls.find((control) => control.id === "lock-refresh");
+    const busy = refresh?.disabled === true || refresh?.ariaBusy === true;
+    sawBusy ||= busy;
+    const sample = {
+      offsetMs: Date.now() - startedAt,
+      disabled: refresh?.disabled ?? null,
+      ariaBusy: refresh?.ariaBusy ?? null,
+      popupBusy: last.busy,
+      toast: last.toast,
+    };
+    const fingerprint = JSON.stringify({ ...sample, offsetMs: 0 });
+    if (fingerprint !== lastFingerprint) {
+      timeline.push(sample);
+      lastFingerprint = fingerprint;
+    }
+    if (sawBusy && !busy && last.busy === false) {
+      return { state: last, timeline };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`Timed out waiting for explicit Refresh to terminalize; evidence=${JSON.stringify({ sawBusy, timeline, last })}`);
 }
 
 async function waitForSiteWorkflowPosture(target, predicate, timeoutMs) {
@@ -806,8 +855,13 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
         throw new Error(`Render Inspection menu toggle #${toggleId} is unavailable: ${JSON.stringify(toggle)}`);
       }
       await physicalActivatePopupControl(popup, toggleId, "pointer");
-      before = await capturePopupState(popup);
-      opener = before.controls.find((candidate) => candidate.id === openerId);
+      const openerDeadline = Date.now() + Math.min(timeoutMs, 10_000);
+      while (Date.now() < openerDeadline) {
+        before = await capturePopupState(popup);
+        opener = before.controls.find((candidate) => candidate.id === openerId);
+        if (opener && !opener.disabled && opener.visible !== false) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
     }
     if (!opener || opener.disabled || opener.visible === false) {
       throw new Error(`Render Inspection opener #${openerId} is unavailable: ${JSON.stringify(opener)}`);
@@ -1416,14 +1470,23 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
       if (!toggle) throw new Error("Enable marking toggle is missing");
       if (toggle.checked) throw new Error("Activation evidence requires marking to be disabled before the stage; disable it and retry in a fresh run");
       const boundary = guard.markNetworkBoundary();
-      const refreshTriggered = await popup.evaluate(`(() => {
-        const refresh = document.querySelector('#lock-refresh');
-        if (!(refresh instanceof HTMLButtonElement) || refresh.disabled) return false;
-        refresh.click();
-        return true;
-      })()`, { userGesture: true });
-      if (refreshTriggered) await new Promise((resolve) => setTimeout(resolve, 750));
-      const afterAuthorityRefresh = await capturePopupState(popup);
+      const refreshControl = before.controls.find((control) => control.id === "lock-refresh");
+      const refreshTriggered = Boolean(
+        refreshControl && !refreshControl.disabled && refreshControl.visible !== false,
+      );
+      const refreshActivation = refreshTriggered
+        ? await physicalActivatePopupControl(popup, "lock-refresh", "pointer")
+        : null;
+      const refreshTerminal = refreshTriggered && identity.implementation === "rewrite"
+        ? await waitForPopupRefreshTerminal(
+          popup,
+          integerOption(options, "activation-timeout-ms", 45_000),
+        )
+        : null;
+      if (refreshTriggered && identity.implementation !== "rewrite") {
+        await new Promise((resolve) => setTimeout(resolve, 750));
+      }
+      const afterAuthorityRefresh = refreshTerminal?.state ?? await capturePopupState(popup);
       const started = performance.now();
       const controlActivation = await physicalActivatePopupControl(popup, "toggle-enabled", "pointer");
       const after = await waitForPopupToggle(popup, true, integerOption(options, "activation-timeout-ms", 45_000));
@@ -1447,6 +1510,8 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
           silentDesktopSetup,
           afterAuthorityRefresh,
           refreshTriggered,
+          refreshActivation,
+          refreshTerminal,
           after,
           markingPosture,
           durationMs,

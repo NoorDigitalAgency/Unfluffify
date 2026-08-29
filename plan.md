@@ -46,8 +46,21 @@ four-action context menu from pinned legacy, whose right-click is only an alias
 of its ordinary toggle. The harness now compares the five genuinely shared
 gestures, gates the action menu only for the rewrite, and excludes that
 rewrite-only operation from comparative latency.
-The observer-free
-headed matrix remains in progress; P25 stays open until it and the final evidence
+Those repairs are synchronized in pushed checkpoint `8e11cafc`. Its immutable
+production DPJ rerun exposed finding 119 at the activation evidence boundary: a
+fixed 750 ms Refresh sleep could overlap real authority work and a failed toggle
+discarded its transient lifecycle reason. The debug rerun then passed every
+marking gesture but exposed finding 120: one physical viewport resize fanned out
+through Window, VisualViewport, and a four-sample root ResizeObserver loop,
+producing repeated rewrite-only geometry/classification tasks while pinned
+legacy recorded zero Long Tasks. The first pinned-legacy rerun exposed finding
+121 in the harness: it captured the asynchronously opened Render Inspection
+menu before the opener became visible. All three continuation repairs are now
+implemented. The obsolete four-frame stabilizer has been removed, focused
+coverage passes five files / 310 tests, and the complete gate passes 140 files /
+1,424 tests plus both production and debug builds. Fresh immutable
+production/debug and legacy reruns remain required before the candidate matrix
+continues. P25 stays open until the observer-free headed matrix and final evidence
 commit are synchronized.
 
 The complete finding register is
@@ -180,7 +193,8 @@ bounded visible failure instead of leaving an invisible posture or busy state.
 
 ### Phase 2 — Overlay visibility, cardinality, layers, and scroll presentation — complete
 
-**Findings implementation-closed:** audit 19–20, 22–24, 27–28, 31, 50, 54;
+**Findings implementation-closed:** audit 19–20, 22–24, 27–28, 31, 50, 54,
+120;
 audit 50 and 54 retain headed-validation gates.
 
 - Unify evaluator and renderer visibility around current paint proof. Connection,
@@ -200,6 +214,11 @@ audit 50 and 54 retain headed-validation gates.
   before visual drift. Coalesce continuous scroll/resize, perform one structural
   or geometry redraw after the appropriate idle window, await committed paint,
   and then restore opacity. No O(all-target) proof on every scroll frame.
+- Match pinned legacy's viewport transaction instead of sampling every observer:
+  retain silent nodes, fade once, coalesce Window/VisualViewport/root resize and
+  scroll trains, then commit one geometry-only redraw after 120 ms silent,
+  250 ms marking-scroll, or 50 ms marking-resize quiet. Intersection updates
+  fold into that transaction and never delete an unmeasured retained silent box.
 - Make desktop/mobile posture adoption retire stale generation/XPath geometry
   before new paint. Shield and overlays must derive from the same confirmed
   viewport generation.
@@ -322,7 +341,7 @@ retain headed-validation gates.
 
 ### Phase 5 — Operator lifecycle, emulation, Save, and popup parity — complete
 
-**Findings implementation-closed:** audit 32, 37–49, 50–54; audit 50–54 retain
+**Findings implementation-closed:** audit 32, 37–49, 50–54, 119; audit 50–54 retain
 headed-validation gates.
 
 - Route Save, Discard, Disable, candidate navigation, render inspection, and
@@ -347,6 +366,10 @@ headed-validation gates.
 - Keep local signal projection event-driven with a 500 ms backstop and remote
   authority single-flight at 15 seconds. Coalesce one trailing run; explicit
   Refresh may force one authority refresh.
+- Publish explicit Refresh as an input fence: disable Refresh and Enable Marking
+  until the exact refresh promise terminalizes. A stale duplicate marking edge
+  that beats the disabled render receives a warning toast rather than silently
+  failing operator-action admission.
 - Anchor toasts to the popup viewport through fixed/portal presentation. Restore
   staged marking action hierarchy/copy without removing approved keyboard access.
 - Restore operator-facing parity polish within binding decisions: adaptive Todo
@@ -803,6 +826,33 @@ headed-validation gates.
   1,424 tests, a fresh production build, and seven manifest checks. Commit/push,
   rebuild, and a brand-new DPJ run are required before returning to finding 113
   and the matrix.
+- Pushed checkpoint `8e11cafc` completed that source review. Immutable production
+  DPJ run `2026-08-29T04-29-13-545Z-68974e41-rewrite-dpj` passed preflight and
+  both Render Inspection modes, then returned to silent after a real activation
+  attempt without retaining the transient reason. The activation stage now waits
+  for explicit Refresh's exact busy edge and terminal state, records toast,
+  curtain, toggle, and disabled-state transitions, and reports that timeline on
+  failure. The product disables Refresh and Enable Marking while Refresh owns
+  authority; a stale duplicate marking edge receives a reason-specific toast.
+- Immutable debug DPJ run
+  `2026-08-29T04-35-08-877Z-0d85fe15-rewrite-dpj` passed render modes,
+  activation, visuals, gestures, and scroll, then measured 89 ms and 77 ms resize
+  Long Tasks. The identical pinned-legacy 412→388→412 perturbation measured zero.
+  Debug work stages proved repeated full silent projections from overlapping
+  viewport/root observer callbacks. Rewrite now uses the legacy quiet
+  transaction, keeps silent node identity, and performs one geometry-only
+  commit. The regression fires 60 combined Window/VisualViewport/ResizeObserver
+  callbacks and proves one redraw with zero silent re-evaluations.
+- Pinned-legacy run
+  `2026-08-29T04-42-25-106Z-c5b16f17-legacy-dpj` exposed a harness-only menu
+  race: `#config-toggle` was activated correctly, but the opener was captured in
+  its still-hidden React frame. The harness now waits up to the existing bounded
+  view deadline for a visible/enabled opener before activation. Focused product
+  and harness coverage passes five files / 310 tests. The complete gate passes
+  lint, page-world parity, every TypeScript project, 140 files / 1,424 tests, a
+  fresh production build, a fresh debug build, and seven manifest checks. Commit
+  and push this source checkpoint, then repeat both DPJ implementations before
+  advancing the matrix.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

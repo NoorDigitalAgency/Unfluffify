@@ -916,6 +916,61 @@ preserves the stronger architecture.
     focused gate passes four files / 181 tests; the complete gate passes lint,
     generated page-world parity, all TypeScript projects, 140 files / 1,424
     tests, a fresh production build, and seven manifest checks.
+119. **Remediated, immutable rerun pending product/evidence P0 — explicit
+    Refresh and marking admission could overlap without a durable visible
+    boundary.** Immutable production DPJ run
+    `2026-08-29T04-29-13-545Z-68974e41-rewrite-dpj` on pushed checkpoint
+    `8e11cafc` passed preflight and both Render Inspection modes. The activation
+    stage then clicked Refresh, slept a fixed 750 ms, dispatched the real Enable
+    Marking toggle, and ultimately returned to an enabled unchecked silent state.
+    The harness retained only the terminal popup snapshot, so it could not prove
+    whether the activation was rejected, rolled back, or lost operator-action
+    admission; later exact debug/manual sequences succeeded. This is therefore
+    not a speculative activation diagnosis. It is a proven evidence gap plus a
+    real UI serialization gap: Refresh owned an in-flight promise while its
+    button and Enable Marking remained operable. Explicit Refresh now publishes
+    `aria-busy`, disables both controls until the exact promise terminalizes,
+    and renders both admission and release edges. A stale duplicate marking edge
+    receives `another action is still finishing` as a warning toast. P25 now
+    waits for the observed Refresh busy→terminal edge and retains a compact
+    toggle/curtain/toast/disabled timeline on every activation timeout.
+120. **Remediated, immutable rerun pending P0 — one physical resize repeatedly
+    rebuilt or redrew the rewrite overlay while pinned legacy committed once.**
+    Debug DPJ run
+    `2026-08-29T04-35-08-877Z-0d85fe15-rewrite-dpj` passed both render modes,
+    activation, marking visuals, all gestures, and scroll fade before failing
+    the unmodified 50 ms Long Task gate at resize: 89 ms and 77 ms tasks, with a
+    66.7 ms worst frame. An identical pinned-legacy 412→388→412 perturbation
+    recorded zero Long Tasks. A separate silent diagnostic recorded 53–252 ms
+    tasks and repeated ~20 ms `silent-render` stages. The rewrite admitted the
+    same viewport transaction through Window resize, VisualViewport
+    scroll/resize, and root ResizeObserver; the latter entered a four-sample
+    stabilizer and could restart for every responsive-layout delivery. Silent
+    scroll also repainted on every available frame instead of using legacy's
+    120 ms quiet window. The engine now fades once, retains overlay node identity,
+    coalesces every source into one trailing transaction, and performs a
+    geometry-only commit after the exact legacy 120 ms silent or 250 ms marking
+    scroll dwell and a 50 ms marking resize dwell. Silent geometry uses the full
+    retained presentation rather than deleting non-intersecting boxes. A
+    regression emits 20 rounds across all three observer sources and proves one
+    redraw, no selector re-evaluation, retained nodes, and complete listener
+    cleanup. The obsolete four-frame stabilizer and its isolated tests are
+    removed so the production-path transaction is the only geometry authority;
+    D-07 traceability now binds directly to that path. The complete gate passes
+    lint, page-world parity, every TypeScript project, 140 files / 1,424 tests, a
+    fresh production build, a fresh debug build, and seven manifest checks.
+121. **Remediated, immutable rerun pending harness P0 — pinned legacy's Render
+    Inspection opener was sampled before its menu render committed.** Pinned
+    legacy DPJ run
+    `2026-08-29T04-42-25-106Z-c5b16f17-legacy-dpj` passed preflight, physically
+    clicked `#config-toggle`, then immediately failed because
+    `#render-mode-open-view` was still hidden in that same capture. The opener
+    exists and becomes visible on the following React presentation; this is not
+    a product divergence. The harness now polls within the existing bounded
+    10-second view deadline for the opener to be visible and enabled before the
+    next physical activation. Focused marking, popup, App, and P25 coverage
+    passes five files / 310 tests; the complete gate is green at 140 files /
+    1,424 tests.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -987,9 +1042,9 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 118; findings
+Implementation remediation is code-complete through finding 121; findings
 110–112 are closed by the immutable pushed-source DPJ gesture run. Findings 108
-and 113–118 await exact clean pushed reruns, while finding 109 remains a
+and 113–121 await exact clean pushed reruns, while finding 109 remains a
 recurrence watch. P25 remains open until the exact
 clean pushed commit completes every valid candidate's observer-free headed
 rewrite flow. Rewrite marking

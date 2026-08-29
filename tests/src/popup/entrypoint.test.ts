@@ -780,6 +780,13 @@ describe("rewrite popup entrypoint", () => {
     globalThis.window.__UNFLUFFIFY_POPUP_DEBUG__.activateDirectMode();
     props().onEnableChange(true);
     await waitFor(() => activationRequested, "the delayed tab-A activation");
+    // A stale physical edge can race the render that disables the toggle. It
+    // must leave a visible reason instead of silently disappearing at admission.
+    props().onEnableChange(true);
+    expect(props().toast).toMatchObject({
+      tone: "warning",
+      message: "Enable marking unavailable: another action is still finishing",
+    });
 
     activeUrl = "https://example.com/b";
     props().onRefresh();
@@ -1086,6 +1093,7 @@ describe("rewrite popup entrypoint", () => {
     holdNextConfigLoad = true;
     props().onRefresh();
     await heldConfigLoad;
+    expect(props().refreshBusy).toBe(true);
     const mobileCallsBeforeActivation = emulationModes().filter((mode) => mode === "mobile").length;
     props().onEnableChange(true);
     await flushEntrypointWork();
@@ -1097,6 +1105,7 @@ describe("rewrite popup entrypoint", () => {
     await waitFor(() => activationCount() === 1, "serialized marking activation");
     expect(emulationModes().at(-1)).toBe("mobile");
     expect(props().diagnostics.contentActive).toBe(true);
+    expect(props().refreshBusy).toBe(false);
   });
 
   it("keeps authority refresh single-flight and no more frequent than every 15 seconds", async () => {

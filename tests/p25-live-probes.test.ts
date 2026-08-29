@@ -69,6 +69,8 @@ describe("P25 live site-session visibility", () => {
   it("foregrounds the candidate before frame and physical-input probes", () => {
     const source = readFileSync(new URL("../scripts/performance/p25/live-probes.mjs", import.meta.url), "utf8");
     expect(source).toMatch(/async function withSiteSession[\s\S]*?Page\.enable[\s\S]*?Page\.bringToFront[\s\S]*?callback\(session\)/);
+    expect(source).toContain("ariaBusy: element.getAttribute('aria-busy') === 'true'");
+    expect(source).toContain("document.querySelector('[data-popup-toast]')");
   });
 
   it("waits on the observer clock and never depends on page timers or animation frames", async () => {

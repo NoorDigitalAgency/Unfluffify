@@ -4,7 +4,6 @@ import {
   createPhysicalActionDeduper,
   openMarkingContextMenu,
 } from "../../../../src/content/marking/interaction";
-import { createGeometryStabilizer } from "../../../../src/content/marking/stabilizer";
 import { createTransientSurfaceManager } from "../../../../src/ui/transient-surface-manager";
 
 class FakeElement {
@@ -127,51 +126,5 @@ describe("marking interaction controls", () => {
     expect(manager.handlePointerDown({ composedPath: () => [new EventTarget()] } as PointerEvent)).toBe(true);
     expect(third.removed).toBe(true);
     expect(run).not.toHaveBeenCalled();
-  });
-});
-
-describe("bounded geometry stabilization", () => {
-  it("coalesces storms and stops after two equal layout samples", () => {
-    const frames: FrameRequestCallback[] = [];
-    const samples = ["100:100", "120:100", "120:100"];
-    const onSample = vi.fn();
-    const onSettled = vi.fn();
-    const stabilizer = createGeometryStabilizer({
-      sample: () => samples.shift() ?? "120:100",
-      onSample,
-      onSettled,
-      requestFrame(callback) { frames.push(callback); return frames.length; },
-      cancelFrame() {},
-      maxSamples: 4,
-      requiredStableSamples: 2,
-    });
-
-    stabilizer.request();
-    stabilizer.request();
-    expect(frames).toHaveLength(1);
-    while (frames.length > 0) {
-      frames.shift()?.(0);
-    }
-    expect(onSample).toHaveBeenCalledTimes(3);
-    expect(onSettled).toHaveBeenCalledTimes(1);
-  });
-
-  it("caps an endlessly changing page", () => {
-    const frames: FrameRequestCallback[] = [];
-    let sample = 0;
-    const onSample = vi.fn();
-    const stabilizer = createGeometryStabilizer({
-      sample: () => String(sample++),
-      onSample,
-      requestFrame(callback) { frames.push(callback); return frames.length; },
-      cancelFrame() {},
-      maxSamples: 4,
-      requiredStableSamples: 2,
-    });
-    stabilizer.request();
-    while (frames.length > 0) {
-      frames.shift()?.(0);
-    }
-    expect(onSample).toHaveBeenCalledTimes(4);
   });
 });

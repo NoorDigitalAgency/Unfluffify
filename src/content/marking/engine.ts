@@ -35,7 +35,6 @@ import type { RenderMode } from "../../domain/schema/property";
 import { isToggleableDefaultTag } from "../../domain/taxonomy";
 import type { VisibilityGeometry } from "../../domain/visibility";
 import { isToggleableBoundary } from "../../domain/boundary";
-import { createGeometryStabilizer } from "./stabilizer";
 import { readElementId } from "./element-identity";
 import { presentationClockFor } from "../presentation-clock";
 
@@ -422,6 +421,14 @@ const PROGRESSIVE_GEOMETRY_CHUNK_SIZE = 12;
 const STRUCTURAL_CHILD_LIST_QUIET_MS = 100;
 const STRUCTURAL_PRESENTATION_QUIET_MS = 150;
 const STRUCTURAL_MUTATION_IDLE_TIMEOUT_MS = 1_200;
+// Pinned legacy keeps stale viewport-fixed borders hidden until one quiet
+// redraw: 120 ms for silent preview and 250 ms for interactive marking. A
+// resize does not need the marking scroll dwell, but it still needs one shared
+// trailing transaction because Chromium can report the same physical change
+// through Window, VisualViewport, and ResizeObserver.
+const SILENT_VIEWPORT_GEOMETRY_QUIET_MS = 120;
+const MARKING_VIEWPORT_SCROLL_QUIET_MS = 250;
+const MARKING_VIEWPORT_RESIZE_QUIET_MS = 50;
 const PRESENTATION_MUTATION_ATTRIBUTES = new Set([
   "class",
   "style",
@@ -1167,7 +1174,14 @@ export function createMarkingEngine(
         }
         return;
       }
-      const byXpath = viewportGeometryTargets();
+      // Silent preview owns a small retained presentation set. Keep its source
+      // nodes across viewport motion and let the renderer hide/reveal each box
+      // from current geometry; pruning the map to the latest IntersectionObserver
+      // corpus would delete boxes on scroll and recreate them later. Large
+      // interactive marking documents still use the bounded intersection corpus.
+      const byXpath = silentHighlightsArmed && !interactiveMarkingRendered
+        ? byXpathElements()
+        : viewportGeometryTargets();
       const progressive = interactiveMarkingRendered &&
         byXpath.size > PROGRESSIVE_GEOMETRY_TARGET_THRESHOLD;
       if (nextWork === "silent-geometry" && silentHighlightsArmed) {
@@ -1192,35 +1206,6 @@ export function createMarkingEngine(
   const installObservers = (): (() => void) => {
     const view = rootElement.ownerDocument.defaultView;
     const cleanups: Array<() => void> = [];
-    let observerGeometryWork: RenderWork = "geometry";
-    const geometryStabilizer = createGeometryStabilizer({
-      sample: () => {
-        const documentElement = rootElement.ownerDocument.documentElement;
-        const rect = rootElement.getBoundingClientRect();
-        return [
-          documentElement.clientWidth,
-          documentElement.clientHeight,
-          view?.devicePixelRatio ?? 1,
-          rect.width,
-          rect.height,
-        ].join(":");
-      },
-      onSample: () => scheduleRender(observerGeometryWork),
-      onSettled: () => {
-        observerGeometryWork = "geometry";
-      },
-      requestFrame: (callback) => presentationClock.requestFrame(callback),
-      cancelFrame: (handle) => presentationClock.cancelFrame(handle),
-      maxSamples: 4,
-      requiredStableSamples: 2,
-    });
-    const stabilizeGeometry = (work: Exclude<RenderWork, "structural">): void => {
-      if (work === "silent-geometry") {
-        observerGeometryWork = work;
-      }
-      geometryStabilizer.request();
-    };
-    cleanups.push(() => geometryStabilizer.cancel());
     type IdleCapableView = Window & Readonly<{
       requestIdleCallback?: (callback: () => void, options?: Readonly<{ timeout: number }>) => number;
       cancelIdleCallback?: (handle: number) => void;
@@ -1491,11 +1476,6 @@ export function createMarkingEngine(
       });
       cleanups.push(() => observer.disconnect());
     }
-    if (view?.ResizeObserver) {
-      const observer = new view.ResizeObserver(() => stabilizeGeometry("silent-geometry"));
-      observer.observe(rootElement);
-      cleanups.push(() => observer.disconnect());
-    }
     if (view?.IntersectionObserver) {
       targetIntersectionObserver = new view.IntersectionObserver((entries) => {
         let changed = false;
@@ -1522,7 +1502,7 @@ export function createMarkingEngine(
         if (pendingIntersectionElements.size === 0) {
           intersectionSnapshotReady = true;
         }
-        if (changed) {
+        if (changed && viewportGeometryHandle === null) {
           scheduleRender("geometry");
         }
       });
@@ -1537,15 +1517,28 @@ export function createMarkingEngine(
         intersectionDirtyXpaths.clear();
       });
     }
-    let viewportScrollHandle: ReturnType<typeof setTimeout> | null = null;
-    const finishViewportScroll = (): void => {
-      viewportScrollHandle = null;
-      // Viewport scrolling has already been quiet for the mode-specific
-      // debounce below. Re-entering the general geometry stabilizer here adds
-      // two sampling frames before the actual repaint even though scrolling
-      // cannot change the viewport or root dimensions that it samples.
+    let viewportGeometryHandle: ReturnType<typeof setTimeout> | null = null;
+    const finishViewportGeometry = (): void => {
+      viewportGeometryHandle = null;
+      // The event train has already been quiet for the mode-specific debounce.
+      // Commit once on the next captured presentation frame and reveal only
+      // after that exact geometry/classification transaction completes.
       revealMarkingAfterRender = true;
       scheduleRender("geometry");
+    };
+    const scheduleTrailingGeometry = (
+      quietMs: number,
+      hideStaleGeometry: boolean,
+    ): void => {
+      revealMarkingAfterRender = false;
+      cancelProgressiveGeometryRender();
+      if (hideStaleGeometry) {
+        renderer.setScrolling(true);
+      }
+      if (viewportGeometryHandle !== null) {
+        clearTimeout(viewportGeometryHandle);
+      }
+      viewportGeometryHandle = setTimeout(finishViewportGeometry, quietMs);
     };
     const scheduleGeometryRender = (event?: Event): void => {
       const target = event?.target;
@@ -1556,32 +1549,35 @@ export function createMarkingEngine(
         || target === document.documentElement
         || target === document.body;
       if (viewportScroll) {
-        if (!interactiveMarkingRendered) {
-          // Silent preview is read-only and its retained rectangles are cheap to
-          // reposition. Fade the stale geometry synchronously, keep it hidden
-          // through the next render commit, then reveal the retained nodes.
-          revealMarkingAfterRender = true;
-          renderer.setScrolling(true);
-          scheduleRender("geometry");
-          return;
-        }
-        revealMarkingAfterRender = false;
-        renderer.setScrolling(true);
-        cancelProgressiveGeometryRender();
-        if (viewportScrollHandle !== null) {
-          clearTimeout(viewportScrollHandle);
-        }
-        // Match the legacy paths: silent highlights settle sooner, while the
-        // interactive marking UI retains its more conservative scroll pause.
-        const settleDelay = interactiveMarkingRendered ? 250 : 120;
-        viewportScrollHandle = setTimeout(finishViewportScroll, settleDelay);
+        scheduleTrailingGeometry(
+          interactiveMarkingRendered
+            ? MARKING_VIEWPORT_SCROLL_QUIET_MS
+            : SILENT_VIEWPORT_GEOMETRY_QUIET_MS,
+          true,
+        );
         return;
       }
-      stabilizeGeometry("geometry");
+      // A nested scroller changes the same fixed overlay coordinates, but it
+      // must not blank unrelated page borders. Coalesce its event storm into
+      // the same one-commit path while leaving the retained layer visible.
+      scheduleTrailingGeometry(
+        interactiveMarkingRendered
+          ? MARKING_VIEWPORT_SCROLL_QUIET_MS
+          : SILENT_VIEWPORT_GEOMETRY_QUIET_MS,
+        false,
+      );
     };
-    const scheduleResizeRender = (): void => silentHighlightsArmed
-      ? scheduleRender("geometry")
-      : stabilizeGeometry("geometry");
+    const scheduleResizeRender = (): void => scheduleTrailingGeometry(
+      interactiveMarkingRendered
+        ? MARKING_VIEWPORT_RESIZE_QUIET_MS
+        : SILENT_VIEWPORT_GEOMETRY_QUIET_MS,
+      true,
+    );
+    if (view?.ResizeObserver) {
+      const observer = new view.ResizeObserver(scheduleResizeRender);
+      observer.observe(rootElement);
+      cleanups.push(() => observer.disconnect());
+    }
     const visualViewport = view?.visualViewport;
     view?.addEventListener?.("scroll", scheduleGeometryRender, true);
     view?.addEventListener?.("resize", scheduleResizeRender);
@@ -1594,9 +1590,9 @@ export function createMarkingEngine(
       structuralRenderSettled = null;
       pendingStructuralNonAttributeMutation = false;
       pendingStructuralAttributeOldValues.clear();
-      if (viewportScrollHandle !== null) {
-        clearTimeout(viewportScrollHandle);
-        viewportScrollHandle = null;
+      if (viewportGeometryHandle !== null) {
+        clearTimeout(viewportGeometryHandle);
+        viewportGeometryHandle = null;
       }
       renderer.setScrolling(false);
       revealMarkingAfterRender = false;
