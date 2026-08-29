@@ -1032,6 +1032,17 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       }
       return xpaths;
     },
+    viewportPresentationXpaths(): ReadonlySet<string> {
+      // IntersectionObserver tracks the complete bridge so structural and
+      // focus contracts retain their source authority. Viewport geometry must
+      // only admit nodes that can actually own marking/silent paint; allowing
+      // every intersecting wrapper turns a product-grid scroll into hundreds
+      // of empty geometry chunks and leaves the real borders faded for seconds.
+      return new Set([
+        ...classificationByXpath.keys(),
+        ...silentPresentationByXpath.keys(),
+      ]);
+    },
     render(
       evaluation: EvaluationResult,
       byXpath: ReadonlyMap<string, OverlayRenderTarget>,

@@ -44,6 +44,17 @@ export type DomBridgePresentationRefresh = Readonly<{
   branchRoots: readonly EvaluationNode[];
 }>;
 
+export type DomBridgePresentationRefreshCursor = Readonly<{
+  /** Number of bridge nodes whose layout/visibility authority must be sampled. */
+  totalNodes: number;
+  /** Number already sampled by bounded calls to step. */
+  processedNodes: number;
+  /** Process at most maxNodes layout-bearing nodes; true means capture is complete. */
+  step(maxNodes: number): boolean;
+  /** Materialize the immutable refreshed bridge after step has completed. */
+  finish(): DomBridgePresentationRefresh;
+}>;
+
 type DomBridgePass = Readonly<{
   childrenByElement: WeakMap<Element, Element[]>;
   geometryByElement: WeakMap<Element, VisibilityGeometry>;
@@ -526,10 +537,10 @@ export function createDomBridgeView(rootElement: Element, options: DomBridgeOpti
  * Reusing the existing identities keeps responsive page chrome from turning a
  * small class change into a full-document layout and extraction pass.
  */
-export function refreshDomBridgePresentation(
+export function createDomBridgePresentationRefreshCursor(
   current: DomBridgeView,
   mutationTargets: readonly Element[],
-): DomBridgePresentationRefresh {
+): DomBridgePresentationRefreshCursor {
   const rootEntries = new Map<string, DomBridgeNode>();
   for (const target of mutationTargets) {
     let cursor: Element | null = target;
@@ -551,87 +562,135 @@ export function refreshDomBridgePresentation(
       )
     )
   );
-  if (shallowEntries.length === 0) {
-    return { view: current, branchRoots: [] };
-  }
-
   const pass = createDomBridgePass();
   const presentationByKey = new Map<string, Readonly<{
     visible: boolean;
     silentWhitespaceExclusion: boolean;
   }>>();
-  const capture = (node: EvaluationNode): void => {
-    const entry = current.byKey.get(node.key);
-    if (!entry) {
-      return;
+  const pending = shallowEntries.map((entry) => entry.evaluationNode).reverse();
+  let totalNodes = 0;
+  const countPending = [...pending];
+  while (countPending.length > 0) {
+    const node = countPending.pop();
+    if (!node || !current.byKey.has(node.key)) continue;
+    totalNodes += 1;
+    for (let index = (node.children?.length ?? 0) - 1; index >= 0; index -= 1) {
+      const child = node.children?.[index];
+      if (child) countPending.push(child);
     }
-    const geometry = geometryFor(entry.element, pass);
-    const visible = isUserVisible(entry.element, geometry);
-    presentationByKey.set(node.key, {
-      visible,
-      silentWhitespaceExclusion: node.immutable !== true && isSilentWhitespaceExclusion(
-        entry.element,
-        visible,
-        styleFor(entry.element, pass),
-      ),
-    });
-    for (const child of node.children ?? []) {
-      capture(child);
-    }
-  };
-  for (const entry of shallowEntries) {
-    capture(entry.evaluationNode);
   }
+  let processedNodes = 0;
+  let result: DomBridgePresentationRefresh | null = null;
 
-  let presentationChanged = false;
-  const evaluationByKey = new Map<string, EvaluationNode>();
-  const clone = (node: EvaluationNode): EvaluationNode => {
-    const children = node.children?.map(clone);
-    const childrenChanged = Boolean(children?.some((child, index) => child !== node.children?.[index]));
-    const presentation = presentationByKey.get(node.key);
-    const ownChanged = Boolean(presentation && (
-      presentation.visible !== node.visible ||
-      presentation.silentWhitespaceExclusion !== (node.silentWhitespaceExclusion === true)
-    ));
-    const next = ownChanged || childrenChanged
-      ? {
-        ...node,
-        ...(presentation ?? {}),
-        ...(children ? { children } : {}),
-      }
-      : node;
-    presentationChanged ||= ownChanged;
-    evaluationByKey.set(node.key, next);
-    return next;
-  };
-  const root = clone(current.root);
-  if (!presentationChanged) {
-    return {
-      view: current,
-      branchRoots: shallowEntries.map((entry) => entry.evaluationNode),
+  const finish = (): DomBridgePresentationRefresh => {
+    if (pending.length > 0) {
+      throw new Error("Presentation refresh capture is incomplete");
+    }
+    if (result) return result;
+    if (shallowEntries.length === 0) {
+      result = { view: current, branchRoots: [] };
+      return result;
+    }
+
+    let presentationChanged = false;
+    const evaluationByKey = new Map<string, EvaluationNode>();
+    const clone = (node: EvaluationNode): EvaluationNode => {
+      const children = node.children?.map(clone);
+      const childrenChanged = Boolean(children?.some((child, index) => child !== node.children?.[index]));
+      const presentation = presentationByKey.get(node.key);
+      const ownChanged = Boolean(presentation && (
+        presentation.visible !== node.visible ||
+        presentation.silentWhitespaceExclusion !== (node.silentWhitespaceExclusion === true)
+      ));
+      const next = ownChanged || childrenChanged
+        ? {
+          ...node,
+          ...(presentation ?? {}),
+          ...(children ? { children } : {}),
+        }
+        : node;
+      presentationChanged ||= ownChanged;
+      evaluationByKey.set(node.key, next);
+      return next;
     };
-  }
+    const root = clone(current.root);
+    if (!presentationChanged) {
+      result = {
+        view: current,
+        branchRoots: shallowEntries.map((entry) => entry.evaluationNode),
+      };
+      return result;
+    }
 
-  const byElement = new WeakMap<Element, DomBridgeNode>();
-  const byKey = new Map<string, DomBridgeNode>();
-  const byXpath = new Map<string, DomBridgeNode>();
-  for (const [xpath, entry] of current.byXpath) {
-    const evaluationNode = evaluationByKey.get(entry.evaluationNode.key) ?? entry.evaluationNode;
-    const nextEntry = evaluationNode === entry.evaluationNode
-      ? entry
-      : { ...entry, evaluationNode };
-    byElement.set(entry.element, nextEntry);
-    byKey.set(evaluationNode.key, nextEntry);
-    byXpath.set(xpath, nextEntry);
-  }
-  const view: DomBridgeView = { root, byElement, byKey, byXpath };
-  return {
-    view,
-    branchRoots: shallowEntries.flatMap((entry) => {
-      const next = view.byKey.get(entry.evaluationNode.key)?.evaluationNode;
-      return next ? [next] : [];
-    }),
+    const byElement = new WeakMap<Element, DomBridgeNode>();
+    const byKey = new Map<string, DomBridgeNode>();
+    const byXpath = new Map<string, DomBridgeNode>();
+    for (const [xpath, entry] of current.byXpath) {
+      const evaluationNode = evaluationByKey.get(entry.evaluationNode.key) ?? entry.evaluationNode;
+      const nextEntry = evaluationNode === entry.evaluationNode
+        ? entry
+        : { ...entry, evaluationNode };
+      byElement.set(entry.element, nextEntry);
+      byKey.set(evaluationNode.key, nextEntry);
+      byXpath.set(xpath, nextEntry);
+    }
+    const view: DomBridgeView = { root, byElement, byKey, byXpath };
+    result = {
+      view,
+      branchRoots: shallowEntries.flatMap((entry) => {
+        const next = view.byKey.get(entry.evaluationNode.key)?.evaluationNode;
+        return next ? [next] : [];
+      }),
+    };
+    return result;
   };
+
+  return {
+    totalNodes,
+    get processedNodes() {
+      return processedNodes;
+    },
+    step(maxNodes: number): boolean {
+      const limit = Math.max(1, Math.floor(maxNodes));
+      let captured = 0;
+      while (pending.length > 0 && captured < limit) {
+        const node = pending.pop();
+        if (!node) continue;
+        const entry = current.byKey.get(node.key);
+        if (!entry) continue;
+        const geometry = geometryFor(entry.element, pass);
+        const visible = isUserVisible(entry.element, geometry);
+        presentationByKey.set(node.key, {
+          visible,
+          silentWhitespaceExclusion: node.immutable !== true && isSilentWhitespaceExclusion(
+            entry.element,
+            visible,
+            styleFor(entry.element, pass),
+          ),
+        });
+        processedNodes += 1;
+        captured += 1;
+        for (let index = (node.children?.length ?? 0) - 1; index >= 0; index -= 1) {
+          const child = node.children?.[index];
+          if (child) pending.push(child);
+        }
+      }
+      return pending.length === 0;
+    },
+    finish,
+  };
+}
+
+export function refreshDomBridgePresentation(
+  current: DomBridgeView,
+  mutationTargets: readonly Element[],
+): DomBridgePresentationRefresh {
+  const cursor = createDomBridgePresentationRefreshCursor(current, mutationTargets);
+  while (!cursor.step(2_048)) {
+    // The synchronous public contract remains available for activation and
+    // tests; the marking engine uses the cursor directly for large live pages.
+  }
+  return cursor.finish();
 }
 
 export function markClosedShadowHost(element: Element): void {

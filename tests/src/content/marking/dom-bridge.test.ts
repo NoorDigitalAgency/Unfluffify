@@ -12,6 +12,7 @@ import {
 import { MOTION_CAPTURE_LEDGER_ATTR } from "../../../../src/content/marking/capture-hygiene";
 import {
   createDomBridgeView,
+  createDomBridgePresentationRefreshCursor,
   createMarkingEngine,
   createOverlayRenderer,
   captureFlattenedHtml,
@@ -303,6 +304,36 @@ describe("P6 DOM bridge", () => {
     expect(bridge.byElement.get(label as unknown as Element)?.evaluationNode.visible).toBe(true);
     expect(root.rectReadCount).toBe(rootReads);
     expect(article.rectReadCount).toBe(articleReads);
+  });
+
+  it("captures a broad presentation refresh in caller-bounded layout slices", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 3_000));
+    root.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    const paragraphs = Array.from({ length: 130 }, (_, index) => {
+      const paragraph = new FakeElement("P", rect(0, index * 22, 120, 20), `Row ${index}`);
+      paragraph.ownerDocument = doc;
+      root.appendChild(paragraph);
+      return paragraph;
+    });
+    const bridge = createDomBridgeView(root as unknown as Element);
+    for (const element of [root, ...paragraphs]) element.rectReadCount = 0;
+    root.style.display = "none";
+
+    const cursor = createDomBridgePresentationRefreshCursor(bridge, [root as unknown as Element]);
+    expect(cursor.totalNodes).toBe(131);
+    expect(cursor.step(32)).toBe(false);
+    expect(cursor.processedNodes).toBe(32);
+    expect([root, ...paragraphs].reduce((sum, element) => sum + element.rectReadCount, 0)).toBe(32);
+    expect(() => cursor.finish()).toThrow(/capture is incomplete/i);
+    while (!cursor.step(32)) {
+      // Exercise the same bounded cursor contract used by the live engine.
+    }
+    const refreshed = cursor.finish();
+    expect(cursor.processedNodes).toBe(131);
+    expect(refreshed.view.byElement.get(paragraphs[129] as unknown as Element)?.evaluationNode.visible).toBe(false);
   });
 
   it("pierces pointer-events-suppressed descendants and accepts ancestor transparency as reachable", () => {
@@ -2750,6 +2781,73 @@ describe("P6 DOM bridge", () => {
     }
   });
 
+  it("frame-slices broad responsive presentation refreshes before adopting their branch", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const callbacks: Array<(records: MutationRecord[]) => void> = [];
+      const animationFrames: Array<() => void> = [];
+      Object.assign(doc.defaultView, {
+        MutationObserver: class {
+          constructor(callback: (records: MutationRecord[]) => void) {
+            callbacks.push(callback);
+          }
+          observe() {}
+          disconnect() {}
+        },
+        requestAnimationFrame(callback: () => void) {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+        cancelAnimationFrame() {},
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 4_000));
+      root.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      const paragraphs = Array.from({ length: 130 }, (_, index) => {
+        const paragraph = new FakeElement("P", rect(0, index * 22, 120, 20), `Row ${index}`);
+        paragraph.ownerDocument = doc;
+        root.appendChild(paragraph);
+        return paragraph;
+      });
+      const renderer = createRendererTestSeam();
+      const engine = createMarkingEngine(root as unknown as Element, {
+        instrumentation: { createRenderer: renderer.createRenderer },
+      });
+      for (const element of [root, ...paragraphs]) element.rectReadCount = 0;
+
+      root.style.display = "none";
+      root.setAttribute("style", "display: none;");
+      callbacks[0]?.([{
+        type: "attributes",
+        target: root,
+        attributeName: "style",
+        oldValue: null,
+      }] as unknown as MutationRecord[]);
+      vi.advanceTimersByTime(250);
+
+      expect(animationFrames).toHaveLength(1);
+      expect(renderer.branchRender).not.toHaveBeenCalled();
+      const readsPerFrame: number[] = [];
+      let priorReads = 0;
+      while (animationFrames.length > 0) {
+        animationFrames.shift()?.();
+        const nextReads = [root, ...paragraphs]
+          .reduce((sum, element) => sum + element.rectReadCount, 0);
+        readsPerFrame.push(nextReads - priorReads);
+        priorReads = nextReads;
+      }
+
+      expect(readsPerFrame.filter((count) => count > 0).every((count) => count <= 64)).toBe(true);
+      expect(renderer.branchRender).toHaveBeenCalledTimes(1);
+      expect(engine.rows().every((row) => row.excluded)).toBe(true);
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("drops net-zero responsive churn, branch-refreshes class, and rebuilds role", () => {
     vi.useFakeTimers();
     try {
@@ -3482,7 +3580,9 @@ describe("P6 DOM bridge", () => {
         } as IntersectionObserverEntry)), {} as IntersectionObserver);
       expect(animationFrames).toHaveLength(1);
       animationFrames.shift()?.();
-      expect(renderer.geometryRender).toHaveBeenCalledWith(initialViewportTargets.size);
+      // The structural root is observed for authority but owns no marking
+      // presentation, so it must not enter the geometry batch.
+      expect(renderer.geometryRender).toHaveBeenCalledWith(initialViewportTargets.size - 1);
       expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
       engine.dispose();
     } finally {
@@ -3678,7 +3778,9 @@ describe("P6 DOM bridge", () => {
       vi.advanceTimersByTime(120);
       animationFrames.shift()?.();
 
-      expect(renderer.geometryRender).toHaveBeenLastCalledWith(2);
+      // Only the semantic silent row is geometry-bearing; its structural root
+      // remains in the observer corpus without entering the paint transaction.
+      expect(renderer.geometryRender).toHaveBeenLastCalledWith(1);
       expect(first.clientRectReadCount).toBeGreaterThan(0);
       expect(second.clientRectReadCount).toBe(0);
       expect(silentBox("/main[1]/p[2]")).toBe(secondBox);
@@ -3695,7 +3797,7 @@ describe("P6 DOM bridge", () => {
       vi.advanceTimersByTime(120);
       animationFrames.shift()?.();
 
-      expect(renderer.geometryRender).toHaveBeenLastCalledWith(3);
+      expect(renderer.geometryRender).toHaveBeenLastCalledWith(2);
       expect(silentBox("/main[1]/p[2]")).toBe(secondBox);
       expect(secondBox?.style.visibility).toBe("");
       expect(secondBox?.style.top).toBe("40px");

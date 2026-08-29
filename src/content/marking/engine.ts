@@ -14,9 +14,10 @@ import type {
 } from "../../domain/schema/preview";
 import {
   captureFlattenedHtml,
+  createDomBridgePresentationRefreshCursor,
   createDomBridgeView,
-  refreshDomBridgePresentation,
   type DomBridgeOptions,
+  type DomBridgePresentationRefresh,
   type DomBridgeView,
 } from "./dom-view";
 import { getComposedHitElements } from "./hit-testing";
@@ -602,6 +603,8 @@ const STRUCTURAL_CHILD_LIST_QUIET_MS = 100;
 // of evaluating the complete marking tree twice during one resize gesture.
 const STRUCTURAL_PRESENTATION_QUIET_MS = 250;
 const STRUCTURAL_MUTATION_IDLE_TIMEOUT_MS = 1_200;
+const PROGRESSIVE_PRESENTATION_TARGET_THRESHOLD = 96;
+const PROGRESSIVE_PRESENTATION_CHUNK_SIZE = 64;
 // Pinned legacy restores interactive marking at roughly 250 ms. Begin the
 // rewrite's frame-fenced repaint at 230 ms so its paint frame lands in that
 // same visual window instead of adding a frame after it. Silent preview keeps
@@ -952,13 +955,16 @@ export function createMarkingEngine(
     } else {
       incompleteIntersectionFallbackUsed = false;
     }
+    const presentationXpaths = renderer.viewportPresentationXpaths();
     for (const xpath of intersectingXpaths) {
+      if (!presentationXpaths.has(xpath)) continue;
       const target = overlayTargets.get(xpath);
       if (target) {
         targets.set(xpath, target);
       }
     }
     for (const xpath of intersectionDirtyXpaths) {
+      if (!presentationXpaths.has(xpath)) continue;
       const target = overlayTargets.get(xpath);
       if (target) {
         targets.set(xpath, target);
@@ -1375,10 +1381,7 @@ export function createMarkingEngine(
     });
     deferredBranchRenderHandle = deferredHandle || null;
   };
-  const refreshPresentationBranches = (mutationTargets: readonly Element[]): void => {
-    beginWorkCycle();
-    hoverResolution = null;
-    const refreshed = refreshDomBridgePresentation(bridge, mutationTargets);
+  const applyPresentationRefresh = (refreshed: DomBridgePresentationRefresh): void => {
     if (refreshed.branchRoots.length === 0) {
       return;
     }
@@ -1552,6 +1555,8 @@ export function createMarkingEngine(
     let structuralFallbackHandle: ReturnType<typeof setTimeout> | null = null;
     let structuralRenderInFlight = false;
     let structuralTrailingQuietMs: number | null = null;
+    let progressivePresentationHandle: number | null = null;
+    let progressivePresentationCycle = 0;
     let pendingStructuralNonAttributeMutation = false;
     const pendingStructuralAttributeOldValues = new Map<Element, Map<string, string | null>>();
     const styleCanonicalCache = new Map<string, string>();
@@ -1657,8 +1662,46 @@ export function createMarkingEngine(
         scheduleRender("structural");
         return;
       }
+      const cursor = createDomBridgePresentationRefreshCursor(bridge, [...presentationTargets]);
+      if (cursor.totalNodes > PROGRESSIVE_PRESENTATION_TARGET_THRESHOLD) {
+        beginWorkCycle();
+        hoverResolution = null;
+        const cycle = ++progressivePresentationCycle;
+        const runChunk = (): void => {
+          progressivePresentationHandle = null;
+          if (disposed || cycle !== progressivePresentationCycle) {
+            settleMutationRefresh();
+            return;
+          }
+          const complete = cursor.step(PROGRESSIVE_PRESENTATION_CHUNK_SIZE);
+          if (complete) {
+            // Keep immutable bridge materialization/store adoption out of the
+            // final layout-read slice. Large responsive roots now pay bounded
+            // frame work instead of one 150-600 ms presentation task.
+            progressivePresentationHandle = presentationClock.requestFrame(() => {
+              progressivePresentationHandle = null;
+              if (disposed || cycle !== progressivePresentationCycle) {
+                settleMutationRefresh();
+                return;
+              }
+              try {
+                applyPresentationRefresh(cursor.finish());
+              } finally {
+                settleMutationRefresh();
+              }
+            }) || null;
+            return;
+          }
+          progressivePresentationHandle = presentationClock.requestFrame(runChunk) || null;
+        };
+        progressivePresentationHandle = presentationClock.requestFrame(runChunk) || null;
+        return;
+      }
       try {
-        refreshPresentationBranches([...presentationTargets]);
+        while (!cursor.step(PROGRESSIVE_PRESENTATION_CHUNK_SIZE)) {
+          // Small branches retain the synchronous legacy-compatible cadence.
+        }
+        applyPresentationRefresh(cursor.finish());
       } finally {
         settleMutationRefresh();
       }
@@ -2097,6 +2140,11 @@ export function createMarkingEngine(
     visualViewport?.addEventListener?.("scroll", scheduleViewportResizeRender);
     visualViewport?.addEventListener?.("resize", scheduleViewportResizeRender);
     cleanups.push(() => {
+      progressivePresentationCycle += 1;
+      if (progressivePresentationHandle !== null) {
+        presentationClock.cancelFrame(progressivePresentationHandle);
+        progressivePresentationHandle = null;
+      }
       cancelStructuralDispatch();
       structuralTrailingQuietMs = null;
       structuralRenderInFlight = false;
