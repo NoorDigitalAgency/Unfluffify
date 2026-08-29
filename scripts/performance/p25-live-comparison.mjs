@@ -1737,7 +1737,19 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
       }
       const afterAuthorityRefresh = refreshTerminal?.state ?? await capturePopupState(popup);
       const started = performance.now();
-      const controlActivation = await physicalActivatePopupControl(popup, "toggle-enabled", "pointer");
+      const controlActivation = await physicalActivatePopupControl(
+        popup,
+        "toggle-enabled",
+        "pointer",
+        null,
+        {
+          hitTargetTimeoutMs: 2_000,
+          pollIntervalMs: 50,
+          trustedActivation: true,
+          activationAckTimeoutMs: 250,
+          maxDispatchAttempts: 3,
+        },
+      );
       const after = await waitForPopupToggle(popup, true, integerOption(options, "activation-timeout-ms", 45_000));
       const markingPosture = identity.implementation === "rewrite"
         ? await waitForSiteWorkflowPosture(
