@@ -6,6 +6,7 @@ export * from "./overlay";
 export * from "./paint-reachability";
 export * from "./renderer";
 export * from "./resolve";
+export * from "./root-authority";
 export * from "./silent-highlight";
 export * from "./store";
 export * from "./submit";

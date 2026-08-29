@@ -29,7 +29,10 @@ import {
   type RenderInspectionCurtainController,
   type RenderInspectionIdentity,
 } from "../content/render-inspection-curtain";
-import { createMarkingEngine } from "../content/marking";
+import {
+  createMarkingEngine,
+} from "../content/marking";
+import { retireSupersededMarkingRoots } from "../content/marking/root-authority";
 import { createPhysicalActionDeduper, openMarkingContextMenu } from "../content/marking/interaction";
 import { presentationClockFor } from "../content/presentation-clock";
 import { createPreviewController } from "../content/preview-controller";
@@ -96,6 +99,14 @@ const spaGuard = createSpaGuard((url) => {
   }
 });
 let markingEngine: ReturnType<typeof createMarkingEngine> | null = null;
+
+function createAuthoritativeMarkingEngine(
+  ...args: Parameters<typeof createMarkingEngine>
+): ReturnType<typeof createMarkingEngine> {
+  retireSupersededMarkingRoots(typeof document === "undefined" ? null : document);
+  return createMarkingEngine(...args);
+}
+
 let markingActive = false;
 /** Counts the operator's toggles, and nothing else. The page mutates on its own,
  *  so any measure derived from the live row count would drift: rows the page grows
@@ -335,7 +346,7 @@ const previewController = createPreviewController({
     if (typeof document === "undefined" || !document.documentElement) {
       return null;
     }
-    markingEngine = createMarkingEngine(document.documentElement);
+    markingEngine = createAuthoritativeMarkingEngine(document.documentElement);
     return markingEngine;
   },
   interactionActive: previewInteractionActive,
@@ -3833,7 +3844,7 @@ function resetMarking(): boolean {
   markingEngine?.dispose();
   removeSilentDebugCopyListener?.();
   destroyPageWorldSession();
-  markingEngine = createMarkingEngine(document.documentElement, { render: true });
+  markingEngine = createAuthoritativeMarkingEngine(document.documentElement, { render: true });
   userToggleCount = 0;
   selectorsSeeded = false;
   lastKnownPageUrl = typeof location !== "undefined" ? location.href : lastKnownPageUrl;
@@ -3903,7 +3914,7 @@ async function activateContentMain(payload: unknown): Promise<Record<string, unk
       ? selectors
       : undefined;
     if (!markingEngine) {
-      markingEngine = createMarkingEngine(document.documentElement, {
+      markingEngine = createAuthoritativeMarkingEngine(document.documentElement, {
         render: true,
         selectors: selectorsForInitialization,
       });
@@ -4016,7 +4027,7 @@ function applySilentSelectors(
   const selectors = selectorSetFrom(payloadObject(payload));
   markingEngine?.setInputTransparent?.(false);
   markingEngine?.dispose();
-  markingEngine = createMarkingEngine(document.documentElement, { selectors });
+  markingEngine = createAuthoritativeMarkingEngine(document.documentElement, { selectors });
   const seeded = markingEngine.lastInitializationSeededSelectors();
   selectorsSeeded = seeded;
   const highlighted = markingEngine.renderSilentHighlights();
@@ -4044,7 +4055,7 @@ function clearSilentSelectors(
     // The initial not_found baseline is awaited by the popup authority refresh.
     // Prepare the expensive DOM bridge here so the operator's first toggle only
     // has to paint the already-current marking presentation.
-    markingEngine = createMarkingEngine(document.documentElement);
+    markingEngine = createAuthoritativeMarkingEngine(document.documentElement);
   }
   markingEngine?.parkPresentation();
   selectorsSeeded = false;

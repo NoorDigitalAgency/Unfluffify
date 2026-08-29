@@ -12,10 +12,38 @@ import {
   physicalActivatePreviewRow,
   proveRequestedRenderMode,
   readableTextsCorrespond,
+  silentPosturePass,
   validateCandidateDispositionRecord,
   validateExactMarkingGestureEvidence,
   validateFullWorkflowEvidence,
 } from "../scripts/performance/p25/workflow-probes.mjs";
+
+describe("P25 silent viewport authority", () => {
+  const posture = {
+    viewport: { width: 1920, height: 1080 },
+    interactiveViewport: { left: 0, top: 0, width: 1912, height: 1080 },
+    markingRootCount: 1,
+    silentHighlightCount: 35,
+    shield: [{
+      connected: true,
+      pointerEvents: "auto",
+      opacity: 1,
+      rect: [0, 0, 1912, 1080],
+    }],
+  };
+
+  it("accepts the exact visual viewport while preserving the native scrollbar gutter", () => {
+    expect(silentPosturePass(posture)).toBe(true);
+  });
+
+  it("rejects duplicate renderer ownership and shield geometry outside the interactive viewport", () => {
+    expect(silentPosturePass({ ...posture, markingRootCount: 2 })).toBe(false);
+    expect(silentPosturePass({
+      ...posture,
+      shield: [{ ...posture.shield[0], rect: [0, 0, 1920, 1080] }],
+    })).toBe(false);
+  });
+});
 
 describe("P25 physical popup activation", () => {
   it("foregrounds, centers, and hit-verifies the real side-panel control before pointer input", async () => {

@@ -479,8 +479,15 @@ export async function captureSiteWorkflowPosture(session) {
       const markId = overlay.getAttribute('data-mc-mark-id');
       append(markId ? document.querySelector('[data-uf-mark-id="' + CSS.escape(markId) + '"]') : null, markId);
     }
+    const visualViewport = window.visualViewport;
     return ({
     viewport: { width: innerWidth, height: innerHeight, scrollX: Math.round(scrollX), scrollY: Math.round(scrollY) },
+    interactiveViewport: {
+      left: visualViewport?.offsetLeft ?? 0,
+      top: visualViewport?.offsetTop ?? 0,
+      width: visualViewport?.width ?? document.documentElement?.clientWidth ?? innerWidth,
+      height: visualViewport?.height ?? document.documentElement?.clientHeight ?? innerHeight,
+    },
     markingRootCount: document.querySelectorAll('.uf-marking-layer-root, #unfluffify-overlay').length,
     silentHighlightCount: document.querySelectorAll('[data-uf-silent-highlight], #unfluffify-silent-highlight-overlay .uf-rect, #unfluffify-overlay [data-layer="ai-content"] .uf-rect, #unfluffify-overlay [data-layer="saved-explicit-include"] .uf-rect, #unfluffify-overlay [data-layer="saved-explicit-exclude"] .uf-rect').length,
     shield: [...document.querySelectorAll('[data-uf-interaction-shield="true"], #unfluffify-overlay')].map((element) => {
@@ -493,6 +500,29 @@ export async function captureSiteWorkflowPosture(session) {
       readableText: target.readableText || describe(target.source),
     })),
   }); })()`);
+}
+
+export function silentPosturePass(posture) {
+  const viewport = posture?.viewport;
+  const interactiveViewport = posture?.interactiveViewport ?? {
+    left: 0,
+    top: 0,
+    width: viewport?.width,
+    height: viewport?.height,
+  };
+  const shield = posture?.shield?.find((candidate) =>
+    candidate.connected && candidate.pointerEvents === "auto" && candidate.opacity === 1);
+  const approximately = (actual, expected) =>
+    Number.isFinite(actual) && Number.isFinite(expected) && Math.abs(actual - expected) <= 2;
+  return Math.round(viewport?.width ?? 0) === 1920 &&
+    Math.round(viewport?.height ?? 0) === 1080 &&
+    posture?.markingRootCount === 1 &&
+    posture?.silentHighlightCount > 0 &&
+    Boolean(shield) &&
+    approximately(shield?.rect?.[0], interactiveViewport.left) &&
+    approximately(shield?.rect?.[1], interactiveViewport.top) &&
+    approximately(shield?.rect?.[2], interactiveViewport.width) &&
+    approximately(shield?.rect?.[3], interactiveViewport.height);
 }
 
 export function readableTextsCorrespond(left, right) {

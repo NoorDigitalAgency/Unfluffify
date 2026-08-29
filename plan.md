@@ -924,6 +924,28 @@ headed-validation gates.
   production build, and seven manifest checks. Checkpoint commit/push and a
   fresh immutable DPJ run remain before debug, pinned legacy, and the candidate
   matrix.
+- Pushed checkpoint `570b8f24` then completed the clean production DPJ workflow
+  through fresh AI, both Content List directions, immediate dirty projection,
+  Discard, exactly one authoritative Save, payload hygiene, and the silent
+  transition. The silent-visual stage exposed two distinct authority errors.
+  First, its oracle treated the 1920 px emulation width as the interactive
+  viewport even though DPJ's native scrollbar correctly leaves a 1912 px visual
+  viewport and the shield correctly preserves that 8 px gutter. Second, the
+  document retained an empty 404×960 renderer root from an older content realm
+  beside the current 1912×1080 root with 35 painted silent highlights; the
+  frame collector selected the first root and recorded zero rectangles. Every
+  authoritative engine construction now retires connected superseded roots,
+  frame evidence reevaluates and selects the painted/current root on every
+  animation frame, silent geometry is checked against the exact interactive
+  viewport while outer emulation remains exactly 1920×1080, and both visual
+  stages require one renderer root. Focused coverage passes four files / 89
+  tests; the complete repository gate passes lint, page-world parity, every
+  TypeScript project, 141 files / 1,432 tests, a fresh production build, and
+  seven manifest checks. The full dirty-source P14 run completed 192 scenarios
+  with zero semantic, budget, activation, mutation-pressure, or input Long Task
+  failures; its aggregate correctly remained red only because clean committed
+  source is mandatory. Commit/push, a clean-source P14 rerun, and fresh
+  production/debug/legacy evidence remain.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

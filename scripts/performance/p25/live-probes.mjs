@@ -755,9 +755,27 @@ export function resolveCollectorPerformanceWindow(action, startedAt, endedAt) {
   };
 }
 
+export function selectActiveOverlayRoot(roots) {
+  let selected = null;
+  let selectedPaintCount = -1;
+  for (const root of Array.from(roots ?? [])) {
+    const paintCount = typeof root?.querySelectorAll === "function"
+      ? root.querySelectorAll('[data-uf-overlay-xpath], [data-uf-silent-highlight], .uf-rect').length
+      : 0;
+    // A tie belongs to the newest DOM occurrence. This keeps evidence on the
+    // current renderer even when an older empty root survived a realm handoff.
+    if (paintCount >= selectedPaintCount) {
+      selected = root;
+      selectedPaintCount = paintCount;
+    }
+  }
+  return selected;
+}
+
 function frameCollectorExpression(collectorKey, ownerXPath, durationMs) {
   return `(() => {
     const collectorWindowShouldContinue = ${collectorWindowShouldContinue.toString()};
+    const selectActiveOverlayRoot = ${selectActiveOverlayRoot.toString()};
     const key = ${JSON.stringify(collectorKey)};
     const ownerXPath = ${JSON.stringify(ownerXPath)};
     const durationMs = ${JSON.stringify(durationMs)};
@@ -776,7 +794,6 @@ function frameCollectorExpression(collectorKey, ownerXPath, durationMs) {
     if (ownerXPath) {
       try { owner = document.evaluate(ownerXPath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue; } catch {}
     }
-    const root = document.querySelector('#unfluffify-overlay, #unfluffify-silent-highlight-overlay, .uf-marking-layer-root');
     const observer = state.longTaskObserverSupported ? new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
         // Buffered observation can replay long tasks from before this gesture. Keep
@@ -790,6 +807,8 @@ function frameCollectorExpression(collectorKey, ownerXPath, durationMs) {
     } catch {}
     let previous = state.startedAt;
     const tick = (now) => {
+      const roots = document.querySelectorAll('#unfluffify-overlay, #unfluffify-silent-highlight-overlay, .uf-marking-layer-root');
+      const root = selectActiveOverlayRoot(roots);
       const style = root instanceof Element ? getComputedStyle(root) : null;
       const layerStyles = root instanceof Element
         ? [...root.querySelectorAll('[data-layer], .uf-layer')].filter((element) => element.childElementCount > 0).map((element) => getComputedStyle(element))
@@ -807,6 +826,7 @@ function frameCollectorExpression(collectorKey, ownerXPath, durationMs) {
         deltaMs: now - previous,
         windowScrollY: Math.round(scrollY),
         ownerScrollTop: owner instanceof Element ? Math.round(owner.scrollTop) : null,
+        rootCount: roots.length,
         rootOpacity: style ? Number(style.opacity || '1') : null,
         rootVisibility: style?.visibility ?? null,
         rootDisplay: style?.display ?? null,

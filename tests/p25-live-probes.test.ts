@@ -15,6 +15,7 @@ import {
   preparedMarkingTargetIsUsable,
   stablePreparedMarkingTargetAuthority,
   resolveCollectorPerformanceWindow,
+  selectActiveOverlayRoot,
   snapshotMatchesAuthoritativePosture,
   topHitPaintEvidence,
   waitForPresentationOpportunity,
@@ -102,6 +103,21 @@ describe("P25 live site-session visibility", () => {
     expect(source).toContain("const deadline = Date.now() + 500");
     expect(source).toContain("document.querySelectorAll('[data-uf-marking-menu=\"true\"]')");
     expect(source).toContain("Marking context menu did not dismiss after trusted Escape input");
+  });
+});
+
+describe("P25 active overlay frame authority", () => {
+  it("selects the painted current root and the newest root when paint counts tie", () => {
+    const root = (paintCount: number) => ({
+      querySelectorAll: () => Array.from({ length: paintCount }),
+    });
+    const stale = root(0);
+    const current = root(4);
+    const newestEmpty = root(0);
+
+    expect(selectActiveOverlayRoot([stale, current])).toBe(current);
+    expect(selectActiveOverlayRoot([stale, newestEmpty])).toBe(newestEmpty);
+    expect(selectActiveOverlayRoot([])).toBeNull();
   });
 });
 

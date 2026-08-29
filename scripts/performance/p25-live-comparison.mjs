@@ -63,6 +63,7 @@ import {
   physicalActivatePreviewRow,
   proveRequestedRenderMode,
   readableTextsCorrespond,
+  silentPosturePass,
   validateCandidateDispositionRecord,
   validateExactMarkingGestureEvidence,
   validateFullWorkflowEvidence,
@@ -830,15 +831,6 @@ function viewportMatches(posture, width, height) {
   return posture?.viewport?.width === width && posture?.viewport?.height === height;
 }
 
-function silentPosturePass(posture) {
-  const viewport = posture?.viewport;
-  const shield = posture?.shield?.find((candidate) => candidate.connected && candidate.pointerEvents === "auto" && candidate.opacity === 1);
-  return viewportMatches(posture, 1920, 1080) &&
-    shield && shield.rect[0] <= 1 && shield.rect[1] <= 1 &&
-    shield.rect[2] >= viewport.width - 2 && shield.rect[3] >= viewport.height - 2 &&
-    posture.silentHighlightCount > 0;
-}
-
 async function runRenderInspection(popup, { implementation, renderMode, timeoutMs }) {
   const controlId = implementation === "legacy"
     ? renderMode === "with-javascript" ? "render-mode-inspect-with-javascript" : "render-mode-inspect-without-javascript"
@@ -1335,11 +1327,13 @@ function stageAcceptanceFailures(id, action, implementation) {
     requireValue(Number.isInteger(data.visual?.sourceFragmentCount), "Source fragment cardinality was not captured");
     requireValue(Number.isInteger(data.visual?.paintedRectCount), "Painted rectangle cardinality was not captured");
     requireValue(Number.isInteger(data.visual?.physicalHitCount), "Physical hit cardinality was not captured");
+    requireValue(data.visual?.extensionRootCount === 1, `Marking stage retained ${data.visual?.extensionRootCount ?? "unknown"} renderer roots`);
     requireValue(data.visual?.invisibleSourcePaintCount === 0, `Painted ${data.visual?.invisibleSourcePaintCount ?? "unknown"} invisible sources`);
   }
   if (id === "silent-visual") {
     requireValue(data.popup?.silentAcknowledged === true && workflowControl(data.popup, "toggle-enabled")?.checked === false, "Silent visual stage did not begin from the acknowledged disabled-marking posture");
     requireValue(silentPosturePass(data.silentPosture), "Silent visual stage lacks exact 1920x1080 highlight and full-viewport interactive shield proof");
+    requireValue(data.visual?.extensionRootCount === 1, `Silent stage retained ${data.visual?.extensionRootCount ?? "unknown"} renderer roots`);
     requireValue(data.visual?.invisibleSourcePaintCount === 0, `Silent stage painted ${data.visual?.invisibleSourcePaintCount ?? "unknown"} invisible sources`);
   }
   if (id === "marking-gestures") {

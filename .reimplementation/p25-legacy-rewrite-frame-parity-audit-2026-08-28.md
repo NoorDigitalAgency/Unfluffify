@@ -1056,6 +1056,38 @@ preserves the stronger architecture.
     fresh production build, and seven manifest checks. A fresh exact commit run
     remains required because immutable failed evidence is not reclassified in
     place.
+125. **Remediated, immutable rerun pending P0 — silent renderer ownership and
+    viewport evidence diverged after an otherwise clean workflow.** Exact pushed
+    production run
+    `2026-08-29T06-12-00-966Z-44936c94-rewrite-dpj` on `570b8f24` passed both
+    render modes, activation/network, marking visual, all five shared gestures,
+    marking scroll/resize, and the complete product workflow through fresh AI,
+    both Content List directions, dirty projection, Discard, one authoritative
+    Save, payload hygiene, and silent transition. The next stage found an
+    interactive shield at `[0,0,1912,1080]` under exact 1920×1080 emulation.
+    That geometry was correct: DPJ's native scrollbar owns the remaining 8 px,
+    and page scrolling must remain usable. The oracle incorrectly compared the
+    shield to `innerWidth` instead of the visual/layout viewport. The document
+    also contained two connected rewrite renderer roots: an empty stale
+    404×960 root from an older content realm and the current 1912×1080 root with
+    35 visible silent highlights. The frame collector's first-match query chose
+    the stale root and reported zero rectangles. This second condition is a real
+    lifecycle defect even though it did not duplicate visible paint. The next
+    authoritative marking-engine construction now retires every connected
+    superseded extension root before mounting, and a source-wiring regression
+    covers all five construction routes. Frame evidence reevaluates roots per
+    animation frame, selects the greatest painted cardinality and newest root on
+    ties, and records root count. Silent acceptance separately requires exact
+    1920×1080 outer emulation, a shield matching the exact interactive viewport,
+    positive highlights, and one renderer root; marking visual acceptance also
+    requires one root. Focused coverage passes four files / 89 tests; the
+    complete repository gate passes lint, page-world parity, every TypeScript
+    project, 141 files / 1,432 tests, a fresh production build, and seven
+    manifest checks. Full dirty-source P14 evidence retained 192 scenarios with
+    zero semantic, budget, activation, mutation-pressure, or input Long Task
+    failures; the aggregate correctly failed only its mandatory clean-source
+    identity check. A clean checkpoint rerun and a fresh immutable headed run
+    remain required.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1127,10 +1159,10 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 122; findings
-110–112 are closed by the immutable pushed-source DPJ gesture run. Findings 108
-and 113–122 await exact clean pushed reruns, while finding 109 remains a
-recurrence watch. P25 remains open until the exact
+Implementation remediation is code-complete through finding 125. Immutable
+pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
+recurrence watch, and finding 125 awaits an exact clean pushed rerun. P25 remains
+open until the exact
 clean pushed commit completes every valid candidate's observer-free headed
 rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,
