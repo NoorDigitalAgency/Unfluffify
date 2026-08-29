@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "./file-kit.ts";
 import {
   CANDIDATE_MATRIX,
   LEGACY_DEBUG_UNAVAILABLE,
@@ -251,6 +252,11 @@ function recordedComparisonPair(label = "dpj") {
 }
 
 describe("P25 live-comparison identity and candidate contract", () => {
+  it("waits through a transiently absent alternate Render Inspection control", () => {
+    const source = readFileSync(new URL("../scripts/performance/p25-live-comparison.mjs", import.meta.url), "utf8");
+    expect(source).toMatch(/implementation === "rewrite" &&\s*\(!alternate \|\| alternate\.disabled \|\| alternate\.visible === false\)/);
+  });
+
   it("normalizes fragment, query ordering, default ports, and trailing slash coherently", () => {
     expect(normalizeLiveUrl("https://WWW.DPJ.SE:443/path/?b=2&a=1#fragment"))
       .toBe("https://www.dpj.se/path?a=1&b=2");

@@ -952,7 +952,11 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
       : alternateMode === "with-javascript" ? "render-mode-with-js" : "render-mode-without-js";
     let alternate = before.controls.find((candidate) => candidate.id === alternateId);
     const alternateReadyDeadline = Date.now() + Math.min(timeoutMs, 10_000);
-    while (implementation === "rewrite" && alternate?.disabled && Date.now() < alternateReadyDeadline) {
+    while (
+      implementation === "rewrite" &&
+      (!alternate || alternate.disabled || alternate.visible === false) &&
+      Date.now() < alternateReadyDeadline
+    ) {
       await new Promise((resolve) => setTimeout(resolve, 50));
       before = await capturePopupState(popup);
       alternate = before.controls.find((candidate) => candidate.id === alternateId);
