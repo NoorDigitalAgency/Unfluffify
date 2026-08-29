@@ -764,7 +764,9 @@ describe("P25 full workflow fail-closed acceptance", () => {
   it("correlates preview routes to the activated readable target and rejects an unrelated row", () => {
     expect(readableTextsCorrespond("2. Specialist acne treatment. Included", "Specialist acne treatment")) .toBe(true);
     expect(readableTextsCorrespond("3. 15 %. Included", "15 %")).toBe(true);
+    expect(readableTextsCorrespond("4. Kontakt. Excluded", "Låter det intressant? Kontakt Jobba med oss Våra tjänster")).toBe(true);
     expect(readableTextsCorrespond("15 %", "20 %")).toBe(false);
+    expect(readableTextsCorrespond("Art", "Article archive")).toBe(false);
     expect(readableTextsCorrespond("Specialist acne treatment", "Book a moving company in Stockholm")).toBe(false);
     const evidence = completeWorkflowEvidence();
     evidence.contentList.rowToPage.targetCorresponds = false;

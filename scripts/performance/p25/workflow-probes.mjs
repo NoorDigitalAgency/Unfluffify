@@ -700,6 +700,14 @@ export function readableTextsCorrespond(left, right) {
   // labels whose row copy contains additional surrounding text.
   if (a === b) return true;
   if (Math.min(a.length, b.length) >= 8 && (a.includes(b) || b.includes(a))) return true;
+  const aAllTokens = a.split(" ").filter(Boolean);
+  const bAllTokens = b.split(" ").filter(Boolean);
+  // A short semantic control label can route to a larger structural owner
+  // (for example, "Kontakt" to the footer that contains that landmark copy).
+  // Accept only an exact standalone word of useful length; substring matching
+  // would incorrectly equate labels such as "art" and "article".
+  if (aAllTokens.length === 1 && a.length >= 5 && bAllTokens.includes(a)) return true;
+  if (bAllTokens.length === 1 && b.length >= 5 && aAllTokens.includes(b)) return true;
   const aTokens = new Set(a.split(" ").filter((token) => token.length >= 3));
   const bTokens = new Set(b.split(" ").filter((token) => token.length >= 3));
   const common = [...aTokens].filter((token) => bTokens.has(token)).length;
