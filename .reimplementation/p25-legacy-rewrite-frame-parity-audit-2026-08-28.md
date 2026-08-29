@@ -738,6 +738,49 @@ preserves the stronger architecture.
     proven, no speculative product change is justified. The immutable matrix
     retains this as a recurrence watch; any repeat must capture the pre-reveal
     terminal reason and becomes a blocker.
+110. **Remediated, immutable rerun pending harness P0 — DPJ gesture preparation
+    treated off-screen carousel content as physical input.** Immutable production
+    run `2026-08-29T02-09-47-414Z-f26b4c44-rewrite-dpj` passed preflight, both
+    render modes, exact 412×960 activation, network bounds, and marking visuals.
+    It retained 712 markable sources, 14 painted/visible/reachable rectangles,
+    zero invisible, composed-invisible, covered, or unresolved paint, and 21
+    consent-suppressed sources. Stage 05 then failed before dispatching input
+    because the chooser accepted vertical visibility alone, clamped horizontally
+    off-screen slider geometry to the viewport edge, sampled structural boxes
+    rather than readable pixels, and required the painted owner to equal the
+    outer candidate even when the pointer correctly resolved a nested link.
+    Candidate proof now requires horizontal and vertical viewport intersection,
+    a readable text-range or element point whose extension-filtered
+    `elementsFromPoint` hit belongs to the source, bridge-related Alt-owner
+    normalization, a strict widened Shift ancestor, and a physically reachable
+    point reacquired before every gesture. Moving grouped content remains
+    eligible—the probe tests the real widening surface instead of deleting the
+    feature class—but an owner that leaves the viewport fails closed. Context
+    dismissal is also proven before the following page click. The corrected
+    same-browser diagnostic selected DPJ's nested Kundcase link on its first
+    attempt and completed plain no-create, Shift widen, exact clear, Alt include,
+    four-action context state, and plain include clear. Focused P25 and marking
+    regressions pass; only a new clean pushed run may close the immutable gate.
+111. **Remediated, headed verification pending P0 — explicit-include clearing and
+    context capabilities depended on a current painted-owner index.** Repeating
+    the same DPJ diagnostic against the unchanged loaded bundle alternated
+    between a correct six-operation result and a state where Exclude was enabled,
+    Widen was disabled, and the next plain click only dismissed the context menu.
+    The canonical explicit inclusion never disappeared. The pure exclusion
+    resolver returned a closed explicit-include boundary only when it was the
+    deepest native hit; descendants returned `null`. A generation-current
+    renderer index usually masked that violation, but scrolling/carousel geometry
+    intentionally retires the index while coordinates settle. The locked legacy
+    contract makes the include boundary authoritative anywhere in its composed
+    hit path. The pure resolver now returns that owner regardless of which
+    descendant painted under the pointer. The context menu additionally derives
+    Include, Exclude, Widen, and Clear from one cached composed-hit observation,
+    preventing page motion between three independent resolutions. Unit coverage
+    proves descendant plain-clear and a one-read context capability set; the
+    focused four-file gate passes 198/198 tests. The complete gate also passes
+    lint, every page-world/TypeScript check, 140 files / 1,415 tests, the
+    production build, and seven generated-manifest checks. A rebuilt headed DPJ
+    rerun is still required before this finding is closed.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -809,9 +852,9 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 109; finding 108's
-evidence repair is focused-test green and awaits the exact clean pushed rerun,
-while finding 109 remains a recurrence watch. P25 remains open until the exact
+Implementation remediation is code-complete through finding 111; findings 108,
+110, and 111 await exact clean pushed reruns, while finding 109 remains a
+recurrence watch. P25 remains open until the exact
 clean pushed commit completes every valid candidate's observer-free headed
 rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,

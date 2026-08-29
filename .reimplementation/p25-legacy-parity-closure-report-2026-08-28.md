@@ -2,10 +2,10 @@
 
 ## Overall result
 
-**OPEN — implementation closure is complete; clean-source and headed acceptance
-are still in progress.** The P25 audit records 92 distinct legacy/rewrite,
-architecture, lifecycle, UX, performance, and evidence-authority findings. All
-92 have an implemented resolution or an intentional binding decision, but this
+**OPEN — remediation and clean-source headed acceptance are still in
+progress.** The P25 audit records 111 distinct legacy/rewrite, architecture,
+lifecycle, UX, performance, and evidence-authority findings. All confirmed
+findings have an implemented resolution or an intentional binding decision, but this
 report will not call that a parity PASS until the exact committed source passes
 the clean P25 composite and the same-profile observer-free candidate matrix.
 
@@ -14,8 +14,8 @@ assembly, country, cookie, modal, and similar blocking UI stays hidden and must
 not appear as a visible marking or in captured HTML, Content List rows, AI/Save
 payloads, or publication artifacts.
 
-The complete issue register, including the original 54 findings, 30 adversarial
-run-plan findings, and eight final launcher/live-evidence findings, is
+The complete issue register, including the original findings and every later
+adversarial launcher/live-evidence finding, is
 `p25-legacy-rewrite-frame-parity-audit-2026-08-28.md`.
 
 ## Source and acceptance authority
@@ -75,7 +75,7 @@ The final dirty-tree verification before the clean acceptance commit passed:
 | ESLint | PASS |
 | Generated page-world parity | PASS |
 | WXT prepare + all TypeScript projects | PASS |
-| Vitest | PASS — 140 files, 1,376 tests |
+| Vitest | PASS — current complete gate: 140 files, 1,415 tests; focused remediation: 4 files, 198 tests |
 | Production WXT build | PASS |
 | Generated manifest permissions | PASS — 7 checks |
 | Debug WXT build | PASS |

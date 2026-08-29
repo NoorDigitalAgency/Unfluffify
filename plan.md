@@ -9,8 +9,14 @@ passive-authority isolation landed in `423abc92`. Immutable Ledigajobb run
 `2026-08-29T01-46-36-763Z-86b81d8e-rewrite-ledigajobb` closed finding 107 and
 completed the real product workflow through one authoritative Save and silent
 transition. Its stage gate then exposed finding 108: the freshness probe charged
-site-control-session setup to product latency. That evidence-clock correction is
-focused-test green and awaits an exact pushed-source rerun. The observer-free
+site-control-session setup to product latency. That evidence-clock correction
+landed in pushed commit `9161a3bb`. Immutable DPJ run
+`2026-08-29T02-09-47-414Z-f26b4c44-rewrite-dpj` then passed stages 00–04 and
+exposed physical-target preparation finding 110 before any gesture input. The
+same-browser diagnosis also proved finding 111: explicit-include clearing and
+context capabilities could depend on a temporarily retired painted-owner index.
+Both remediations are complete-gate green and await a rebuilt pushed-source run.
+The observer-free
 headed matrix remains in progress; P25 stays open until it and the final evidence
 commit are synchronized.
 
@@ -691,6 +697,31 @@ headed-validation gates.
   140 test files / 1,412 tests, the production build, and seven generated-
   manifest tests. Commit/push the exact source and repeat the immutable stage
   before matrix expansion.
+- The trusted-input clock repair was committed and pushed as `9161a3bb` with a
+  complete green gate (140 files / 1,412 tests plus the production build and
+  seven manifest checks). The immediate Ledigajobb rerun was externally blocked
+  by its retained same-account lease, so the matrix advanced to DPJ.
+- Immutable DPJ run
+  `2026-08-29T02-09-47-414Z-f26b4c44-rewrite-dpj` passed preflight, both render
+  modes, exact mobile activation/network bounds, and a 712-source marking visual
+  with 14 valid rectangles, zero invalid paint, and 21 consent-suppressed
+  sources. Gesture preparation failed before trusted input because it treated
+  horizontally off-screen carousel boxes and outer structural candidates as
+  physical targets. Require a real text/element point confirmed by
+  `elementsFromPoint`, normalize a related nested painted owner, reacquire that
+  exact owner before each operation, and fail closed if it leaves the viewport.
+  Keep grouped carousel/card content eligible because it supplies the genuine
+  Shift-widen surface.
+- Repeated DPJ diagnostics then isolated a product race beneath the harness:
+  explicit-include clearing fell back to a pure resolver that rejected the
+  closed include whenever a descendant was the deepest hit. A current renderer
+  index hid the defect until scroll/geometry work retired it. Make the explicit
+  include win anywhere in the composed hit path and derive all four context-menu
+  capabilities from one cached hit observation. The focused marking/P25 gate is
+  green at 198/198. The complete gate passes lint, all page-world/TypeScript
+  checks, 140 files / 1,415 tests, the production build, and seven generated-
+  manifest checks. Commit/push, rebuild, and repeat DPJ from a new immutable run
+  before proceeding.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

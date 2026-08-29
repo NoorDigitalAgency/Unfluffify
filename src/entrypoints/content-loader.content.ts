@@ -3376,9 +3376,22 @@ function ensureMarkingListeners(): void {
     closeMarkingMenu?.();
     const physicalId = physicalIdFor(event);
     const overlayXpath = overlayXpathFromTarget(event.target);
-    const include = resolveAtPoint(event.clientX, event.clientY, "include", false, overlayXpath);
-    const existingExclude = resolveAtPoint(event.clientX, event.clientY, "exclude", false, overlayXpath);
-    const shiftedExclude = resolveAtPoint(event.clientX, event.clientY, "exclude", true, overlayXpath);
+    const contextTargets = markingEngine.resolveContextAtPoint?.(
+      event.clientX,
+      event.clientY,
+      overlayXpath ? { overlayXpath } : undefined,
+    );
+    // Retain the old injected-engine seam for unit fixtures. Production owns
+    // the atomic path above and never independently re-hits the moving page.
+    const include = contextTargets
+      ? contextTargets.include
+      : resolveAtPoint(event.clientX, event.clientY, "include", false, overlayXpath);
+    const existingExclude = contextTargets
+      ? contextTargets.existingExclude
+      : resolveAtPoint(event.clientX, event.clientY, "exclude", false, overlayXpath);
+    const shiftedExclude = contextTargets
+      ? contextTargets.shiftedExclude
+      : resolveAtPoint(event.clientX, event.clientY, "exclude", true, overlayXpath);
     const clearTarget = existingExclude ?? include;
     if (!include && !existingExclude && !shiftedExclude) {
       markingEngine.rejectAtPoint?.(event.clientX, event.clientY);

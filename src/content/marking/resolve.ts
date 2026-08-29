@@ -42,7 +42,12 @@ export function resolveTarget(
   }
   const includeBoundary = hitPath.find((hit) => hit.explicitInclude);
   if (includeBoundary) {
-    return hitPath[0] === includeBoundary ? includeBoundary : null;
+    // Explicit include boundaries are closed: every painted descendant routes
+    // back to the owning include until that exact boundary is cleared. The
+    // renderer's owner index is only a fast path and may be generation-fenced
+    // during scroll/resize settling, so correctness must also live here in the
+    // composed candidate path.
+    return includeBoundary;
   }
   // A widened exclusion owns the visible interaction surface for everything
   // below it. Resolve that exact explicit boundary first so a plain click (or

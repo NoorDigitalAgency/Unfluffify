@@ -1089,16 +1089,57 @@ const markingTargetExpression = (skippedXpaths = []) => `(() => {
   });
   const visible = (candidate) => {
     const rect = candidate.getBoundingClientRect();
-    return rect.top < innerHeight && rect.bottom > 0;
+    return rect.top < innerHeight && rect.bottom > 0 && rect.left < innerWidth && rect.right > 0;
+  };
+  const topPageHitAt = (x, y) => document.elementsFromPoint(x, y).find((hit) =>
+    hit instanceof Element && !hit.closest('[data-uf-extension-ui="true"], [data-uf-consent-hidden]')) ?? null;
+  const hitBelongsToCandidate = (candidate, hit) => hit instanceof Element && (
+    hit === candidate || candidate.contains(hit) || hit.contains(candidate)
+  );
+  const pointInRect = (candidate, candidateRect, source) => {
+    const left = Math.max(0, candidateRect.left);
+    const right = Math.min(innerWidth, candidateRect.right);
+    const top = Math.max(0, candidateRect.top);
+    const bottom = Math.min(innerHeight, candidateRect.bottom);
+    if (right - left < 2 || bottom - top < 2) return null;
+    for (const fraction of [0.5, 0.25, 0.75]) {
+      const x = left + (right - left) * fraction;
+      const y = top + (bottom - top) / 2;
+      const hit = topPageHitAt(x, y);
+      if (hitBelongsToCandidate(candidate, hit)) return { x, y, source, hitTag: hit.tagName };
+    }
+    return null;
+  };
+  const pointForCandidate = (candidate) => {
+    const textWalker = document.createTreeWalker(candidate, NodeFilter.SHOW_TEXT);
+    let point = null;
+    for (let textNode = textWalker.nextNode(); textNode && !point; textNode = textWalker.nextNode()) {
+      if (!(textNode.textContent ?? '').trim()) continue;
+      const range = document.createRange();
+      range.selectNodeContents(textNode);
+      for (const textRect of range.getClientRects()) {
+        point = pointInRect(candidate, textRect, 'text');
+        if (point) break;
+      }
+    }
+    return point ?? pointInRect(candidate, candidate.getBoundingClientRect(), 'element');
+  };
+  const visiblePoints = new Map();
+  const visibleReachable = (candidate) => {
+    if (!visible(candidate)) return false;
+    const point = pointForCandidate(candidate);
+    if (!point) return false;
+    visiblePoints.set(candidate, point);
+    return true;
   };
   const preferred = (candidate) => candidate.matches('h1,h2,h3,p') && !candidate.closest('nav,header,footer');
-  const element = clean.find((candidate) => visible(candidate) && preferred(candidate))
-    || clean.find(visible)
+  const element = clean.find((candidate) => preferred(candidate) && visibleReachable(candidate))
+    || clean.find(visibleReachable)
     || clean.find(preferred)
     || clean[0];
   if (!element) return null;
   if (!visible(element)) element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
-  const rect = element.getBoundingClientRect();
+  const point = visiblePoints.get(element) ?? pointForCandidate(element);
   const domXpath = xpath(element);
   const bridgeXpath = bridgeActive ? bridgeXpathForElement(element, { document }) : null;
   return {
@@ -1109,10 +1150,103 @@ const markingTargetExpression = (skippedXpaths = []) => `(() => {
     text: (element.textContent ?? '').trim().replace(/\\s+/g, ' ').slice(0, 120),
     explicitOwnerCount: explicitOwnerXpaths.length,
     startsExplicitlyOwned: explicitlyOwned(bridgeXpath || domXpath),
-    x: Math.max(2, Math.min(innerWidth - 2, rect.left + Math.min(rect.width / 2, 80))),
-    y: Math.max(2, Math.min(innerHeight - 2, rect.top + Math.min(rect.height / 2, 40))),
+    x: point?.x ?? null,
+    y: point?.y ?? null,
+    pointReachable: Boolean(point),
+    pointSource: point?.source ?? null,
+    pointHitTag: point?.hitTag ?? null,
   };
 })()`;
+
+export function markingOwnerBelongsToCandidate(candidateXpath, ownerXpath) {
+  return typeof candidateXpath === "string" && typeof ownerXpath === "string" && (
+    candidateXpath === ownerXpath ||
+    ownerXpath.startsWith(`${candidateXpath}/`) ||
+    candidateXpath.startsWith(`${ownerXpath}/`)
+  );
+}
+
+const normalizeMarkingTargetExpression = (candidate, ownerXpath) => `(() => {
+  const resolveBridgeXpath = ${resolveBridgeXpath.toString()};
+  const markingOwnerBelongsToCandidate = ${markingOwnerBelongsToCandidate.toString()};
+  const candidate = ${JSON.stringify(candidate)};
+  const ownerXpath = ${JSON.stringify(ownerXpath)};
+  if (!markingOwnerBelongsToCandidate(candidate?.xpath, ownerXpath)) return null;
+  const nodeForXpath = (value) => {
+    try { return document.evaluate(value, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue; }
+    catch { return null; }
+  };
+  const source = candidate.xpathMode === 'bridge'
+    ? resolveBridgeXpath(ownerXpath, { document })
+    : nodeForXpath(ownerXpath);
+  if (!(source instanceof Element)) return null;
+  const domParts = [];
+  for (let node = source; node instanceof Element; node = node.parentElement) {
+    let index = 1;
+    for (let sibling = node.previousElementSibling; sibling; sibling = sibling.previousElementSibling) {
+      if (sibling.tagName === node.tagName) index += 1;
+    }
+    domParts.unshift(node.tagName.toLowerCase() + '[' + index + ']');
+    if (node === document.documentElement) break;
+  }
+  return {
+    ...candidate,
+    candidateXpath: candidate.xpath,
+    xpath: ownerXpath,
+    domXpath: '/' + domParts.join('/'),
+    tag: source.tagName,
+    text: (source.textContent ?? '').trim().replace(/\\s+/g, ' ').slice(0, 120),
+    normalizedFromHoverOwner: ownerXpath !== candidate.xpath,
+  };
+})()`;
+
+const preparedMarkingTargetPointExpression = (target) => `(() => {
+  const target = ${JSON.stringify(target)};
+  const nodeForXpath = (value) => {
+    try { return document.evaluate(value, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue; }
+    catch { return null; }
+  };
+  const source = nodeForXpath(target.domXpath);
+  if (!(source instanceof Element) || !source.isConnected) return null;
+  const topPageHitAt = (x, y) => document.elementsFromPoint(x, y).find((hit) =>
+    hit instanceof Element && !hit.closest('[data-uf-extension-ui="true"], [data-uf-consent-hidden]')) ?? null;
+  const hitBelongsToSource = (hit) => hit instanceof Element && (
+    hit === source || source.contains(hit) || hit.contains(source)
+  );
+  const pointInRect = (rect, pointSource) => {
+    const left = Math.max(0, rect.left);
+    const right = Math.min(innerWidth, rect.right);
+    const top = Math.max(0, rect.top);
+    const bottom = Math.min(innerHeight, rect.bottom);
+    if (right - left < 2 || bottom - top < 2) return null;
+    for (const fraction of [0.5, 0.25, 0.75]) {
+      const x = left + (right - left) * fraction;
+      const y = top + (bottom - top) / 2;
+      const hit = topPageHitAt(x, y);
+      if (hitBelongsToSource(hit)) return { x, y, pointSource, pointHitTag: hit.tagName };
+    }
+    return null;
+  };
+  const walker = document.createTreeWalker(source, NodeFilter.SHOW_TEXT);
+  for (let textNode = walker.nextNode(); textNode; textNode = walker.nextNode()) {
+    if (!(textNode.textContent ?? '').trim()) continue;
+    const range = document.createRange();
+    range.selectNodeContents(textNode);
+    for (const rect of range.getClientRects()) {
+      const point = pointInRect(rect, 'text');
+      if (point) return point;
+    }
+  }
+  return pointInRect(source.getBoundingClientRect(), 'element');
+})()`;
+
+async function refreshPreparedMarkingTargetPoint(session, target) {
+  const point = await session.evaluate(preparedMarkingTargetPointExpression(target));
+  if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) {
+    throw new Error(`Prepared marking target is no longer physically reachable: ${target.xpath}`);
+  }
+  Object.assign(target, point);
+}
 
 const shiftedHoverOwnerExpression = `(() => {
   const overlay = document.querySelector('[data-uf-overlay-hover], [data-layer="hover"] [data-mc-mark-id]');
@@ -1180,25 +1314,36 @@ async function selectCleanMarkingTarget(session) {
   // clean candidate into view; after the scroll presentation settles, resolve
   // once more against the freshly painted explicit-owner index.
   const skippedXpaths = [];
-  for (let attempt = 0; attempt < 12; attempt += 1) {
+  for (let attempt = 0; attempt < 24; attempt += 1) {
     const initial = await session.evaluate(markingTargetExpression(skippedXpaths));
     if (!initial) return null;
-    await waitForPresentationOpportunity(session, { frameCount: 2 });
+    await waitForPresentationOpportunity(session, { frameCount: 12, timeoutMs: 250 });
     const target = await session.evaluate(markingTargetExpression(skippedXpaths));
     if (!target) return null;
+    if (target.pointReachable !== true || !Number.isFinite(target.x) || !Number.isFinite(target.y)) {
+      skippedXpaths.push(target.xpath);
+      continue;
+    }
     await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y, modifiers: 0 });
     await waitForPresentationOpportunity(session);
     const includedOwnerXpath = await resolveIncludedHoverOwner(session, target);
     const shiftedOwnerXpath = await resolveShiftedHoverOwner(session, target);
+    // The candidate corpus intentionally starts from readable structural nodes,
+    // while the physical pointer may resolve to a nested link or text owner.
+    // The painted Alt owner is the authoritative exact target for every gesture
+    // in this sequence; normalize to it before proving cleanliness and widening.
+    const normalizedTarget = await session.evaluate(normalizeMarkingTargetExpression(target, includedOwnerXpath));
     // Modifier preflights and late authoritative reconciliation can change the
     // painted explicit-owner set after the initial candidate scan. Re-prove the
     // candidate only after both modifiers have been released and the ordinary
     // hover paint has settled; otherwise the first plain click would correctly
     // unmark an owned ancestor while the probe falsely called it a creation.
     await waitForPresentationOpportunity(session, { frameCount: 2 });
-    const decision = await session.evaluate(markingDecisionExpression(target));
-    if (preparedMarkingTargetIsUsable({ target, includedOwnerXpath, shiftedOwnerXpath, decision })) {
-      return { ...target, includedOwnerXpath, shiftedOwnerXpath };
+    const decision = normalizedTarget
+      ? await session.evaluate(markingDecisionExpression(normalizedTarget))
+      : null;
+    if (preparedMarkingTargetIsUsable({ target: normalizedTarget, includedOwnerXpath, shiftedOwnerXpath, decision })) {
+      return { ...normalizedTarget, includedOwnerXpath, shiftedOwnerXpath, selectionAttempt: attempt + 1 };
     }
     skippedXpaths.push(target.xpath);
   }
@@ -1383,6 +1528,7 @@ export async function performPhysicalShiftExclusion(session) {
 export async function probeMarkingGestures(session, preparedTarget = null) {
   const target = preparedTarget ?? await selectCleanMarkingTarget(session);
   if (!target) throw new Error("No visible non-consent marking target is available");
+  await refreshPreparedMarkingTargetPoint(session, target);
   await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y });
   await waitForPresentationOpportunity(session, { frameCount: 2 });
   const preparedDecision = await session.evaluate(markingDecisionExpression(target));
@@ -1392,6 +1538,7 @@ export async function probeMarkingGestures(session, preparedTarget = null) {
   const performanceWindowStartedAt = await session.evaluate("performance.now()");
   const operations = [];
   const operate = async (id, gesture) => {
+    await refreshPreparedMarkingTargetPoint(session, target);
     const before = await session.evaluate(markingDecisionExpression(target));
     const inputStartedAt = await session.evaluate("performance.now()");
     const dispatchLatencyMs = await dispatchPhysicalGesture(session, target, gesture);
@@ -1451,6 +1598,24 @@ export async function probeMarkingGestures(session, preparedTarget = null) {
   contextOperation.latencyMs = contextOperation.acknowledgementLatencyMs;
   await session.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
   await session.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
+  const contextCloseDeadline = Date.now() + 500;
+  let contextClosed = false;
+  while (Date.now() < contextCloseDeadline) {
+    const menuOpen = await session.evaluate(`(() => [...document.querySelectorAll('[data-uf-marking-menu="true"]')].some((element) => {
+      const style = getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity || '1') > 0 && rect.width > 0 && rect.height > 0;
+    }))()`);
+    if (!menuOpen) {
+      contextClosed = true;
+      break;
+    }
+    await waitForPresentationOpportunity(session);
+  }
+  if (!contextClosed) {
+    throw new Error("Marking context menu did not dismiss after trusted Escape input");
+  }
+  await waitForPresentationOpportunity(session, { frameCount: 2 });
   await operate("plain-include-unmark", {});
   const performanceWindowEndedAt = await session.evaluate("performance.now()");
   const timing = summarizeTiming(operations.map((operation) => operation.acknowledgementLatencyMs).filter(Number.isFinite));

@@ -10,6 +10,7 @@ import {
   composedVisibilityEvidence,
   executeResizePerturbation,
   filterLongTasksToCollectorWindow,
+  markingOwnerBelongsToCandidate,
   preparedMarkingTargetIsUsable,
   resolveCollectorPerformanceWindow,
   snapshotMatchesAuthoritativePosture,
@@ -82,6 +83,18 @@ describe("P25 live site-session visibility", () => {
       expression: "performance.now()",
       options: { awaitPromise: false, timeoutMs: 2_000 },
     }]);
+  });
+
+  it("chooses a horizontally visible, physically reachable text point for gesture preparation", () => {
+    const source = readFileSync(new URL("../scripts/performance/p25/live-probes.mjs", import.meta.url), "utf8");
+    expect(source).toContain("rect.left < innerWidth && rect.right > 0");
+    expect(source).toContain("document.createTreeWalker(candidate, NodeFilter.SHOW_TEXT)");
+    expect(source).toContain("document.elementsFromPoint(x, y).find");
+    expect(source).toContain("pointReachable: Boolean(point)");
+    expect(source).toContain("Prepared marking target is no longer physically reachable");
+    expect(source).toContain("const contextCloseDeadline = Date.now() + 500");
+    expect(source).toContain("document.querySelectorAll('[data-uf-marking-menu=\"true\"]')");
+    expect(source).toContain("Marking context menu did not dismiss after trusted Escape input");
   });
 });
 
@@ -359,6 +372,18 @@ describe("P25 prepared marking target authority", () => {
       shiftedOwnerXpath: "/html[1]/body[1]/main[1]",
       decision: { targetOwned: [] },
     })).toBe(true);
+  });
+
+  it("normalizes a related nested physical owner before exact Alt and Shift proof", () => {
+    const nestedOwnerXpath = `${target.xpath}/a[1]`;
+    expect(markingOwnerBelongsToCandidate(target.xpath, nestedOwnerXpath)).toBe(true);
+    expect(preparedMarkingTargetIsUsable({
+      target: { xpath: nestedOwnerXpath },
+      includedOwnerXpath: nestedOwnerXpath,
+      shiftedOwnerXpath: "/html[1]/body[1]/main[1]",
+      decision: { targetOwned: [] },
+    })).toBe(true);
+    expect(markingOwnerBelongsToCandidate(target.xpath, "/html[1]/body[1]/aside[1]")).toBe(false);
   });
 
   it.each([

@@ -1661,6 +1661,30 @@ export function createMarkingEngine(
       }
       return bridge.byXpath.get(resolved.xpath)?.evaluationNode ?? null;
     },
+    resolveContextAtPoint(
+      x: number,
+      y: number,
+      hint?: MarkingPointResolutionHint,
+    ): Readonly<{
+      include: EvaluationNode | null;
+      existingExclude: EvaluationNode | null;
+      shiftedExclude: EvaluationNode | null;
+    }> {
+      // A context menu is one physical observation. Reuse its exact composed
+      // hit stack for all capabilities so page motion or a concurrent paint
+      // cannot make Include, Exclude, Widen, and Clear disagree about which
+      // element the operator right-clicked.
+      const elements = getComposedHitElements(rootElement.ownerDocument, x, y);
+      const resolveCached = (mode: "include" | "exclude", shiftActive: boolean) => {
+        prefetchedPointHits = { x, y, elements };
+        return this.resolveAtPoint(x, y, mode, shiftActive, hint);
+      };
+      return {
+        include: resolveCached("include", false),
+        existingExclude: resolveCached("exclude", false),
+        shiftedExclude: resolveCached("exclude", true),
+      };
+    },
     acknowledge(
       node: EvaluationNode,
       mode: "include" | "exclude" | "clear",

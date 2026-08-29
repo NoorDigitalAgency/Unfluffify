@@ -3762,4 +3762,28 @@ describe("P6 DOM bridge", () => {
     expect(engine.hasExplicitMark(plainOwner!)).toBe(false);
     engine.dispose();
   });
+
+  it("derives every context-menu capability from one composed hit observation", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("SECTION", rect(0, 0, 300, 300), "Boundary");
+    const child = new FakeElement("P", rect(0, 0, 100, 20), "Child");
+    root.ownerDocument = doc;
+    child.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(child);
+    doc.hits = [root];
+    const engine = createMarkingEngine(root as unknown as Element);
+    engine.toggle(engine.resolveAtPoint(10, 10, "include")!, "include");
+    doc.pointHits = () => [child, root];
+    doc.hitReadCount = 0;
+
+    const context = engine.resolveContextAtPoint(10, 10);
+
+    expect(doc.hitReadCount).toBe(1);
+    expect(context.include?.xpath).toBe("/section[1]");
+    expect(context.existingExclude?.xpath).toBe("/section[1]");
+    expect(context.shiftedExclude?.xpath).toBe("/section[1]");
+    engine.dispose();
+  });
 });

@@ -101,7 +101,7 @@ describe("P6 content marking engine", () => {
       parent: include,
     };
 
-    expect(resolveTarget([child, include], "exclude")).toBeNull();
+    expect(resolveTarget([child, include], "exclude")).toBe(include);
     expect(resolveTarget([include], "exclude")).toBe(include);
     expect(resolveTarget([child, include], "include")).toBe(include);
   });
