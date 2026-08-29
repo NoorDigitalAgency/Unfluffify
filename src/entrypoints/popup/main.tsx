@@ -1826,7 +1826,10 @@ async function maybeResumeAiRun(
 /** The latest loaded selectors show as silent highlights with no AI run needed.
  *  Keyed on the tab, page, document realm, and selector set, so a repaint happens
  *  after a real reload but not on every poll tick of the same document. */
-async function refreshSilentSelectorPreview(context: TargetTabContext, requestKey = boundTabKey): Promise<void> {
+async function refreshSilentSelectorPreview(
+  context: TargetTabContext,
+  requestKey = boundTabKey,
+): Promise<boolean> {
   const inSilentMode = store.getState().name === "silent";
   const selectors = currentPropertyConfiguration().selectors;
   let documentNonce = "";
@@ -1837,7 +1840,7 @@ async function refreshSilentSelectorPreview(context: TargetTabContext, requestKe
       { quietNoReceiver: true },
     );
     if (boundTabKey !== requestKey) {
-      return;
+      return false;
     }
     if (
       status.status === "delivered" &&
@@ -1858,22 +1861,26 @@ async function refreshSilentSelectorPreview(context: TargetTabContext, requestKe
     ].join("|")
     : "";
   if (silentSelectorsAppliedKey !== null && key === silentSelectorsAppliedKey) {
-    return;
+    return true;
   }
   silentSelectorsAppliedKey = key;
-  const applied = key
-    ? await sendContentMessage(context.tabId, {
+  const delivery = key
+    ? await requestContentDelivery(context.tabId, {
       type: "applySilentSelectors",
       pageUrl: context.url,
       selectors,
-    })
-    : await sendContentMessage(context.tabId, {
+    }, { quietNoReceiver: true })
+    : await requestContentDelivery(context.tabId, {
       type: "clearSilentSelectors",
       pageUrl: context.url,
-    });
+    }, { quietNoReceiver: true });
   if (boundTabKey !== requestKey) {
-    return;
+    return false;
   }
+  const response = delivery.status === "delivered" && delivery.data && typeof delivery.data === "object"
+    ? delivery.data as Record<string, unknown>
+    : null;
+  const applied = response?.ok === true && (!key || response.presentationAcknowledged === true);
   if (key && applied) {
     logEvent("Selectors applied", "silent highlights from the stored selectors");
   }
@@ -1881,6 +1888,7 @@ async function refreshSilentSelectorPreview(context: TargetTabContext, requestKe
     // Retry on the next tick rather than pinning a state that never landed.
     silentSelectorsAppliedKey = null;
   }
+  return applied;
 }
 
 async function initializePopupSignals(): Promise<void> {
@@ -2256,6 +2264,7 @@ type SessionEmulationTarget = Readonly<{
 type SessionEmulationResult = Readonly<{
   active: boolean;
   reloadExpected: boolean;
+  priorDocumentNonce: string | null;
 }>;
 
 async function runSessionTransition<T>(operation: () => Promise<T>): Promise<T> {
@@ -2296,7 +2305,21 @@ async function applySessionEmulationResult(
 ): Promise<SessionEmulationResult> {
   let active = false;
   let reloadExpected = false;
+  let priorDocumentNonce: string | null = null;
   const operation = emulationApplyQueue.then(async () => {
+    const priorStatus = await requestContentDelivery(
+      context.tabId,
+      { type: "getContentMainStatus" },
+      { quietNoReceiver: true },
+    );
+    if (
+      priorStatus.status === "delivered" &&
+      priorStatus.data &&
+      typeof priorStatus.data === "object" &&
+      typeof (priorStatus.data as { documentNonce?: unknown }).documentNonce === "string"
+    ) {
+      priorDocumentNonce = (priorStatus.data as { documentNonce: string }).documentNonce;
+    }
     const response = await getPopupBus().request("emulation.apply", {
       tabId: context.tabId,
       mode: target.mode,
@@ -2321,7 +2344,7 @@ async function applySessionEmulationResult(
   });
   emulationApplyQueue = operation.catch(() => undefined);
   await operation;
-  return { active, reloadExpected };
+  return { active, reloadExpected, priorDocumentNonce };
 }
 
 async function applySessionEmulation(
@@ -2334,6 +2357,7 @@ async function applySessionEmulation(
 async function waitForEmulationReload(
   context: TargetTabContext,
   expectedProperty?: ReloadPropertyIdentity,
+  priorDocumentNonce: string | null = null,
 ) {
   const transition = await waitForReloadTransition({
     original: context,
@@ -2347,7 +2371,18 @@ async function waitForEmulationReload(
       if (delivery.status !== "delivered") {
         return false;
       }
-      return replacementContentStatusReady(delivery.data, current.url, expectedProperty);
+      if (!replacementContentStatusReady(delivery.data, current.url, expectedProperty)) {
+        return false;
+      }
+      if (priorDocumentNonce === null) {
+        return true;
+      }
+      return Boolean(
+        delivery.data &&
+        typeof delivery.data === "object" &&
+        typeof (delivery.data as { documentNonce?: unknown }).documentNonce === "string" &&
+        (delivery.data as { documentNonce: string }).documentNonce !== priorDocumentNonce
+      );
     },
     wait: async (delayMs) => await new Promise<void>((resolve) => {
       globalThis.setTimeout(resolve, delayMs);
@@ -2740,7 +2775,7 @@ async function setMarkingEnabledOperation(
       let activeContext = context;
       if (emulation.reloadExpected) {
         advanceOperatorAction(action, "reload");
-        const reload = await waitForEmulationReload(context);
+        const reload = await waitForEmulationReload(context, undefined, emulation.priorDocumentNonce);
         if (reload.status !== "ready") {
           await applySessionEmulation(context, { mode: priorMode, allowReload: true });
           return {
@@ -2867,7 +2902,11 @@ async function setMarkingEnabledOperation(
             binding,
           };
         }
-        const reload = await waitForEmulationReload(context, expectedProperty);
+        const reload = await waitForEmulationReload(
+          context,
+          expectedProperty,
+          emulation.priorDocumentNonce,
+        );
         if (reload.status !== "ready") {
           await applySessionEmulation(context, { mode: priorMode, allowReload: true });
           return {
@@ -2998,7 +3037,14 @@ async function setMarkingEnabledOperation(
       });
       advanceOperatorAction(action, "activation");
       if (!contentDeactivated || !bindingOccurrenceIsCurrent(binding)) {
-        return { contentDeactivated, emulationApplied: false };
+        return {
+          contentDeactivated,
+          emulationApplied: false,
+          context,
+          reason: contentDeactivated
+            ? "the popup binding changed during deactivation"
+            : "the content script did not confirm deactivation",
+        };
       }
       lastSubmissionSnapshot = null;
       lastSubmissionKey = null;
@@ -3007,8 +3053,31 @@ async function setMarkingEnabledOperation(
       contentDirty = false;
       const mode = desiredEmulationMode();
       advanceOperatorAction(action, "emulation");
-      const emulationApplied = await applySessionEmulation(context, { mode, allowReload: true });
-      return { contentDeactivated, emulationApplied };
+      const emulation = await applySessionEmulationResult(context, { mode, allowReload: true });
+      if (!emulation.active) {
+        return {
+          contentDeactivated,
+          emulationApplied: false,
+          context,
+          reason: "device emulation could not be applied",
+        };
+      }
+      if (!emulation.reloadExpected) {
+        return { contentDeactivated, emulationApplied: true, context, reason: "" };
+      }
+      advanceOperatorAction(action, "reload");
+      const reload = await waitForEmulationReload(context, undefined, emulation.priorDocumentNonce);
+      if (reload.status !== "ready") {
+        return {
+          contentDeactivated,
+          emulationApplied: false,
+          context: reload.context ?? context,
+          reason: reload.status === "identity_changed"
+            ? "the page identity changed during silent device recovery"
+            : "the replacement page did not become ready for silent highlighting",
+        };
+      }
+      return { contentDeactivated, emulationApplied: true, context: reload.context, reason: "" };
     });
     if (!bindingOccurrenceIsCurrent(binding)) {
       return;
@@ -3019,12 +3088,21 @@ async function setMarkingEnabledOperation(
       return;
     }
     logEvent("Marking disabled", "toggle");
-    await reportPopupFact(context, "marking-deactivated", { markingEnabled: false }, requestKey);
-    await pullSignals(context.tabId, requestKey);
+    await reportPopupFact(transition.context, "marking-deactivated", { markingEnabled: false }, requestKey);
+    await pullSignals(transition.context.tabId, requestKey);
     silentSelectorsAppliedKey = null;
-    await refreshSilentSelectorPreview(context, requestKey);
+    const silentPresentationAcknowledged = transition.emulationApplied
+      ? await refreshSilentSelectorPreview(transition.context, requestKey)
+      : false;
     if (!transition.emulationApplied) {
-      notifyBoundEvent(binding, "Device posture failed", "marking is off, but the silent device posture could not be applied", "danger");
+      notifyBoundEvent(binding, "Device posture failed", transition.reason, "danger");
+    } else if (!silentPresentationAcknowledged) {
+      notifyBoundEvent(
+        binding,
+        "Silent highlighting failed",
+        "the final document did not acknowledge its painted selector presentation",
+        "danger",
+      );
     }
   }
   render();
@@ -3376,7 +3454,7 @@ async function setDesktopPreviewEnabled(enabled: boolean): Promise<void> {
     if (!emulation.reloadExpected) {
       return true;
     }
-    const reload = await waitForEmulationReload(context);
+    const reload = await waitForEmulationReload(context, undefined, emulation.priorDocumentNonce);
     return reload.status === "ready";
   });
   if (!transitioned) {
@@ -4383,7 +4461,11 @@ async function performSaveSession(action: OperatorActionOccurrence): Promise<voi
       if (!expectedProperty) {
         return { status: "identity_changed" as const, context };
       }
-      return await waitForEmulationReload(context, expectedProperty);
+      return await waitForEmulationReload(
+        context,
+        expectedProperty,
+        emulation.priorDocumentNonce,
+      );
     });
     if (silentTransition.status !== "ready") {
       reconciliationReason = `save-committed-silent-posture-${silentTransition.status}`;

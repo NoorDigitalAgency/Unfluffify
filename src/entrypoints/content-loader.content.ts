@@ -4377,7 +4377,43 @@ function createContentRouter() {
         if (!interactionShieldAuthorityActive) {
           return { ok: false, applied: false, tree: "rewrite", reason: "property-authority-unavailable" };
         }
-        return applySilentSelectors(payload);
+        const applied = applySilentSelectors(payload);
+        const presentationEngine = markingEngine;
+        if (applied.ok !== true || !presentationEngine) {
+          return applied;
+        }
+        await presentationEngine.settlePresentation?.();
+        const presentationCurrent =
+          lifecycleGeneration === contentLifecycleGeneration &&
+          presentationEngine === markingEngine &&
+          !markingActive &&
+          silentInteractionShieldActive &&
+          requestPageUrl === currentPageUrl();
+        const canInspectPresentation = typeof document.querySelector === "function";
+        const rendererRoot = canInspectPresentation
+          ? document.querySelector(".uf-marking-layer-root")
+          : null;
+        const interactionShield = canInspectPresentation
+          ? document.querySelector('[data-uf-interaction-shield="true"]')
+          : null;
+        if (
+          !presentationCurrent ||
+          (canInspectPresentation && rendererRoot?.isConnected !== true) ||
+          (canInspectPresentation && interactionShield?.isConnected !== true)
+        ) {
+          return {
+            ok: false,
+            applied: false,
+            tree: "rewrite",
+            reason: presentationCurrent ? "silent-presentation-not-connected" : "silent-presentation-stale",
+          };
+        }
+        return {
+          ...applied,
+          applied: true,
+          presentationAcknowledged: true,
+          documentNonce: RENDER_INSPECTION_DOCUMENT_NONCE,
+        };
       },
       clearSilentSelectors: () => clearSilentSelectors(),
       emphasizePreviewRow,

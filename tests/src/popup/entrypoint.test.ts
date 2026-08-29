@@ -659,7 +659,12 @@ describe("rewrite popup entrypoint", () => {
         documentNonce,
         contentRows: [],
       }
-      : { ok: true, initialized: true, tree: "rewrite" });
+      : {
+        ok: true,
+        initialized: true,
+        tree: "rewrite",
+        ...(message.type === "applySilentSelectors" ? { presentationAcknowledged: true } : {}),
+      });
     const runtime = makeRuntime(async (message) => replyFrame(message, []));
     globalThis.chrome = {
       runtime: { ...runtime },
@@ -1044,6 +1049,116 @@ describe("rewrite popup entrypoint", () => {
     expect(finalViewportRefresh).toBeGreaterThanOrEqual(0);
     expect(runtime.sendMessage.mock.invocationCallOrder[finalDesktopCall]!)
       .toBeLessThan(tabsSendMessage.mock.invocationCallOrder[finalViewportRefresh]!);
+  });
+
+  it("acknowledges silent mode only after a desktop replacement document paints selectors", async () => {
+    let documentNonce = "document-a";
+    let releaseReplacement!: () => void;
+    const replacementGate = new Promise<void>((resolve) => { releaseReplacement = resolve; });
+    const replacementChecks: boolean[] = [];
+    vi.doMock("../../../src/popup/emulation-reload-transition", async () => {
+      const actual = await vi.importActual<typeof import("../../../src/popup/emulation-reload-transition")>(
+        "../../../src/popup/emulation-reload-transition",
+      );
+      return {
+        ...actual,
+        waitForReloadTransition: vi.fn(async (options: {
+          original: { tabId: number; url: string };
+          contentReady: (context: { tabId: number; url: string }) => Promise<boolean>;
+        }) => {
+          replacementChecks.push(await options.contentReady(options.original));
+          await replacementGate;
+          documentNonce = "document-b";
+          replacementChecks.push(await options.contentReady(options.original));
+          return { status: "ready" as const, context: options.original };
+        }),
+      };
+    });
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    let markingActive = false;
+    let silentTransitionStarted = false;
+    const tabsSendMessage = makeTabsSendMessage((_tabId, message) => {
+      if (message.type === "getContentMainStatus") {
+        return {
+          ok: true,
+          active: markingActive,
+          dirty: false,
+          pageUrl: "https://example.com/page",
+          documentNonce,
+          authority: { environmentKey: "example.com", siteId: 1, lockBlocked: false },
+          contentRows: [],
+        };
+      }
+      if (message.type === "activateContentMain") {
+        markingActive = true;
+      } else if (message.type === "enterSilentContentMain") {
+        markingActive = false;
+        silentTransitionStarted = true;
+      }
+      return {
+        ok: true,
+        initialized: true,
+        tree: "rewrite",
+        ...(message.type === "applySilentSelectors" ? { presentationAcknowledged: true } : {}),
+      };
+    });
+    const runtime = makeRuntime(async (message) => replyFrame(message, []), "rendered", {
+      emulationApply: (frame) => {
+        const mode = (frame.payload as { mode: "mobile" | "desktop" }).mode;
+        return replyFrame(frame, {
+          mode,
+          width: mode === "desktop" ? 1920 : 412,
+          height: mode === "desktop" ? 1080 : 960,
+          scale: 1,
+          active: true,
+          identityStale: silentTransitionStarted && mode === "desktop",
+        });
+      },
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    await confirmRenderMode(render);
+    props().onRefresh();
+    await waitFor(
+      () => props().presentation.selectors?.inclusionSelectors?.includes("main") === true,
+      "stored selectors",
+    );
+    props().onDesktopPreviewChange(true);
+    await waitFor(() => runtime.sendMessage.mock.calls.some(([frame]) =>
+      frame.name === "emulation.apply" &&
+      (frame.payload as { mode?: string }).mode === "desktop"), "initial desktop posture");
+    props().onEnableChange(true);
+    await waitFor(() => props().diagnostics.contentActive === true, "marking activation");
+    const projectionsBeforeDisable = tabsSendMessage.mock.calls.filter(([, frame]) =>
+      ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "applySilentSelectors"
+    ).length;
+
+    props().onEnableChange(false);
+    await waitFor(() => replacementChecks.length === 1, "old-document replacement check");
+    expect(replacementChecks).toEqual([false]);
+    expect(props().presentation.temporarilyDisabledOverlay).toBe(true);
+    expect(tabsSendMessage.mock.calls.filter(([, frame]) =>
+      ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "applySilentSelectors"
+    )).toHaveLength(projectionsBeforeDisable);
+
+    releaseReplacement();
+    await waitFor(
+      () => replacementChecks.length === 2 && props().presentation.temporarilyDisabledOverlay === false,
+      "replacement silent presentation acknowledgement",
+    );
+    expect(replacementChecks).toEqual([false, true]);
+    expect(props().diagnostics).toMatchObject({ contentActive: false, stateName: "silent" });
+    expect(tabsSendMessage.mock.calls.filter(([, frame]) =>
+      ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "applySilentSelectors"
+    )).toHaveLength(projectionsBeforeDisable + 1);
   });
 
   it("drains an explicit refresh before starting a desktop-to-mobile transition", async () => {

@@ -2967,7 +2967,15 @@ describe("C4 rewrite content entrypoints", () => {
     expect(engine.renderReadOnly).not.toHaveBeenCalled();
     expect(applySilent).toEqual({
       ok: true,
-      data: { ok: true, seeded: true, highlighted: 1, tree: "rewrite" },
+      data: {
+        ok: true,
+        seeded: true,
+        highlighted: 1,
+        tree: "rewrite",
+        applied: true,
+        presentationAcknowledged: true,
+        documentNonce: expect.any(String),
+      },
     });
     const shield = shieldHarness.instances.at(-1);
     expect(shield).toBeDefined();
