@@ -55,6 +55,9 @@ export function fold(prevFacts: TabFacts | null, sensation: BrainSensation): Tab
     previewExitRequested: pageUrlChanged
       ? false
       : parsed.facts.previewExitRequested ?? prev.previewExitRequested,
+    previewExitRequestSeq: pageUrlChanged
+      ? parsed.facts.previewExitRequestSeq ?? 0
+      : parsed.facts.previewExitRequestSeq ?? prev.previewExitRequestSeq,
     hasUnsavedWork,
     reconciliationPending: pageUrlChanged
       ? false

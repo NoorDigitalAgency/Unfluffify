@@ -83,6 +83,9 @@ export const TabFactsPatchSchema = z.object({
   previewActive: z.boolean().optional(),
   previewOrigin: z.enum(["silent", "post_ai", "marking"]).optional(),
   previewExitRequested: z.boolean().optional(),
+  /** Monotonic popup-owned request occurrence. Unlike the legacy boolean edge,
+   *  retries cannot be reordered into a final false value. */
+  previewExitRequestSeq: z.number().int().nonnegative().optional(),
   savedSeq: z.number().int().nonnegative().optional(),
   discardedSeq: z.number().int().nonnegative().optional(),
   hasUnsavedWork: z.boolean().optional(),
@@ -125,6 +128,7 @@ const TabFactsCompatibilitySchema = z.object({
   previewActive: z.boolean().optional(),
   previewOrigin: z.enum(["silent", "post_ai", "marking"]).optional(),
   previewExitRequested: z.boolean().optional(),
+  previewExitRequestSeq: z.number().int().nonnegative().optional(),
   savedSeq: z.number().int().nonnegative().optional(),
   discardedSeq: z.number().int().nonnegative().optional(),
   hasUnsavedWork: z.boolean().default(false),

@@ -4653,18 +4653,14 @@ async function performPreviewExit(): Promise<void> {
     isTerminal: previewExitIsTerminal,
     isCurrent: () => bindingOccurrenceIsCurrent(binding),
     attempt: async () => {
-      // Re-arm the edge for this exact Preview occurrence. A prior interrupted
-      // popup can leave the durable fact true even though a newly opened
-      // Preview is visible. Repeating this idempotent pair also repairs either
-      // half of a required extension-message round trip that was lost.
-      const armed = await reportPopupFactAndPull(context, "preview-exit-armed", {
-        previewExitRequested: false,
-      }, requestKey);
-      if (!armed || !bindingOccurrenceIsCurrent(binding)) {
+      // A monotonic occurrence is one ordered fact instead of a reorderable
+      // false→true pair. Each bounded retry births a fresh brain edge if the
+      // prior content notification was lost; content still owns completion.
+      if (!bindingOccurrenceIsCurrent(binding)) {
         return false;
       }
       return await reportPopupFactAndPull(context, "preview-exit-requested", {
-        previewExitRequested: true,
+        previewExitRequestSeq: nextPopupFactSequence(),
       }, requestKey, previewExitIsTerminal, PREVIEW_EXIT_ATTEMPT_TIMEOUT_MS);
     },
   });

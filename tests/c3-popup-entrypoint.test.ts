@@ -35,12 +35,12 @@ describe("C3 popup contract", () => {
     expect(popupSource).toContain("activateDirectMode");
   });
 
-  it("re-arms Preview exit and waits for the content-owned terminal acknowledgement", () => {
+  it("sequences Preview exit retries and waits for the content-owned terminal acknowledgement", () => {
     const popupSource = readFileSync(resolve(REPO_ROOT, "src", "entrypoints", "popup", "main.tsx"), "utf8");
 
     expect(popupSource).toContain("function previewExitIsTerminal(): boolean");
-    expect(popupSource).toContain('"preview-exit-armed"');
-    expect(popupSource).toMatch(/previewExitRequested:\s*false/);
+    expect(popupSource).toContain("previewExitRequestSeq: nextPopupFactSequence()");
+    expect(popupSource).not.toContain('"preview-exit-armed"');
     expect(popupSource).toContain("runPreviewExitAttempts");
     expect(popupSource).toContain("PREVIEW_EXIT_MAX_ATTEMPTS = 3");
     expect(popupSource).toMatch(/previewExitIsTerminal,\s*PREVIEW_EXIT_ATTEMPT_TIMEOUT_MS/);

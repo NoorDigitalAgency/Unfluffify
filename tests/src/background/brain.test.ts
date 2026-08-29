@@ -208,6 +208,17 @@ describe("P3 background brain", () => {
       }),
     ]);
 
+    const sequenced = { ...open, previewExitRequestSeq: 10 };
+    expect(decideSignals(open, sequenced)).toEqual([
+      expect.objectContaining({
+        name: "preview.exit.requested",
+        payload: { pageUrl: "https://example.com/page", restore: true },
+      }),
+    ]);
+    expect(decideSignals(sequenced, { ...sequenced, previewExitRequestSeq: 11 })).toEqual([
+      expect.objectContaining({ name: "preview.exit.requested" }),
+    ]);
+
     expect(decideSignals(requested, {
       ...requested,
       previewActive: false,

@@ -98,7 +98,12 @@ export function decideSignals(prev: TabFacts | null, next: TabFacts): readonly S
       payload: { pageUrl, origin: next.previewOrigin ?? "marking" },
     });
   }
-  if (prev?.previewExitRequested !== true && next.previewExitRequested === true) {
+  const previewExitSequenceAdvanced =
+    (prev?.previewExitRequestSeq ?? 0) < (next.previewExitRequestSeq ?? 0);
+  if (
+    previewExitSequenceAdvanced ||
+    (prev?.previewExitRequested !== true && next.previewExitRequested === true)
+  ) {
     decisions.push({
       name: "preview.exit.requested",
       cause: "preview",

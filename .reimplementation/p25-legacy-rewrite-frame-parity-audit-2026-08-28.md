@@ -1359,6 +1359,19 @@ preserves the stronger architecture.
     same visible discard confirmation if one is required. This does not mutate
     lock storage or bypass the lock organ; it exercises the operator-facing
     transfer path and retains the rotated revision/fence returned by authority.
+147. **Confirmed rewrite P0 — Preview-exit retries used a reorderable boolean
+    re-arm protocol.** The trusted-control proof in finding 145 showed that the
+    handler started, yet the exact durable Assist24 record ended with
+    `previewActive: true`, `previewExitRequested: false`, and no restoration; a
+    later independent click succeeded. The retry previously emitted separate
+    false and true facts through asynchronous event delivery, so a delayed
+    re-arm could overwrite the requested edge. Popup exit now reports one
+    monotonic `previewExitRequestSeq` occurrence per bounded attempt. The brain
+    emits the existing `preview.exit.requested` signal whenever that sequence
+    advances; the older boolean edge remains compatibility-only for content
+    Escape. Duplicate sequence signals are harmless outside an open Preview,
+    navigation resets the local occurrence, and content remains the sole owner
+    of `preview.exited` after physical restoration.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1431,7 +1444,7 @@ preserves the stronger architecture.
 ## Acceptance headline
 
 Implementation remediation is code-complete through finding 134; findings
-135–146 bind the resulting evidence and rerun authority. Immutable
+135–147 bind the resulting evidence and rerun authority. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun,
 findings 126–128 are closed by the clean aggregate, finding 129 is closed by its

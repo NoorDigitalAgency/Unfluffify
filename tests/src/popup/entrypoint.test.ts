@@ -2674,7 +2674,7 @@ describe("rewrite popup entrypoint", () => {
       payload: expect.objectContaining({
         sensation: expect.objectContaining({
           reason: "preview-exit-requested",
-          facts: expect.objectContaining({ previewExitRequested: true }),
+          facts: expect.objectContaining({ previewExitRequestSeq: expect.any(Number) }),
         }),
       }),
     }));
