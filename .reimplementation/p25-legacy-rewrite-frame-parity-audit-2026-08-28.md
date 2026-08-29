@@ -1407,6 +1407,20 @@ preserves the stronger architecture.
     focus commits. The React `onClick` path was removed, so pointer and native
     Enter/Space activation still dispatch exactly once. Unit and source-contract
     coverage fence binding, disposal, and the absence of duplicate handlers.
+151. **Confirmed rewrite P0 — target ownership alone was still too late when the
+    physical Preview-exit click crossed a concurrent focus commit.** The clean
+    `d3cdd9d0` Assist24 run
+    `2026-08-29T12-43-03-200Z-3da9ecc0-rewrite-assist24` passed stages 00–07,
+    then retained Preview after the page-to-row route. Its trusted-activation
+    witness proved the click at the button's capture phase, while the production
+    listener was registered at target bubble and no `previewExitRequestSeq` was
+    born. A later settled click restored immediately, and an exact manual replay
+    of row-to-page, page-to-row, and exit required two pointer dispatches before
+    terminalizing, confirming a phase/order race rather than a dead control.
+    The target-owned listener now runs in capture, before delegated or bubbling
+    work can replace the control or stop the event, and removes itself with the
+    same capture option. Regression coverage asserts both phase ownership and
+    symmetric disposal; the clean headed canary must still prove the full flow.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1479,7 +1493,7 @@ preserves the stronger architecture.
 ## Acceptance headline
 
 Implementation remediation is code-complete through finding 134; findings
-135–150 bind the resulting evidence and rerun authority. Immutable
+135–151 bind the resulting evidence and rerun authority. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun,
 findings 126–128 are closed by the clean aggregate, finding 129 is closed by its
