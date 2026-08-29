@@ -88,7 +88,8 @@ export const CANDIDATE_MATRIX = Object.freeze([
   },
   {
     label: "bigbag",
-    url: "https://bigbag.se/",
+    url: "https://www.bigbag.se/",
+    aliases: ["https://bigbag.se/"],
     eligibility: "n/a",
     unavailableReasonCode: "hub-no-authoritative-candidate",
     unavailableReason: "Hub supplies zero authoritative Bigbag candidate pages; candidate-only stages must remain N/A and no URL may be invented.",
@@ -139,7 +140,8 @@ export function resolveCandidateDisposition({ label, url, runtimeEligibility }) 
   if (!candidate) {
     throw new Error(`Unknown P25 candidate label: ${label}`);
   }
-  if (normalizeLiveUrl(candidate.url) !== normalizeLiveUrl(url)) {
+  const acceptedUrls = [candidate.url, ...(candidate.aliases ?? [])].map(normalizeLiveUrl);
+  if (!acceptedUrls.includes(normalizeLiveUrl(url))) {
     throw new Error(`Candidate URL mismatch for ${label}: expected ${candidate.url}, received ${url}`);
   }
   if (candidate.eligibility === "candidate") {

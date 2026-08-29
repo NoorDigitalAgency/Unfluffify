@@ -25,6 +25,7 @@ import { createMarkingStore } from "./store";
 import { resolveTarget, type MarkingCandidate } from "./resolve";
 import {
   createOverlayRenderer,
+  hasPaintReachableTargetGeometry,
   hasRenderableTargetGeometry,
   isCurrentlyVisuallyVisible,
   type OverlayRenderTarget,
@@ -118,6 +119,17 @@ function previewTargetStatus(element: Element): PreviewTargetStatus {
     return { state: "unavailable", reason: "not-visible" };
   }
   if (!hasScrollReachablePreviewGeometry(element)) {
+    return { state: "unavailable", reason: "not-visible" };
+  }
+  const view = element.ownerDocument.defaultView;
+  const viewportWidth = view?.visualViewport?.width ?? view?.innerWidth ?? 0;
+  const viewportHeight = view?.visualViewport?.height ?? view?.innerHeight ?? 0;
+  const currentlyInViewport = Array.from(element.getClientRects()).some((rect) =>
+    rect.right > 0 && rect.bottom > 0 &&
+    (viewportWidth <= 0 || rect.left < viewportWidth) &&
+    (viewportHeight <= 0 || rect.top < viewportHeight)
+  );
+  if (currentlyInViewport && !hasPaintReachableTargetGeometry(element)) {
     return { state: "unavailable", reason: "not-visible" };
   }
   return { state: "available" };
@@ -577,7 +589,7 @@ const DEFERRED_BRANCH_RENDER_TARGET_THRESHOLD = 200;
 // every progressive chunk below the measured 50 ms input-frame budget even on
 // a layout-heavy responsive page.
 const PROGRESSIVE_GEOMETRY_TARGET_THRESHOLD = 12;
-const PROGRESSIVE_GEOMETRY_CHUNK_SIZE = 12;
+const PROGRESSIVE_GEOMETRY_CHUNK_SIZE = 6;
 // Newly inserted or removed content needs to become markable on roughly the
 // same cadence as the legacy renderer. Presentation attributes are noisier
 // (carousels commonly emit them in short trains), so retain the longer quiet
@@ -732,32 +744,40 @@ function initialMarksForBridge(
 /** Some storefront layouts put preview targets below an overflow-clipped
  * responsive wrapper. Chromium then reports a successful native
  * `scrollIntoView()` call without moving the root document. Keep the native
- * path for nested scrollers, then synchronously repair only a still-offscreen
- * vertical target through the document's authoritative scrolling element. */
-function scrollPreviewTargetIntoView(element: Element): void {
-  element.scrollIntoView?.({ block: "center", inline: "nearest", behavior: "smooth" });
-  const rect = element.getBoundingClientRect?.();
+ * path for nested scrollers, then repair only a still-offscreen vertical
+ * target on the next captured frame when native smooth scrolling truly did
+ * not begin. */
+function scrollPreviewTargetIntoView(element: Element): () => void {
+  const initialRect = element.getBoundingClientRect?.();
   const ownerDocument = element.ownerDocument;
-  const view = ownerDocument?.defaultView;
-  const viewportHeight = view?.visualViewport?.height ??
-    view?.innerHeight ??
-    ownerDocument?.documentElement?.clientHeight ??
-    0;
-  if (
-    !rect ||
-    rect.height <= 0 ||
-    viewportHeight <= 0 ||
-    (rect.top >= 0 && rect.bottom <= viewportHeight)
-  ) {
-    return;
-  }
   const scrollingElement = ownerDocument?.scrollingElement ?? ownerDocument?.documentElement;
-  if (!scrollingElement) {
-    return;
-  }
-  const currentTop = scrollingElement.scrollTop;
-  const centeredOffset = Math.max(0, (viewportHeight - rect.height) / 2);
-  scrollingElement.scrollTop = Math.max(0, currentTop + rect.top - centeredOffset);
+  const initialScrollTop = scrollingElement?.scrollTop ?? 0;
+  element.scrollIntoView?.({ block: "center", inline: "nearest", behavior: "smooth" });
+  return () => {
+    const rect = element.getBoundingClientRect?.();
+    const view = ownerDocument?.defaultView;
+    const viewportHeight = view?.visualViewport?.height ??
+      view?.innerHeight ??
+      ownerDocument?.documentElement?.clientHeight ??
+      0;
+    if (
+      !rect ||
+      rect.height <= 0 ||
+      viewportHeight <= 0 ||
+      (rect.top >= 0 && rect.bottom <= viewportHeight) ||
+      !scrollingElement
+    ) {
+      return;
+    }
+    const nativeScrollStarted = scrollingElement.scrollTop !== initialScrollTop ||
+      (initialRect ? Math.abs(rect.top - initialRect.top) > 1 : false);
+    if (nativeScrollStarted) {
+      return;
+    }
+    const currentTop = scrollingElement.scrollTop;
+    const centeredOffset = Math.max(0, (viewportHeight - rect.height) / 2);
+    scrollingElement.scrollTop = Math.max(0, currentTop + rect.top - centeredOffset);
+  };
 }
 
 export function createMarkingEngine(
@@ -1094,11 +1114,8 @@ export function createMarkingEngine(
     cancelPreviewFocusRefresh();
     const cycle = previewFocusRefreshCycle;
     const generation = bridgeGeneration;
-    scrollPreviewTargetIntoView(element);
-    renderer.setFocus(element, xpath);
-    // A row can already own focus because pointer hover precedes click. Force a
-    // fresh measurement after the scroll even when setFocus therefore no-ops.
-    renderer.refreshFocus();
+    const repairIgnoredNativeScroll = scrollPreviewTargetIntoView(element);
+    let focusCommitted = false;
     let remainingFrames = 2;
     const refresh = (): void => {
       previewFocusRefreshHandle = null;
@@ -1116,6 +1133,17 @@ export function createMarkingEngine(
       if (!exactTargetStillCurrent || !exactRowStillCurrent) {
         return;
       }
+      if (!focusCommitted) {
+        // Give native smooth scrolling one captured frame to begin. Only then
+        // repair storefronts that ignored scrollIntoView, and paint focus from
+        // the resulting geometry rather than the stale pre-scroll box.
+        repairIgnoredNativeScroll();
+        renderer.setFocus(element, xpath);
+        focusCommitted = true;
+      }
+      // A row can already own focus because pointer hover precedes click. Force
+      // a fresh measurement after the scroll even when setFocus therefore
+      // no-ops.
       renderer.refreshFocus();
       remainingFrames -= 1;
       if (remainingFrames > 0) {
@@ -1401,8 +1429,10 @@ export function createMarkingEngine(
       // as hidden keyed nodes, so bounded geometry no longer trades node
       // identity for document-scale layout reads.
       const byXpath = viewportGeometryTargets();
-      const progressive = interactiveMarkingRendered &&
-        byXpath.size > PROGRESSIVE_GEOMETRY_TARGET_THRESHOLD;
+      // Silent highlights use the same native geometry and paint hit tests as
+      // marking overlays. Keeping their resize pass monolithic recreated the
+      // exact long task progressive marking was designed to remove.
+      const progressive = byXpath.size > PROGRESSIVE_GEOMETRY_TARGET_THRESHOLD;
       if (nextWork === "silent-geometry" && silentHighlightsArmed) {
         renderSilent();
         if (progressive) {

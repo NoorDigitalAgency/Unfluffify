@@ -1016,13 +1016,13 @@ describe("P6 DOM bridge", () => {
     expect(engine.emphasizePreviewRow(projection.projectionId, row!.id, true)).toBe(true);
     order.splice(0);
     expect(engine.activatePreviewRow(projection.projectionId, row!.id)).toBe(true);
-    expect(order.slice(0, 3)).toEqual(["scroll", "focus", "refresh"]);
+    expect(order).toEqual(["scroll"]);
     expect(animationFrames).toHaveLength(1);
     animationFrames.shift()?.();
-    expect(order.at(-1)).toBe("refresh");
+    expect(order).toEqual(["scroll", "focus", "refresh"]);
     expect(animationFrames).toHaveLength(1);
     animationFrames.shift()?.();
-    expect(renderer.focusRefresh).toHaveBeenCalledTimes(3);
+    expect(renderer.focusRefresh).toHaveBeenCalledTimes(2);
     engine.dispose();
   });
 
@@ -1054,6 +1054,33 @@ describe("P6 DOM bridge", () => {
       .toEqual({ state: "unavailable", reason: "not-visible" });
     expect(projection.rows.find((row) => row.text === "Screen-reader status")?.target)
       .toEqual({ state: "unavailable", reason: "not-visible" });
+    engine.dispose();
+  });
+
+  it("keeps an in-viewport covered row but disables its unpaintable Preview route", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const target = new FakeElement("P", rect(10, 20, 160, 24), "Covered target");
+    const cover = new FakeElement("DIV", rect(0, 0, 300, 80), "Cover");
+    for (const element of [root, target, cover]) element.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(target);
+    root.appendChild(cover);
+    doc.hits = [cover, root];
+
+    const engine = createMarkingEngine(root as unknown as Element);
+    const projection = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: ["p"],
+      exclusionSelectors: [],
+    });
+    const row = projection.rows.find((candidate) => candidate.text === "Covered target");
+
+    expect(row).toMatchObject({
+      classification: "explicit-included",
+      target: { state: "unavailable", reason: "not-visible" },
+    });
+    expect(engine.activatePreviewRow(projection.projectionId, row!.id)).toBe(false);
     engine.dispose();
   });
 
@@ -1101,6 +1128,14 @@ describe("P6 DOM bridge", () => {
 
   it("falls back to the root scroller when a storefront ignores scrollIntoView", () => {
     const doc = new FakeDocument();
+    const animationFrames: Array<() => void> = [];
+    Object.assign(doc.defaultView, {
+      requestAnimationFrame(callback: () => void) {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      },
+      cancelAnimationFrame() {},
+    });
     const root = new FakeElement("MAIN", rect(0, 0, 300, 900));
     const target = new FakeElement("P", rect(0, 640, 120, 20), "Offscreen target");
     const scrollIntoView = vi.fn();
@@ -1126,6 +1161,8 @@ describe("P6 DOM bridge", () => {
       block: "center",
       inline: "nearest",
     });
+    expect(doc.documentElement.scrollTop).toBe(20);
+    animationFrames.shift()?.();
     expect(doc.documentElement.scrollTop).toBe(520);
   });
 
@@ -3164,7 +3201,7 @@ describe("P6 DOM bridge", () => {
       animationFrames.shift()?.();
 
       expect(renderer.geometryBranchRender).toHaveBeenCalledTimes(1);
-      expect(renderer.geometryBranchRender).toHaveBeenLastCalledWith(12, false);
+      expect(renderer.geometryBranchRender).toHaveBeenLastCalledWith(6, false);
       expect(engine.overlayRoot().className).toContain("uf-scrolling");
       expect(animationFrames).toHaveLength(1);
 
@@ -3172,7 +3209,18 @@ describe("P6 DOM bridge", () => {
         animationFrames.shift()?.();
       }
       expect(renderer.geometryBranchRender.mock.calls.length).toBeGreaterThan(1);
-      expect(renderer.geometryBranchRender.mock.calls.every(([count]) => count <= 12)).toBe(true);
+      expect(renderer.geometryBranchRender.mock.calls.every(([count]) => count <= 6)).toBe(true);
+      expect(renderer.geometryBranchRender).toHaveBeenLastCalledWith(expect.any(Number), true);
+      expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
+
+      engine.clearOverlays();
+      engine.renderSilentHighlights();
+      renderer.geometryBranchRender.mockClear();
+      listeners.get("scroll")?.({ target: doc } as unknown as Event);
+      vi.advanceTimersByTime(230);
+      animationFrames.shift()?.();
+      expect(renderer.geometryBranchRender).toHaveBeenCalledWith(6, false);
+      while (animationFrames.length > 0) animationFrames.shift()?.();
       expect(renderer.geometryBranchRender).toHaveBeenLastCalledWith(expect.any(Number), true);
       expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
       engine.dispose();

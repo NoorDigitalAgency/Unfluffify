@@ -82,6 +82,21 @@ const LOCK_ACTION_LABEL: Readonly<Record<LockActionKind, string>> = {
   "take-over": "Take over",
 };
 
+function exposeImmediateBusyCurtain(copy: string): void {
+  if (typeof document === "undefined") return;
+  const curtain = document.getElementById("ui-curtain");
+  if (!(curtain instanceof HTMLElement)) return;
+  curtain.hidden = false;
+  curtain.setAttribute("data-immediate-busy", "true");
+  const title = curtain.querySelector(".ui-curtain__title");
+  if (title) title.textContent = copy;
+  const control = document.getElementById("compute");
+  if (control instanceof HTMLButtonElement) {
+    control.disabled = true;
+    control.setAttribute("aria-busy", "true");
+  }
+}
+
 export function relativePageKey(pageUrl: string, baseUrl: string): string {
   try {
     const page = new URL(pageUrl);
@@ -599,6 +614,12 @@ export function App({
     discardConfirmation: pendingDiscard,
     checklist: lynxChecklist.open,
   });
+  React.useLayoutEffect(() => {
+    // The trusted click primes this existing node without waiting for a React
+    // tree reconciliation. Once React has adopted either posture, retire the
+    // one-frame provenance marker so it cannot leak into the next operation.
+    busyCurtainRef.current?.removeAttribute("data-immediate-busy");
+  }, [curtainKind]);
   React.useEffect(() => {
     if (!panelBlocking || typeof document === "undefined" || typeof window === "undefined" || !document.body) {
       return;
@@ -1142,9 +1163,13 @@ export function App({
             type="button"
             className="session-action-primary"
             disabled={buttons.compute.disabled}
+            aria-busy={curtainKind === "busy"}
             data-blocked-reason={buttons.compute.blockedReason}
             title={buttons.compute.blockedReason}
-            onClick={onRunAi}
+            onClick={() => {
+              exposeImmediateBusyCurtain("Starting AI run");
+              onRunAi?.();
+            }}
           >
             <i className="mdi mdi-auto-fix btn-icon" aria-hidden="true" />
             Run AI
@@ -2088,21 +2113,21 @@ export function App({
         </div>
       ) : null}
 
-      {curtainKind === "busy" ? (
-        <div
-          ref={busyCurtainRef}
-          className="ui-curtain"
-          role="status"
-          data-transient-surface="popup-busy-curtain"
-        >
-          <div className="ui-curtain__content">
-            <span className="ui-curtain__spinner" aria-hidden="true" />
-            <span className="ui-curtain__title">{presentation.curtainText}</span>
-            {presentation.blockedReason ? <span className="ui-curtain__hint">{presentation.blockedReason}</span> : null}
-            {presentation.countdownText ? <span className="ui-curtain__timer">{presentation.countdownText}</span> : null}
-          </div>
+      {curtainKind === "busy" || (markingView && !buttons.compute.disabled && Boolean(onRunAi)) ? <div
+        id="ui-curtain"
+        ref={busyCurtainRef}
+        className="ui-curtain"
+        role="status"
+        data-transient-surface="popup-busy-curtain"
+        hidden={curtainKind !== "busy"}
+      >
+        <div className="ui-curtain__content">
+          <span className="ui-curtain__spinner" aria-hidden="true" />
+          <span className="ui-curtain__title">{presentation.curtainText}</span>
+          <span className="ui-curtain__hint" hidden={!presentation.blockedReason}>{presentation.blockedReason}</span>
+          <span className="ui-curtain__timer" hidden={!presentation.countdownText}>{presentation.countdownText}</span>
         </div>
-      ) : null}
+      </div> : null}
 
       <output data-silent-mode={presentation.silentModeActive} data-temp-disabled={presentation.temporarilyDisabledOverlay} />
     </main>

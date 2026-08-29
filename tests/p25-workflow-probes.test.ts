@@ -701,6 +701,8 @@ describe("P25 full workflow fail-closed acceptance", () => {
     const app = readFileSync(resolve(process.cwd(), "src/popup/App.tsx"), "utf8");
     expect(app).toContain("onClick={onExitPreview}");
     expect(app).not.toContain("bindPreviewExitButton");
+    expect(app).toContain("exposeImmediateBusyCurtain(\"Starting AI run\")");
+    expect(app).toContain('id="ui-curtain"');
     const probes = readFileSync(resolve(process.cwd(), "scripts/performance/p25/workflow-probes.mjs"), "utf8");
     expect(probes).toContain("'toggle-enabled','desktop-preview-enabled','compute'");
     expect(probes).toContain("element.querySelector('.preview-sidebar__item-copy')");

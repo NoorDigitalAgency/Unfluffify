@@ -943,7 +943,13 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
     const alternateId = implementation === "legacy"
       ? alternateMode === "with-javascript" ? "render-mode-inspect-with-javascript" : "render-mode-inspect-without-javascript"
       : alternateMode === "with-javascript" ? "render-mode-with-js" : "render-mode-without-js";
-    const alternate = before.controls.find((candidate) => candidate.id === alternateId);
+    let alternate = before.controls.find((candidate) => candidate.id === alternateId);
+    const alternateReadyDeadline = Date.now() + Math.min(timeoutMs, 10_000);
+    while (implementation === "rewrite" && alternate?.disabled && Date.now() < alternateReadyDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      before = await capturePopupState(popup);
+      alternate = before.controls.find((candidate) => candidate.id === alternateId);
+    }
     if (!alternate || alternate.disabled || alternate.visible === false) {
       throw new Error(`Cannot switch away from the already-selected ${renderMode} mode: ${JSON.stringify(alternate)}`);
     }

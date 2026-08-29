@@ -231,6 +231,14 @@ function clientRectsFor(element: Element, document: Document): RectLike[] {
   );
 }
 
+/** Uses the same geometry promise as focus/hover painting. This is intentionally
+ * viewport-scoped: callers use it only when a Preview target is already inside
+ * the current viewport and can therefore prove (or disprove) an immediate
+ * focus paint without scrolling the page. */
+export function hasPaintReachableTargetGeometry(element: Element): boolean {
+  return clientRectsFor(element, element.ownerDocument).length > 0;
+}
+
 function ownPaintReachableClientRectsFor(element: Element, document: Document): RectLike[] {
   return ownMeasurableRects(element).filter((rect) =>
     rectInViewport(rect, document) && rectIsPaintReachable(element, rect, document)
@@ -384,15 +392,21 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   // that the immediately following silent pass can reuse the expensive native
   // hit tests without carrying geometry across page work or viewport changes.
   let geometryBatch: Map<Element, RectLike[]> | null = null;
+  let ownPaintGeometryBatch: Map<Element, RectLike[]> | null = null;
+  let visibilityBatch: Map<Element, boolean> | null = null;
   let geometryBatchGeneration = 0;
 
   const beginRetainedGeometryBatch = (): void => {
     geometryBatch = new Map<Element, RectLike[]>();
+    ownPaintGeometryBatch = new Map<Element, RectLike[]>();
+    visibilityBatch = new Map<Element, boolean>();
     geometryBatchGeneration += 1;
     const generation = geometryBatchGeneration;
     queueMicrotask(() => {
       if (geometryBatchGeneration === generation) {
         geometryBatch = null;
+        ownPaintGeometryBatch = null;
+        visibilityBatch = null;
       }
     });
   };
@@ -400,11 +414,35 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   const beginGeometryBatch = (): void => {
     geometryBatchGeneration += 1;
     geometryBatch = new Map<Element, RectLike[]>();
+    ownPaintGeometryBatch = new Map<Element, RectLike[]>();
+    visibilityBatch = new Map<Element, boolean>();
   };
 
   const endGeometryBatch = (): void => {
     geometryBatchGeneration += 1;
     geometryBatch = null;
+    ownPaintGeometryBatch = null;
+    visibilityBatch = null;
+  };
+
+  const measuredOwnPaintRectsFor = (element: Element): RectLike[] => {
+    const retained = ownPaintGeometryBatch?.get(element);
+    if (retained) {
+      return retained;
+    }
+    const measured = ownPaintReachableClientRectsFor(element, options.document);
+    ownPaintGeometryBatch?.set(element, measured);
+    return measured;
+  };
+
+  const measuredVisibilityFor = (element: Element): boolean => {
+    const retained = visibilityBatch?.get(element);
+    if (retained !== undefined) {
+      return retained;
+    }
+    const measured = isCurrentlyVisuallyVisible(element);
+    visibilityBatch?.set(element, measured);
+    return measured;
   };
 
   const measuredClientRectsFor = (element: Element): RectLike[] => {
@@ -412,9 +450,29 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     if (retained) {
       return retained;
     }
-    const measured = clientRectsFor(element, options.document);
+    const own = measuredOwnPaintRectsFor(element);
+    const measured = own.length > 0
+      ? own
+      : nearestDescendantRects(element, (candidate, rect) =>
+        rectInViewport(rect, options.document) &&
+        rectIsPaintReachable(candidate, rect, options.document)
+      );
     geometryBatch?.set(element, measured);
     return measured;
+  };
+
+  /** Read every target's computed visibility and native geometry before the
+   * first overlay style write. Without this phase, each following
+   * getClientRects()/elementsFromPoint() can synchronously flush the style
+   * written for the previous box, producing page-size resize tasks. */
+  const primeGeometryBatch = (byXpath: ReadonlyMap<string, OverlayRenderTarget>): void => {
+    const seen = new Set<Element>();
+    for (const target of byXpath.values()) {
+      if (seen.has(target.element)) continue;
+      seen.add(target.element);
+      measuredVisibilityFor(target.element);
+      measuredClientRectsFor(target.element);
+    }
   };
 
   const adoptTargets = (
@@ -433,8 +491,8 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     const target = latestTargetByXpath.get(xpath);
     return Boolean(
       target &&
-      isCurrentlyVisuallyVisible(target.element) &&
-      ownPaintReachableClientRectsFor(target.element, options.document).length > 0,
+      measuredVisibilityFor(target.element) &&
+      measuredOwnPaintRectsFor(target.element).length > 0,
     );
   };
 
@@ -588,7 +646,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       return;
     }
     const visuallyHiddenExclusion = LIVE_VISIBILITY_EXCLUSION_CLASSIFICATIONS.has(classification)
-      && !isCurrentlyVisuallyVisible(target.element);
+      && !measuredVisibilityFor(target.element);
     const unpaintedException = classification === "exception" && !target.visible;
     if (visuallyHiddenExclusion || unpaintedException) {
       return;
@@ -596,7 +654,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     const layerKey = LAYER_BY_CLASSIFICATION[classification];
     let presentation = overlayClassFor(classification);
     let rects = LIVE_VISIBILITY_EXCLUSION_CLASSIFICATIONS.has(classification)
-      ? ownPaintReachableClientRectsFor(target.element, options.document)
+      ? measuredOwnPaintRectsFor(target.element)
       : measuredClientRectsFor(target.element);
     if (rects.length === 0 && classification === "explicit-include") {
       rects = rawClientRectsFor(target.element).filter((rect) => rectInViewport(rect, options.document));
@@ -711,7 +769,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       }
       const isExcludedPresentation = requestedPresentation.includes("uf-silent-immutable")
         || requestedPresentation.includes("uf-silent-excluded");
-      if (isExcludedPresentation && !isCurrentlyVisuallyVisible(target.element)) {
+      if (isExcludedPresentation && !measuredVisibilityFor(target.element)) {
         return;
       }
       const presentation = requestedPresentation === "uf-silent-content" && !target.visible
@@ -727,7 +785,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         return;
       }
       let rects = isExcludedPresentation
-        ? ownPaintReachableClientRectsFor(target.element, options.document)
+        ? measuredOwnPaintRectsFor(target.element)
         : measuredClientRectsFor(target.element);
       if (rects.length === 0 && presentation.includes("uf-silent-content-ghost")) {
         rects = rawClientRectsFor(target.element);
@@ -959,6 +1017,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       beginGeometryBatch();
       try {
         updateClientArea();
+        primeGeometryBatch(byXpath);
         drawCurrentClassifications(byXpath);
         if (renderOptions.includeSilent !== false) {
           drawSilent(byXpath, undefined, true);
@@ -982,6 +1041,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       beginGeometryBatch();
       try {
         updateClientArea();
+        primeGeometryBatch(byXpath);
         drawCurrentClassificationBranch(byXpath);
         if (renderOptions.includeSilent !== false) {
           drawSilent(byXpath, new Set(byXpath.keys()), true);
