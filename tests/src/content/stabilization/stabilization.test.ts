@@ -1188,7 +1188,12 @@ describe("P5 page stabilization", () => {
       scrollTo: () => noScrollSteps.push("unexpected-scroll"),
       suppressLazyLoading: () => noScrollSteps.push("suppress"),
       freezeAtBottom: () => noScrollSteps.push("freeze"),
-    })).resolves.toEqual({ skipped: true, lazyExpansions: 0, frozenAtBottom: true });
+    })).resolves.toEqual({
+      skipped: true,
+      lazyExpansions: 0,
+      frozenAtBottom: true,
+      reason: "no-scroll-room",
+    });
     expect(noScrollSteps).toEqual(["suppress", "freeze"]);
 
     await expect(runReveal({
@@ -1213,7 +1218,12 @@ describe("P5 page stabilization", () => {
       },
       suppressLazyLoading: () => steps.push("suppress"),
       freezeAtBottom: () => steps.push("freeze"),
-    })).resolves.toEqual({ skipped: true, lazyExpansions: 0, frozenAtBottom: false });
+    })).resolves.toEqual({
+      skipped: true,
+      lazyExpansions: 0,
+      frozenAtBottom: false,
+      reason: "restore-not-reached",
+    });
     expect(steps).toEqual([
       "top",
       "lazy-threshold",
@@ -1436,7 +1446,12 @@ describe("P5 page stabilization", () => {
       freezeAtBottom: () => steps.push("freeze"),
     });
 
-    expect(result).toEqual({ skipped: true, lazyExpansions: 0, frozenAtBottom: false });
+    expect(result).toEqual({
+      skipped: true,
+      lazyExpansions: 0,
+      frozenAtBottom: false,
+      reason: "bottom-not-confirmed",
+    });
     expect(steps).toEqual([
       "top",
       "lazy-threshold",
@@ -1467,7 +1482,12 @@ describe("P5 page stabilization", () => {
       freezeAtBottom: () => steps.push("freeze"),
     });
 
-    expect(result).toEqual({ skipped: true, lazyExpansions: 0, frozenAtBottom: false });
+    expect(result).toEqual({
+      skipped: true,
+      lazyExpansions: 0,
+      frozenAtBottom: false,
+      reason: "bottom-not-confirmed",
+    });
     expect(steps).toEqual([
       "top",
       "lazy-threshold",
@@ -1518,7 +1538,12 @@ describe("P5 page stabilization", () => {
       },
     });
 
-    expect(result).toEqual({ skipped: true, lazyExpansions: 0, frozenAtBottom: false });
+    expect(result).toEqual({
+      skipped: true,
+      lazyExpansions: 0,
+      frozenAtBottom: false,
+      reason: "activation-stale",
+    });
     expect(steps).toEqual(["top", "lazy-threshold", "suppress", "restore-lazy"]);
   });
 

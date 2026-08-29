@@ -1201,7 +1201,12 @@ async function runActivationStabilization(pageUrl: string): Promise<RevealRunRes
   try {
     return await revealController.runTask(async () => {
       if (!interactionShieldAuthorityActive) {
-        return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
+        return {
+          skipped: true,
+          lazyExpansions: 0,
+          frozenAtBottom: false,
+          reason: "authority-unavailable",
+        };
       }
       const lifecycleGeneration = contentLifecycleGeneration;
       const routeGeneration = documentLifecycleGeneration;
@@ -1294,7 +1299,12 @@ async function runActivationStabilization(pageUrl: string): Promise<RevealRunRes
         });
         if (isStale()) {
           await destroyPageWorldSessionAndWait(armed.nonce);
-          return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
+          return {
+            skipped: true,
+            lazyExpansions: 0,
+            frozenAtBottom: false,
+            reason: "page-world-session-stale",
+          };
         }
         pageWorldSessionNonce = armed.nonce;
         const result = await runReveal({
@@ -1454,6 +1464,7 @@ async function runActivationStabilization(pageUrl: string): Promise<RevealRunRes
             skipped: true,
             lazyExpansions: result.lazyExpansions,
             frozenAtBottom: false,
+            reason: result.reason ?? "activation-stale",
           };
         }
         return result;
@@ -3111,10 +3122,11 @@ async function executePageVisitRitual(
     return outcome;
   }
   console.debug(`[Unfluffify][rewrite] Page-visit reveal/freeze skipped (${cause}) — attempt kept`);
+  const stabilizationReason = result.reason ?? "skipped";
   return {
     ...identity,
     status: "failed",
-    reason: "page-visit-stabilization-skipped",
+    reason: `page-visit-stabilization-${stabilizationReason}`,
     lazyExpansions: result.lazyExpansions,
     frozenAtBottom: false,
   };

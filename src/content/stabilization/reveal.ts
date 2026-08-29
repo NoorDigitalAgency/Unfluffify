@@ -23,7 +23,23 @@ export type RevealRunResult = Readonly<{
   skipped: boolean;
   lazyExpansions: number;
   frozenAtBottom: boolean;
+  /** Internal lifecycle evidence for a deliberately skipped/failed walk. */
+  reason?: RevealSkipReason;
 }>;
+
+export type RevealSkipReason =
+  | "activation-stale"
+  | "authority-unavailable"
+  | "bottom-not-confirmed"
+  | "controller-completed"
+  | "controller-superseded"
+  | "document-hidden"
+  | "midpoint-not-reached"
+  | "no-scroll-room"
+  | "page-world-session-stale"
+  | "post-freeze-not-quiet"
+  | "restore-not-reached"
+  | "top-not-reached";
 
 export type RevealVisitControllerOptions = Readonly<{
   isVisible?: () => boolean;
@@ -38,14 +54,21 @@ const SKIPPED_REVEAL: RevealRunResult = {
   skipped: true,
   lazyExpansions: 0,
   frozenAtBottom: false,
+  reason: "controller-completed",
 };
+
+const skippedReveal = (
+  reason: RevealSkipReason,
+  lazyExpansions = 0,
+  frozenAtBottom = false,
+): RevealRunResult => ({ skipped: true, lazyExpansions, frozenAtBottom, reason });
 
 export async function runReveal(input: RevealRunInput): Promise<RevealRunResult> {
   const activationStale = (): boolean => typeof input.activationStale === "function"
     ? input.activationStale()
     : input.activationStale;
   if (activationStale()) {
-    return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
+    return skippedReveal("activation-stale");
   }
   const waitForSettle = input.waitForSettle ?? (() => Promise.resolve());
   const settled = async (phase: "step" | "post-freeze"): Promise<boolean> =>
@@ -89,13 +112,13 @@ export async function runReveal(input: RevealRunInput): Promise<RevealRunResult>
       if (!hasVerticalScrollRoom) {
         await input.freezeAtBottom();
         if (activationStale()) {
-          return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
+          return skippedReveal("activation-stale");
         }
         if (!await settled("post-freeze")) {
-          return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
+          return skippedReveal("post-freeze-not-quiet");
         }
         frozenAtBottom = true;
-        return { skipped: true, lazyExpansions: 0, frozenAtBottom: true };
+        return skippedReveal("no-scroll-room", 0, true);
       }
       lazyExpansions = 1;
       await input.restoreLazyLoading?.();
@@ -107,20 +130,20 @@ export async function runReveal(input: RevealRunInput): Promise<RevealRunResult>
     const topReached = reached(top);
     await settled("step");
     if (!topReached) {
-      return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
+      return skippedReveal("top-not-reached");
     }
     if (activationStale()) {
-      return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
+      return skippedReveal("activation-stale");
     }
 
     const midpoint = await input.scrollTo("lazy-threshold", input.initialScrollHeight);
     const midpointReached = reached(midpoint);
     await settled("step");
     if (!midpointReached) {
-      return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
+      return skippedReveal("midpoint-not-reached");
     }
     if (activationStale()) {
-      return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
+      return skippedReveal("activation-stale");
     }
 
     // Latest legacy engages the lazy-loading lock at the midpoint. This lets
@@ -164,21 +187,24 @@ export async function runReveal(input: RevealRunInput): Promise<RevealRunResult>
       }
     }
     if (activationStale()) {
-      return { skipped: true, lazyExpansions, frozenAtBottom: false };
+      return skippedReveal("activation-stale", lazyExpansions);
     }
     if (!bottomConfirmed) {
-      return { skipped: true, lazyExpansions, frozenAtBottom: false };
+      return skippedReveal("bottom-not-confirmed", lazyExpansions);
     }
 
     await input.freezeAtBottom();
     if (activationStale()) {
-      return { skipped: true, lazyExpansions, frozenAtBottom: false };
+      return skippedReveal("activation-stale", lazyExpansions);
     }
     if (!await settled("post-freeze")) {
-      return { skipped: true, lazyExpansions, frozenAtBottom: false };
+      return skippedReveal("post-freeze-not-quiet", lazyExpansions);
     }
-    if (!await restorePosition() || activationStale()) {
-      return { skipped: true, lazyExpansions, frozenAtBottom: false };
+    if (!await restorePosition()) {
+      return skippedReveal("restore-not-reached", lazyExpansions);
+    }
+    if (activationStale()) {
+      return skippedReveal("activation-stale", lazyExpansions);
     }
     frozenAtBottom = true;
     return { skipped: false, lazyExpansions, frozenAtBottom: true };
@@ -244,11 +270,17 @@ export function createRevealVisitController(options: RevealVisitControllerOption
     }
   };
   const execute = async (request: Request): Promise<RevealRunResult> => {
-    if (request.generation < generation || completed(request) || !await waitForVisibility()) {
+    if (request.generation < generation) {
+      return skippedReveal("controller-superseded");
+    }
+    if (completed(request)) {
       return SKIPPED_REVEAL;
     }
+    if (!await waitForVisibility()) {
+      return skippedReveal("document-hidden");
+    }
     if (request.generation < generation) {
-      return SKIPPED_REVEAL;
+      return skippedReveal("controller-superseded");
     }
     const result = await request.task();
     if (!result.skipped) {
