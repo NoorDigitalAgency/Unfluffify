@@ -674,6 +674,9 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).toContain("viewportMatches(data.silentDesktopSetup?.posture, 1920, 1080)");
     expect(harness).toContain("viewportMatches(data.markingPosture, 412, 960)");
     expect(harness).toContain("data.workflow.freshAi.feedbackMs <= 100");
+    const app = readFileSync(resolve(process.cwd(), "src/popup/App.tsx"), "utf8");
+    expect(app).toContain("ref={bindPreviewExitButton}");
+    expect(app).not.toContain("onClick={onExitPreview}");
     const probes = readFileSync(resolve(process.cwd(), "scripts/performance/p25/workflow-probes.mjs"), "utf8");
     expect(probes).toContain("'toggle-enabled','desktop-preview-enabled','compute'");
     expect(probes).toContain('#unfluffify-overlay [data-layer="ai-content"] .uf-rect');

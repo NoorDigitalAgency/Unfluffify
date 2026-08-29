@@ -1395,6 +1395,18 @@ preserves the stronger architecture.
     stale identity fencing, and origin restoration remain mandatory. Regression
     coverage proves continuously hot pre-freeze steps pass, post-freeze motion
     still fails, and an actually unreached step still fails.
+150. **Confirmed rewrite P0 — the first Preview exit after the page-to-row focus
+    round trip could die between a trusted target click and React's delegated
+    handler.** The exact clean Assist24 run proved the visible button received a
+    trusted physical click, yet durable facts retained `previewActive: true` and
+    no `previewExitRequestSeq`. With instrumentation installed, the next trusted
+    click traversed window/document capture and bubble, emitted exactly one
+    monotonic exit occurrence, and restored the page. The critical exit control
+    now owns one native click listener through a synchronous ref callback instead
+    of depending on root delegation during Chrome side-panel foreground and list
+    focus commits. The React `onClick` path was removed, so pointer and native
+    Enter/Space activation still dispatch exactly once. Unit and source-contract
+    coverage fence binding, disposal, and the absence of duplicate handlers.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1467,7 +1479,7 @@ preserves the stronger architecture.
 ## Acceptance headline
 
 Implementation remediation is code-complete through finding 134; findings
-135–149 bind the resulting evidence and rerun authority. Immutable
+135–150 bind the resulting evidence and rerun authority. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun,
 findings 126–128 are closed by the clean aggregate, finding 129 is closed by its
