@@ -546,6 +546,14 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   };
 
   const drawCurrentClassifications = (byXpath: ReadonlyMap<string, OverlayRenderTarget>): void => {
+    if (classificationByXpath.size === 0) {
+      // Silent-only preview has no marking presentation to reconcile. Avoid
+      // scanning its document-scale target corpus merely to miss every lookup;
+      // stale marking boxes are still retired if a prior marking transaction
+      // cleared the authoritative classification map.
+      finalizeClassification(new Set());
+      return;
+    }
     const used = new Set<string>();
     // Geometry-only work owns an intersection-bounded target corpus. Iterate
     // that corpus directly: walking every classification just to discover that

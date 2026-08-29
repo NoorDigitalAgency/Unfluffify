@@ -1121,6 +1121,28 @@ preserves the stronger architecture.
     dirty-source run records a 0.3 ms fade, 143.5 ms settlement, identical eight
     silent nodes, unchanged canonical rows, and 25/25 passing checks; only clean
     source identity remains pending.
+128. **Remediated, clean rerun pending P1 — silent-only geometry scanned absent
+    marking state and interactive restore requested paint one frame late.** The
+    first complete P25 aggregate on clean `c9574633` retained one 51 ms input
+    Long Task in large silent scroll and missed the small marking-scroll strict
+    p95 ratio by 0.135 ms: rewrite 333.3 ms versus the 1.05× legacy limit of
+    333.165 ms. In silent-only posture the renderer's classification map is
+    empty, but every geometry transaction still iterated the document-scale
+    target map before drawing silent presentations. That empty miss loop now
+    returns immediately after retiring any stale classification boxes, with a
+    proxy-backed regression proving the target iterator is never entered while
+    silent geometry still measures its presentation. Interactive scroll also
+    waited 250 ms before requesting its frame-fenced repaint, so the rewrite's
+    extra paint frame landed after legacy's visible restore. It now requests
+    paint at 230 ms while keeping the layer faded until the repaint completes,
+    placing the visible restore in the same approximately 250 ms window. Four
+    focused contracts pass 137/137, lint and all TypeScript projects pass, and
+    the dirty-source 192-scenario browser rerun records zero semantic, budget,
+    activation, mutation-pressure, or input Long Task failures. Small
+    marking-scroll p95 is 305.6 ms versus legacy 317.2 ms; large marking-scroll
+    is 300.0 ms versus 349.9 ms; large silent-scroll is 184.7 ms versus 216.6
+    ms. Only mandatory clean-source identity keeps that measurement artifact
+    red; checkpoint and exact clean-source rerun remain required.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1192,10 +1214,10 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 127. Immutable
+Implementation remediation is code-complete through finding 128. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun, and
-findings 126–127 await their clean phase-gate reruns. P25 remains open until the exact
+findings 126–128 await their clean phase-gate reruns. P25 remains open until the exact
 clean pushed commit completes every valid candidate's observer-free headed
 rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,

@@ -426,13 +426,15 @@ const STRUCTURAL_CHILD_LIST_QUIET_MS = 100;
 // of evaluating the complete marking tree twice during one resize gesture.
 const STRUCTURAL_PRESENTATION_QUIET_MS = 250;
 const STRUCTURAL_MUTATION_IDLE_TIMEOUT_MS = 1_200;
-// Pinned legacy keeps stale viewport-fixed borders hidden until one quiet
-// redraw: 120 ms for silent preview and 250 ms for interactive marking. A
-// resize does not need the marking scroll dwell, but it still needs one shared
-// trailing transaction because Chromium can report the same physical change
-// through Window, VisualViewport, and ResizeObserver.
+// Pinned legacy restores interactive marking at roughly 250 ms. Begin the
+// rewrite's frame-fenced repaint at 230 ms so its paint frame lands in that
+// same visual window instead of adding a frame after it. Silent preview keeps
+// the legacy 120 ms quiet transaction. A resize does not need the marking
+// scroll dwell, but it still needs one shared trailing transaction because
+// Chromium can report the same physical change through Window,
+// VisualViewport, and ResizeObserver.
 const SILENT_VIEWPORT_GEOMETRY_QUIET_MS = 120;
-const MARKING_VIEWPORT_SCROLL_QUIET_MS = 250;
+const MARKING_VIEWPORT_SCROLL_QUIET_MS = 230;
 const MARKING_VIEWPORT_RESIZE_QUIET_MS = 50;
 const PRESENTATION_MUTATION_ATTRIBUTES = new Set([
   "class",

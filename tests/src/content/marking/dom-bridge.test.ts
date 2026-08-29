@@ -1523,6 +1523,40 @@ describe("P6 DOM bridge", () => {
     renderer.dispose();
   });
 
+  it("does not scan marking targets during a silent-only geometry transaction", () => {
+    const doc = new FakeDocument();
+    const paragraph = new FakeElement("P", rect(10, 10, 200, 20), "Canonical text");
+    paragraph.ownerDocument = doc;
+    doc.pointHits = () => [paragraph];
+    const renderer = createOverlayRenderer({ document: doc as unknown as Document });
+    const xpath = "/p[1]";
+    const backing = new Map([[xpath, {
+      element: paragraph as unknown as Element,
+      visible: true,
+    }]]);
+    let targetCorpusIterations = 0;
+    const targets = new Proxy(backing, {
+      get(target, property) {
+        if (property === Symbol.iterator) {
+          return () => {
+            targetCorpusIterations += 1;
+            return target[Symbol.iterator]();
+          };
+        }
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+
+    renderer.renderSilentHighlights([xpath], backing);
+    paragraph.clientRectReadCount = 0;
+    renderer.reposition(targets);
+
+    expect(targetCorpusIterations).toBe(0);
+    expect(paragraph.clientRectReadCount).toBe(1);
+    renderer.dispose();
+  });
+
   it("renders the three legacy silent border classes on separate reusable layers", () => {
     const doc = new FakeDocument();
     const content = new FakeElement("P", rect(0, 0, 120, 20), "Content");
@@ -2773,7 +2807,7 @@ describe("P6 DOM bridge", () => {
     }
   });
 
-  it("keeps the 250 ms marking debounce when silent highlights are also armed", () => {
+  it("starts the marking repaint at 230 ms when silent highlights are also armed", () => {
     vi.useFakeTimers();
     try {
       const doc = new FakeDocument();
@@ -2810,7 +2844,7 @@ describe("P6 DOM bridge", () => {
 
       listeners.get("scroll")?.({ target: doc } as unknown as Event);
       expect(engine.overlayRoot().className).toContain("uf-scrolling");
-      vi.advanceTimersByTime(249);
+      vi.advanceTimersByTime(229);
       expect(engine.overlayRoot().className).toContain("uf-scrolling");
       vi.advanceTimersByTime(1);
       // Retained marking nodes stay faded until their coalesced repaint has
@@ -2871,7 +2905,7 @@ describe("P6 DOM bridge", () => {
       renderer.geometryBranchRender.mockClear();
 
       listeners.get("scroll")?.({ target: doc } as unknown as Event);
-      vi.advanceTimersByTime(250);
+      vi.advanceTimersByTime(230);
       expect(animationFrames).toHaveLength(1);
       animationFrames.shift()?.();
 
@@ -2959,7 +2993,7 @@ describe("P6 DOM bridge", () => {
       renderer.geometryBranchRender.mockClear();
 
       listeners.get("scroll")?.({ target: doc } as unknown as Event);
-      vi.advanceTimersByTime(250);
+      vi.advanceTimersByTime(230);
       animationFrames.shift()?.();
 
       expect(renderer.geometryBranchRender).not.toHaveBeenCalled();

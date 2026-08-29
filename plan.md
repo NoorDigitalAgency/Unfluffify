@@ -969,6 +969,23 @@ headed-validation gates.
   at 0.3 ms, geometry settlement at 143.5 ms, and passes all 25/25 behavioral
   checks; its aggregate remains red only until the evidence change is committed
   and rerun on clean source.
+- The first complete P25 aggregate on `c9574633` left only two P14 performance
+  reds: one 51 ms large silent-scroll Long Task and small marking-scroll p95 at
+  333.3 ms against the strict 333.165 ms legacy-parity limit. Silent-only
+  geometry was still scanning the complete marking target corpus even though
+  its classification map was empty; the renderer now retires any stale marking
+  boxes and skips that document-scale miss loop. Interactive scroll also waited
+  the full 250 ms legacy quiet interval before requesting its frame-fenced
+  repaint, adding the rewrite's paint frame after the legacy restore point; it
+  now starts at 230 ms and remains faded until the authoritative repaint lands
+  in the same visual window. Focused coverage passes 137/137, lint and every
+  TypeScript project pass, and the dirty-source 192-scenario browser rerun has
+  zero semantic, budget, activation, mutation-pressure, or input Long Task
+  failures. Small marking-scroll p95 is 305.6 ms versus legacy 317.2 ms, large
+  marking-scroll is 300.0 ms versus 349.9 ms, and large silent-scroll is 184.7
+  ms versus 216.6 ms. Its aggregate is red only for the mandatory clean-source
+  identity check; full verification, checkpoint commit/push, and the exact
+  clean-source rerun remain.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 
