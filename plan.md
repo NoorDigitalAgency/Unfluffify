@@ -1063,29 +1063,37 @@ headed-validation gates.
 
 #### Final candidate-matrix remediation wave
 
-- [ ] Pin one viewport-scroll owner for each reveal/freeze ritual and re-prove
-  only after disconnection or a genuinely stalled movement. Measuring quiet or
-  extent must not rescan, style-read, and movement-probe up to 1,600 candidates
-  on every sample. Preserve growth-aware bottom confirmation, the restoration
-  ledger, nested-owner support, lazy-loading suppression, and exact lifecycle
-  fencing.
-- [ ] Make Preview exit a terminal content-owned operation. The popup must keep
-  the request occurrence pending until `preview.exited` is observed, expose a
-  reason if it cannot terminalize, and always retire page focus plus restore the
-  silent/marking posture before later workflow stages can proceed.
+The first same-HEAD rewrite matrix is complete at `0c1e9fde`. Its exact
+failures, ownership classification, implementation slices, regressions, and
+rerun sequence are now bound by
+[`p25-final-candidate-matrix-remediation-plan-2026-08-29.md`](.reimplementation/p25-final-candidate-matrix-remediation-plan-2026-08-29.md).
+Assist24 and Aleris pass all thirteen stages; Acapedia is authoritative N/A.
+The remaining red cells reduce to paint truth, Content List routability,
+large-page input attribution, immediate AI feedback, transition readiness, and
+two evidence-driver corrections. Consent suppression remains intentional.
+
 - [ ] Stop painting exclusion geometry borrowed from a different descendant
   source. A hard/default/explicit/silent exclusion may paint only an own,
   currently visible, paint-reachable fragment of its canonical source. Keep
   canonical hidden decisions and Content List rows; this is a presentation-only
   filter and must not weaken payload extraction.
+- [ ] Make Content List availability and activation share one paintable-route
+  contract. Scroll first, then focus on a captured stable frame; permanently
+  clipped, off-document, covered, or non-paintable targets remain disabled
+  technical rows with truthful reasons.
 - [ ] Harden P25 gesture evidence for already-configured pages: search across
   bounded viewport sweeps, distinguish “no clean target exists” from an input
   failure, and retain exact owner/capability rejection counts. Never manufacture
   a selector or clear durable production marks merely to make the probe pass.
-- [ ] Attribute resize stalls against the same-page pinned-legacy sample. A
-  shared site-owned task remains a reported performance cost, while a rewrite
-  regression is a task or p95 above the strict `1.05x` parity budget. Do not
-  relabel raw Long Tasks or discard their frame evidence.
+- [ ] Attribute every >50 ms gesture/scroll/resize task against source profiles
+  and the same-page pinned-legacy sample. Remove extension-owned document-scale
+  structural or geometry work from input windows; report shared site-owned work
+  without relabeling or discarding it.
+- [ ] Make Run AI feedback locally immediate and make post-inspection control
+  readiness an explicit terminal acknowledgement. Each headed stage must
+  establish its own required posture so failures cannot cascade.
+- [ ] Correct directional scroll evidence by first proving movable owner range,
+  choosing a direction that can move, and restoring the original position.
 - [ ] Rerun every parity-eligible rewrite candidate from the same clean pushed
   HEAD, then regenerate pair and production matrices. Acapedia's live 403,
   3D Prima's site-owned 404, and Bigbag's absent Hub candidate remain explicit
