@@ -136,10 +136,19 @@ export async function runReveal(input: RevealRunInput): Promise<RevealRunResult>
       return skippedReveal("activation-stale");
     }
 
-    const midpoint = await input.scrollTo("lazy-threshold", input.initialScrollHeight);
-    const midpointReached = reached(midpoint);
+    let midpoint = await input.scrollTo("lazy-threshold", input.initialScrollHeight);
     await settled("step");
-    if (!midpointReached) {
+    if (!reached(midpoint) && !activationStale()) {
+      // Responsive reflow and site scroll handlers can move the proved owner
+      // during the first painted half-page walk. Legacy lets that first motion
+      // settle and corrects toward the same threshold before engaging its lazy
+      // fence. Keep the correction bounded to one additional smooth pass: an
+      // unreached threshold still fails open, but a transient first-pass snap
+      // no longer makes the operator repeat the entire activation ritual.
+      midpoint = await input.scrollTo("lazy-threshold", input.initialScrollHeight);
+      await settled("step");
+    }
+    if (!reached(midpoint)) {
       return skippedReveal("midpoint-not-reached");
     }
     if (activationStale()) {

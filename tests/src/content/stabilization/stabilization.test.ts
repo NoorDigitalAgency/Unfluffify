@@ -1293,7 +1293,10 @@ describe("P5 page stabilization", () => {
       expect(result).toMatchObject({ skipped: true, frozenAtBottom: false });
       expect(steps).toContain("restore");
       if (failedPhase === "top") expect(steps).not.toContain("lazy-threshold");
-      if (failedPhase === "lazy-threshold") expect(steps).not.toContain("suppress");
+      if (failedPhase === "lazy-threshold") {
+        expect(steps.filter((step) => step === "lazy-threshold")).toHaveLength(2);
+        expect(steps).not.toContain("suppress");
+      }
       if (failedPhase === "post-freeze") {
         expect(steps).toContain("freeze");
         expect(steps.at(-1)).toBe("restore-lazy");
@@ -1346,7 +1349,39 @@ describe("P5 page stabilization", () => {
     });
 
     expect(result).toMatchObject({ skipped: true, frozenAtBottom: false });
-    expect(steps).toEqual(["top", "lazy-threshold", "restore"]);
+    expect(steps).toEqual(["top", "lazy-threshold", "lazy-threshold", "restore"]);
+  });
+
+  it("corrects one transient midpoint snap before engaging the lazy-loading fence", async () => {
+    const steps: string[] = [];
+    let midpointAttempts = 0;
+    const result = await runReveal({
+      hasVerticalScrollRoom: true,
+      activationStale: false,
+      initialScrollHeight: 2_000,
+      scrollTo(position) {
+        steps.push(position);
+        if (position === "lazy-threshold") {
+          midpointAttempts += 1;
+          return midpointAttempts > 1;
+        }
+        return true;
+      },
+      suppressLazyLoading: () => steps.push("suppress"),
+      freezeAtBottom: () => steps.push("freeze"),
+    });
+
+    expect(result).toEqual({ skipped: false, lazyExpansions: 0, frozenAtBottom: true });
+    expect(steps).toEqual([
+      "top",
+      "lazy-threshold",
+      "lazy-threshold",
+      "suppress",
+      "bottom",
+      "bottom",
+      "freeze",
+      "restore",
+    ]);
   });
 
   it("yields paint between scrolls and freezes at the re-measured bottom", async () => {
