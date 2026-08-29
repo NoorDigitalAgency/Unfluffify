@@ -1016,6 +1016,11 @@ headed-validation gates.
   production build, and seven manifest checks; dirty-source P23 passes all
   25/25 behavioral checks and is red only for source identity. Checkpoint
   commit/push, clean automated gates, and an exact fresh DPJ rerun remain.
+- Pushed source `fb446685` passes clean P23 at 25/25 and complete clean P25
+  aggregate `acceptance-2026-08-29T08-06-59-992Z.json`; all seven P14, P15,
+  P16, P17, P18, P20, and P23 children are present, ordered, validated, and
+  green. The exact fresh production DPJ rerun is the remaining closure proof
+  for finding 129 before debug, legacy, and the candidate matrix resume.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

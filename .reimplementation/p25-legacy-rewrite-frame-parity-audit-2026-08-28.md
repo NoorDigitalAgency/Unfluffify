@@ -1170,8 +1170,10 @@ preserves the stronger architecture.
     files / 167 tests, lint, and all TypeScript projects pass. Full verification
     passes 141 files / 1,435 tests, production build, and seven manifest checks;
     dirty-source P23 passes 25/25 behavioral checks. The failed run is finalized
-    with publication attempt count zero; checkpoint, clean automated gates, and
-    an exact headed rerun remain.
+    with publication attempt count zero. Pushed source `fb446685` then passes
+    clean P23 at 25/25 and complete clean P25 aggregate
+    `acceptance-2026-08-29T08-06-59-992Z.json`, whose seven ordered children are
+    all present and validated. An exact headed rerun remains.
 
 ## Confirmed parity or stronger rewrite behavior
 
