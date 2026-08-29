@@ -1222,6 +1222,53 @@ export function createMarkingEngine(
     let structuralTrailingQuietMs: number | null = null;
     let pendingStructuralNonAttributeMutation = false;
     const pendingStructuralAttributeOldValues = new Map<Element, Map<string, string | null>>();
+    const styleCanonicalCache = new Map<string, string>();
+    const styleProbe = rootElement.ownerDocument.createElement("span") as HTMLElement;
+    const canonicalStyleAttribute = (value: string | null): string => {
+      if (!value?.trim()) {
+        return "";
+      }
+      const cached = styleCanonicalCache.get(value);
+      if (cached !== undefined) {
+        return cached;
+      }
+      const declaration = styleProbe.style;
+      let canonical: string;
+      if (
+        typeof declaration?.getPropertyValue === "function"
+        && typeof declaration?.getPropertyPriority === "function"
+      ) {
+        declaration.cssText = value;
+        canonical = [...declaration]
+          .sort()
+          .map((property) => [
+            property,
+            declaration.getPropertyValue(property).trim(),
+            declaration.getPropertyPriority(property),
+          ].join(":"))
+          .join(";");
+        declaration.cssText = "";
+      } else {
+        // Lightweight DOM test doubles do not expose CSSStyleDeclaration. The
+        // browser path above remains the authority; this fallback only gives
+        // those doubles the same declaration-order-insensitive semantics.
+        canonical = value
+          .split(";")
+          .map((part) => part.trim().replace(/\s*:\s*/u, ":"))
+          .filter(Boolean)
+          .sort()
+          .join(";");
+      }
+      if (styleCanonicalCache.size >= 256) {
+        styleCanonicalCache.clear();
+      }
+      styleCanonicalCache.set(value, canonical);
+      return canonical;
+    };
+    const canonicalStructuralAttributeValue = (
+      attributeName: string,
+      value: string | null,
+    ): string | null => attributeName === "style" ? canonicalStyleAttribute(value) : value;
     const cancelStructuralDispatch = (): void => {
       if (structuralIdleHandle !== null) {
         idleView?.cancelIdleCallback?.(structuralIdleHandle);
@@ -1243,7 +1290,11 @@ export function createMarkingEngine(
       pendingStructuralNonAttributeMutation = false;
       for (const [element, byAttribute] of pendingStructuralAttributeOldValues) {
         for (const [attributeName, oldValue] of byAttribute) {
-          if (oldValue !== element.getAttribute(attributeName)) {
+          const currentValue = canonicalStructuralAttributeValue(
+            attributeName,
+            element.getAttribute(attributeName),
+          );
+          if (oldValue !== currentValue) {
             if (PRESENTATION_MUTATION_ATTRIBUTES.has(attributeName)) {
               presentationTargets.add(element);
             } else {
@@ -1318,7 +1369,10 @@ export function createMarkingEngine(
           // before this MutationObserver delivery. Responsive scripts often
           // publish A→B and B→A in separate microtasks; rebuilding at B even
           // though the terminal DOM is A caused a 500–600 ms cold resize stall.
-          byAttribute.set(record.attributeName, record.oldValue);
+          byAttribute.set(
+            record.attributeName,
+            canonicalStructuralAttributeValue(record.attributeName, record.oldValue),
+          );
           pendingStructuralAttributeOldValues.set(element, byAttribute);
         }
       }
@@ -1428,7 +1482,12 @@ export function createMarkingEngine(
           // extraction, identity, visibility, or paint. Keeping only one net
           // record also prevents responsive page scripts from rebuilding the
           // complete bridge for every intermediate class/style write.
-          if (firstRecord.oldValue !== element.getAttribute(attributeName)) {
+          const oldValue = canonicalStructuralAttributeValue(attributeName, firstRecord.oldValue);
+          const currentValue = canonicalStructuralAttributeValue(
+            attributeName,
+            element.getAttribute(attributeName),
+          );
+          if (oldValue !== currentValue) {
             netAttributeRecords.add(firstRecord);
           }
         }

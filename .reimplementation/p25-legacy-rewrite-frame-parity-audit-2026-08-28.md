@@ -995,6 +995,28 @@ preserves the stronger architecture.
     passes four files / 152 tests; the complete gate passes lint, page-world
     parity, every TypeScript project, 140 files / 1,425 tests, a fresh production
     build, and seven manifest checks.
+123. **Remediated, immutable rerun pending P0 — declaration-order-only inline
+    style churn still scheduled one expensive presentation proof.** Pushed
+    checkpoint `b97b8d87` corrected the resize deadline and both immutable DPJ
+    reruns painted the temporary 388 px device posture, but production run
+    `2026-08-29T05-37-16-828Z-858361ab-rewrite-dpj` retained one 86 ms task and
+    debug run `2026-08-29T05-41-43-304Z-deee8090-rewrite-dpj` retained one 84 ms
+    task. The debug isolated-world ledger attributed 75.1 ms to presentation/store
+    evaluation and 19 ms to its index projection. A physical mutation trace then
+    recorded DPJ Swiper's 412→388→412 cycle restoring the same width, margin,
+    inset, and priority declarations in a different serialized order. Raw style
+    strings therefore looked changed even though the CSS declaration endpoint
+    was identical. Structural mutation coalescing now canonicalizes inline style
+    endpoints through a detached `CSSStyleDeclaration`, comparing sorted
+    property/value/priority triples across both the MutationObserver batch and
+    the full quiet window. Empty and absent style endpoints are presentation
+    equivalent; real declaration changes still branch-refresh normally. The
+    regression restores an equivalent reordered style after 180 ms and proves
+    zero presentation work, while the existing `display:none` case continues to
+    prove genuine visibility changes. Focused DOM bridge coverage passes 118
+    tests; the complete gate passes lint, page-world parity, every TypeScript
+    project, 140 files / 1,425 tests, a fresh production build, and seven
+    manifest checks. Clean production/debug reruns remain.
 
 ## Confirmed parity or stronger rewrite behavior
 

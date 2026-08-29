@@ -878,6 +878,20 @@ headed-validation gates.
   the complete gate passes lint, page-world parity, every TypeScript project,
   140 files / 1,425 tests, a fresh production build, and seven manifest checks.
   Commit/push and exact DPJ production/debug reruns remain before legacy/matrix.
+- Pushed checkpoint `b97b8d87` fixed resize ownership and proved the temporary
+  388 px compositor posture, but immutable production/debug DPJ reruns
+  `2026-08-29T05-37-16-828Z-858361ab-rewrite-dpj` and
+  `2026-08-29T05-41-43-304Z-deee8090-rewrite-dpj` still measured one 86/84 ms
+  task after the restored posture. Isolated-world timing and a physical mutation
+  trace showed DPJ Swiper restoring identical inline CSS declarations in a
+  different serialization order: presentation spent 75 ms proving the semantic
+  no-op and indexing spent 19 ms. Structural mutation authority now compares
+  canonical `CSSStyleDeclaration` endpoints, while real declaration changes
+  still enter branch presentation refresh and viewport geometry remains an
+  independent transaction. The focused DOM bridge suite and complete gate pass
+  at 140 files / 1,425 tests with a fresh production build and seven manifest
+  checks; checkpoint commit/push and fresh production/debug DPJ evidence are
+  next.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

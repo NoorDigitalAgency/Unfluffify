@@ -2375,7 +2375,7 @@ describe("P6 DOM bridge", () => {
       doc.documentElement.appendChild(root);
       root.appendChild(header);
       header.setAttribute("class", "sticky-top no-transition");
-      header.setAttribute("style", "min-height: 48px;");
+      header.setAttribute("style", "min-height: 48px; width: 181px; margin-right: 20px;");
       const createBridge = vi.fn((element: Element) => createDomBridgeView(element));
       const renderer = createRendererTestSeam();
       const engine = createMarkingEngine(root as unknown as Element, {
@@ -2392,13 +2392,16 @@ describe("P6 DOM bridge", () => {
         type: "attributes",
         target: header,
         attributeName: "style",
-        oldValue: "min-height: 48px;",
+        oldValue: "min-height: 48px; width: 181px; margin-right: 20px;",
       }] as unknown as MutationRecord[]);
       // The real P25 probe restores its viewport after 180 ms. Presentation
       // authority must retain the first oldValue beyond that point so this
       // responsive A -> B -> A train is discarded without two full evaluations.
       vi.advanceTimersByTime(180);
-      header.setAttribute("style", "min-height: 48px;");
+      // Responsive carousels commonly restore identical declarations in a
+      // different serialized order. That is the same presentation endpoint,
+      // so it must not pay for a branch evaluation after the resize settles.
+      header.setAttribute("style", "margin-right:20px; min-height: 48px; width:181px;");
       callbacks[0]?.([{
         type: "attributes",
         target: header,
