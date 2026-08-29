@@ -604,7 +604,7 @@ export async function captureSiteWorkflowPosture(session) {
       const y = Math.max(2, Math.min(innerHeight - 2, rect.top + rect.height / 2));
       const elements = document.elementsFromPoint(x, y).filter((element) =>
         element instanceof Element && !element.closest('[data-uf-extension-ui="true"]'));
-      const depth = elements.findIndex((element) => describe(element).length > 0);
+      const depth = elements.findIndex((element) => semanticDescribe(element).length > 0);
       return { exact: elements[0] || null, source: depth >= 0 ? elements[depth] : elements[0] || null };
     };
     const targets = [];

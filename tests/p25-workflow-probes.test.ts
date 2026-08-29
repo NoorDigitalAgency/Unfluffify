@@ -709,6 +709,7 @@ describe("P25 full workflow fail-closed acceptance", () => {
       probes.indexOf("export function viewportPostureMatches"),
     );
     expect(postureProbe).toContain("const semanticDescribe =");
+    expect(postureProbe).toContain("elements.findIndex((element) => semanticDescribe(element).length > 0)");
     expect(postureProbe).toContain("semanticDescribe(ownerNode) || semanticDescribe(underlay.exact) || semanticDescribe(underlay.source) || xpathTerminalTag(xpath)");
     expect(postureProbe.indexOf("const semanticDescribe =")).toBeLessThan(postureProbe.indexOf("semanticDescribe(ownerNode)"));
     expect(probes).toContain('#unfluffify-overlay [data-layer="ai-content"] .uf-rect');
