@@ -439,7 +439,7 @@ export function validateRunAggregate(aggregate) {
       probe?.repositioned === true && probe?.restored === true;
   const resizePass = (probe) => probe?.viewportRestored === true && (
     probe?.repositioned === true ||
-    (probe?.applicable === false && probe?.reason === "site-layout-geometry-unchanged")
+    (probe?.applicable === false && probe?.reason === "source-highlight-geometry-unchanged")
   );
   pushCheck(checks, "scroll-fade-resize-proof", disposition?.parityEligible === false || (
     scrollFadePass(aggregate?.probes?.markingScrollFade) &&

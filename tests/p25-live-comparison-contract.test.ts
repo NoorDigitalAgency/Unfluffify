@@ -395,7 +395,7 @@ describe("P25 live-comparison stage and aggregate contract", () => {
     run.probes.silentScrollFade = { ...run.probes.markingScrollFade };
     run.probes.markingResize = {
       applicable: false,
-      reason: "site-layout-geometry-unchanged",
+      reason: "source-highlight-geometry-unchanged",
       repositioned: false,
       viewportRestored: true,
     };

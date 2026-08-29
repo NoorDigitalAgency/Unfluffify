@@ -1234,6 +1234,26 @@ export async function probeScrollFade(session, { artifactDirectory, name }) {
   };
 }
 
+export function resizeProbeApplicability(before, probeSnapshot) {
+  const layoutViewportChanged = Boolean(probeSnapshot) && (
+    before?.viewport?.width !== probeSnapshot?.viewport?.width ||
+    before?.viewport?.height !== probeSnapshot?.viewport?.height
+  );
+  const sourceGeometryChanged = Boolean(probeSnapshot) &&
+    before?.sourceRectSignature !== probeSnapshot?.sourceRectSignature;
+  // A device-metric change only requires highlight reprojection when the
+  // highlighted source geometry actually moves. Pages without responsive
+  // viewport metadata can change their layout viewport height while leaving
+  // every source rectangle at the exact same coordinates.
+  const applicable = sourceGeometryChanged;
+  return {
+    applicable,
+    reason: applicable ? null : "source-highlight-geometry-unchanged",
+    layoutViewportChanged,
+    sourceGeometryChanged,
+  };
+}
+
 export async function probeResize(session, { artifactDirectory, name }) {
   const authoritativePosture = authoritativeResizePosture(name);
   const before = await captureVisualSnapshot(session);
@@ -1270,16 +1290,9 @@ export async function probeResize(session, { artifactDirectory, name }) {
   const actionSucceeded = frames.action?.actionError === null && frames.action?.restoreError === null;
   const signatures = new Set(frames.requestAnimationFrame.frames.map((frame) => frame.rectSignature));
   const probeSnapshot = frames.action?.probeSnapshot ?? null;
-  const layoutViewportChanged = Boolean(probeSnapshot) && (
-    before.viewport.width !== probeSnapshot.viewport?.width ||
-    before.viewport.height !== probeSnapshot.viewport?.height
-  );
-  const sourceGeometryChanged = Boolean(probeSnapshot) &&
-    before.sourceRectSignature !== probeSnapshot.sourceRectSignature;
-  const applicable = layoutViewportChanged || sourceGeometryChanged;
+  const applicability = resizeProbeApplicability(before, probeSnapshot);
   return {
-    applicable,
-    reason: applicable ? null : "site-layout-geometry-unchanged",
+    ...applicability,
     authoritativePosture,
     before,
     after,
@@ -1288,8 +1301,6 @@ export async function probeResize(session, { artifactDirectory, name }) {
     appliedRestore,
     actionSucceeded,
     probeSnapshot,
-    layoutViewportChanged,
-    sourceGeometryChanged,
     frames,
     postureRestored: beforePosture.matches && afterPosture.matches && appliedRestore.matches && actionSucceeded,
     viewportRestored: beforePosture.matches && afterPosture.matches && appliedRestore.matches && actionSucceeded,

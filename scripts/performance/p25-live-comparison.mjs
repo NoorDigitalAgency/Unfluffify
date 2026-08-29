@@ -1567,7 +1567,7 @@ function stageAcceptanceFailures(id, action, implementation) {
   }
   if (id.endsWith("resize")) {
     const notApplicable = data.resize?.applicable === false &&
-      data.resize?.reason === "site-layout-geometry-unchanged";
+      data.resize?.reason === "source-highlight-geometry-unchanged";
     requireValue(notApplicable || data.resize?.repositioned === true, "Overlay rectangle signatures did not change during the resize probe");
     requireValue(data.resize?.beforePosture?.matches === true, `Resize probe did not begin in the authoritative ${id.startsWith("marking-") ? "marking-mobile" : "silent-desktop"} posture`);
     requireValue(data.resize?.afterPosture?.matches === true && data.resize?.appliedRestore?.matches === true && data.resize?.postureRestored === true, `Resize probe did not restore the exact authoritative ${id.startsWith("marking-") ? "marking-mobile" : "silent-desktop"} posture`);

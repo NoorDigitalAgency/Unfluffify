@@ -16,6 +16,7 @@ import {
   preparedMarkingTargetIsUsable,
   stablePreparedMarkingTargetAuthority,
   resolveCollectorPerformanceWindow,
+  resizeProbeApplicability,
   serializeLongTaskEntry,
   selectActiveOverlayRoot,
   snapshotMatchesAuthoritativePosture,
@@ -158,6 +159,33 @@ function fakeEnvironment(elementsFromPoint: () => FakeElement[] = () => []) {
 }
 
 describe("P25 authoritative resize probe posture", () => {
+  it("does not demand movement when only a non-responsive layout viewport changes", () => {
+    const before = {
+      viewport: { width: 981, height: 2284 },
+      sourceRectSignature: "/html[1]/body[1]/h1[1]:8,8,964,37",
+    };
+    const unchangedSource = {
+      viewport: { width: 981, height: 2425 },
+      sourceRectSignature: before.sourceRectSignature,
+    };
+    expect(resizeProbeApplicability(before, unchangedSource)).toEqual({
+      applicable: false,
+      reason: "source-highlight-geometry-unchanged",
+      layoutViewportChanged: true,
+      sourceGeometryChanged: false,
+    });
+
+    expect(resizeProbeApplicability(before, {
+      ...unchangedSource,
+      sourceRectSignature: "/html[1]/body[1]/h1[1]:8,8,940,37",
+    })).toEqual({
+      applicable: true,
+      reason: null,
+      layoutViewportChanged: true,
+      sourceGeometryChanged: true,
+    });
+  });
+
   it("maps marking and silent stages to the production mobile/desktop posture including scale", () => {
     expect(authoritativeResizePosture("marking-resize")).toMatchObject({
       mode: "mobile",
