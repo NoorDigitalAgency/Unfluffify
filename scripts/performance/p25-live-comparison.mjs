@@ -1124,6 +1124,7 @@ async function runContentListWorkflow(popup, siteTarget, aiEvidence) {
       firstRowName: firstPaint.preview.firstRowName,
       rowToPage: {
         ...rowActivation,
+        activatedRow: rowActivation.before,
         before: beforeRowRoute,
         after: afterRowRoute,
         focusPainted: Boolean(correlatedFocusTarget),

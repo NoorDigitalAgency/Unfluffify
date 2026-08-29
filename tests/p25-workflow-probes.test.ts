@@ -368,6 +368,7 @@ describe("P25 full workflow fail-closed acceptance", () => {
     const harness = readFileSync(resolve(process.cwd(), "scripts/performance/p25-live-comparison.mjs"), "utf8");
     expect(harness).toContain("runMeasuredFullWorkflow({ popup: session, site: targets.site, guard, identity, options })");
     expect(harness).toContain("await physicalActivatePreviewRow(popup, firstPaint.preview.rowCount > 1 ? 1 : 0)");
+    expect(harness).toContain("activatedRow: rowActivation.before");
     expect(harness).toContain("await physicalActivatePreviewPageTarget(site)");
     expect(harness).toContain("await runDiscardWorkflow(popup)");
     expect(harness).toContain("waitForDirtyFreshnessProjection(popup, dirtyEdit.inputDispatchedAtEpochMs)");
@@ -435,6 +436,8 @@ describe("P25 full workflow fail-closed acceptance", () => {
 
   it("correlates preview routes to the activated readable target and rejects an unrelated row", () => {
     expect(readableTextsCorrespond("2. Specialist acne treatment. Included", "Specialist acne treatment")) .toBe(true);
+    expect(readableTextsCorrespond("3. 15 %. Included", "15 %")).toBe(true);
+    expect(readableTextsCorrespond("15 %", "20 %")).toBe(false);
     expect(readableTextsCorrespond("Specialist acne treatment", "Book a moving company in Stockholm")).toBe(false);
     const evidence = completeWorkflowEvidence();
     evidence.contentList.rowToPage.targetCorresponds = false;

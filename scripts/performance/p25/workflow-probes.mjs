@@ -506,6 +506,11 @@ export function readableTextsCorrespond(left, right) {
   const a = normalize(left);
   const b = normalize(right);
   if (!a || !b) return false;
+  // Short labels such as prices, percentages, and compact headings are common
+  // Content List targets. Exact normalized identity is conclusive regardless
+  // of length; the longer substring/token heuristics below are only needed for
+  // labels whose row copy contains additional surrounding text.
+  if (a === b) return true;
   if (Math.min(a.length, b.length) >= 8 && (a.includes(b) || b.includes(a))) return true;
   const aTokens = new Set(a.split(" ").filter((token) => token.length >= 3));
   const bTokens = new Set(b.split(" ").filter((token) => token.length >= 3));

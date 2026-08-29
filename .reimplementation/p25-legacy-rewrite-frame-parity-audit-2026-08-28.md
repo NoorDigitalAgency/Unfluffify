@@ -1032,6 +1032,30 @@ preserves the stronger architecture.
     119 tests; the complete gate passes lint, page-world parity, every TypeScript
     project, 140 files / 1,426 tests, a fresh production build, and seven
     manifest checks. Clean reruns remain.
+124. **Remediated, immutable rerun pending P0 — the workflow probe falsely
+    rejected an exact short Content List route and erased its decisive row
+    evidence.** Clean pushed-source production run
+    `2026-08-29T05-57-28-385Z-7c779261-rewrite-dpj` closed finding 123: DPJ
+    marking resize painted 388→412 px with 14 distinct rectangle signatures,
+    zero Long Tasks, and a 16.8 ms worst animation frame. Its full workflow then
+    used trusted native Space activation on enabled row `3. 15 %. Included`,
+    moved the document from scrollY 5208 to 64, and painted a new focus owner
+    whose resolved page text was exactly `15 %`. The reverse physical route also
+    focused the matching `526. DPJ Workspace. Excluded` row. Product behavior
+    was therefore correct. The implementation-neutral comparator required
+    either an eight-character substring or three long common tokens, so two
+    identical short normalized labels still returned false. The stage serializer
+    then spread the row witness before replacing its `before` field with site
+    posture, obscuring the activated label in retained evidence. Exact normalized
+    equality now succeeds before fuzzy matching and `activatedRow` is retained
+    independently from before/after site posture. Regression coverage includes
+    matching `15 %`, rejecting `15 %` versus `20 %`, and a source-wiring check
+    for the retained witness; the focused suite passes 33 tests. After
+    normalizing the prior live bundle, the complete gate passes lint,
+    page-world parity, every TypeScript project, 140 files / 1,426 tests, a
+    fresh production build, and seven manifest checks. A fresh exact commit run
+    remains required because immutable failed evidence is not reclassified in
+    place.
 
 ## Confirmed parity or stronger rewrite behavior
 

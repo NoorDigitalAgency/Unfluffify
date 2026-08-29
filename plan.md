@@ -906,6 +906,24 @@ headed-validation gates.
   tests and the complete gate passes at 140 files / 1,426 tests with a fresh
   production build and seven manifest checks. Checkpoint commit/push and clean
   DPJ reruns are next.
+- Pushed checkpoint `c9fa3c31` closed the responsive marking hot path in clean
+  production DPJ run
+  `2026-08-29T05-57-28-385Z-7c779261-rewrite-dpj`: marking resize painted both
+  388 and 412 px compositor postures with 14 rectangle signatures, zero Long
+  Tasks, and a 16.8 ms worst animation frame. The subsequent full workflow
+  physically activated enabled Content List row `3. 15 %. Included` with a
+  trusted Space sequence, scrolled 5208→64, and painted the matching page focus
+  owner whose readable text was exactly `15 %`; page→row also focused the
+  corresponding `DPJ Workspace` row. The stage nevertheless failed because the
+  P25 evidence comparator rejected exact labels shorter than eight characters,
+  then the returned artifact overwrote the activated-row metadata with site
+  posture. Exact normalized identity is now conclusive at any length and the
+  artifact retains `activatedRow` separately. Focused probe coverage passes 33
+  tests; after normalizing the prior live bundle, the complete gate passes lint,
+  page-world parity, every TypeScript project, 140 files / 1,426 tests, a fresh
+  production build, and seven manifest checks. Checkpoint commit/push and a
+  fresh immutable DPJ run remain before debug, pinned legacy, and the candidate
+  matrix.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 
