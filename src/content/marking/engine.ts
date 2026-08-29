@@ -579,7 +579,12 @@ export type MarkingPointResolutionHint = Readonly<{
   overlayXpath: string;
 }>;
 
-const DEFERRED_BRANCH_RENDER_TARGET_THRESHOLD = 200;
+// Presentation adoption already performs immutable-tree/store/index work. Keep
+// any geometry-bearing branch repaint larger than a modest viewport corpus on
+// its own frame; combining a 100-200 target repaint with adoption crossed the
+// 50 ms input-task budget on responsive commerce pages even though each half
+// was independently bounded.
+const DEFERRED_BRANCH_RENDER_TARGET_THRESHOLD = 48;
 // Geometry reconciliation is layout- and paint-reachability-heavy on large
 // documents. Keep each presentation task below one frame's useful work while
 // the retained overlay root is faded, then publish the complete generation in
