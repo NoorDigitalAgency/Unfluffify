@@ -704,7 +704,13 @@ describe("P25 full workflow fail-closed acceptance", () => {
     const probes = readFileSync(resolve(process.cwd(), "scripts/performance/p25/workflow-probes.mjs"), "utf8");
     expect(probes).toContain("'toggle-enabled','desktop-preview-enabled','compute'");
     expect(probes).toContain("element.querySelector('.preview-sidebar__item-copy')");
-    expect(probes).toContain("semanticDescribe(ownerNode) || semanticDescribe(underlay.exact) || semanticDescribe(underlay.source) || xpathTerminalTag(xpath)");
+    const postureProbe = probes.slice(
+      probes.indexOf("export async function captureSiteWorkflowPosture"),
+      probes.indexOf("export function viewportPostureMatches"),
+    );
+    expect(postureProbe).toContain("const semanticDescribe =");
+    expect(postureProbe).toContain("semanticDescribe(ownerNode) || semanticDescribe(underlay.exact) || semanticDescribe(underlay.source) || xpathTerminalTag(xpath)");
+    expect(postureProbe.indexOf("const semanticDescribe =")).toBeLessThan(postureProbe.indexOf("semanticDescribe(ownerNode)"));
     expect(probes).toContain('#unfluffify-overlay [data-layer="ai-content"] .uf-rect');
     expect(probes).toContain("'[data-uf-interaction-shield=\"true\"], #unfluffify-overlay'");
     const liveProbes = readFileSync(resolve(process.cwd(), "scripts/performance/p25/live-probes.mjs"), "utf8");

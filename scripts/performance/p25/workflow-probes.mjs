@@ -510,16 +510,6 @@ export async function physicalActivatePreviewPageTarget(session) {
   const target = await session.evaluate(`(() => {
     const xpathNode = (xpath) => { try { return document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue; } catch { return null; } };
     const describe = (source) => (source?.getAttribute?.('aria-label') || source?.getAttribute?.('title') || source?.getAttribute?.('alt') || source?.getAttribute?.('placeholder') || source?.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 400);
-    const destinationLabel = (source) => {
-      const href = source?.tagName === 'A' ? source.getAttribute('href') : null;
-      if (!href || href === '#' || /^(?:javascript|mailto|tel):/i.test(href)) return '';
-      let pathname = href;
-      try { pathname = new URL(href, document.baseURI).pathname; } catch {}
-      const segment = pathname.split('/').filter(Boolean).at(-1) || '';
-      try { return decodeURIComponent(segment).replace(/[-_]+/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 400); }
-      catch { return segment.replace(/[-_]+/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 400); }
-    };
-    const semanticDescribe = (source) => describe(source) || destinationLabel(source) || destinationLabel(source?.querySelector?.('a[href]'));
     const xpathTerminalTag = (xpath) => xpath?.match(/\\/([a-z][a-z0-9-]*)\\[\\d+\\]$/i)?.[1]?.toLocaleLowerCase('en') || '';
     const pageUnderlayAt = (x, y) => {
       const elements = document.elementsFromPoint(x, y).filter((element) =>
@@ -597,6 +587,16 @@ export async function captureSiteWorkflowPosture(session) {
   return session.evaluate(`(() => {
     const xpathNode = (xpath) => { try { return document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue; } catch { return null; } };
     const describe = (source) => (source?.getAttribute?.('aria-label') || source?.getAttribute?.('title') || source?.getAttribute?.('alt') || source?.getAttribute?.('placeholder') || source?.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 400);
+    const destinationLabel = (source) => {
+      const href = source?.tagName === 'A' ? source.getAttribute('href') : null;
+      if (!href || href === '#' || /^(?:javascript|mailto|tel):/i.test(href)) return '';
+      let pathname = href;
+      try { pathname = new URL(href, document.baseURI).pathname; } catch {}
+      const segment = pathname.split('/').filter(Boolean).at(-1) || '';
+      try { return decodeURIComponent(segment).replace(/[-_]+/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 400); }
+      catch { return segment.replace(/[-_]+/g, ' ').replace(/\\s+/g, ' ').trim().slice(0, 400); }
+    };
+    const semanticDescribe = (source) => describe(source) || destinationLabel(source) || destinationLabel(source?.querySelector?.('a[href]'));
     const xpathTerminalTag = (xpath) => xpath?.match(/\\/([a-z][a-z0-9-]*)\\[\\d+\\]$/i)?.[1]?.toLocaleLowerCase('en') || '';
     const pageUnderlayFor = (overlay) => {
       const rect = overlay.getBoundingClientRect();
