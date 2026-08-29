@@ -605,7 +605,7 @@ export async function captureSiteWorkflowPosture(session) {
     for (const overlay of document.querySelectorAll('[data-uf-overlay-focus]')) {
       const xpath = overlay.getAttribute('data-uf-overlay-focus');
       const underlay = pageUnderlayFor(overlay);
-      append(underlay.source || (xpath ? xpathNode(xpath) : null), xpath, describe(underlay.exact) || xpathTerminalTag(xpath) || describe(underlay.source));
+      append(underlay.source || (xpath ? xpathNode(xpath) : null), xpath, describe(underlay.exact) || describe(underlay.source) || xpathTerminalTag(xpath));
     }
     for (const source of document.querySelectorAll('.uf-ai-preview-focus-target')) append(source, source.getAttribute('title') || 'legacy-focus');
     for (const overlay of document.querySelectorAll('[data-layer="focus"] [data-mc-mark-id]')) {

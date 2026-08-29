@@ -1421,6 +1421,16 @@ preserves the stronger architecture.
     label before falling back to the technical container. Source-contract
     coverage fences that selector so included/excluded status remains available
     for accessibility and reporting without contaminating target identity.
+153. **Confirmed harness P0 — row-to-page correlation preferred an XPath tag over
+    the descriptive underlay.** On the otherwise complete `906db837` Assist24
+    flow, keyboard row activation scrolled from 7701 px to the correct target and
+    the product focus layer repainted after scroll idle. The probe nevertheless
+    reported the owner as `div`: the topmost page element below the overlay was
+    textless, and its fallback chose the XPath terminal tag before the next
+    descriptive underlay (`Tjenester…`). A live replay proved the focus box was
+    present and stable by 250 ms. Underlay capture now prefers the first real
+    readable source before using a terminal tag as a last resort; the full-flow
+    source contract fences this ordering.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1493,7 +1503,7 @@ preserves the stronger architecture.
 ## Acceptance headline
 
 Implementation remediation is code-complete through finding 134; findings
-135–152 bind the resulting evidence and rerun authority. Immutable
+135–153 bind the resulting evidence and rerun authority. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun,
 findings 126–128 are closed by the clean aggregate, finding 129 is closed by its
