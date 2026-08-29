@@ -10,6 +10,8 @@ import {
   physicalActivatePopupControl,
   physicalActivatePreviewPageTarget,
   physicalActivatePreviewRow,
+  popupControlIsActionable,
+  popupRecoveryTransitioned,
   proveRequestedRenderMode,
   readableTextsCorrespond,
   silentPosturePass,
@@ -18,6 +20,41 @@ import {
   validateFullWorkflowEvidence,
   viewportPostureMatches,
 } from "../scripts/performance/p25/workflow-probes.mjs";
+
+describe("P25 popup recovery acknowledgement", () => {
+  const state = (controls: Array<Record<string, unknown>>, overrides: Record<string, unknown> = {}) => ({
+    view: "lock",
+    busy: false,
+    bodyLead: "Another editor owns this page",
+    spinnerText: null,
+    toast: null,
+    controls,
+    ...overrides,
+  });
+
+  it("recognizes a recovery control that is still physically actionable", () => {
+    expect(popupControlIsActionable(state([
+      { id: "lock-take-over", disabled: false, visible: true },
+    ]), "lock-take-over")).toBe(true);
+    expect(popupControlIsActionable(state([
+      { id: "lock-take-over", disabled: true, visible: true },
+    ]), "lock-take-over")).toBe(false);
+  });
+
+  it("treats a disappearing stale-lock action as an acknowledged race", () => {
+    const before = state([{ id: "lock-take-over", disabled: false, visible: true }]);
+    const after = state([{ id: "toggle-enabled", disabled: false, visible: true }], {
+      view: "marking",
+      bodyLead: "You hold the editor lock",
+    });
+    expect(popupRecoveryTransitioned(before, after, "lock-take-over")).toBe(true);
+  });
+
+  it("does not acknowledge an unchanged recovery surface", () => {
+    const before = state([{ id: "lock-take-over", disabled: false, visible: true }]);
+    expect(popupRecoveryTransitioned(before, structuredClone(before), "lock-take-over")).toBe(false);
+  });
+});
 
 describe("P25 silent viewport authority", () => {
   const posture = {

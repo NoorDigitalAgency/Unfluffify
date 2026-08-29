@@ -427,6 +427,30 @@ export async function physicalActivatePopupControl(
   };
 }
 
+export function popupControlIsActionable(state, id) {
+  const control = state?.controls?.find((candidate) => candidate?.id === id);
+  return Boolean(control && !control.disabled && control.visible !== false);
+}
+
+export function popupRecoveryTransitioned(before, after, controlId) {
+  if (!after) return false;
+  if (!popupControlIsActionable(after, controlId)) return true;
+  const signature = (state) => JSON.stringify({
+    view: state?.view ?? null,
+    busy: state?.busy ?? null,
+    bodyLead: state?.bodyLead ?? null,
+    spinnerText: state?.spinnerText ?? null,
+    toast: state?.toast ?? null,
+    controls: (state?.controls ?? []).map((control) => ({
+      id: control?.id ?? null,
+      disabled: control?.disabled ?? null,
+      visible: control?.visible ?? null,
+      checked: control?.checked ?? null,
+    })),
+  });
+  return signature(before) !== signature(after);
+}
+
 export async function physicalActivatePreviewRow(session, index = 0) {
   await session.send("Page.enable");
   await session.send("Page.bringToFront");

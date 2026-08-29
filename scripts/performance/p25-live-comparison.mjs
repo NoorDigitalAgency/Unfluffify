@@ -61,6 +61,8 @@ import {
   physicalActivatePopupControl,
   physicalActivatePreviewPageTarget,
   physicalActivatePreviewRow,
+  popupControlIsActionable,
+  popupRecoveryTransitioned,
   proveRequestedRenderMode,
   readableTextsCorrespond,
   silentPosturePass,
@@ -1042,13 +1044,39 @@ async function ensurePopupSessionView(popup, implementation, timeoutMs = 30_000)
       .map((id) => state.controls.find((control) => control.id === id))
       .find((control) => control && !control.disabled && control.visible !== false);
     if (recovery?.id) {
-      await physicalActivatePopupControl(
-        popup,
-        recovery.id,
-        "pointer",
-        null,
-        implementation === "legacy" ? { hitTargetTimeoutMs: timeoutMs, pollIntervalMs: 100 } : undefined,
-      );
+      const recoveryBefore = await capturePopupState(popup);
+      if (!popupControlIsActionable(recoveryBefore, recovery.id)) {
+        state = recoveryBefore;
+        continue;
+      }
+      try {
+        await physicalActivatePopupControl(
+          popup,
+          recovery.id,
+          "pointer",
+          null,
+          implementation === "legacy" ? { hitTargetTimeoutMs: timeoutMs, pollIntervalMs: 100 } : undefined,
+        );
+      } catch (error) {
+        const racedState = await capturePopupState(popup);
+        const unavailableRace = error instanceof Error &&
+          error.message.includes(`Real popup control #${recovery.id} is unavailable`) &&
+          popupRecoveryTransitioned(recoveryBefore, racedState, recovery.id);
+        if (!unavailableRace) throw error;
+        state = racedState;
+        continue;
+      }
+      const acknowledgementDeadline = Math.min(deadline, Date.now() + 2_000);
+      let acknowledgedState = await capturePopupState(popup);
+      while (
+        Date.now() < acknowledgementDeadline &&
+        !popupRecoveryTransitioned(recoveryBefore, acknowledgedState, recovery.id)
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        acknowledgedState = await capturePopupState(popup);
+      }
+      state = acknowledgedState;
+      continue;
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
     state = await capturePopupState(popup);

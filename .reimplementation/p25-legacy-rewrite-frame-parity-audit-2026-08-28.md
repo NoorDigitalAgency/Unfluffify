@@ -1372,6 +1372,17 @@ preserves the stronger architecture.
     Escape. Duplicate sequence signals are harmless outside an open Preview,
     navigation resets the local occurrence, and content remains the sole owner
     of `preview.exited` after physical restoration.
+148. **Closed evidence P1 — stale-lock recovery could dispatch a control after
+    that recovery surface had already terminalized.** A fresh Assist24 run
+    captured `Take over`, then authority removed the action between the stage's
+    state snapshot and its physical hit-test. The comparison driver treated the
+    now-missing button as a hard product failure. Recovery now revalidates the
+    exact actionable control immediately before dispatch, accepts disappearance
+    only when a newly captured popup state proves a transition, and waits up to
+    two seconds for a semantic surface change before considering another action.
+    Missing controls with unchanged state and all other physical-hit errors still
+    fail closed. Unit coverage proves actionable, raced-away, and unchanged
+    recovery states.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1444,7 +1455,7 @@ preserves the stronger architecture.
 ## Acceptance headline
 
 Implementation remediation is code-complete through finding 134; findings
-135–147 bind the resulting evidence and rerun authority. Immutable
+135–148 bind the resulting evidence and rerun authority. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun,
 findings 126–128 are closed by the clean aggregate, finding 129 is closed by its
