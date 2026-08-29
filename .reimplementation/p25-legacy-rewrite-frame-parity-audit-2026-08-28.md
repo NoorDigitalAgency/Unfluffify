@@ -6,7 +6,7 @@
 side-by-side audit found 54 product gaps, adversarial run-plan review found 30
 additional lifecycle, input, evidence, and release-gate gaps, and final
 precommit review plus the clean headed campaign extended the register through
-finding 101. The current P25 implementation addresses every classified finding without weakening the
+finding 109. The current P25 implementation addresses every classified finding without weakening the
 rewrite's locked contracts. This document remains the finding register rather
 than a PASS claim:
 the clean-source P25 gate and observer-free candidate matrix are the acceptance
@@ -676,8 +676,7 @@ preserves the stronger architecture.
     and worst frame, 752 markable sources, eight painted rectangles, zero
     invisible/composed-invisible/covered/unresolved paint, and 114 consent-
     suppressed sources. Stages 00–07 all passed on the same run.
-107. **Remediated, headed production diagnostic passed; immutable rerun pending
-    P0 — a passive authority retry could strand a successful AI result behind a
+107. **Closed P0 — a passive authority retry could strand a successful AI result behind a
     transient lock overlay.** Stage 08 of the same immutable run emitted exactly
     one clean, current-page-only 1,118,728-byte `/get_selectors` POST, received
     202, polled the job to terminal, and fetched its 763-byte selector result.
@@ -705,10 +704,40 @@ preserves the stronger architecture.
     Content List, release a synthetic 503, prove zero stale lock adoption and one
     fresh trailing pass, and separately prove a path change still fences the
     delayed AI result. The complete automated gate is green at 140 files / 1410
-    tests plus seven generated-manifest tests. A headed production run against
-    Ledigajobb completed the real backend job and automatically opened the full
-    semantic Content List without authority takeover; the exact clean pushed
-    commit must now repeat stage 08 and the remaining workflow stages.
+    tests plus seven generated-manifest tests. Immutable production run
+    `2026-08-29T01-46-36-763Z-86b81d8e-rewrite-ledigajobb` on pushed commit
+    `423abc92` then completed both real backend jobs without passive-authority
+    overlap or takeover. The initial job auto-opened the 96-row semantic Content
+    List; both two-way routes, Discard, the fresh AI run, one current-page Save,
+    authoritative adoption, silent transition, and three clean payloads passed.
+108. **Remediated, immutable rerun pending harness P1 — post-AI freshness was
+    timed from site-session setup rather than trusted input.** The same immutable
+    stage's only acceptance failure was `post-ai-freshness`: it recorded 1,148.3
+    ms against the one-second budget. The physical evidence contradicts a product
+    regression: the Shift edit dispatched in 45.0 ms, received target-keyed paint
+    acknowledgement in 85.6 ms, and both Save and Content List were disabled with
+    `requires-ai-run`. The stale clock started before connecting a fresh CDP site
+    session, enabling domains, foregrounding the candidate, choosing a clean
+    target, hovering it, and waiting two presentation frames—roughly 1.06 seconds
+    of harness preparation before input existed. The probe now records a host
+    epoch at the trusted gesture boundary, retains input and observation epochs,
+    derives the interval from them, and rejects missing acknowledgement,
+    mismatched origin, non-monotonic time, or a projection over one second.
+    Focused regressions prove the 85 ms interval and prohibit the old pre-session
+    clock. The complete gate passes lint, all type/page-world checks, 140 test
+    files / 1,412 tests, the production build, and seven generated-manifest
+    tests. This repairs evidence authority only; product behavior is unchanged.
+109. **Unclassified watch item P1 — one clean production activation rolled back
+    before reveal, but did not reproduce.** Run
+    `2026-08-29T01-33-11-605Z-bcc2a232-rewrite-ledigajobb` passed preflight and
+    both render modes, then its trusted marking toggle entered pending and
+    returned to silent in about 1.5 seconds. Eight immediate production
+    Refresh→trusted-pointer repetitions subsequently activated 8/8 in 1.18–1.74
+    seconds on the warmed page, and a fresh debug first-entry sequence passed the
+    exact activation gate. Because no stable rewrite divergence or root cause is
+    proven, no speculative product change is justified. The immutable matrix
+    retains this as a recurrence watch; any repeat must capture the pre-reveal
+    terminal reason and becomes a blocker.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -780,8 +809,9 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 107 and the current
-source passes the complete automated gate, but P25 remains open until the exact
+Implementation remediation is code-complete through finding 109; finding 108's
+evidence repair is focused-test green and awaits the exact clean pushed rerun,
+while finding 109 remains a recurrence watch. P25 remains open until the exact
 clean pushed commit completes every valid candidate's observer-free headed
 rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,

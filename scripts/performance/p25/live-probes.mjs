@@ -1365,10 +1365,19 @@ export async function performPhysicalShiftExclusion(session) {
   await waitForPresentationOpportunity(session, { frameCount: 2 });
   const before = await session.evaluate(markingDecisionExpression(target));
   const inputStartedAt = await session.evaluate("performance.now()");
+  // Keep an epoch timestamp at the trusted-input boundary so workflow probes
+  // do not charge CDP session setup or target preparation to product latency.
+  const inputDispatchedAtEpochMs = Date.now();
   const dispatchLatencyMs = await dispatchPhysicalGesture(session, target, { shift: true });
   const acknowledgement = await waitForGestureAcknowledgement(session, target, before, "shift-expand", inputStartedAt);
   if (!acknowledgement.acknowledged) throw new Error(`Shift exclusion did not receive target-keyed acknowledgement: ${JSON.stringify(acknowledgement.assertion)}`);
-  return { target, dispatchLatencyMs, ...acknowledgement };
+  return {
+    target,
+    inputDispatchedAtEpochMs,
+    inputStartedAtPerformanceMs: inputStartedAt,
+    dispatchLatencyMs,
+    ...acknowledgement,
+  };
 }
 
 export async function probeMarkingGestures(session, preparedTarget = null) {

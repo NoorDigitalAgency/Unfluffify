@@ -2,6 +2,18 @@ import { normalizeLiveUrl, sha256 } from "./live-comparison-contract.mjs";
 
 export const CANDIDATE_DISPOSITION_SCHEMA_VERSION = "p25-candidate-disposition/v1";
 
+export function measureTrustedProjectionInterval(inputDispatchedAtEpochMs, observedAtEpochMs = Date.now()) {
+  if (!Number.isFinite(inputDispatchedAtEpochMs) || !Number.isFinite(observedAtEpochMs) ||
+      observedAtEpochMs < inputDispatchedAtEpochMs) {
+    throw new Error("A monotonic trusted-input epoch interval is required");
+  }
+  return {
+    inputDispatchedAtEpochMs,
+    observedAtEpochMs,
+    projectedWithinMs: observedAtEpochMs - inputDispatchedAtEpochMs,
+  };
+}
+
 const NOT_FOUND_COPY = /(?:\b404\b|page\s+not\s+found|page\s+does\s+not\s+exist|sidan\s+(?:du\s+söker\s+)?(?:finns\s+inte|kunde\s+inte\s+hittas)|siden\s+(?:du\s+leter\s+etter\s+)?(?:finnes\s+ikke|ble\s+ikke\s+funnet)|siden\s+(?:findes\s+ikke|kunne\s+ikke\s+findes)|side\s+ikke\s+fundet)/iu;
 
 function normalizedCopy(value, limit = 512) {
@@ -510,6 +522,12 @@ export function validateFullWorkflowEvidence(workflow) {
   requireValue(workflow?.initialAi?.success === true, "initial-ai-terminal-success");
   requireValue(workflow?.freshAi?.success === true, "fresh-ai-terminal-success");
   requireValue(workflow?.initialAi?.requestCount === 1 && workflow?.freshAi?.requestCount === 1, "ai-single-request-per-run");
+  const trustedInputEpochMs = workflow?.dirtyEdit?.inputDispatchedAtEpochMs;
+  const observedEpochMs = workflow?.freshness?.observedAtEpochMs;
+  requireValue(workflow?.dirtyEdit?.acknowledged === true && Number.isFinite(trustedInputEpochMs) &&
+    workflow?.freshness?.inputDispatchedAtEpochMs === trustedInputEpochMs && Number.isFinite(observedEpochMs) &&
+    observedEpochMs >= trustedInputEpochMs &&
+    workflow?.freshness?.projectedWithinMs === observedEpochMs - trustedInputEpochMs, "post-ai-freshness-origin");
   requireValue(workflow?.freshness?.projectedWithinMs >= 0 && workflow.freshness.projectedWithinMs <= 1_000, "post-ai-freshness");
   requireValue(workflow?.freshness?.saveBlockedReason === "requires-ai-run" && workflow.freshness?.previewBlockedReason === "requires-ai-run", "post-ai-block-reasons");
   requireValue(workflow?.save?.trustedPointer === true && workflow.save.requestCount === 1 && workflow.save.authoritativeAdopted === true, "save-authoritative-single-request");

@@ -6,6 +6,7 @@ import {
   adoptCandidateDisposition,
   createCandidateDispositionRecord,
   evaluateCandidateValidity,
+  measureTrustedProjectionInterval,
   physicalActivatePopupControl,
   physicalActivatePreviewPageTarget,
   physicalActivatePreviewRow,
@@ -321,6 +322,7 @@ describe("P25 exact marking gesture acceptance", () => {
 
 function completeWorkflowEvidence() {
   return {
+    dirtyEdit: { acknowledged: true, inputDispatchedAtEpochMs: 10_000 },
     initialAi: { success: true, requestCount: 1 },
     freshAi: { success: true, requestCount: 1 },
     contentList: {
@@ -331,6 +333,8 @@ function completeWorkflowEvidence() {
       pageToRow: { trustedPointer: true, rowFocused: true, targetCorresponds: true },
     },
     freshness: {
+      inputDispatchedAtEpochMs: 10_000,
+      observedAtEpochMs: 10_180,
       projectedWithinMs: 180,
       saveBlockedReason: "requires-ai-run",
       previewBlockedReason: "requires-ai-run",
@@ -349,6 +353,9 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).toContain("await physicalActivatePreviewRow(popup, firstPaint.preview.rowCount > 1 ? 1 : 0)");
     expect(harness).toContain("await physicalActivatePreviewPageTarget(site)");
     expect(harness).toContain("await runDiscardWorkflow(popup)");
+    expect(harness).toContain("waitForDirtyFreshnessProjection(popup, dirtyEdit.inputDispatchedAtEpochMs)");
+    expect(harness).toContain("waitForDirtyFreshnessProjection(popup, saveEdit.inputDispatchedAtEpochMs)");
+    expect(harness).not.toContain("const freshnessStarted = performance.now()");
     expect(harness).toContain("const saveRequests = await waitForTerminalGuardRequests(");
     expect(harness).toContain("silentPosture: await captureSiteWorkflowPosture(session)");
     expect(harness).toContain("physicalActivatePopupControl(session, \"save-excludes\", \"pointer\")");
@@ -383,6 +390,7 @@ describe("P25 full workflow fail-closed acceptance", () => {
     ["initial AI terminal success", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.initialAi.success = false; }, "initial-ai-terminal-success"],
     ["fresh AI terminal success", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.freshAi.success = false; }, "fresh-ai-terminal-success"],
     ["duplicate AI request", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.freshAi.requestCount = 2; }, "ai-single-request-per-run"],
+    ["freshness origin", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.freshness.inputDispatchedAtEpochMs -= 1; }, "post-ai-freshness-origin"],
     ["freshness", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.freshness.projectedWithinMs = 1_001; }, "post-ai-freshness"],
     ["duplicate Save", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.save.requestCount = 2; }, "save-authoritative-single-request"],
     ["Discard confirmation", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.discard.confirmed = false; }, "discard-flow"],
@@ -392,6 +400,15 @@ describe("P25 full workflow fail-closed acceptance", () => {
     const evidence = completeWorkflowEvidence();
     tamper(evidence);
     expect(validateFullWorkflowEvidence(evidence).failures).toContain(expected);
+  });
+
+  it("measures freshness from trusted input dispatch rather than harness setup", () => {
+    expect(measureTrustedProjectionInterval(10_000, 10_085)).toEqual({
+      inputDispatchedAtEpochMs: 10_000,
+      observedAtEpochMs: 10_085,
+      projectedWithinMs: 85,
+    });
+    expect(() => measureTrustedProjectionInterval(10_001, 10_000)).toThrow(/monotonic trusted-input epoch/i);
   });
 
   it("correlates preview routes to the activated readable target and rejects an unrelated row", () => {

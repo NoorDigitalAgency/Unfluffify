@@ -57,6 +57,7 @@ import {
   captureSiteWorkflowPosture,
   captureWorkflowPopupState,
   createCandidateDispositionRecord,
+  measureTrustedProjectionInterval,
   physicalActivatePopupControl,
   physicalActivatePreviewPageTarget,
   physicalActivatePreviewRow,
@@ -1090,15 +1091,20 @@ async function runContentListWorkflow(popup, siteTarget, aiEvidence) {
   }
 }
 
-async function waitForDirtyFreshnessProjection(popup, startedAt) {
+async function waitForDirtyFreshnessProjection(popup, inputDispatchedAtEpochMs) {
+  if (!Number.isFinite(inputDispatchedAtEpochMs)) {
+    throw new Error("Dirty freshness projection requires the trusted input dispatch epoch");
+  }
+  const elapsedBeforeProjectionWaitMs = Math.max(0, Date.now() - inputDispatchedAtEpochMs);
   const state = await waitForWorkflowPopupState(popup, (candidate) => {
     const save = workflowControl(candidate, "page-save");
     const preview = workflowControl(candidate, "marking-preview");
     return save?.disabled === true && preview?.disabled === true &&
       save.blockedReason === "requires-ai-run" && preview.blockedReason === "requires-ai-run";
-  }, 1_000);
+  }, Math.max(1, 1_000 - elapsedBeforeProjectionWaitMs));
+  const timing = measureTrustedProjectionInterval(inputDispatchedAtEpochMs);
   return {
-    projectedWithinMs: performance.now() - startedAt,
+    ...timing,
     saveBlockedReason: workflowControl(state, "page-save")?.blockedReason ?? null,
     previewBlockedReason: workflowControl(state, "marking-preview")?.blockedReason ?? null,
     state,
@@ -1144,13 +1150,12 @@ async function runMeasuredFullWorkflow({ popup, site, guard, identity, options }
   }
   const contentList = await runContentListWorkflow(popup, site, initialAi);
 
-  const freshnessStarted = performance.now();
   const dirtyEdit = await withSiteSession(site, performPhysicalShiftExclusion);
-  const freshness = await waitForDirtyFreshnessProjection(popup, freshnessStarted);
+  const freshness = await waitForDirtyFreshnessProjection(popup, dirtyEdit.inputDispatchedAtEpochMs);
   const discard = await runDiscardWorkflow(popup);
 
   const saveEdit = await withSiteSession(site, performPhysicalShiftExclusion);
-  await waitForDirtyFreshnessProjection(popup, performance.now());
+  await waitForDirtyFreshnessProjection(popup, saveEdit.inputDispatchedAtEpochMs);
   const freshAi = await runCurrentAi(popup, guard, options);
   if (!freshAi.success) {
     return {

@@ -4,11 +4,15 @@
 green. The approved plan package was committed and pushed first as `6db3433a`;
 the product closure landed in `9b162bfb`, and the clean-browser regression repair
 landed in `f5c82960`. Headed-launch and evidence hardening landed through
-`ce8494eb`, and the scoped marking-refresh repair landed in `33c390e3`. The
-observer-free headed matrix is in progress; finding 107's authority/AI isolation
-repair is verified locally but still needs an immutable pushed-source rerun. P25
-stays open until that matrix is complete and the final evidence commit is
-synchronized.
+`ce8494eb`, the scoped marking-refresh repair landed in `33c390e3`, and AI versus
+passive-authority isolation landed in `423abc92`. Immutable Ledigajobb run
+`2026-08-29T01-46-36-763Z-86b81d8e-rewrite-ledigajobb` closed finding 107 and
+completed the real product workflow through one authoritative Save and silent
+transition. Its stage gate then exposed finding 108: the freshness probe charged
+site-control-session setup to product latency. That evidence-clock correction is
+focused-test green and awaits an exact pushed-source rerun. The observer-free
+headed matrix remains in progress; P25 stays open until it and the final evidence
+commit are synchronized.
 
 The complete finding register is
 `.reimplementation/p25-legacy-rewrite-frame-parity-audit-2026-08-28.md`.
@@ -666,8 +670,27 @@ headed-validation gates.
   harness now recognizes the visible site-lookup failure text. Focused suites,
   lint, type checks, the production build, seven manifest checks, and all 1,410
   tests pass. A headed dirty-source diagnostic also auto-opened the populated
-  Content List after the real backend completed. Commit and push this exact
-  source, then repeat stage 08 and the remaining immutable matrix before closure.
+  Content List after the real backend completed. The repair was committed and
+  pushed as `423abc92`.
+- Immutable production run
+  `2026-08-29T01-46-36-763Z-86b81d8e-rewrite-ledigajobb` then proved finding 107
+  closed: no passive `/context` or `/load` work overlapped either AI transaction;
+  both AI runs succeeded and the first auto-opened a 96-row Content List. Trusted
+  keyboard row→page and pointer page→row routing passed, Discard confirmed and
+  restored, exactly one current-page `/save` returned 200 and was adopted, silent
+  transition acknowledged, and all three payloads were clean. Initial and fresh
+  AI feedback painted in 22 ms and 79 ms respectively.
+- The same stage's only acceptance failure was a measurement-origin defect. Its
+  physical post-AI Shift edit dispatched in 45.0 ms, received target-keyed paint
+  acknowledgement in 85.6 ms, and projected both dependent controls to
+  `requires-ai-run`; the recorded 1,148 ms began before opening/foregrounding the
+  site CDP session. Record an epoch timestamp immediately at trusted input
+  dispatch, compute the projection interval from that boundary, retain the exact
+  origin in the evidence, and make validation reject an unacknowledged or
+  mismatched origin. The complete gate passes lint, all type/page-world checks,
+  140 test files / 1,412 tests, the production build, and seven generated-
+  manifest tests. Commit/push the exact source and repeat the immutable stage
+  before matrix expansion.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 
