@@ -427,6 +427,66 @@ describe("P25 exact marking gesture acceptance", () => {
     expect(validateExactMarkingGestureEvidence(evidence).failures).toContain("shift-expand:not-widened-exclusion");
   });
 
+  it("accepts paired target acknowledgements for a canonical exclusion that intentionally has no settled box", () => {
+    const evidence = exactGestureEvidence();
+    const ownerXpath = "/main[1]/section[1]";
+    evidence.operations[1] = {
+      id: "shift-expand",
+      acknowledged: true,
+      acknowledgementLatencyMs: 18,
+      assertion: { kind: null, ownerRelation: null, breadthIncreased: false },
+      interactionAcknowledgement: {
+        kind: "explicit-exclusion",
+        ownerRelation: "ancestor",
+        ownerXpath,
+      },
+    } as never;
+    evidence.operations[2] = {
+      id: "plain-exact-unmark",
+      acknowledged: true,
+      acknowledgementLatencyMs: 16,
+      assertion: { removedExactOwner: false, remainingTargetOwned: 0 },
+      interactionAcknowledgement: {
+        kind: "explicit-exclusion",
+        ownerRelation: "ancestor",
+        ownerXpath,
+      },
+    } as never;
+
+    expect(validateExactMarkingGestureEvidence(evidence)).toEqual({ pass: true, failures: [] });
+  });
+
+  it("rejects unpainted create/clear acknowledgements that name different owners", () => {
+    const evidence = exactGestureEvidence();
+    evidence.operations[1] = {
+      id: "shift-expand",
+      acknowledged: true,
+      acknowledgementLatencyMs: 18,
+      assertion: {},
+      interactionAcknowledgement: {
+        kind: "explicit-exclusion",
+        ownerRelation: "ancestor",
+        ownerXpath: "/main[1]/section[1]",
+      },
+    } as never;
+    evidence.operations[2] = {
+      id: "plain-exact-unmark",
+      acknowledged: true,
+      acknowledgementLatencyMs: 16,
+      assertion: {},
+      interactionAcknowledgement: {
+        kind: "explicit-exclusion",
+        ownerRelation: "ancestor",
+        ownerXpath: "/main[1]/section[2]",
+      },
+    } as never;
+
+    expect(validateExactMarkingGestureEvidence(evidence).failures).toEqual(expect.arrayContaining([
+      "shift-expand:not-widened-exclusion",
+      "plain-exact-unmark:exact-owner-not-removed",
+    ]));
+  });
+
   it("rejects the right target with the wrong marking kind", () => {
     const evidence = exactGestureEvidence();
     evidence.operations[3] = {
@@ -519,6 +579,8 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).toContain("diagnostic-observe-only-no-render-control-dispatch");
     expect(harness).toContain("diagnosticObserveOnly: true");
     expect(harness).toContain("const initialBefore = await ensurePopupSessionView(popup, identity.implementation)");
+    expect(harness).toContain('const recoveryIds = ["lock-confirm-discard", "lock-continue-here", ...exitIds]');
+    expect(harness).toContain("if (recovery?.id)");
     expect(harness).toContain('physicalActivatePopupControl(popup, "desktop-preview-enabled", "pointer")');
     expect(harness).toContain("viewportMatches(data.silentDesktopSetup?.posture, 1920, 1080)");
     expect(harness).toContain("viewportMatches(data.markingPosture, 412, 960)");

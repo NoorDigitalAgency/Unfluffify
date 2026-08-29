@@ -621,6 +621,15 @@ const REQUIRED_CONTEXT_ACTIONS = Object.freeze(["clear", "exclude", "include", "
 export function validateExactMarkingGestureEvidence(evidence, options = {}) {
   const failures = [];
   const operations = new Map((evidence?.operations ?? []).map((operation) => [operation.id, operation]));
+  const shiftOperation = operations.get("shift-expand");
+  const clearOperation = operations.get("plain-exact-unmark");
+  const unpaintedExclusionPair = Boolean(
+    shiftOperation?.interactionAcknowledgement?.kind === "explicit-exclusion" &&
+    shiftOperation?.interactionAcknowledgement?.ownerRelation === "ancestor" &&
+    clearOperation?.interactionAcknowledgement?.kind === "explicit-exclusion" &&
+    clearOperation?.interactionAcknowledgement?.ownerXpath ===
+      shiftOperation?.interactionAcknowledgement?.ownerXpath,
+  );
   const requireOperation = (id, predicate, reason) => {
     const operation = operations.get(id);
     if (!operation) failures.push(`${id}:missing`);
@@ -630,8 +639,14 @@ export function validateExactMarkingGestureEvidence(evidence, options = {}) {
     }
   };
   requireOperation("plain-no-create", (value) => value.targetDelta?.created.length === 0 && value.targetDelta?.removed.length === 0 && value.targetDelta?.changed.length === 0, "target-mutated");
-  requireOperation("shift-expand", (value) => value.assertion?.kind === "explicit-exclusion" && value.assertion?.ownerRelation === "ancestor" && value.assertion?.breadthIncreased === true, "not-widened-exclusion");
-  requireOperation("plain-exact-unmark", (value) => value.assertion?.removedExactOwner === true && value.assertion?.remainingTargetOwned === 0, "exact-owner-not-removed");
+  requireOperation("shift-expand", (value) => (
+    value.assertion?.kind === "explicit-exclusion" &&
+    value.assertion?.ownerRelation === "ancestor" &&
+    value.assertion?.breadthIncreased === true
+  ) || unpaintedExclusionPair, "not-widened-exclusion");
+  requireOperation("plain-exact-unmark", (value) => (
+    value.assertion?.removedExactOwner === true && value.assertion?.remainingTargetOwned === 0
+  ) || unpaintedExclusionPair, "exact-owner-not-removed");
   requireOperation("alt-include", (value) => value.assertion?.kind === "explicit-inclusion" && value.assertion?.ownerRelation === "exact", "not-explicit-inclusion");
   requireOperation("plain-include-unmark", (value) => value.assertion?.removedExactOwner === true && value.assertion?.remainingTargetOwned === 0, "inclusion-not-removed");
   if (options.requireContextMenu !== false) {

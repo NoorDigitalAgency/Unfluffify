@@ -960,31 +960,35 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
 }
 
 async function ensurePopupSessionView(popup, implementation, timeoutMs = 30_000) {
-  let state = await capturePopupState(popup);
-  let toggle = state.controls.find((control) => control.id === "toggle-enabled");
-  if (toggle && toggle.visible !== false) return state;
   const exitIds = implementation === "legacy"
     ? ["render-mode-edit", "render-mode-cancel"]
     : ["render-mode-cancel"];
-  const exit = exitIds
-    .map((id) => state.controls.find((control) => control.id === id))
-    .find((control) => control && !control.disabled && control.visible !== false);
-  if (!exit?.id) {
-    throw new Error(`Cannot return from ${state.view ?? "unknown"} to the marking session: ${JSON.stringify(exitIds)}`);
-  }
-  await physicalActivatePopupControl(
-    popup,
-    exit.id,
-    "pointer",
-    null,
-    implementation === "legacy" ? { hitTargetTimeoutMs: timeoutMs, pollIntervalMs: 100 } : undefined,
-  );
   const deadline = Date.now() + timeoutMs;
+  let state = await capturePopupState(popup);
   while (Date.now() < deadline) {
-    state = await capturePopupState(popup);
-    toggle = state.controls.find((control) => control.id === "toggle-enabled");
+    const toggle = state.controls.find((control) => control.id === "toggle-enabled");
     if (toggle && !toggle.disabled && toggle.visible !== false && state.busy === false) return state;
+
+    // A prior immutable run can leave an extension-owned same-user edit lease in
+    // the copied profile. Claiming that lease through the visible controls is a
+    // required user workflow, not a privileged state mutation. Confirm first if
+    // the two-step prompt is already open, then handle the initial action or an
+    // outstanding Render Inspection view.
+    const recoveryIds = ["lock-confirm-discard", "lock-continue-here", ...exitIds];
+    const recovery = recoveryIds
+      .map((id) => state.controls.find((control) => control.id === id))
+      .find((control) => control && !control.disabled && control.visible !== false);
+    if (recovery?.id) {
+      await physicalActivatePopupControl(
+        popup,
+        recovery.id,
+        "pointer",
+        null,
+        implementation === "legacy" ? { hitTargetTimeoutMs: timeoutMs, pollIntervalMs: 100 } : undefined,
+      );
+    }
     await new Promise((resolve) => setTimeout(resolve, 100));
+    state = await capturePopupState(popup);
   }
   throw new Error(`Timed out returning to the marking session; last=${JSON.stringify(state)}`);
 }

@@ -1686,23 +1686,89 @@ function markingAssertion(id, before, after, targetDelta) {
   };
 }
 
-async function waitForGestureAcknowledgement(session, target, before, id, startedAt, timeoutMs = 1_500) {
+const interactionAcknowledgementExpression = (target, expectedOwnerXpath) => `(() => {
+  const targetXpath = ${JSON.stringify(target.xpath)};
+  const expectedOwnerXpath = ${JSON.stringify(expectedOwnerXpath)};
+  const relation = (ownerXpath) => ownerXpath === targetXpath ? 'exact'
+    : targetXpath.startsWith(ownerXpath + '/') ? 'ancestor'
+      : ownerXpath.startsWith(targetXpath + '/') ? 'descendant' : 'unrelated';
+  const records = [...document.querySelectorAll('[data-uf-interaction-ack]')].map((element) => {
+    const ownerXpath = element.getAttribute('data-uf-interaction-ack');
+    const classes = String(element.className || '');
+    return {
+      ownerXpath,
+      ownerRelation: ownerXpath ? relation(ownerXpath) : null,
+      kind: classes.includes('uf-explicit-include') ? 'explicit-inclusion'
+        : classes.includes('uf-explicit-exclude') ? 'explicit-exclusion' : null,
+    };
+  });
+  return records.find((record) => record.ownerXpath === expectedOwnerXpath) ?? null;
+})()`;
+
+async function waitForGestureAcknowledgement(
+  session,
+  target,
+  before,
+  id,
+  startedAt,
+  expectedAcknowledgementXpath = null,
+  timeoutMs = 1_500,
+) {
   const deadline = Date.now() + timeoutMs;
   let last = before;
+  let interactionAcknowledgement = null;
   while (Date.now() < deadline) {
     const frame = await waitForPresentationOpportunity(session);
+    if (!interactionAcknowledgement && expectedAcknowledgementXpath) {
+      interactionAcknowledgement = await session.evaluate(
+        interactionAcknowledgementExpression(target, expectedAcknowledgementXpath),
+      );
+    }
     last = await session.evaluate(markingDecisionExpression(target));
     const delta = markingDelta(before, last);
     const assertion = markingAssertion(id, before, last, delta);
     const correct = id === "plain-no-create" ? assertion.noTargetMutation === true
       : id === "shift-expand" ? assertion.kind === "explicit-exclusion" && assertion.ownerRelation === "ancestor" && assertion.breadthIncreased === true
-        : id === "alt-include" ? assertion.kind === "explicit-inclusion" && assertion.ownerRelation === "exact"
+      : id === "alt-include" ? assertion.kind === "explicit-inclusion" && assertion.ownerRelation === "exact"
           : id.includes("unmark") ? assertion.removedExactOwner === true && assertion.remainingTargetOwned === 0
             : false;
-    if (correct) return { acknowledged: true, acknowledgementLatencyMs: Math.max(0, frame - startedAt), after: last, targetDelta: delta, assertion };
+    const paintCorrect = Boolean(
+      interactionAcknowledgement &&
+      interactionAcknowledgement.ownerXpath === expectedAcknowledgementXpath &&
+      (id === "alt-include"
+        ? interactionAcknowledgement.kind === "explicit-inclusion" && interactionAcknowledgement.ownerRelation === "exact"
+        : id === "shift-expand" || id === "plain-exact-unmark"
+          ? interactionAcknowledgement.kind === "explicit-exclusion"
+          : id === "plain-include-unmark"
+            ? interactionAcknowledgement.kind === "explicit-inclusion"
+            : false),
+    );
+    if (correct || paintCorrect) {
+      // The acknowledgement is painted before the canonical mutation runs in
+      // its trailing task. Give that task and its branch projection two frames
+      // before the next physical gesture is allowed to resolve.
+      await waitForPresentationOpportunity(session, { frameCount: 2 });
+      last = await session.evaluate(markingDecisionExpression(target));
+      const settledDelta = markingDelta(before, last);
+      return {
+        acknowledged: true,
+        acknowledgementLatencyMs: Math.max(0, frame - startedAt),
+        after: last,
+        targetDelta: settledDelta,
+        assertion: markingAssertion(id, before, last, settledDelta),
+        interactionAcknowledgement,
+      };
+    }
   }
   const targetDelta = markingDelta(before, last);
-  return { acknowledged: false, acknowledgementLatencyMs: null, after: last, targetDelta, assertion: markingAssertion(id, before, last, targetDelta) };
+  return {
+    acknowledged: false,
+    acknowledgementLatencyMs: null,
+    after: last,
+    targetDelta,
+    assertion: markingAssertion(id, before, last, targetDelta),
+    interactionAcknowledgement,
+  };
 }
 
 export async function performPhysicalShiftExclusion(session, options = {}) {
@@ -1716,7 +1782,14 @@ export async function performPhysicalShiftExclusion(session, options = {}) {
   // do not charge CDP session setup or target preparation to product latency.
   const inputDispatchedAtEpochMs = Date.now();
   const dispatchLatencyMs = await dispatchPhysicalGesture(session, target, { shift: true });
-  const acknowledgement = await waitForGestureAcknowledgement(session, target, before, "shift-expand", inputStartedAt);
+  const acknowledgement = await waitForGestureAcknowledgement(
+    session,
+    target,
+    before,
+    "shift-expand",
+    inputStartedAt,
+    target.shiftedOwnerXpath,
+  );
   if (!acknowledgement.acknowledged) throw new Error(`Shift exclusion did not receive target-keyed acknowledgement: ${JSON.stringify(acknowledgement.assertion)}`);
   return {
     target,
@@ -1739,14 +1812,21 @@ export async function probeMarkingGestures(session, preparedTarget = null, optio
   }
   const performanceWindowStartedAt = await session.evaluate("performance.now()");
   const operations = [];
-  const operate = async (id, gesture) => {
+  const operate = async (id, gesture, expectedAcknowledgementXpath = null) => {
     await refreshPreparedMarkingTargetPoint(session, target);
     const before = await session.evaluate(markingDecisionExpression(target));
     const inputStartedAt = await session.evaluate("performance.now()");
     const dispatchLatencyMs = await dispatchPhysicalGesture(session, target, gesture);
     const acknowledgement = id === "context-menu"
       ? null
-      : await waitForGestureAcknowledgement(session, target, before, id, inputStartedAt);
+      : await waitForGestureAcknowledgement(
+        session,
+        target,
+        before,
+        id,
+        inputStartedAt,
+        expectedAcknowledgementXpath,
+      );
     const after = acknowledgement?.after ?? await session.evaluate(markingDecisionExpression(target));
     const targetDelta = acknowledgement?.targetDelta ?? markingDelta(before, after);
     const beforeFingerprint = sha256(JSON.stringify(before.canonical));
@@ -1765,14 +1845,16 @@ export async function probeMarkingGestures(session, preparedTarget = null, optio
       after,
       targetDelta,
       assertion: acknowledgement?.assertion ?? markingAssertion(id, before, after, targetDelta),
+      interactionAcknowledgement: acknowledgement?.interactionAcknowledgement ?? null,
     };
     operations.push(operation);
     return operation;
   };
   await operate("plain-no-create", {});
-  await operate("shift-expand", { shift: true });
-  await operate("plain-exact-unmark", {});
-  await operate("alt-include", { alt: true });
+  const shiftOperation = await operate("shift-expand", { shift: true }, target.shiftedOwnerXpath);
+  const expandedOwnerXpath = shiftOperation.interactionAcknowledgement?.ownerXpath ?? target.shiftedOwnerXpath;
+  await operate("plain-exact-unmark", {}, expandedOwnerXpath);
+  await operate("alt-include", { alt: true }, target.includedOwnerXpath ?? target.xpath);
   const requireContextMenu = options.requireContextMenu === true;
   const shiftedHoverOwner = requireContextMenu ? await resolveShiftedHoverOwner(session, target) : null;
   let contextMenu = [];
@@ -1788,7 +1870,7 @@ export async function probeMarkingGestures(session, preparedTarget = null, optio
     await dismissMarkingContextMenu(session);
     await waitForPresentationOpportunity(session, { frameCount: 2 });
   }
-  await operate("plain-include-unmark", {});
+  await operate("plain-include-unmark", {}, target.includedOwnerXpath ?? target.xpath);
   const performanceWindowEndedAt = await session.evaluate("performance.now()");
   // Pinned legacy has no action menu: its contextmenu listener aliases the
   // legacy toggle. Compare only operations present in both implementations;

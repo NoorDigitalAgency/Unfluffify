@@ -1273,6 +1273,35 @@ preserves the stronger architecture.
     coherent, but the matrix correctly rejects a single-authority claim. The
     final matrix must be rebuilt from one clean pushed HEAD after this
     remediation wave; immutable earlier artifacts remain diagnostic evidence.
+138. **Closed evidence P1 — scaled mobile pages can prove the exact interactive
+    viewport while the layout viewport includes browser gutter.** Assist24
+    entered the required 412×960 emulation posture, but its responsive metadata
+    exposed a 424×988 layout viewport while `visualViewport` remained exactly
+    412×960. The old gate rejected the valid posture even though pointer input,
+    painting, and screenshots are bounded by the interactive viewport. The
+    posture oracle now accepts an exact layout viewport or an exact interactive
+    viewport, records both, and retains the same device-pixel-ratio and mobile
+    emulation requirements. Regression coverage proves desktop gutter and
+    scaled-mobile cases without widening the numerical target.
+139. **Closed evidence P0 — the gesture oracle contradicted the invisible-
+    exclusion contract.** A physical Assist24 Shift click painted the transient
+    `explicit-exclude` acknowledgement on the widened ancestor within 20 ms,
+    then intentionally removed the box because that canonical exclusion owner
+    had no reachable geometry. The following plain click acknowledged `clear`
+    on the same exact owner. The old oracle demanded a persistent canonical
+    exclusion box, so it called both correct actions failures. Gesture evidence
+    now retains the target-keyed transient acknowledgement and accepts a hidden
+    exclusion only when Shift-create and plain-clear acknowledge the same
+    widened owner with the required ancestor relation. Fingerprint-only or
+    mismatched acknowledgements still fail closed.
+140. **Closed evidence P1 — a copied profile's same-user edit lease could block
+    an otherwise fresh immutable run.** Session preparation returned as soon as
+    it saw a visible Enable marking toggle, even when that toggle was disabled
+    behind `Continue here`. The live harness now requires the toggle to be
+    enabled and idle, and physically follows only the conservative same-user
+    `Continue here` plus `Discard and continue` confirmation before proceeding.
+    Other-user locks remain untouched and time out visibly; no storage, lock,
+    or DOM state is mutated outside the real controls.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1344,9 +1373,8 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 131; findings
-132–134 are the final candidate-matrix implementation wave, findings 135–137
-bind the resulting evidence and rerun authority. Immutable
+Implementation remediation is code-complete through finding 134; findings
+135–140 bind the resulting evidence and rerun authority. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun,
 findings 126–128 are closed by the clean aggregate, finding 129 is closed by its
