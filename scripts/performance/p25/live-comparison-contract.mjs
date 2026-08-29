@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { validateExactMarkingGestureEvidence } from "./marking-gesture-contract.mjs";
 
 export const P25_LIVE_SCHEMA_VERSION = "p25-live-comparison/v1";
 export const P25_LIVE_STAGE_SCHEMA_VERSION = "p25-live-comparison-stage/v1";
@@ -425,13 +426,11 @@ export function validateRunAggregate(aggregate) {
   const renderModes = new Set(stages.filter((stage) => stage.status === "passed" && stage.renderMode).map((stage) => stage.renderMode));
   pushCheck(checks, "both-render-modes", disposition?.parityEligible === false || RENDER_MODES.every((mode) => renderModes.has(mode)), [...renderModes]);
   pushCheck(checks, "visual-probes", disposition?.parityEligible === false || ["marking-visual", "marking-scroll-fade", "marking-resize", "silent-visual", "silent-scroll-fade", "silent-resize"].every((id) => ids.includes(id)), ids);
-  const gestureOperations = new Map((aggregate?.probes?.markingGestures?.operations ?? []).map((operation) => [operation.id, operation]));
-  pushCheck(checks, "gesture-probes", disposition?.parityEligible === false || (
-    gestureOperations.size === 6 &&
-    gestureOperations.get("plain-no-create")?.changed === false &&
-    ["shift-expand", "plain-exact-unmark", "alt-include", "plain-include-unmark"].every((id) => gestureOperations.get(id)?.changed === true) &&
-    gestureOperations.has("context-menu")
-  ), aggregate?.probes?.markingGestures ?? null);
+  const gestureValidation = validateExactMarkingGestureEvidence(aggregate?.probes?.markingGestures);
+  pushCheck(checks, "gesture-probes", disposition?.parityEligible === false || gestureValidation.pass, {
+    failures: gestureValidation.failures,
+    evidence: aggregate?.probes?.markingGestures ?? null,
+  });
   pushCheck(checks, "independent-cardinality", disposition?.parityEligible === false || ["sourceCount", "sourceFragmentCount", "paintedRectCount", "visibleLayerCount", "physicalHitCount", "markableCandidateCount"].every((key) => Number.isInteger(aggregate?.probes?.cardinality?.[key]) && aggregate.probes.cardinality[key] >= 0), aggregate?.probes?.cardinality ?? null);
   pushCheck(checks, "border-layer-proof", disposition?.parityEligible === false || ((aggregate?.probes?.borders?.length ?? 0) > 0 && (aggregate?.probes?.layers?.length ?? 0) > 0), { borders: aggregate?.probes?.borders?.length ?? 0, layers: aggregate?.probes?.layers?.length ?? 0 });
   pushCheck(checks, "scroll-fade-resize-proof", disposition?.parityEligible === false || (

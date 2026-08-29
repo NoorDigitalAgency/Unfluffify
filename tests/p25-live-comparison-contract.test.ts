@@ -90,14 +90,56 @@ function stageRows(disposition = { parityEligible: true }) {
   }));
 }
 
-const gestureIds = [
-  "plain-no-create",
-  "shift-expand",
-  "plain-exact-unmark",
-  "alt-include",
-  "context-menu",
-  "plain-include-unmark",
-];
+function markingGestureEvidence() {
+  const targetXpath = "/html[1]/body[1]/main[1]/article[1]/h2[1]";
+  const shiftedOwnerXpath = "/html[1]/body[1]/main[1]/article[1]";
+  const unchangedTargetDelta = { created: [], removed: [], changed: [], ambientCreated: [], ambientRemoved: [] };
+  const acknowledged = { acknowledged: true, acknowledgementLatencyMs: 20 };
+  return {
+    target: { xpath: targetXpath, shiftedOwnerXpath },
+    operations: [
+      { id: "plain-no-create", ...acknowledged, changed: false, targetDelta: unchangedTargetDelta },
+      {
+        id: "shift-expand",
+        ...acknowledged,
+        changed: true,
+        assertion: {
+          kind: "explicit-exclusion",
+          ownerRelation: "ancestor",
+          ownerXpath: shiftedOwnerXpath,
+          breadthIncreased: true,
+        },
+      },
+      {
+        id: "plain-exact-unmark",
+        ...acknowledged,
+        changed: true,
+        assertion: { removedExactOwner: true, remainingTargetOwned: 0 },
+      },
+      {
+        id: "alt-include",
+        ...acknowledged,
+        changed: true,
+        assertion: { kind: "explicit-inclusion", ownerRelation: "exact", ownerXpath: targetXpath },
+      },
+      { id: "context-menu", ...acknowledged, changed: false, targetDelta: unchangedTargetDelta },
+      {
+        id: "plain-include-unmark",
+        ...acknowledged,
+        changed: true,
+        assertion: { removedExactOwner: true, remainingTargetOwned: 0 },
+      },
+    ],
+    contextMenu: [
+      { action: "include", label: "Include", disabled: false },
+      { action: "exclude", label: "Exclude", disabled: true },
+      { action: "widen", label: "Widen exclusion", disabled: false },
+      { action: "clear", label: "Clear mark", disabled: false },
+    ],
+    contextExpectedDisabled: { include: false, exclude: true, widen: false, clear: false },
+    timing: { count: 5, medianMs: 40, p95Ms: 80, worstMs: 80 },
+  };
+}
 
 function aggregate(implementation: "legacy" | "rewrite" = "rewrite", aiMode = "measured-current-run", label = "dpj") {
   const runIdentity = identity(implementation, label);
@@ -136,16 +178,7 @@ function aggregate(implementation: "legacy" | "rewrite" = "rewrite", aiMode = "m
       },
       borders: [{ width: "2px", style: "solid", count: 9 }],
       layers: [{ layer: "default", zIndex: "3", count: 9 }],
-      markingGestures: {
-        operations: gestureIds.map((id) => ({ id, changed: id !== "plain-no-create" && id !== "context-menu" })),
-        contextMenu: [
-          { action: "exclude-exact", label: "Exclude exact", disabled: false },
-          { action: "exclude-expanded", label: "Exclude expanded", disabled: false },
-          { action: "include-exact", label: "Include exact", disabled: false },
-          { action: "clear-target", label: "Clear target", disabled: false },
-        ],
-        timing: { count: 6, medianMs: 40, p95Ms: 80, worstMs: 80 },
-      },
+      markingGestures: markingGestureEvidence(),
       markingScrollFade: { scrolled: true, faded: true, repositioned: true, restored: true },
       silentScrollFade: { scrolled: true, faded: true, repositioned: true, restored: true },
       markingResize: { repositioned: true, viewportRestored: true },
@@ -347,6 +380,23 @@ describe("P25 live-comparison stage and aggregate contract", () => {
     expect(validation.exitCode).toBe(1);
     expect(validation.checks.filter((check) => !check.pass).map((check) => check.id))
       .toEqual(expect.arrayContaining(["stage-completeness", "stage-exits", "zero-publish-attempts"]));
+  });
+
+  it("accepts unrelated dynamic overlay churn when a plain click leaves its target untouched", () => {
+    const run = aggregate();
+    const operation = run.probes.markingGestures.operations.find((candidate) => candidate.id === "plain-no-create")!;
+    operation.changed = true;
+    operation.targetDelta.ambientRemoved = [{
+      ownerXpath: "/html[1]/body[1]/aside[1]",
+      kind: "explicit-exclusion",
+      layer: "session-explicit-exclude",
+      ownerRelation: "unrelated",
+      breadth: 10,
+      fragments: 1,
+    }];
+
+    expect(validateRunAggregate(run).checks.find((check) => check.id === "gesture-probes"))
+      .toMatchObject({ pass: true });
   });
 
   it("rejects same-URL document replacement during the comparable workflow", () => {
