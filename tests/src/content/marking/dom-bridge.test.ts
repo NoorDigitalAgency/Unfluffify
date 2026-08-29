@@ -2052,6 +2052,41 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
+  it("replaces authoritative selector marks without rebuilding a current DOM bridge", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 200));
+    const paragraph = new FakeElement("P", rect(10, 10, 120, 20), "Silent content");
+    root.ownerDocument = doc;
+    paragraph.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(paragraph);
+    const stages: string[] = [];
+    const createBridge = vi.fn((element: Element) => createDomBridgeView(element));
+    const renderer = createRendererTestSeam();
+    const engine = createMarkingEngine(root as unknown as Element, {
+      instrumentation: {
+        createBridge,
+        createRenderer: renderer.createRenderer,
+        onWorkStage: (stage) => stages.push(stage),
+      },
+    });
+
+    stages.length = 0;
+    expect(engine.replaceSelectors({ inclusionSelectors: ["p"], exclusionSelectors: [] })).toBe(true);
+    engine.renderSilentHighlights();
+
+    expect(createBridge).toHaveBeenCalledTimes(1);
+    expect(renderer.createRenderer).toHaveBeenCalledTimes(1);
+    expect(stages).toEqual(["store-evaluate", "candidate-index", "silent-render"]);
+    expect(engine.rows()).toContainEqual({
+      xpath: "/main[1]/p[1]",
+      excluded: false,
+      explicit: true,
+    });
+    engine.dispose();
+  });
+
   it("projects one exclusion boundary instead of stacking boxes for every descendant", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));

@@ -1183,6 +1183,35 @@ export function createMarkingEngine(
     }
     return next.selectorsSeeded;
   };
+
+  const replaceSelectorMarks = (selectors: SelectorSet | null): boolean => {
+    const progressiveGeometryCancelled = cancelProgressiveGeometryRender();
+    if (deferredBranchRenderHandle !== null) {
+      presentationClock.cancelFrame(deferredBranchRenderHandle);
+      deferredBranchRenderHandle = null;
+      deferredBranchTargets.clear();
+    }
+    beginWorkCycle();
+    hoverResolution = null;
+    // A silent authoritative projection replaces the prior session's marks; it
+    // must not inherit user edits. The DOM bridge, element identities, preview
+    // metadata, widening topology and intersection subscriptions are still
+    // current, however, so rebuilding all of them only adds latency and GC.
+    const next = initialMarksForBridge(bridge, { rows: [] }, selectors);
+    lastInitializationSeededSelectors = next.selectorsSeeded;
+    store = createMarkingStore({ root: bridge.root }, next.marks);
+    reportWorkStage("store-evaluate");
+    const evaluation = store.currentEvaluation();
+    candidateByXpath = buildCandidateIndex(bridge.root, evaluation.overlay, store.canonicalSet().rows);
+    reportWorkStage("candidate-index");
+    refreshCurrentPreviewProjection();
+    reconcilePreviewEmphasis();
+    if (progressiveGeometryCancelled) {
+      revealMarkingAfterRender = false;
+      renderer.setScrolling(false);
+    }
+    return next.selectorsSeeded;
+  };
   const byXpathElements = (): ReadonlyMap<string, OverlayRenderTarget> => overlayTargets;
   const byXpathElementsForBranch = (branchRoot: EvaluationNode): Map<string, OverlayRenderTarget> => {
     const elements = new Map<string, OverlayRenderTarget>();
@@ -1201,16 +1230,22 @@ export function createMarkingEngine(
   const renderSilent = (): readonly string[] => {
     const byXpath = byXpathElements();
     const evaluation = store.currentEvaluation();
-    const geometryByXpath = new Map<string, VisibilityGeometry>();
-    for (const row of evaluation.rows) {
-      if (row.excluded || row.explicit === true) {
-        continue;
-      }
-      const target = byXpath.get(row.xpath);
-      if (target) {
-        geometryByXpath.set(row.xpath, geometryForElement(target.element));
-      }
-    }
+    const geometryCache = new Map<string, VisibilityGeometry>();
+    const geometryByXpath = {
+      get(xpath: string): VisibilityGeometry | undefined {
+        const cached = geometryCache.get(xpath);
+        if (cached) {
+          return cached;
+        }
+        const target = byXpath.get(xpath);
+        if (!target) {
+          return undefined;
+        }
+        const geometry = geometryForElement(target.element);
+        geometryCache.set(xpath, geometry);
+        return geometry;
+      },
+    };
     const xpaths = buildSilentHighlights(evaluation, geometryByXpath);
     const immutableCandidates: string[] = [];
     const excludedCandidates: string[] = [];
@@ -1233,16 +1268,22 @@ export function createMarkingEngine(
   ): readonly string[] => {
     const affectedXpaths = new Set(byXpath.keys());
     const branchRows = evaluation.rows.filter((row) => affectedXpaths.has(row.xpath));
-    const geometryByXpath = new Map<string, VisibilityGeometry>();
-    for (const row of branchRows) {
-      if (row.excluded || row.explicit === true) {
-        continue;
-      }
-      const target = byXpath.get(row.xpath);
-      if (target) {
-        geometryByXpath.set(row.xpath, geometryForElement(target.element));
-      }
-    }
+    const geometryCache = new Map<string, VisibilityGeometry>();
+    const geometryByXpath = {
+      get(xpath: string): VisibilityGeometry | undefined {
+        const cached = geometryCache.get(xpath);
+        if (cached) {
+          return cached;
+        }
+        const target = byXpath.get(xpath);
+        if (!target) {
+          return undefined;
+        }
+        const geometry = geometryForElement(target.element);
+        geometryCache.set(xpath, geometry);
+        return geometry;
+      },
+    };
     const xpaths = buildSilentHighlights({
       rows: branchRows,
       overlay: evaluation.overlay,
@@ -2033,6 +2074,9 @@ export function createMarkingEngine(
         interactiveMarkingRendered = refreshOptions.render;
       }
       return refreshBridge(refreshOptions);
+    },
+    replaceSelectors(selectors: SelectorSet | null): boolean {
+      return replaceSelectorMarks(selectors);
     },
     lastInitializationSeededSelectors(): boolean {
       return lastInitializationSeededSelectors;

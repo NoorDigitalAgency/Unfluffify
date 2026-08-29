@@ -1828,6 +1828,7 @@ describe("C4 rewrite content entrypoints", () => {
       dispose: vi.fn(),
       overlayRoot: vi.fn(() => null),
       rows: vi.fn(() => []),
+      replaceSelectors: vi.fn(() => true),
       lastInitializationSeededSelectors: vi.fn(() => true),
       renderSilentHighlights: vi.fn(() => ["/html[1]/body[1]/main[1]"]),
       setInputTransparent: vi.fn(),
@@ -1887,7 +1888,8 @@ describe("C4 rewrite content entrypoints", () => {
     }
     expect(postureSetRequests).toBe(2);
     invalidate?.();
-    expect(engine.dispose).toHaveBeenCalledTimes(2);
+    expect(engine.replaceSelectors).toHaveBeenCalledOnce();
+    expect(engine.dispose).toHaveBeenCalledOnce();
     expect(shieldHarness.instances.at(-1)?.dispose).toHaveBeenCalledOnce();
     releaseDelayedSet?.();
     for (let attempt = 0; attempt < 20 && postureClearRequests < 1; attempt += 1) {
@@ -2337,6 +2339,7 @@ describe("C4 rewrite content entrypoints", () => {
     } as unknown as HTMLElement;
     const engine = {
       refresh: vi.fn(),
+      replaceSelectors: vi.fn(() => true),
       renderMarking: vi.fn(),
       settlePresentation: vi.fn(async () => undefined),
       renderReadOnly: vi.fn(),
@@ -3100,7 +3103,8 @@ describe("C4 rewrite content entrypoints", () => {
     resolveInvalidatedCopy?.();
     await Promise.resolve();
     await Promise.resolve();
-    expect(engine.dispose).toHaveBeenCalledTimes(6);
+    expect(engine.replaceSelectors).toHaveBeenCalledOnce();
+    expect(engine.dispose).toHaveBeenCalledTimes(5);
     expect(markingOverlay.remove).toHaveBeenCalledOnce();
     expect(contentRoot?.isConnected).toBe(false);
     expect(currentToast()).toBeUndefined();

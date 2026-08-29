@@ -4087,9 +4087,12 @@ function applySilentSelectors(
   }
   const selectors = selectorSetFrom(payloadObject(payload));
   markingEngine?.setInputTransparent?.(false);
-  markingEngine?.dispose();
-  markingEngine = createAuthoritativeMarkingEngine(document.documentElement, { selectors });
-  const seeded = markingEngine.lastInitializationSeededSelectors();
+  const seeded = markingEngine
+    ? markingEngine.replaceSelectors(selectors)
+    : (() => {
+      markingEngine = createAuthoritativeMarkingEngine(document.documentElement, { selectors });
+      return markingEngine.lastInitializationSeededSelectors();
+    })();
   selectorsSeeded = seeded;
   const highlighted = markingEngine.renderSilentHighlights();
   silentInteractionShieldActive = true;

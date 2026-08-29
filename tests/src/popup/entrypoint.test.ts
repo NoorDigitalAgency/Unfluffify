@@ -2555,6 +2555,11 @@ describe("rewrite popup entrypoint", () => {
         renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
       }],
     };
+    let deferPostSaveSilentPresentation = false;
+    let releasePostSaveSilentPresentation!: (value: unknown) => void;
+    const postSaveSilentPresentation = new Promise<unknown>((resolve) => {
+      releasePostSaveSilentPresentation = resolve;
+    });
     const tabsSendMessage = makeTabsSendMessage(async (_tabId: number, message) => {
       if (message.type === "syncContentSignals") {
         return {
@@ -2585,6 +2590,13 @@ describe("rewrite popup entrypoint", () => {
       }
       if (message.type === "preview.emphasize" || message.type === "preview.activate") {
         return { targeted: true };
+      }
+      if (message.type === "applySilentSelectors") {
+        if (deferPostSaveSilentPresentation) {
+          deferPostSaveSilentPresentation = false;
+          return await postSaveSilentPresentation;
+        }
+        return { ok: true, applied: true, presentationAcknowledged: true, tree: "rewrite" };
       }
       return { ok: true, initialized: true, tree: "rewrite" };
     });
@@ -2804,8 +2816,24 @@ describe("rewrite popup entrypoint", () => {
       }),
     }));
 
+    deferPostSaveSilentPresentation = true;
     render.mock.calls.at(-1)?.[0].props.onSave();
-    await flushEntrypointWork();
+    await waitFor(() => !deferPostSaveSilentPresentation, "post-Save silent presentation request");
+    expect(render.mock.calls.at(-1)?.[0].props.presentation).toMatchObject({
+      curtainVisible: true,
+      temporarilyDisabledOverlay: true,
+    });
+    releasePostSaveSilentPresentation({
+      ok: true,
+      applied: true,
+      presentationAcknowledged: true,
+      tree: "rewrite",
+    });
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.diagnostics.stateName === "silent" &&
+        render.mock.calls.at(-1)?.[0].props.presentation.curtainVisible === false,
+      "paint-acknowledged post-Save silent completion",
+    );
     expect(runtime.sendMessage.mock.calls
       .map(([frame]) => frame)
       .filter((frame) => frame.name === "lock.directive")

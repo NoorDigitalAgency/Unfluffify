@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { EvaluationNode } from "../../../../src/domain/evaluate";
 import { getXPath } from "../../../../src/domain/xpath";
@@ -582,6 +582,27 @@ describe("P6 content marking engine", () => {
     };
 
     expect(buildSilentHighlights(evaluation, new Map())).toEqual([ancestor, explicitChild]);
+  });
+
+  it("prunes implicit descendants before resolving silent layout geometry", () => {
+    const ancestor = "/html[1]/body[1]/main[1]/section[1]";
+    const implicitChild = `${ancestor}/p[1]`;
+    const explicitChild = `${ancestor}/p[2]`;
+    const get = vi.fn((xpath: string) => ({
+      rect: { left: 0, top: 0, width: xpath === ancestor ? 300 : 100, height: 20 },
+      viewportWidth: 412,
+    }));
+
+    expect(buildSilentHighlights({
+      overlay: new Map(),
+      rows: [
+        { xpath: implicitChild, excluded: false },
+        { xpath: explicitChild, excluded: false, explicit: true },
+        { xpath: ancestor, excluded: false },
+      ],
+    }, { get })).toEqual([ancestor, explicitChild]);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith(ancestor);
   });
 
   it("deduplicates descendant silent exclusions under the shallow owner", () => {

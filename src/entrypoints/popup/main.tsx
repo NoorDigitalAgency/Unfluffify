@@ -4484,14 +4484,34 @@ async function performSaveSession(action: OperatorActionOccurrence): Promise<voi
       );
       return;
     }
-    const saveObserved = await reportPopupFactAndPull(context, "session-saved", {
+    const settledContext = silentTransition.context;
+    const saveObserved = await reportPopupFactAndPull(settledContext, "session-saved", {
       savedSeq: committedRecovery.savedSeq,
       markingEnabled: false,
       previewActive: false,
     }, requestKey, () => store.getState().name === "silent");
     if (saveObserved && postSaveLocalRecovery === committedRecovery) {
-      postSaveLocalRecovery = null;
-      notifyBoundEvent(binding, "Session saved", snapshot.baseUrl, "success");
+      // The device transition may have replaced the document. Do not release
+      // the Save action merely because the popup brain reached `silent`; apply
+      // and paint-acknowledge the authoritative selectors in that exact realm
+      // first. Otherwise a fast observer can see an acknowledged silent UI
+      // hundreds of milliseconds before its borders exist.
+      silentSelectorsAppliedKey = null;
+      const silentPresentationReady = await refreshSilentSelectorPreview(settledContext, requestKey);
+      if (silentPresentationReady) {
+        postSaveLocalRecovery = null;
+        notifyBoundEvent(binding, "Session saved", snapshot.baseUrl, "success");
+      } else {
+        reconciliationReason = "save-committed-silent-presentation-failed";
+        postSaveLocalRecovery = { ...committedRecovery, kind: "reload-required" };
+        postSaveAuthorityRefreshRequired = true;
+        notifyBoundEvent(
+          binding,
+          "Save committed; page recovery required",
+          "the page is silent, but its authoritative selector presentation was not acknowledged; reload the page before continuing",
+          "danger",
+        );
+      }
     } else if (postSaveLocalRecovery === committedRecovery) {
       reconciliationReason = "save-committed-popup-ack-failed";
       postSaveLocalRecovery = { ...committedRecovery, kind: "content-inactive-proof" };
@@ -4502,7 +4522,9 @@ async function performSaveSession(action: OperatorActionOccurrence): Promise<voi
         "danger",
       );
     }
-    silentSelectorsAppliedKey = null;
+    if (!saveObserved) {
+      silentSelectorsAppliedKey = null;
+    }
     // Save owns the mutation and authoritative response adoption. Context,
     // Todo, lock, configuration and silent-selector reconciliation resume once
     // through the paused slow-lane queue after every cleanup path completes.
