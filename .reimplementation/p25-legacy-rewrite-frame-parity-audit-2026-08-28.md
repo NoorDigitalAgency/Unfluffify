@@ -1395,32 +1395,32 @@ preserves the stronger architecture.
     stale identity fencing, and origin restoration remain mandatory. Regression
     coverage proves continuously hot pre-freeze steps pass, post-freeze motion
     still fails, and an actually unreached step still fails.
-150. **Confirmed rewrite P0 — the first Preview exit after the page-to-row focus
-    round trip could die between a trusted target click and React's delegated
-    handler.** The exact clean Assist24 run proved the visible button received a
-    trusted physical click, yet durable facts retained `previewActive: true` and
-    no `previewExitRequestSeq`. With instrumentation installed, the next trusted
-    click traversed window/document capture and bubble, emitted exactly one
-    monotonic exit occurrence, and restored the page. The critical exit control
-    now owns one native click listener through a synchronous ref callback instead
-    of depending on root delegation during Chrome side-panel foreground and list
-    focus commits. The React `onClick` path was removed, so pointer and native
-    Enter/Space activation still dispatch exactly once. Unit and source-contract
-    coverage fence binding, disposal, and the absence of duplicate handlers.
-151. **Confirmed rewrite P0 — target ownership alone was still too late when the
-    physical Preview-exit click crossed a concurrent focus commit.** The clean
-    `d3cdd9d0` Assist24 run
-    `2026-08-29T12-43-03-200Z-3da9ecc0-rewrite-assist24` passed stages 00–07,
-    then retained Preview after the page-to-row route. Its trusted-activation
-    witness proved the click at the button's capture phase, while the production
-    listener was registered at target bubble and no `previewExitRequestSeq` was
-    born. A later settled click restored immediately, and an exact manual replay
-    of row-to-page, page-to-row, and exit required two pointer dispatches before
-    terminalizing, confirming a phase/order race rather than a dead control.
-    The target-owned listener now runs in capture, before delegated or bubbling
-    work can replace the control or stop the event, and removes itself with the
-    same capture option. Regression coverage asserts both phase ownership and
-    symmetric disposal; the clean headed canary must still prove the full flow.
+150. **Disproven diagnostic hypothesis — Preview exit was not reached in the
+    failing workflow.** The initial failure was mistakenly attributed to the
+    first Preview-exit click and prompted a target-owned native listener
+    experiment. Line-level inspection of the preserved stack subsequently proved
+    that line 1251 is the preceding page-to-row correspondence wait; the driver
+    had not dispatched an exit click. Manual settled clicks exited normally, so
+    there was no evidence that React delegation diverged from legacy. The native
+    listener experiment is removed and the ordinary semantic button `onClick`
+    contract is restored.
+151. **Disproven diagnostic hypothesis — capture phase was not an exit fix.** The
+    clean `96d5b0b6` Assist24 run again passed stages 00–07 and failed at the same
+    line before exit dispatch, despite the experimental target-capture listener.
+    Durable state correctly retained `previewActive: true` because no exit request
+    had occurred. This exact negative experiment rules out click phase as the
+    cause and prevents an unjustified event-order workaround from remaining in
+    production.
+152. **Confirmed harness P0 — page-to-row correlation merged classification text
+    into the readable label.** The page correctly focused the `logo` row and the
+    popup exposed the expected accessible name `9. logo. Excluded`; however, the
+    workflow probe read the whole `.preview-sidebar__item-text` container as
+    `logoExcluded`. Its correlation helper therefore rejected the correct
+    `logo` target and timed out. Row activation already used the dedicated
+    `.preview-sidebar__item-copy`; focused-row capture now uses the same human
+    label before falling back to the technical container. Source-contract
+    coverage fences that selector so included/excluded status remains available
+    for accessibility and reporting without contaminating target identity.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1493,7 +1493,7 @@ preserves the stronger architecture.
 ## Acceptance headline
 
 Implementation remediation is code-complete through finding 134; findings
-135–151 bind the resulting evidence and rerun authority. Immutable
+135–152 bind the resulting evidence and rerun authority. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun,
 findings 126–128 are closed by the clean aggregate, finding 129 is closed by its

@@ -1,5 +1,4 @@
 import React from "react";
-import { bindNativeClickActivation } from "./native-activation";
 import { todoSectionExpanded } from "./todo-recovery";
 import { createPanelScrollLock } from "./scroll-lock";
 import {
@@ -334,26 +333,14 @@ export function App({
   });
   const previewHoverHandlerRef = React.useRef(onPreviewRowHover);
   const previewActivateHandlerRef = React.useRef(onPreviewRowActivate);
-  const previewExitHandlerRef = React.useRef(onExitPreview);
-  const previewExitDisposerRef = React.useRef<(() => void) | null>(null);
   previewHoverHandlerRef.current = onPreviewRowHover;
   previewActivateHandlerRef.current = onPreviewRowActivate;
-  previewExitHandlerRef.current = onExitPreview;
   const previewHoverHandler = React.useCallback((rowId: string, active: boolean) => {
     previewHoverHandlerRef.current?.(rowId, active);
   }, []);
   const previewActivateHandler = React.useCallback((rowId: string) => {
     previewActivateHandlerRef.current?.(rowId);
   }, []);
-  const previewExitHandler = React.useCallback(() => {
-    previewExitHandlerRef.current?.();
-  }, []);
-  const bindPreviewExitButton = React.useCallback((button: HTMLButtonElement | null) => {
-    previewExitDisposerRef.current?.();
-    previewExitDisposerRef.current = button
-      ? bindNativeClickActivation(button, previewExitHandler)
-      : null;
-  }, [previewExitHandler]);
   React.useEffect(() => {
     if (!diagnostics.settingsDirty && Object.keys(settingsFieldOriginals).length > 0) {
       setSettingsFieldOriginals({});
@@ -666,7 +653,6 @@ export function App({
               <span>Detected Content</span>
             </span>
             <button
-              ref={bindPreviewExitButton}
               id="preview-exit"
               type="button"
               className="preview-sidebar__dismiss"
@@ -674,6 +660,7 @@ export function App({
               aria-label="Exit Preview"
               data-transient-trigger="preview-exit"
               disabled={!onExitPreview || presentation.previewExitPending}
+              onClick={onExitPreview}
             >
               <i className="mdi mdi-exit-to-app btn-icon" aria-hidden="true" />
             </button>

@@ -232,7 +232,7 @@ export async function captureWorkflowPopupState(session) {
     const rowName = (element) => element?.getAttribute?.('aria-label') || element?.getAttribute?.('title') || element?.textContent?.replace(/\\s+/g, ' ').trim() || null;
     const rowIdentity = (element) => element ? {
       name: rowName(element),
-      readableText: element.querySelector('.preview-sidebar__item-text')?.textContent?.replace(/\\s+/g, ' ').trim() || element.textContent?.replace(/\\s+/g, ' ').trim() || null,
+      readableText: element.querySelector('.preview-sidebar__item-copy')?.textContent?.replace(/\\s+/g, ' ').trim() || element.querySelector('.preview-sidebar__item-text')?.textContent?.replace(/\\s+/g, ' ').trim() || element.textContent?.replace(/\\s+/g, ' ').trim() || null,
       title: element.getAttribute('title'),
     } : null;
     const checklistRoot = document.querySelector('[data-transient-surface="lynx-checklist"], .lynx-checklist-popover:not([hidden])');
