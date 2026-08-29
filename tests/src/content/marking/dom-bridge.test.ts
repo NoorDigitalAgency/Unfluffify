@@ -9,6 +9,7 @@ import {
   forgetInteractionShieldCaptureState,
   rememberInteractionShieldCaptureState,
 } from "../../../../src/content/interaction-shield-capture";
+import { MOTION_CAPTURE_LEDGER_ATTR } from "../../../../src/content/marking/capture-hygiene";
 import {
   createDomBridgeView,
   createMarkingEngine,
@@ -2441,6 +2442,71 @@ describe("P6 DOM bridge", () => {
       expect(animationFrames).toHaveLength(1);
       animationFrames.shift()?.();
       expect(createBridge).toHaveBeenCalledTimes(2);
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops freeze-owned style locks but retains page-authored style changes", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const callbacks: Array<(records: MutationRecord[]) => void> = [];
+      Object.assign(doc.defaultView, {
+        MutationObserver: class {
+          constructor(callback: (records: MutationRecord[]) => void) {
+            callbacks.push(callback);
+          }
+          observe() {}
+          disconnect() {}
+        },
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+      const slide = new FakeElement("DIV", rect(0, 0, 181, 80), "Slide");
+      root.ownerDocument = doc;
+      slide.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      root.appendChild(slide);
+      const authoredStyle = "width: 181px; transform: matrix(1, 0, 0, 1, 0, 0) !important;";
+      slide.setAttribute("style", authoredStyle);
+      slide.setAttribute(MOTION_CAPTURE_LEDGER_ATTR, JSON.stringify({
+        version: 1,
+        hadStyleAttribute: true,
+        properties: [
+          { name: "translate", value: "", priority: "" },
+          { name: "rotate", value: "", priority: "" },
+          { name: "scale", value: "", priority: "" },
+          { name: "offset-distance", value: "", priority: "" },
+        ],
+      }));
+      const renderer = createRendererTestSeam();
+      const engine = createMarkingEngine(root as unknown as Element, {
+        instrumentation: { createRenderer: renderer.createRenderer },
+      });
+
+      const lockedStyle = `${authoredStyle} translate: none !important; rotate: none !important; scale: none !important; offset-distance: 0px !important;`;
+      slide.setAttribute("style", lockedStyle);
+      callbacks[0]?.([{
+        type: "attributes",
+        target: slide,
+        attributeName: "style",
+        oldValue: authoredStyle,
+      }] as unknown as MutationRecord[]);
+      vi.advanceTimersByTime(500);
+      expect(renderer.branchRender).not.toHaveBeenCalled();
+
+      const pageChangedStyle = lockedStyle.replace("width: 181px", "width: 165px");
+      slide.setAttribute("style", pageChangedStyle);
+      callbacks[0]?.([{
+        type: "attributes",
+        target: slide,
+        attributeName: "style",
+        oldValue: lockedStyle,
+      }] as unknown as MutationRecord[]);
+      vi.advanceTimersByTime(250);
+      expect(renderer.branchRender).toHaveBeenCalledTimes(1);
       engine.dispose();
     } finally {
       vi.useRealTimers();

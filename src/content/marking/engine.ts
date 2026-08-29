@@ -36,6 +36,7 @@ import { isToggleableDefaultTag } from "../../domain/taxonomy";
 import type { VisibilityGeometry } from "../../domain/visibility";
 import { isToggleableBoundary } from "../../domain/boundary";
 import { readElementId } from "./element-identity";
+import { restoreMotionStyleForCapture } from "./capture-hygiene";
 import { presentationClockFor } from "../presentation-clock";
 
 function evaluationNodeFingerprint(node: EvaluationNode): string {
@@ -1266,9 +1267,12 @@ export function createMarkingEngine(
       return canonical;
     };
     const canonicalStructuralAttributeValue = (
+      element: Element,
       attributeName: string,
       value: string | null,
-    ): string | null => attributeName === "style" ? canonicalStyleAttribute(value) : value;
+    ): string | null => attributeName === "style"
+      ? canonicalStyleAttribute(restoreMotionStyleForCapture(element, value))
+      : value;
     const cancelStructuralDispatch = (): void => {
       if (structuralIdleHandle !== null) {
         idleView?.cancelIdleCallback?.(structuralIdleHandle);
@@ -1291,6 +1295,7 @@ export function createMarkingEngine(
       for (const [element, byAttribute] of pendingStructuralAttributeOldValues) {
         for (const [attributeName, oldValue] of byAttribute) {
           const currentValue = canonicalStructuralAttributeValue(
+            element,
             attributeName,
             element.getAttribute(attributeName),
           );
@@ -1371,7 +1376,7 @@ export function createMarkingEngine(
           // though the terminal DOM is A caused a 500–600 ms cold resize stall.
           byAttribute.set(
             record.attributeName,
-            canonicalStructuralAttributeValue(record.attributeName, record.oldValue),
+            canonicalStructuralAttributeValue(element, record.attributeName, record.oldValue),
           );
           pendingStructuralAttributeOldValues.set(element, byAttribute);
         }
@@ -1482,8 +1487,13 @@ export function createMarkingEngine(
           // extraction, identity, visibility, or paint. Keeping only one net
           // record also prevents responsive page scripts from rebuilding the
           // complete bridge for every intermediate class/style write.
-          const oldValue = canonicalStructuralAttributeValue(attributeName, firstRecord.oldValue);
+          const oldValue = canonicalStructuralAttributeValue(
+            element,
+            attributeName,
+            firstRecord.oldValue,
+          );
           const currentValue = canonicalStructuralAttributeValue(
+            element,
             attributeName,
             element.getAttribute(attributeName),
           );

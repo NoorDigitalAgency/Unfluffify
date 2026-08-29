@@ -1017,6 +1017,21 @@ preserves the stronger architecture.
     tests; the complete gate passes lint, page-world parity, every TypeScript
     project, 140 files / 1,425 tests, a fresh production build, and seven
     manifest checks. Clean production/debug reruns remain.
+    Clean production rerun
+    `2026-08-29T05-50-40-226Z-e1b0485c-rewrite-dpj` on pushed checkpoint
+    `802a0218` then retained one 79 ms task. A terminal physical mutation trace
+    showed only two semantically changed Swiper endpoints, both caused by
+    extension-owned motion-freeze identity declarations (`translate:none`,
+    `rotate:none`, `scale:none`, and `offset-distance:0`). The page-world motion
+    capture ledger already records the exact authored value/priority for every
+    such property. Structural comparison now restores both old and current style
+    endpoints through that shared ledger before canonicalization, aligning live
+    presentation authority with capture/payload hygiene. A regression proves
+    freeze-only locks schedule no presentation work while a page-authored width
+    change under the same locks still branch-refreshes. Focused coverage passes
+    119 tests; the complete gate passes lint, page-world parity, every TypeScript
+    project, 140 files / 1,426 tests, a fresh production build, and seven
+    manifest checks. Clean reruns remain.
 
 ## Confirmed parity or stronger rewrite behavior
 

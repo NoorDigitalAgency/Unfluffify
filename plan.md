@@ -892,6 +892,20 @@ headed-validation gates.
   at 140 files / 1,425 tests with a fresh production build and seven manifest
   checks; checkpoint commit/push and fresh production/debug DPJ evidence are
   next.
+- Clean production rerun
+  `2026-08-29T05-50-40-226Z-e1b0485c-rewrite-dpj` on `802a0218` proved the
+  canonical declaration-order fix but retained one 79 ms task. A terminal
+  physical mutation trace reduced the entire responsive train to two Swiper
+  slides whose only differences were extension-owned freeze identities:
+  `translate:none`, `rotate:none`, `scale:none`, and `offset-distance:0`.
+  Marking structural authority now projects both style endpoints through the
+  existing motion capture ledger before canonical comparison. The ledger is
+  already the capture/payload authority for authored values, so freeze
+  maintenance becomes a no-op without hiding simultaneous page-authored style
+  changes. A new regression proves both halves; focused coverage passes 119
+  tests and the complete gate passes at 140 files / 1,426 tests with a fresh
+  production build and seven manifest checks. Checkpoint commit/push and clean
+  DPJ reruns are next.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 
