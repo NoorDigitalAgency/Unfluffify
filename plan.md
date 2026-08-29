@@ -610,6 +610,16 @@ headed-validation gates.
   `desktop-preview-enabled` in the shared workflow snapshot and lock the
   dependency with a regression before starting another immutable run. The failed
   run was finalized with zero publication attempts.
+- The next immutable retry
+  `2026-08-28T23-47-25-220Z-a51efe8c-rewrite-ledigajobb` passed both render modes
+  and exact silent desktop setup, then exposed a real same-binding Refresh versus
+  desktop→mobile transition race: the trusted marking action started but rolled
+  back to silent. Serialize explicit Refresh, both local polling lanes, and the
+  authority lane with session transitions. Drain already-started work, coalesce
+  same-binding trailing work, retain immediate real-navigation fencing, and
+  resume one refresh after release. The new held-Refresh regression plus the
+  existing navigation, Save, polling, and transition suites pass; repeat the
+  immutable headed run from a clean pushed commit.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

@@ -627,6 +627,23 @@ preserves the stronger architecture.
     source-contract regression prevents the activation predicate from becoming
     impossible again. No marking action or final publication occurred in the
     failed run.
+105. **Remediated, headed verification pending P0 — Refresh could race the
+    desktop→mobile marking transition.** Immutable run
+    `2026-08-28T23-47-25-220Z-a51efe8c-rewrite-ledigajobb` proved silent desktop
+    and dispatched a trusted marking click 750 ms after explicit Refresh. The
+    operator action started, then rolled back to silent and remained unchecked
+    for the 45-second gate; the same trusted click without overlapping Refresh
+    subsequently completed, isolating transition coherence rather than hit
+    testing. The fast signal lane, bound signal delivery, explicit Refresh, and
+    authority lane were serialized only against Save, not against an emulation
+    reload. They can no longer rebind or reconcile the same document while a
+    session transition owns it: already-started work drains first, same-binding
+    work coalesces behind the transition, and one trailing refresh resumes after
+    release. A real navigation is still observed immediately so it can fence a
+    stale action. Regression coverage holds Refresh mid-request, proves no mobile
+    apply or content activation occurs early, then proves exact ordered
+    activation after release; existing A→B→A and one-post-Save-refresh contracts
+    remain green.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -698,7 +715,7 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 104, but P25 remains
+Implementation remediation is code-complete through finding 105, but P25 remains
 open until the committed source passes clean automated gates and every valid candidate completes an
 observer-free headed rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,

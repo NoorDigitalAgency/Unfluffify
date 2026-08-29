@@ -1039,6 +1039,66 @@ describe("rewrite popup entrypoint", () => {
       .toBeLessThan(tabsSendMessage.mock.invocationCallOrder[finalViewportRefresh]!);
   });
 
+  it("drains an explicit refresh before starting a desktop-to-mobile transition", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    let holdNextConfigLoad = false;
+    let releaseConfigLoad!: () => void;
+    let reportHeldConfigLoad!: () => void;
+    const configLoadGate = new Promise<void>((resolve) => { releaseConfigLoad = resolve; });
+    const heldConfigLoad = new Promise<void>((resolve) => { reportHeldConfigLoad = resolve; });
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
+    const runtime = makeRuntime(async (message) => replyFrame(message, []), "rendered", {
+      configLoad: async (frame) => {
+        if (holdNextConfigLoad) {
+          holdNextConfigLoad = false;
+          reportHeldConfigLoad();
+          await configLoadGate;
+        }
+        return replyFrame(frame, {
+          status: "ok",
+          config: backendConfig(),
+          renderMode: "rendered",
+          renderModeSource: "backend",
+        });
+      },
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+    const emulationModes = () => runtime.sendMessage.mock.calls
+      .map(([frame]) => frame as { name?: string; payload?: { mode?: string } })
+      .filter((frame) => frame.name === "emulation.apply")
+      .map((frame) => frame.payload?.mode);
+    const activationCount = () => tabsSendMessage.mock.calls.filter(([, frame]) =>
+      ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "activateContentMain"
+    ).length;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    await confirmRenderMode(render);
+    props().onDesktopPreviewChange(true);
+    await waitFor(() => emulationModes().at(-1) === "desktop", "desktop silent posture");
+
+    holdNextConfigLoad = true;
+    props().onRefresh();
+    await heldConfigLoad;
+    const mobileCallsBeforeActivation = emulationModes().filter((mode) => mode === "mobile").length;
+    props().onEnableChange(true);
+    await flushEntrypointWork();
+
+    expect(activationCount()).toBe(0);
+    expect(emulationModes().filter((mode) => mode === "mobile")).toHaveLength(mobileCallsBeforeActivation);
+
+    releaseConfigLoad();
+    await waitFor(() => activationCount() === 1, "serialized marking activation");
+    expect(emulationModes().at(-1)).toBe("mobile");
+    expect(props().diagnostics.contentActive).toBe(true);
+  });
+
   it("keeps authority refresh single-flight and no more frequent than every 15 seconds", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     const render = createReactRenderProbe();

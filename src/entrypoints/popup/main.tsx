@@ -246,6 +246,10 @@ let fastSignalPollQueued = false;
 let boundSignalPullInFlight: Promise<void> | null = null;
 let boundSignalPullQueued = false;
 let saveInFlight: Promise<void> | null = null;
+let popupRefreshInFlight: Promise<void> | null = null;
+let popupRefreshQueued = false;
+let sessionTransitionQueue: Promise<void> = Promise.resolve();
+let sessionTransitionPending = 0;
 let postSaveAuthorityRefreshRequired = false;
 type PostSaveLocalRecovery = Readonly<{
   binding: PopupBindingOccurrence;
@@ -257,7 +261,7 @@ type PostSaveLocalRecovery = Readonly<{
 let postSaveLocalRecovery: PostSaveLocalRecovery | null = null;
 const authorityRefreshQueue = createAuthorityRefreshQueue({
   intervalMs: AUTHORITY_REFRESH_INTERVAL_MS,
-  isPaused: () => saveInFlight !== null,
+  isPaused: backgroundPollingPaused,
   run: refreshAuthorityOnce,
 });
 /** Which decided signals have already been consumed, and the queue that keeps
@@ -277,8 +281,6 @@ let desktopPreviewEnabled = false;
  *  unknown — set on binding, and after anything that drops CDP overrides. */
 let appliedEmulationMode: "mobile" | "desktop" | null = null;
 let emulationApplyQueue: Promise<void> = Promise.resolve();
-let sessionTransitionQueue: Promise<void> = Promise.resolve();
-let sessionTransitionPending = 0;
 /** Device size and JavaScript execution are independent axes; the legacy client
  *  conflated them here, so a desktop preview silently captured static HTML.
  *
@@ -1472,8 +1474,25 @@ async function sendToLynx(): Promise<void> {
   render();
 }
 
+function backgroundPollingPaused(): boolean {
+  return saveInFlight !== null || sessionTransitionPending > 0;
+}
+
+function resumeBackgroundPolling(forceAuthority = false): void {
+  if (popupRefreshQueued) {
+    void refreshPopup();
+    return;
+  }
+  if (fastSignalPollQueued) {
+    void queueFastSignalPoll();
+  }
+  if (forceAuthority || authorityRefreshQueue.hasQueued()) {
+    void queueAuthorityRefresh(true);
+  }
+}
+
 async function pollFastSignalsOnce(): Promise<void> {
-  if (saveInFlight) {
+  if (backgroundPollingPaused()) {
     fastSignalPollQueued = true;
     return;
   }
@@ -1499,7 +1518,7 @@ async function pollFastSignalsOnce(): Promise<void> {
 }
 
 function queueBoundSignalPull(tabId: number): Promise<void> {
-  if (saveInFlight) {
+  if (backgroundPollingPaused()) {
     fastSignalPollQueued = true;
     return Promise.resolve();
   }
@@ -1521,7 +1540,7 @@ function queueBoundSignalPull(tabId: number): Promise<void> {
       if (boundTabId === tabId && boundTabKey === requestKey) {
         render();
       }
-    } while (boundSignalPullQueued && !saveInFlight);
+    } while (boundSignalPullQueued && !backgroundPollingPaused());
   })();
   boundSignalPullInFlight = operation.finally(() => {
     boundSignalPullInFlight = null;
@@ -1530,7 +1549,7 @@ function queueBoundSignalPull(tabId: number): Promise<void> {
 }
 
 async function refreshAuthorityOnce(force: boolean): Promise<void> {
-  if (saveInFlight) {
+  if (backgroundPollingPaused()) {
     void authorityRefreshQueue.queue(force);
     return;
   }
@@ -1569,7 +1588,7 @@ async function refreshAuthorityOnce(force: boolean): Promise<void> {
 }
 
 function queueFastSignalPoll(): Promise<void> {
-  if (saveInFlight) {
+  if (backgroundPollingPaused()) {
     fastSignalPollQueued = true;
     return Promise.resolve();
   }
@@ -1581,7 +1600,7 @@ function queueFastSignalPoll(): Promise<void> {
     do {
       fastSignalPollQueued = false;
       await pollFastSignalsOnce();
-    } while (fastSignalPollQueued && !saveInFlight);
+    } while (fastSignalPollQueued && !backgroundPollingPaused());
   })();
   fastSignalPollInFlight = operation.finally(() => {
     fastSignalPollInFlight = null;
@@ -2154,11 +2173,23 @@ async function runSessionTransition<T>(operation: () => Promise<T>): Promise<T> 
   sessionTransitionPending += 1;
   sessionTransitionQueue = sessionTransitionQueue.then(async () => {
     try {
+      // Freeze the replacement-document boundary before changing emulation.
+      // A Refresh or 500 ms signal tick that started first may finish, but no
+      // later poll may rebind/reconcile the tab while this transition owns it.
+      await Promise.allSettled([
+        popupRefreshInFlight,
+        fastSignalPollInFlight,
+        boundSignalPullInFlight,
+        authorityRefreshQueue.current(),
+      ].filter((pending): pending is Promise<void> => pending !== null));
       resolveResult(await operation());
     } catch (error) {
       rejectResult(error);
     } finally {
       sessionTransitionPending -= 1;
+      if (sessionTransitionPending === 0) {
+        resumeBackgroundPolling();
+      }
     }
   });
   return result;
@@ -3233,7 +3264,7 @@ async function setDesktopPreviewEnabled(enabled: boolean): Promise<void> {
   render();
 }
 
-async function refreshPopup(): Promise<void> {
+async function refreshPopupOnce(): Promise<void> {
   const context = await resolveTargetTabContext();
   if (context === null) {
     notifyEvent("Refresh failed", "no active tab", "danger");
@@ -3257,6 +3288,41 @@ async function refreshPopup(): Promise<void> {
     lockStatus ? "info" : "warn",
   );
   render();
+}
+
+async function refreshPopup(): Promise<void> {
+  if (saveInFlight !== null) {
+    popupRefreshQueued = true;
+    return;
+  }
+  if (sessionTransitionPending > 0) {
+    const context = await resolveTargetTabContext();
+    if (context !== null && tabBindingKey(context) !== boundTabKey) {
+      // A real navigation must fence the old action immediately. Same-binding
+      // refreshes (including the reload caused by emulation itself) wait until
+      // the transition releases its document boundary.
+      await handleBoundContext(context);
+    }
+    popupRefreshQueued = true;
+    return;
+  }
+  if (popupRefreshInFlight) {
+    popupRefreshQueued = true;
+    return await popupRefreshInFlight;
+  }
+  const operation = (async () => {
+    do {
+      popupRefreshQueued = false;
+      await refreshPopupOnce();
+    } while (popupRefreshQueued && !backgroundPollingPaused());
+  })();
+  const tracked = operation.finally(() => {
+    if (popupRefreshInFlight === tracked) {
+      popupRefreshInFlight = null;
+    }
+  });
+  popupRefreshInFlight = tracked;
+  return await tracked;
 }
 
 /** The service worker may still be waking when the popup mounts, so the first
@@ -3900,12 +3966,7 @@ async function saveSession(): Promise<void> {
     saveInFlight = null;
     const refreshAfterSave = postSaveAuthorityRefreshRequired;
     postSaveAuthorityRefreshRequired = false;
-    if (fastSignalPollQueued) {
-      void queueFastSignalPoll();
-    }
-    if (refreshAfterSave || authorityRefreshQueue.hasQueued()) {
-      void queueAuthorityRefresh(true);
-    }
+    resumeBackgroundPolling(refreshAfterSave);
     advanceOperatorAction(action, "terminal");
     operatorActionController.clear(action);
     render();
