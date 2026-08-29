@@ -475,6 +475,18 @@ describe("P25 live-comparison stage and aggregate contract", () => {
     expect(validateRunAggregate(run).pass).toBe(true);
     expect(disposition.parityEligible).toBe(false);
   });
+
+  it("classifies Acapedia's repeatable post-reload 403 as an external block", () => {
+    expect(resolveCandidateDisposition({
+      label: "acapedia",
+      url: "https://acapedia.no/",
+      runtimeEligibility: "candidate",
+    })).toMatchObject({
+      eligibility: "external-block",
+      reasonCode: "site-403-after-required-reload",
+      parityEligible: false,
+    });
+  });
 });
 
 describe("P25 pair and publication safety contract", () => {
