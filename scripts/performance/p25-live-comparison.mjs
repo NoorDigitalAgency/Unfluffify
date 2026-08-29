@@ -67,6 +67,7 @@ import {
   validateCandidateDispositionRecord,
   validateExactMarkingGestureEvidence,
   validateFullWorkflowEvidence,
+  viewportPostureMatches,
   waitForWorkflowPopupState,
 } from "./p25/workflow-probes.mjs";
 import {
@@ -828,7 +829,7 @@ async function waitForSiteWorkflowPosture(target, predicate, timeoutMs) {
 }
 
 function viewportMatches(posture, width, height) {
-  return posture?.viewport?.width === width && posture?.viewport?.height === height;
+  return viewportPostureMatches(posture, width, height);
 }
 
 async function runRenderInspection(popup, { implementation, renderMode, timeoutMs }) {

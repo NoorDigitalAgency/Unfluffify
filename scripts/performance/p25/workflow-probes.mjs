@@ -537,6 +537,13 @@ export async function captureSiteWorkflowPosture(session) {
   }); })()`);
 }
 
+export function viewportPostureMatches(posture, width, height) {
+  return [posture?.viewport, posture?.interactiveViewport].some((viewport) =>
+    Math.round(viewport?.width ?? 0) === width &&
+    Math.round(viewport?.height ?? 0) === height
+  );
+}
+
 export function silentPosturePass(posture) {
   const viewport = posture?.viewport;
   const interactiveViewport = posture?.interactiveViewport ?? {

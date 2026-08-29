@@ -16,6 +16,7 @@ import {
   validateCandidateDispositionRecord,
   validateExactMarkingGestureEvidence,
   validateFullWorkflowEvidence,
+  viewportPostureMatches,
 } from "../scripts/performance/p25/workflow-probes.mjs";
 
 describe("P25 silent viewport authority", () => {
@@ -42,6 +43,29 @@ describe("P25 silent viewport authority", () => {
       ...posture,
       shield: [{ ...posture.shield[0], rect: [0, 0, 1920, 1080] }],
     })).toBe(false);
+  });
+});
+
+describe("P25 emulation viewport authority", () => {
+  it("accepts an exact layout viewport when the interactive viewport excludes a desktop gutter", () => {
+    expect(viewportPostureMatches({
+      viewport: { width: 1920, height: 1080 },
+      interactiveViewport: { width: 1912, height: 1080 },
+    }, 1920, 1080)).toBe(true);
+  });
+
+  it("accepts an exact interactive viewport when page scaling expands the mobile layout viewport", () => {
+    expect(viewportPostureMatches({
+      viewport: { width: 424, height: 988 },
+      interactiveViewport: { width: 412, height: 960 },
+    }, 412, 960)).toBe(true);
+  });
+
+  it("rejects a posture when neither viewport proves the requested dimensions", () => {
+    expect(viewportPostureMatches({
+      viewport: { width: 424, height: 988 },
+      interactiveViewport: { width: 400, height: 900 },
+    }, 412, 960)).toBe(false);
   });
 });
 
