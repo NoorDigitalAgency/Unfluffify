@@ -1104,6 +1104,23 @@ preserves the stronger architecture.
     revision condition. Focused coverage passes 6/6 and the dirty-source browser
     rerun reaches all 19/19 checks with clean teardown; only the mandatory clean
     source identity check remains until checkpoint/rerun.
+127. **Remediated, clean rerun pending P1 — P23 conflated immediate scroll
+    feedback with legacy-matched quiet geometry settlement.** Clean pushed-source
+    P17, P18, and P20 gates on `664e1f22` pass at 19/19, 14/14, and 4/4. P23
+    passed every semantic, identity, retention, scheduler, and error check but
+    measured silent geometry settlement at 143 ms against its original 50 ms
+    budget. That oracle predates the production 120 ms silent quiet transaction,
+    which intentionally hides stale fixed coordinates synchronously, retains
+    the same nodes during scroll, commits one redraw after quiet, and then
+    restores them like pinned legacy. Treating the full settle as a 50 ms input
+    response both contradicts the production timer and fails correct behavior.
+    P23 now measures the two contracts independently: fully transparent retained
+    layers within 50 ms, and geometry settlement within 120 ms plus 50 ms of
+    bounded scheduling/frame slack. A source assertion binds the gate's quiet
+    constant to production so they cannot drift again. The strengthened
+    dirty-source run records a 0.3 ms fade, 143.5 ms settlement, identical eight
+    silent nodes, unchanged canonical rows, and 25/25 passing checks; only clean
+    source identity remains pending.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1175,10 +1192,10 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 126. Immutable
+Implementation remediation is code-complete through finding 127. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun, and
-finding 126 awaits its clean phase-gate rerun. P25 remains open until the exact
+findings 126–127 await their clean phase-gate reruns. P25 remains open until the exact
 clean pushed commit completes every valid candidate's observer-free headed
 rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,

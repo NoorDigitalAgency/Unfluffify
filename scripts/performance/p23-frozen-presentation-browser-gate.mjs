@@ -14,6 +14,7 @@ import {
   PLAYWRIGHT_CLI_VERSION,
   REQUIRED_CHECK_IDS,
   SILENT_BUDGET_MS,
+  SILENT_FADE_BUDGET_MS,
   VIEWPORT,
   validateCheckCatalog,
 } from "./p23/contract.mjs";
@@ -203,6 +204,8 @@ function validate(payload) {
       !payload.silentDuring.geometryChanged &&
       payload.silentDuring.rootScrolling &&
       payload.silentDuring.allRetainedLayersTransparent &&
+      Number.isFinite(payload.silentDuring.fadeLatencyMs) &&
+      payload.silentDuring.fadeLatencyMs <= SILENT_FADE_BUDGET_MS &&
       payload.silentAfter.retained &&
       payload.silentAfter.allBoxesRetained &&
       payload.silentAfter.geometryChanged &&

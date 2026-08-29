@@ -20,6 +20,7 @@ let latestPointer: Readonly<{
 let hoverHandle = 0;
 let lastHover: Readonly<{ xpath: string; latencyMs: number }> | null = null;
 let lastScrollInputAt = 0;
+let silentFadeLatencyMs: number | null = null;
 let silentLatencyMs: number | null = null;
 
 function xpathForElement(element: Element): string {
@@ -84,8 +85,24 @@ const onMouseMove = (event: MouseEvent): void => {
   scheduleHover();
 };
 const onScroll = (): void => {
-  lastScrollInputAt = performance.now();
+  const inputAt = performance.now();
+  lastScrollInputAt = inputAt;
+  silentFadeLatencyMs = null;
   silentLatencyMs = null;
+  queueMicrotask(() => {
+    if (lastScrollInputAt !== inputAt || silentFadeLatencyMs !== null) {
+      return;
+    }
+    const root = document.querySelector<HTMLElement>(".uf-marking-layer-root");
+    const layers = retainedSilentLayers();
+    if (
+      root?.classList.contains("uf-scrolling") &&
+      layers.length > 0 &&
+      layers.every((layer) => layer.opacity <= 0.01)
+    ) {
+      silentFadeLatencyMs = performance.now() - inputAt;
+    }
+  });
 };
 document.addEventListener("mousemove", onMouseMove, true);
 document.addEventListener("scroll", onScroll, true);
@@ -139,6 +156,7 @@ function enterSilent(): void {
   initialSilentBox = initialSilentBoxes
     .find((box) => box.getAttribute("data-uf-silent-highlight") === silentXpath) ?? null;
   initialSilentTop = initialSilentBox?.style.top ?? "";
+  silentFadeLatencyMs = null;
   silentLatencyMs = null;
   silentObserver = initialSilentBox && typeof MutationObserver === "function"
     ? new MutationObserver(() => {
@@ -190,6 +208,7 @@ const runtime = {
       allBoxesRetained: currentBoxes.length === initialSilentBoxes.length &&
         currentBoxes.every((box, index) => box === initialSilentBoxes[index] && box.isConnected),
       geometryChanged: silentGeometry(currentBoxes) !== initialSilentGeometry,
+      fadeLatencyMs: silentFadeLatencyMs,
       latencyMs: silentLatencyMs,
       count: currentBoxes.length,
       rootScrolling: root?.classList.contains("uf-scrolling") ?? false,

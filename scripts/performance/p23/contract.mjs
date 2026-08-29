@@ -3,7 +3,9 @@ export const ARTIFACT_SCHEMA_VERSION = "p23-frozen-presentation-browser-gate/v1"
 export const PLAYWRIGHT_CLI_VERSION = "0.1.17";
 export const VIEWPORT = Object.freeze({ width: 1000, height: 900 });
 export const HOVER_BUDGET_MS = 40;
-export const SILENT_BUDGET_MS = 50;
+export const SILENT_FADE_BUDGET_MS = 50;
+export const SILENT_GEOMETRY_QUIET_MS = 120;
+export const SILENT_BUDGET_MS = SILENT_GEOMETRY_QUIET_MS + 50;
 
 export const REQUIRED_CHECK_IDS = Object.freeze([
   "starved-raf-exercised",

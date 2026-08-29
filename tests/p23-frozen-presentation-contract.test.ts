@@ -9,6 +9,8 @@ import {
   PLAYWRIGHT_CLI_VERSION,
   REQUIRED_CHECK_IDS,
   SILENT_BUDGET_MS,
+  SILENT_FADE_BUDGET_MS,
+  SILENT_GEOMETRY_QUIET_MS,
   VIEWPORT,
   validateCheckCatalog,
 } from "../scripts/performance/p23/contract.mjs";
@@ -26,7 +28,9 @@ describe("P23 frozen-surface browser gate contract", () => {
     expect(PLAYWRIGHT_CLI_VERSION).toBe("0.1.17");
     expect(VIEWPORT).toEqual({ width: 1000, height: 900 });
     expect(HOVER_BUDGET_MS).toBe(40);
-    expect(SILENT_BUDGET_MS).toBe(50);
+    expect(SILENT_FADE_BUDGET_MS).toBe(50);
+    expect(SILENT_GEOMETRY_QUIET_MS).toBe(120);
+    expect(SILENT_BUDGET_MS).toBe(170);
   });
 
   it("pins and strictly validates the complete browser check catalog", () => {
@@ -62,6 +66,7 @@ describe("P23 frozen-surface browser gate contract", () => {
       "utf8",
     );
     const runtime = readFileSync("scripts/performance/p23/runtime.ts", "utf8");
+    const engine = readFileSync("src/content/marking/engine.ts", "utf8");
 
     expect(gate).toContain("window.requestAnimationFrame=function()");
     expect(gate).toContain('"starved-raf-exercised"');
@@ -72,8 +77,13 @@ describe("P23 frozen-surface browser gate contract", () => {
     expect(controller).toContain("state.allRetainedLayersTransparent");
     expect(controller).toContain("state.allRetainedLayersVisible");
     expect(controller).toContain("{ polling: 5, timeout: 500 }");
+    expect(gate).toContain("payload.silentDuring.fadeLatencyMs <= SILENT_FADE_BUDGET_MS");
     expect(runtime).toContain("presentationClockFor(window)");
     expect(runtime).toContain("createMarkingEngine(document.documentElement");
     expect(runtime).toContain("current === initialSilentBox");
+    expect(runtime).toContain("fadeLatencyMs: silentFadeLatencyMs");
+    expect(engine).toContain(
+      `const SILENT_VIEWPORT_GEOMETRY_QUIET_MS = ${String(SILENT_GEOMETRY_QUIET_MS)};`,
+    );
   });
 });

@@ -957,6 +957,18 @@ headed-validation gates.
   contract passes 6/6, and the dirty-source browser rerun reaches 19/19 with
   clean teardown; its aggregate remains intentionally red until the harness
   checkpoint is committed and rerun cleanly.
+- Clean pushed-source P17, P18, and P20 gates on `664e1f22` pass at 19/19,
+  14/14, and 4/4. P23 then passed 24/25 but measured silent geometry settlement
+  at 143 ms against its original 50 ms budget. That oracle predated the
+  legacy-matched 120 ms quiet transaction introduced for retained silent
+  coordinates. The contract now separates responsiveness from settlement:
+  stale layers must become fully transparent within 50 ms, while retained-node
+  geometry may settle within the 120 ms quiet window plus 50 ms of bounded
+  scheduling/frame slack. A source assertion binds the evidence constant to the
+  production timer. The strengthened dirty-source browser rerun measures fade
+  at 0.3 ms, geometry settlement at 143.5 ms, and passes all 25/25 behavioral
+  checks; its aggregate remains red only until the evidence change is committed
+  and rerun on clean source.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 
