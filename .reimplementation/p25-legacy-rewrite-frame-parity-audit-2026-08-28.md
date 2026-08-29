@@ -1383,6 +1383,18 @@ preserves the stronger architecture.
     Missing controls with unchanged state and all other physical-hit errors still
     fail closed. Unit coverage proves actionable, raced-away, and unchanged
     recovery states.
+149. **Confirmed rewrite P0 — pre-freeze DOM quiet was incorrectly a fatal
+    reveal gate.** In the exact clean Assist24 run, the first activation joined
+    the page-load ritual while responsive widgets were still mutating and failed
+    with `page-visit-stabilization-skipped`; the same physical activation passed
+    after the page cooled. Pinned legacy performs a bounded delay after top,
+    midpoint, lazy suppression, bottom, and restore, but never requires a hot
+    page to become mutation-quiet before continuing. The rewrite now preserves
+    those bounded dwell measurements as advisory paint waits. Physical step
+    reach, growth-aware 99.5% true-bottom confirmation, strict post-freeze quiet,
+    stale identity fencing, and origin restoration remain mandatory. Regression
+    coverage proves continuously hot pre-freeze steps pass, post-freeze motion
+    still fails, and an actually unreached step still fails.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1455,7 +1467,7 @@ preserves the stronger architecture.
 ## Acceptance headline
 
 Implementation remediation is code-complete through finding 134; findings
-135–148 bind the resulting evidence and rerun authority. Immutable
+135–149 bind the resulting evidence and rerun authority. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun,
 findings 126–128 are closed by the clean aggregate, finding 129 is closed by its

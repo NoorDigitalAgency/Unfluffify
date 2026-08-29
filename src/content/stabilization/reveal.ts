@@ -70,7 +70,12 @@ export async function runReveal(input: RevealRunInput): Promise<RevealRunResult>
       "restore",
       Math.max(input.initialScrollHeight, measure()),
     );
-    restoredPosition = reached(outcome) && await settled("step");
+    const restoreReached = reached(outcome);
+    // Legacy uses this dwell to let the restored position paint; a page with a
+    // continuously changing clock/carousel is still restored. Only physical
+    // reach and the caller's stale fence decide whether restoration succeeded.
+    await settled("step");
+    restoredPosition = restoreReached;
     return restoredPosition;
   };
   try {
@@ -79,9 +84,7 @@ export async function runReveal(input: RevealRunInput): Promise<RevealRunResult>
       // same finite-growth fence as the scrollable path before freezing.
       await input.suppressLazyLoading();
       lazyLoadingSuppressed = true;
-      if (!await settled("step")) {
-        return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
-      }
+      await settled("step");
       hasVerticalScrollRoom = measure() > input.initialScrollHeight + 2;
       if (!hasVerticalScrollRoom) {
         await input.freezeAtBottom();
@@ -101,7 +104,9 @@ export async function runReveal(input: RevealRunInput): Promise<RevealRunResult>
 
     restoreRequired = true;
     const top = await input.scrollTo("top", input.initialScrollHeight);
-    if (!reached(top) || !await settled("step")) {
+    const topReached = reached(top);
+    await settled("step");
+    if (!topReached) {
       return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
     }
     if (activationStale()) {
@@ -109,7 +114,9 @@ export async function runReveal(input: RevealRunInput): Promise<RevealRunResult>
     }
 
     const midpoint = await input.scrollTo("lazy-threshold", input.initialScrollHeight);
-    if (!reached(midpoint) || !await settled("step")) {
+    const midpointReached = reached(midpoint);
+    await settled("step");
+    if (!midpointReached) {
       return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
     }
     if (activationStale()) {
@@ -121,9 +128,11 @@ export async function runReveal(input: RevealRunInput): Promise<RevealRunResult>
     // then prevents an infinite feed from racing the growth-aware bottom walk.
     await input.suppressLazyLoading();
     lazyLoadingSuppressed = true;
-    if (!await settled("step")) {
-      return { skipped: true, lazyExpansions: 0, frozenAtBottom: false };
-    }
+    // Match legacy's bounded per-step dwell. Pre-freeze quiet is useful paint
+    // evidence, but it is not a correctness gate: live clocks, carousels, and
+    // mutation-driven widgets may never become DOM-quiet. True-bottom reach,
+    // post-freeze quiet, and origin restoration remain mandatory below.
+    await settled("step");
 
     let measuredScrollHeight = Math.max(input.initialScrollHeight, measure());
     if (measuredScrollHeight > input.initialScrollHeight + 1) {
@@ -133,9 +142,7 @@ export async function runReveal(input: RevealRunInput): Promise<RevealRunResult>
     let consecutiveNoProgress = 0;
     for (let pass = 0; pass < maximumBottomPasses && !activationStale(); pass += 1) {
       const bottomOutcome = await input.scrollTo("bottom", measuredScrollHeight);
-      if (!await settled("step")) {
-        return { skipped: true, lazyExpansions, frozenAtBottom: false };
-      }
+      await settled("step");
       const expandedScrollHeight = Math.max(measuredScrollHeight, measure());
       const expanded = expandedScrollHeight > measuredScrollHeight + 1;
       if (expanded) {

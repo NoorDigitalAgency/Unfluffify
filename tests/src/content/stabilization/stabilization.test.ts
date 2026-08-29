@@ -1263,7 +1263,7 @@ describe("P5 page stabilization", () => {
     ]);
   });
 
-  it("requires top, midpoint, and the post-freeze quiet proof and restores on failure", async () => {
+  it("requires physical top/midpoint reach and the post-freeze quiet proof", async () => {
     for (const failedPhase of ["top", "lazy-threshold", "post-freeze"] as const) {
       const steps: string[] = [];
       const result = await runReveal({
@@ -1289,6 +1289,54 @@ describe("P5 page stabilization", () => {
         expect(steps.at(-1)).toBe("restore-lazy");
       }
     }
+  });
+
+  it("treats continuously hot pre-freeze dwell as advisory", async () => {
+    const steps: string[] = [];
+    const result = await runReveal({
+      hasVerticalScrollRoom: true,
+      activationStale: false,
+      initialScrollHeight: 2_000,
+      scrollTo(position) {
+        steps.push(position);
+        return true;
+      },
+      waitForSettle: async (phase) => phase === "post-freeze",
+      suppressLazyLoading: () => steps.push("suppress"),
+      restoreLazyLoading: () => steps.push("restore-lazy"),
+      freezeAtBottom: () => steps.push("freeze"),
+    });
+
+    expect(result).toEqual({ skipped: false, lazyExpansions: 0, frozenAtBottom: true });
+    expect(steps).toEqual([
+      "top",
+      "lazy-threshold",
+      "suppress",
+      "bottom",
+      "bottom",
+      "freeze",
+      "restore",
+    ]);
+  });
+
+  it("still rejects an unreached physical step even when its dwell completes", async () => {
+    const steps: string[] = [];
+    const result = await runReveal({
+      hasVerticalScrollRoom: true,
+      activationStale: false,
+      initialScrollHeight: 2_000,
+      scrollTo(position) {
+        steps.push(position);
+        return position !== "lazy-threshold";
+      },
+      waitForSettle: async () => true,
+      suppressLazyLoading: () => steps.push("suppress"),
+      restoreLazyLoading: () => steps.push("restore-lazy"),
+      freezeAtBottom: () => steps.push("freeze"),
+    });
+
+    expect(result).toMatchObject({ skipped: true, frozenAtBottom: false });
+    expect(steps).toEqual(["top", "lazy-threshold", "restore"]);
   });
 
   it("yields paint between scrolls and freezes at the re-measured bottom", async () => {
