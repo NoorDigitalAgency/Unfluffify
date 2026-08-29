@@ -1431,6 +1431,22 @@ preserves the stronger architecture.
     present and stable by 250 ms. Underlay capture now prefers the first real
     readable source before using a terminal tag as a last resort; the full-flow
     source contract fences this ordering.
+154. **Confirmed rewrite P0 — an off-document responsive-menu target was
+    advertised as an enabled Content List route.** The exact clean `1e0b3696`
+    Assist24 run completed both render modes, activation, every marking gate,
+    both AI calls, page-to-row, Preview exit, Discard, one authoritative Save,
+    silent transition, silent scroll/resize, payload hygiene, and the zero-publish
+    fence. Its sole failure was keyboard row-to-page for `24H Icon`. A 412×960
+    frame replay proved that target retained a non-zero box and visible computed
+    styles inside a responsive menu translated permanently above the scrollable
+    document (`document bottom = -50 px`); it could neither scroll into view nor
+    paint focus. The identical row painted normally at desktop width, and every
+    reachable mobile row did too. Preview availability now distinguishes a
+    renderable box from scroll-reachable geometry, including viewport-bound fixed
+    descendants. The technical row remains in the extraction list but is disabled
+    with `not-visible`, so keyboard activation no longer promises an impossible
+    two-way route. Regression coverage preserves ordinary below-the-fold routing
+    and rejects the off-document case without calling `scrollIntoView`.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1503,7 +1519,7 @@ preserves the stronger architecture.
 ## Acceptance headline
 
 Implementation remediation is code-complete through finding 134; findings
-135–153 bind the resulting evidence and rerun authority. Immutable
+135–154 bind the resulting evidence and rerun authority. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun,
 findings 126–128 are closed by the clean aggregate, finding 129 is closed by its

@@ -1040,6 +1040,35 @@ describe("P6 DOM bridge", () => {
     expect(doc.documentElement.scrollTop).toBe(520);
   });
 
+  it("retains an off-document technical row without promising an unreachable Preview route", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, -200, 300, 900));
+    const hiddenMenuTarget = new FakeElement("P", rect(100, -320, 25, 24), "Off-canvas item");
+    const scrollIntoView = vi.fn();
+    Object.assign(hiddenMenuTarget, { scrollIntoView });
+    root.ownerDocument = doc;
+    hiddenMenuTarget.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.scrollTop = 200;
+    doc.documentElement.appendChild(root);
+    root.appendChild(hiddenMenuTarget);
+
+    const engine = createMarkingEngine(root as unknown as Element);
+    const projection = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: [],
+      exclusionSelectors: ["p"],
+    });
+    const row = projection.rows.find((candidate) => candidate.text === "Off-canvas item");
+
+    expect(row).toMatchObject({
+      classification: "excluded",
+      target: { state: "unavailable", reason: "not-visible" },
+    });
+    expect(engine.emphasizePreviewRow(projection.projectionId, row!.id, true)).toBe(false);
+    expect(engine.activatePreviewRow(projection.projectionId, row!.id)).toBe(false);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
   it("retains a zero-box technical row while rejecting untruthful focus and activation", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 900));

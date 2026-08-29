@@ -56,6 +56,57 @@ function createPreviewProjectionId(): string {
   return uuid ? `preview-${uuid}` : `preview-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+/**
+ * A rendered box can still be permanently unreachable. Responsive menus often
+ * retain a non-zero, nominally visible child while translating the whole branch
+ * above or beside the scrollable document. Such a row is useful diagnostic
+ * evidence, but advertising it as an interactive Preview target makes keyboard
+ * activation promise a focus paint that the renderer can never place.
+ *
+ * Keep ordinary below-the-fold content available by comparing viewport rects in
+ * document coordinates. Viewport-bound fixed descendants are the exception:
+ * scrolling cannot move those, so they must intersect the current viewport.
+ */
+function hasScrollReachablePreviewGeometry(element: Element): boolean {
+  const ownerDocument = element.ownerDocument;
+  const view = ownerDocument?.defaultView;
+  if (!view) {
+    return false;
+  }
+  const scrollingElement = ownerDocument.scrollingElement ?? ownerDocument.documentElement;
+  const scrollX = Number(view.scrollX ?? view.pageXOffset ?? scrollingElement?.scrollLeft ?? 0);
+  const scrollY = Number(view.scrollY ?? view.pageYOffset ?? scrollingElement?.scrollTop ?? 0);
+  const viewportWidth = Number(view.visualViewport?.width ?? view.innerWidth ?? ownerDocument.documentElement?.clientWidth ?? 0);
+  const viewportHeight = Number(view.visualViewport?.height ?? view.innerHeight ?? ownerDocument.documentElement?.clientHeight ?? 0);
+  const scrollWidth = Number(scrollingElement?.scrollWidth ?? 0);
+  const scrollHeight = Number(scrollingElement?.scrollHeight ?? 0);
+  let viewportBound = false;
+  let current: Element | null = element;
+  while (current) {
+    if (view.getComputedStyle(current).position === "fixed") {
+      viewportBound = true;
+      break;
+    }
+    const rootNode: Node = current.getRootNode();
+    const shadowHost: Element | null = "host" in rootNode ? (rootNode as ShadowRoot).host : null;
+    current = current.parentElement ?? shadowHost;
+  }
+  return Array.from(element.getClientRects()).some((rect) => {
+    if (viewportBound) {
+      return rect.right > 0 && rect.bottom > 0 &&
+        (viewportWidth <= 0 || rect.left < viewportWidth) &&
+        (viewportHeight <= 0 || rect.top < viewportHeight);
+    }
+    const documentLeft = rect.left + scrollX;
+    const documentTop = rect.top + scrollY;
+    const documentRight = rect.right + scrollX;
+    const documentBottom = rect.bottom + scrollY;
+    return documentRight > 0 && documentBottom > 0 &&
+      (scrollWidth <= 0 || documentLeft < scrollWidth) &&
+      (scrollHeight <= 0 || documentTop < scrollHeight);
+  });
+}
+
 function previewTargetStatus(element: Element): PreviewTargetStatus {
   if ((element as Element & { isConnected?: boolean }).isConnected === false) {
     return { state: "unavailable", reason: "detached" };
@@ -65,6 +116,9 @@ function previewTargetStatus(element: Element): PreviewTargetStatus {
   }
   if (!hasRenderableTargetGeometry(element)) {
     return { state: "unavailable", reason: "no-rendered-box" };
+  }
+  if (!hasScrollReachablePreviewGeometry(element)) {
+    return { state: "unavailable", reason: "not-visible" };
   }
   return { state: "available" };
 }
