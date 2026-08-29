@@ -617,6 +617,8 @@ const VISUAL_SNAPSHOT_EXPRESSION = `(() => {
   let coveredSourcePaintCount = 0;
   let unresolvedSourcePaintCount = 0;
   const unresolvedSourceIds = [];
+  const invalidSourceEvidence = [];
+  const retainedInvalidSourceIds = new Set();
   for (const overlay of overlays) {
     const style = getComputedStyle(overlay);
     const rect = overlay.getBoundingClientRect();
@@ -640,6 +642,51 @@ const VISUAL_SNAPSHOT_EXPRESSION = `(() => {
     if (sourceEvidence.unresolved) unresolvedSourcePaintCount += 1;
     if (sourceEvidence.unresolved && id && unresolvedSourceIds.length < 12 && !unresolvedSourceIds.includes(id)) {
       unresolvedSourceIds.push(id);
+    }
+    if (
+      sourceEvidence.invalid &&
+      id &&
+      source instanceof Element &&
+      invalidSourceEvidence.length < 12 &&
+      !retainedInvalidSourceIds.has(id)
+    ) {
+      retainedInvalidSourceIds.add(id);
+      const sourceRect = source.getBoundingClientRect();
+      const sourceStyle = getComputedStyle(source);
+      const centerX = Math.max(0, Math.min(innerWidth - 1, sourceRect.left + sourceRect.width / 2));
+      const centerY = Math.max(0, Math.min(innerHeight - 1, sourceRect.top + sourceRect.height / 2));
+      const centerHits = document.elementsFromPoint(centerX, centerY)
+        .filter((hit) => !hit.closest('[data-uf-extension-ui="true"]'))
+        .slice(0, 6)
+        .map((hit) => ({
+          tag: hit.tagName.toLowerCase(),
+          id: hit.id || null,
+          className: String(hit.className || '').slice(0, 180),
+          pointerEvents: getComputedStyle(hit).pointerEvents,
+        }));
+      invalidSourceEvidence.push({
+        id,
+        overlayClass: String(overlay.className || ''),
+        layer: overlay.closest('[data-layer]')?.getAttribute('data-layer') ?? null,
+        visibility: sourceVisibility,
+        paint: sourcePaint,
+        source: {
+          tag: source.tagName.toLowerCase(),
+          id: source.id || null,
+          className: String(source.className || '').slice(0, 240),
+          text: String(source.textContent || '').replace(/\\s+/g, ' ').trim().slice(0, 240),
+          rect: [sourceRect.left, sourceRect.top, sourceRect.width, sourceRect.height]
+            .map((value) => Math.round(value * 10) / 10),
+          display: sourceStyle.display,
+          visibility: sourceStyle.visibility,
+          opacity: sourceStyle.opacity,
+          pointerEvents: sourceStyle.pointerEvents,
+          overflow: sourceStyle.overflow,
+          clip: sourceStyle.clip,
+          clipPath: sourceStyle.clipPath,
+        },
+        centerHits,
+      });
     }
     if (sourceEvidence.reachable) physicalHitCount += 1;
     const borderKey = JSON.stringify({
@@ -718,6 +765,7 @@ const VISUAL_SNAPSHOT_EXPRESSION = `(() => {
     coveredSourcePaintCount,
     unresolvedSourcePaintCount,
     unresolvedSourceIds,
+    invalidSourceEvidence,
     consentSuppressedCount: document.querySelectorAll('[data-uf-consent-hidden]').length,
     extensionRootCount: extensionRoots.length,
     borders: [...borders].map(([key, count]) => ({ ...JSON.parse(key), count })).sort((left, right) => right.count - left.count),

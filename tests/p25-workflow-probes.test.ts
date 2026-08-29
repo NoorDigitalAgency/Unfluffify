@@ -690,6 +690,8 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(liveProbes).toContain("const deltaY = availableDown > 16 ? 640 : -640");
     expect(liveProbes).toContain("expectedScrollTop");
     expect(liveProbes).toContain("afterRestoration");
+    expect(liveProbes).toContain("invalidSourceEvidence");
+    expect(liveProbes).toContain("retainedInvalidSourceIds");
   });
 
   it("requires every real-control route and authoritative mutation boundary", () => {
