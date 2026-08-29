@@ -372,16 +372,20 @@ describe("P25 composed visual visibility evidence", () => {
     });
     const body = node("body", [suppressedModal, pageHeader, main]);
     const html = node("html", [body]);
+    const querySelectorAll = vi.fn((tag: string) =>
+      tag === "body" ? [body] : tag === "html" ? [html] : []
+    );
     const document = {
       documentElement: html,
       body,
-      querySelectorAll: (tag: string) => tag === "body" ? [body] : tag === "html" ? [html] : [],
+      querySelectorAll,
     };
 
     expect(resolveBridgeXpath("/body[1]/main[1]/p[1]", { document })).toBe(paragraph);
     expect(resolveBridgeXpath("/html[1]/body[1]/main[1]", { document })).toBe(main);
     expect(resolveBridgeXpath("/html[1]/body[1]/div[1]/nav[1]", { document })).toBe(navigation);
     expect(resolveBridgeXpath("/body[2]/main[1]", { document })).toBeNull();
+    expect(querySelectorAll).not.toHaveBeenCalled();
     expect(bridgeXpathForElement(navigation, { document })).toBe("/html[1]/body[1]/div[1]/nav[1]");
     expect(bridgeXpathForElement(main, { document })).toBe("/html[1]/body[1]/main[1]");
     expect(bridgeXpathForElement(suppressedModal, { document })).toBeNull();

@@ -486,9 +486,17 @@ export function resolveBridgeXpath(xpath, environment = globalThis) {
     ].filter((node) => node?.nodeType === 1 && !isBridgeExcluded(node));
   };
   const first = segments[0];
-  const roots = [document.documentElement, document.body, ...Array.from(document.querySelectorAll?.(first.tag) ?? [])]
+  const indexedDocumentRoots = [document.documentElement, document.body]
     .filter((node, index, all) => node && all.indexOf(node) === index)
     .filter((node) => !isBridgeExcluded(node) && String(node.tagName).toLowerCase() === first.tag);
+  // Bridge XPaths are rooted at html[1] (or body[1] in compatibility
+  // evidence). Those nodes already have indexed document properties. Running
+  // querySelectorAll("html") for every highlighted source needlessly walks a
+  // dense document dozens of times inside resize/input evidence.
+  const roots = indexedDocumentRoots.length > 0
+    ? indexedDocumentRoots
+    : Array.from(document.querySelectorAll?.(first.tag) ?? [])
+      .filter((node) => !isBridgeExcluded(node));
   let cursor = roots[first.index - 1] ?? null;
   if (!cursor) return null;
   for (const segment of segments.slice(1)) {
@@ -815,6 +823,7 @@ export async function captureVisualSnapshot(session) {
 
 const RESIZE_GEOMETRY_SNAPSHOT_EXPRESSION = `(() => {
   const xpathNode = (${resolveBridgeXpath.toString()});
+  const collectRoots = (${collectOverlayRoots.toString()});
   const sourceId = (element) => element.getAttribute('data-uf-overlay-xpath') ||
     element.getAttribute('data-uf-silent-highlight') || element.getAttribute('data-xpath') ||
     (element.getAttribute('data-mc-mark-id') ? 'mark:' + element.getAttribute('data-mc-mark-id') : null);
@@ -825,14 +834,13 @@ const RESIZE_GEOMETRY_SNAPSHOT_EXPRESSION = `(() => {
     return null;
   };
   const sourceIds = new Set();
-  for (const overlay of document.querySelectorAll(
-    '[data-uf-overlay-xpath], [data-uf-silent-highlight], [data-xpath], [data-mc-mark-id]'
-  )) {
-    if (!overlay.closest(
-      '#unfluffify-overlay, #unfluffify-silent-highlight-overlay, .uf-marking-layer-root, [data-uf-marking-layer-root], [data-uf-silent-layer-root]'
-    )) continue;
-    const id = sourceId(overlay);
-    if (id) sourceIds.add(id);
+  for (const root of collectRoots(document)) {
+    for (const overlay of root.querySelectorAll(
+      '[data-uf-overlay-xpath], [data-uf-silent-highlight], [data-xpath], [data-mc-mark-id]'
+    )) {
+      const id = sourceId(overlay);
+      if (id) sourceIds.add(id);
+    }
   }
   const sourceRectParts = [];
   for (const id of sourceIds) {
