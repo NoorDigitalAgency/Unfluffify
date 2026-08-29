@@ -982,6 +982,18 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     detach(): void {
       root.remove();
     },
+    retainedViewportXpaths(): ReadonlySet<string> {
+      const xpaths = new Set<string>();
+      for (const record of classificationBoxes.values()) {
+        xpaths.add(record.xpath);
+      }
+      for (const record of silentBoxes.values()) {
+        if (record.overlay.style.visibility !== "hidden") {
+          xpaths.add(record.xpath);
+        }
+      }
+      return xpaths;
+    },
     render(
       evaluation: EvaluationResult,
       byXpath: ReadonlyMap<string, OverlayRenderTarget>,

@@ -3356,6 +3356,108 @@ describe("P6 DOM bridge", () => {
     }
   });
 
+  it("bounds viewport geometry to retained paint while the initial intersection snapshot is incomplete", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const animationFrames: Array<() => void> = [];
+      const listeners = new Map<string, (event?: Event) => void>();
+      const observed: Element[] = [];
+      let intersectionCallback: IntersectionObserverCallback | null = null;
+      class FakeIntersectionObserver {
+        constructor(callback: IntersectionObserverCallback) {
+          intersectionCallback = callback;
+        }
+        observe(target: Element): void {
+          observed.push(target);
+        }
+        disconnect(): void {
+          observed.splice(0);
+        }
+      }
+      Object.assign(doc.defaultView, {
+        IntersectionObserver: FakeIntersectionObserver,
+        innerHeight: 960,
+        requestAnimationFrame(callback: () => void) {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+        addEventListener(type: string, listener: (event?: Event) => void) {
+          listeners.set(type, listener);
+        },
+        removeEventListener(type: string) {
+          listeners.delete(type);
+        },
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 6_000));
+      root.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      const paragraphs = Array.from({ length: 120 }, (_, index) => {
+        const top = index < 3 ? index * 22 : 2_000 + index * 22;
+        const paragraph = new FakeElement("P", rect(0, top, 120, 20), `Row ${index}`);
+        paragraph.ownerDocument = doc;
+        root.appendChild(paragraph);
+        return paragraph;
+      });
+      doc.pointHits = (_x, y) => {
+        const paragraph = paragraphs.find((candidate) =>
+          y >= candidate.rect.top && y <= candidate.rect.bottom
+        );
+        return paragraph ? [paragraph, root] : [root];
+      };
+      const renderer = createRendererTestSeam();
+      const engine = createMarkingEngine(root as unknown as Element, {
+        render: true,
+        instrumentation: { createRenderer: renderer.createRenderer },
+      });
+
+      // Chromium may split the first observation of a large corpus over many
+      // tasks. Supply only the viewport-positive prefix and deliberately leave
+      // the remaining targets pending.
+      const initialViewportTargets = new Set<Element>(
+        [root, ...paragraphs.slice(0, 3)] as unknown as Element[],
+      );
+      intersectionCallback?.(observed
+        .filter((target) => initialViewportTargets.has(target))
+        .map((target) => ({
+          target,
+          isIntersecting: true,
+          intersectionRatio: 1,
+        } as IntersectionObserverEntry)), {} as IntersectionObserver);
+      for (const paragraph of paragraphs) paragraph.clientRectReadCount = 0;
+      renderer.geometryBranchRender.mockClear();
+
+      listeners.get("scroll")?.({ target: doc } as unknown as Event);
+      vi.advanceTimersByTime(230);
+      let frameCount = 0;
+      while (animationFrames.length > 0 && frameCount < 12) {
+        animationFrames.shift()?.();
+        frameCount += 1;
+      }
+
+      expect(frameCount).toBeLessThan(12);
+      expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
+      expect(renderer.geometryBranchRender.mock.calls.every(([count]) => count <= 3)).toBe(true);
+
+      renderer.geometryRender.mockClear();
+      intersectionCallback?.(observed
+        .filter((target) => !initialViewportTargets.has(target))
+        .map((target) => ({
+          target,
+          isIntersecting: false,
+          intersectionRatio: 0,
+        } as IntersectionObserverEntry)), {} as IntersectionObserver);
+      expect(animationFrames).toHaveLength(1);
+      animationFrames.shift()?.();
+      expect(renderer.geometryRender).toHaveBeenCalledWith(initialViewportTargets.size);
+      expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("paint-fences activation geometry after restored-scroll sticky UI settles", async () => {
     vi.useFakeTimers();
     try {

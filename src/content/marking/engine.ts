@@ -878,8 +878,11 @@ export function createMarkingEngine(
   let deferredBranchTargets = new Map<string, OverlayRenderTarget>();
   let progressiveGeometryRenderHandle: number | null = null;
   let progressiveGeometryCycle = 0;
+  let progressiveGeometryActive = false;
+  let progressiveGeometryFollowup: Exclude<RenderWork, "structural"> | null = null;
   let targetIntersectionObserver: IntersectionObserver | null = null;
   let intersectionSnapshotReady = false;
+  let incompleteIntersectionFallbackUsed = false;
   let intersectionByElement = new WeakMap<Element, boolean>();
   const pendingIntersectionElements = new Set<Element>();
   const intersectingXpaths = new Set<string>();
@@ -898,12 +901,14 @@ export function createMarkingEngine(
 
   const cancelProgressiveGeometryRender = (): boolean => {
     progressiveGeometryCycle += 1;
-    if (progressiveGeometryRenderHandle === null) {
-      return false;
+    const wasActive = progressiveGeometryActive || progressiveGeometryRenderHandle !== null;
+    progressiveGeometryActive = false;
+    progressiveGeometryFollowup = null;
+    if (progressiveGeometryRenderHandle !== null) {
+      presentationClock.cancelFrame(progressiveGeometryRenderHandle);
+      progressiveGeometryRenderHandle = null;
     }
-    presentationClock.cancelFrame(progressiveGeometryRenderHandle);
-    progressiveGeometryRenderHandle = null;
-    return true;
+    return wasActive;
   };
 
   const rebindIntersectionTargets = (): void => {
@@ -912,6 +917,7 @@ export function createMarkingEngine(
     }
     targetIntersectionObserver.disconnect();
     intersectionSnapshotReady = false;
+    incompleteIntersectionFallbackUsed = false;
     intersectionByElement = new WeakMap<Element, boolean>();
     pendingIntersectionElements.clear();
     intersectingXpaths.clear();
@@ -923,10 +929,29 @@ export function createMarkingEngine(
   };
 
   const viewportGeometryTargets = (): ReadonlyMap<string, OverlayRenderTarget> => {
-    if (!intersectionSnapshotReady) {
+    if (!targetIntersectionObserver) {
       return byXpathElements();
     }
     const targets = new Map<string, OverlayRenderTarget>();
+    if (!intersectionSnapshotReady) {
+      // IntersectionObserver is allowed to deliver a large observed corpus in
+      // several tasks. Falling back to every bridge target while that snapshot
+      // is incomplete turns one viewport scroll into document-scale geometry
+      // work and can keep the retained layer faded for seconds. The currently
+      // painted corpus is the exact safe fallback: it covers every stale box
+      // that must move or disappear, while partial positive observations admit
+      // newly entering targets. Once the initial snapshot closes, the observer
+      // schedules one authoritative follow-up below.
+      incompleteIntersectionFallbackUsed = true;
+      for (const xpath of renderer.retainedViewportXpaths()) {
+        const target = overlayTargets.get(xpath);
+        if (target) {
+          targets.set(xpath, target);
+        }
+      }
+    } else {
+      incompleteIntersectionFallbackUsed = false;
+    }
     for (const xpath of intersectingXpaths) {
       const target = overlayTargets.get(xpath);
       if (target) {
@@ -1401,6 +1426,7 @@ export function createMarkingEngine(
     const entries = [...byXpath];
     const completeXpaths = new Set(byXpath.keys());
     let offset = 0;
+    progressiveGeometryActive = true;
     renderer.setScrolling(true);
 
     const renderNextChunk = (): void => {
@@ -1410,6 +1436,9 @@ export function createMarkingEngine(
         cycle !== progressiveGeometryCycle ||
         generation !== bridgeGeneration
       ) {
+        if (cycle === progressiveGeometryCycle) {
+          progressiveGeometryActive = false;
+        }
         return;
       }
       const end = Math.min(offset + PROGRESSIVE_GEOMETRY_CHUNK_SIZE, entries.length);
@@ -1423,6 +1452,13 @@ export function createMarkingEngine(
         generation,
       });
       if (final) {
+        progressiveGeometryActive = false;
+        const followup = progressiveGeometryFollowup;
+        progressiveGeometryFollowup = null;
+        if (followup) {
+          scheduleRender(followup);
+          return;
+        }
         revealMarkingAfterRender = false;
         renderer.setScrolling(false);
         return;
@@ -1440,6 +1476,15 @@ export function createMarkingEngine(
       "silent-geometry": 1,
       structural: 2,
     };
+    if (progressiveGeometryActive && work !== "structural") {
+      if (
+        progressiveGeometryFollowup === null
+        || priority[work] > priority[progressiveGeometryFollowup]
+      ) {
+        progressiveGeometryFollowup = work;
+      }
+      return;
+    }
     if (scheduledWork === null || priority[work] > priority[scheduledWork]) {
       scheduledWork = work;
     }
@@ -1852,6 +1897,7 @@ export function createMarkingEngine(
     if (view?.IntersectionObserver) {
       targetIntersectionObserver = new view.IntersectionObserver((entries) => {
         let changed = false;
+        const snapshotWasReady = intersectionSnapshotReady;
         for (const entry of entries) {
           const bridgeEntry = bridge.byElement.get(entry.target);
           if (!bridgeEntry) {
@@ -1875,6 +1921,18 @@ export function createMarkingEngine(
         if (pendingIntersectionElements.size === 0) {
           intersectionSnapshotReady = true;
         }
+        if (
+          !snapshotWasReady
+          && intersectionSnapshotReady
+          && incompleteIntersectionFallbackUsed
+        ) {
+          // The bounded fallback deliberately used only retained/known-positive
+          // targets. Close it with one current-snapshot pass; geometry requests
+          // arriving during a progressive pass are coalesced into its trailing
+          // generation instead of repeatedly restarting the corpus.
+          incompleteIntersectionFallbackUsed = false;
+          changed = true;
+        }
         if (changed && viewportGeometryHandle === null) {
           scheduleRender("geometry");
         }
@@ -1884,6 +1942,7 @@ export function createMarkingEngine(
         targetIntersectionObserver?.disconnect();
         targetIntersectionObserver = null;
         intersectionSnapshotReady = false;
+        incompleteIntersectionFallbackUsed = false;
         intersectionByElement = new WeakMap<Element, boolean>();
         pendingIntersectionElements.clear();
         intersectingXpaths.clear();
