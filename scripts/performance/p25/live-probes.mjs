@@ -820,6 +820,25 @@ export function filterLongTasksToCollectorWindow(entries, startedAt, endedAt) {
     entry.startTime >= startedAt && entry.startTime <= endedAt);
 }
 
+export function serializeLongTaskEntry(entry) {
+  return {
+    name: typeof entry?.name === "string" ? entry.name : null,
+    entryType: typeof entry?.entryType === "string" ? entry.entryType : "longtask",
+    startTime: Number(entry?.startTime),
+    duration: Number(entry?.duration),
+    attribution: Array.from(entry?.attribution ?? [], (attribution) => ({
+      name: typeof attribution?.name === "string" ? attribution.name : null,
+      entryType: typeof attribution?.entryType === "string" ? attribution.entryType : null,
+      startTime: Number(attribution?.startTime),
+      duration: Number(attribution?.duration),
+      containerType: typeof attribution?.containerType === "string" ? attribution.containerType : null,
+      containerSrc: typeof attribution?.containerSrc === "string" ? attribution.containerSrc : null,
+      containerId: typeof attribution?.containerId === "string" ? attribution.containerId : null,
+      containerName: typeof attribution?.containerName === "string" ? attribution.containerName : null,
+    })),
+  };
+}
+
 export function collectorWindowShouldContinue({
   startedAt,
   actionFinishedAt,
@@ -865,6 +884,7 @@ function frameCollectorExpression(collectorKey, ownerXPath, durationMs) {
   return `(() => {
     const collectorWindowShouldContinue = ${collectorWindowShouldContinue.toString()};
     const selectActiveOverlayRoot = ${selectActiveOverlayRoot.toString()};
+    const serializeLongTaskEntry = ${serializeLongTaskEntry.toString()};
     const key = ${JSON.stringify(collectorKey)};
     const ownerXPath = ${JSON.stringify(ownerXPath)};
     const durationMs = ${JSON.stringify(durationMs)};
@@ -887,7 +907,7 @@ function frameCollectorExpression(collectorKey, ownerXPath, durationMs) {
       for (const entry of list.getEntries()) {
         // Buffered observation can replay long tasks from before this gesture. Keep
         // only entries whose start belongs to this collector's own time window.
-        if (entry.startTime >= state.startedAt) state.longTasks.push({ startTime: entry.startTime, duration: entry.duration });
+        if (entry.startTime >= state.startedAt) state.longTasks.push(serializeLongTaskEntry(entry));
       }
     }) : null;
     try {
@@ -956,6 +976,10 @@ export async function captureCompactFrames(session, { artifactDirectory, name, d
     grantUniveralAccess: false,
   });
   const contextId = isolated.executionContextId;
+  const captureCpuProfile = process.env.UNFLUFFIFY_P25_CPU_PROFILE === "1";
+  let cpuProfile = null;
+  let cpuProfileStartedAtPageMs = null;
+  let cpuProfilerStarted = false;
   const compositor = [];
   const writes = [];
   let compositorIndex = 0;
@@ -983,6 +1007,13 @@ export async function captureCompactFrames(session, { artifactDirectory, name, d
   });
   await session.evaluate(frameCollectorExpression(collectorKey, ownerXPath, durationMs), { awaitPromise: false, contextId });
   await session.send("Page.startScreencast", { format: "jpeg", quality: 72, everyNthFrame: 1 });
+  if (captureCpuProfile) {
+    await session.send("Profiler.enable");
+    await session.send("Profiler.setSamplingInterval", { interval: 100 }).catch(() => undefined);
+    cpuProfileStartedAtPageMs = await session.evaluate("performance.now()", { contextId });
+    await session.send("Profiler.start");
+    cpuProfilerStarted = true;
+  }
   const actionStarted = performance.now();
   let action;
   let actionDurationMs;
@@ -995,6 +1026,10 @@ export async function captureCompactFrames(session, { artifactDirectory, name, d
     })()`, { contextId });
     await sleep(Math.max(0, durationMs - actionDurationMs) + 240);
   } finally {
+    if (cpuProfilerStarted) {
+      cpuProfile = await session.send("Profiler.stop").catch(() => null);
+      await session.send("Profiler.disable").catch(() => undefined);
+    }
     await session.send("Page.stopScreencast").catch(() => undefined);
     removeFrameListener();
   }
@@ -1004,6 +1039,23 @@ export async function captureCompactFrames(session, { artifactDirectory, name, d
     return state;
   })()`, { contextId }).catch(() => null);
   await Promise.all(writes);
+  let cpuProfileArtifact = null;
+  if (cpuProfile?.profile) {
+    const cpuProfilePath = join(artifactDirectory, `${name}-cpu-profile.json`);
+    const cpuProfilePayload = {
+      schemaVersion: "p25-live-cpu-profile/v1",
+      name,
+      profileStartedAtPageMs: cpuProfileStartedAtPageMs,
+      profile: cpuProfile.profile,
+    };
+    const cpuProfileJson = `${JSON.stringify(cpuProfilePayload)}\n`;
+    await writeFile(cpuProfilePath, cpuProfileJson, { flag: "wx" });
+    cpuProfileArtifact = {
+      path: cpuProfilePath,
+      sha256: sha256(cpuProfileJson),
+      profileStartedAtPageMs: cpuProfileStartedAtPageMs,
+    };
+  }
   const framePath = join(artifactDirectory, `${name}-frames.json`);
   const rAFFrames = raf?.frames ?? [];
   const performanceWindow = resolveCollectorPerformanceWindow(action, raf?.startedAt, raf?.endedAt);
@@ -1020,6 +1072,7 @@ export async function captureCompactFrames(session, { artifactDirectory, name, d
     durationMs,
     actionDurationMs,
     action,
+    cpuProfile: cpuProfileArtifact,
     requestAnimationFrame: {
       finished: raf?.finished === true,
       frames: rAFFrames,

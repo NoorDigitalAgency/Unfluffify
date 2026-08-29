@@ -16,6 +16,7 @@ import {
   preparedMarkingTargetIsUsable,
   stablePreparedMarkingTargetAuthority,
   resolveCollectorPerformanceWindow,
+  serializeLongTaskEntry,
   selectActiveOverlayRoot,
   snapshotMatchesAuthoritativePosture,
   topHitPaintEvidence,
@@ -415,6 +416,40 @@ describe("P25 composed visual visibility evidence", () => {
 });
 
 describe("P25 frame collector Long Task evidence", () => {
+  it("retains execution-context attribution for every observed Long Task", () => {
+    expect(serializeLongTaskEntry({
+      name: "cross-origin-descendant",
+      entryType: "longtask",
+      startTime: 120,
+      duration: 90,
+      attribution: [{
+        name: "unknown",
+        entryType: "taskattribution",
+        startTime: 0,
+        duration: 0,
+        containerType: "iframe",
+        containerSrc: "https://widgets.example/frame",
+        containerId: "reviews",
+        containerName: "reviews-frame",
+      }],
+    })).toEqual({
+      name: "cross-origin-descendant",
+      entryType: "longtask",
+      startTime: 120,
+      duration: 90,
+      attribution: [{
+        name: "unknown",
+        entryType: "taskattribution",
+        startTime: 0,
+        duration: 0,
+        containerType: "iframe",
+        containerSrc: "https://widgets.example/frame",
+        containerId: "reviews",
+        containerName: "reviews-frame",
+      }],
+    });
+  });
+
   it("attributes only Long Tasks that start inside the current collector window", () => {
     expect(filterLongTasksToCollectorWindow([
       { startTime: 90, duration: 80 },
