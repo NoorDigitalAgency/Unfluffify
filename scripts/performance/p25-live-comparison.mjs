@@ -1149,12 +1149,21 @@ async function runMeasuredFullWorkflow({ popup, site, guard, identity, options }
     };
   }
   const contentList = await runContentListWorkflow(popup, site, initialAi);
+  const markingTargetOptions = {
+    requireContextAuthority: identity.implementation === "rewrite",
+  };
 
-  const dirtyEdit = await withSiteSession(site, performPhysicalShiftExclusion);
+  const dirtyEdit = await withSiteSession(
+    site,
+    (session) => performPhysicalShiftExclusion(session, markingTargetOptions),
+  );
   const freshness = await waitForDirtyFreshnessProjection(popup, dirtyEdit.inputDispatchedAtEpochMs);
   const discard = await runDiscardWorkflow(popup);
 
-  const saveEdit = await withSiteSession(site, performPhysicalShiftExclusion);
+  const saveEdit = await withSiteSession(
+    site,
+    (session) => performPhysicalShiftExclusion(session, markingTargetOptions),
+  );
   await waitForDirtyFreshnessProjection(popup, saveEdit.inputDispatchedAtEpochMs);
   const freshAi = await runCurrentAi(popup, guard, options);
   if (!freshAi.success) {
@@ -1279,7 +1288,9 @@ function stageAcceptanceFailures(id, action, implementation) {
     requireValue(data.visual?.invisibleSourcePaintCount === 0, `Silent stage painted ${data.visual?.invisibleSourcePaintCount ?? "unknown"} invisible sources`);
   }
   if (id === "marking-gestures") {
-    const exact = validateExactMarkingGestureEvidence(data.gestures);
+    const exact = validateExactMarkingGestureEvidence(data.gestures, {
+      requireContextMenu: implementation === "rewrite",
+    });
     requireValue(exact.pass, `Exact target-keyed marking contract failed: ${exact.failures.join(", ")}`);
     requireValue((data.frames?.requestAnimationFrame?.worstLongTaskMs ?? Infinity) <= 50, `Marking input Long Task reached ${data.frames?.requestAnimationFrame?.worstLongTaskMs ?? "unknown"} ms`);
   }
@@ -1479,18 +1490,26 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
     // preflights. Keep that harness work outside the operator frame/Long Task
     // window, then fail closed if the prepared target becomes owned before the
     // first physical gesture.
-    const target = await withSiteSession(targets.site, (session) => prepareMarkingGestureTarget(session));
-    if (!target) throw new Error("No stable exact and widenable clean marking target is available");
+    const rewriteContextMenu = identity.implementation === "rewrite";
+    const preparation = await withSiteSession(targets.site, (session) => prepareMarkingGestureTarget(session, {
+      requireContextAuthority: rewriteContextMenu,
+    }));
+    const target = preparation.target;
+    if (!target) {
+      throw new Error(`No stable exact and widenable clean marking target is available: ${JSON.stringify(preparation.diagnostics)}`);
+    }
     const frames = await withSiteSession(targets.site, (session) => captureCompactFrames(session, {
       artifactDirectory: frameDirectory,
       name: id,
       durationMs: 2200,
-      during: () => probeMarkingGestures(session, target),
+      during: () => probeMarkingGestures(session, target, {
+        requireContextMenu: rewriteContextMenu,
+      }),
     }));
     const gestures = frames.action;
     const document = await withSiteSession(targets.site, (session) => captureDocumentIdentity(session, identity.expectedUrl));
     const screenshots = await captureStageScreenshots({ ...targets, runDirectory, id });
-    return { data: { gestures, frames }, document, screenshots };
+    return { data: { gestures, frames, targetPreparation: preparation.diagnostics }, document, screenshots };
   }
   if (id === "marking-scroll-fade" || id === "silent-scroll-fade") {
     const probe = await withSiteSession(targets.site, (session) => probeScrollFade(session, { artifactDirectory: frameDirectory, name: id }));

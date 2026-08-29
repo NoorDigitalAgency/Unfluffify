@@ -11,7 +11,9 @@ import {
   executeResizePerturbation,
   filterLongTasksToCollectorWindow,
   markingOwnerBelongsToCandidate,
+  preparedMarkingContextIsClean,
   preparedMarkingTargetIsUsable,
+  stablePreparedMarkingTargetAuthority,
   resolveCollectorPerformanceWindow,
   snapshotMatchesAuthoritativePosture,
   topHitPaintEvidence,
@@ -92,7 +94,10 @@ describe("P25 live site-session visibility", () => {
     expect(source).toContain("document.elementsFromPoint(x, y).find");
     expect(source).toContain("pointReachable: Boolean(point)");
     expect(source).toContain("Prepared marking target is no longer physically reachable");
-    expect(source).toContain("const contextCloseDeadline = Date.now() + 500");
+    expect(source).toContain("candidate.closest('article,[role=\"article\"]')");
+    expect(source).toContain("const attemptLimit = options.attemptLimit ?? 128");
+    expect(source).toContain("lastRejections.length > 12");
+    expect(source).toContain("const deadline = Date.now() + 500");
     expect(source).toContain("document.querySelectorAll('[data-uf-marking-menu=\"true\"]')");
     expect(source).toContain("Marking context menu did not dismiss after trusted Escape input");
   });
@@ -374,6 +379,20 @@ describe("P25 prepared marking target authority", () => {
     })).toBe(true);
   });
 
+  it("requires context-menu authority to prove there is no latent explicit owner", () => {
+    const clean = [
+      { action: "include", disabled: false },
+      { action: "exclude", disabled: false },
+      { action: "widen", disabled: true },
+      { action: "clear", disabled: true },
+    ];
+    expect(preparedMarkingContextIsClean(clean)).toBe(true);
+    expect(preparedMarkingContextIsClean(clean.map((action) =>
+      action.action === "clear" ? { ...action, disabled: false } : action
+    ))).toBe(false);
+    expect(preparedMarkingContextIsClean(clean.filter((action) => action.action !== "exclude"))).toBe(false);
+  });
+
   it("normalizes a related nested physical owner before exact Alt and Shift proof", () => {
     const nestedOwnerXpath = `${target.xpath}/a[1]`;
     expect(markingOwnerBelongsToCandidate(target.xpath, nestedOwnerXpath)).toBe(true);
@@ -384,6 +403,25 @@ describe("P25 prepared marking target authority", () => {
       decision: { targetOwned: [] },
     })).toBe(true);
     expect(markingOwnerBelongsToCandidate(target.xpath, "/html[1]/body[1]/aside[1]")).toBe(false);
+  });
+
+  it("requires the exact Alt owner and strict Shift ancestor to survive a second authority observation", () => {
+    const initial = {
+      target,
+      includedOwnerXpath: target.xpath,
+      shiftedOwnerXpath: "/html[1]/body[1]/main[1]",
+      decision: { targetOwned: [] },
+    };
+
+    expect(stablePreparedMarkingTargetAuthority(initial, { ...initial })).toBe(true);
+    expect(stablePreparedMarkingTargetAuthority(initial, {
+      ...initial,
+      shiftedOwnerXpath: "/html[1]/body[1]",
+    })).toBe(false);
+    expect(stablePreparedMarkingTargetAuthority(initial, {
+      ...initial,
+      decision: { targetOwned: [{ ownerRelation: "ancestor" }] },
+    })).toBe(false);
   });
 
   it.each([

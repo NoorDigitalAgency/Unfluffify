@@ -828,6 +828,94 @@ preserves the stronger architecture.
     pass four files / 154 tests. The complete gate passes lint, every page-world
     and TypeScript check, 140 files / 1,418 tests, the production build, and seven
     generated-manifest checks. A new pushed-source DPJ run must prove both routes.
+114. **Remediated, immutable rerun pending harness P0 — gesture preparation
+    stopped before exhausting DPJ's moving candidate corpus and discarded the
+    rejection evidence.** Immutable run
+    `2026-08-29T03-31-35-565Z-3a5f9dc9-rewrite-dpj` on pushed commit
+    `dceb7085` passed preflight, both Render Inspection modes, exact activation,
+    network bounds, and marking visuals, then failed before physical input with
+    `No stable exact and widenable clean marking target is available`. The
+    fixed 24-candidate cap was not authoritative on DPJ: its carousel and lazy
+    document expose more than 100 readable candidates, and the set can change
+    while preparation scrolls. The search now prefers generic article leaves,
+    exhausts a 128-attempt/30-second bounded corpus across fresh sweeps, requires
+    two identical Alt-owner/Shift-ancestor/clean-decision observations, and
+    records reason counts plus the last twelve rejections. Preparation remains
+    outside the operator Long Task window. A failed stage now retains enough
+    evidence to distinguish unreachable geometry, moving identity, missing Alt
+    authority, non-widenable structure, existing ownership, and unstable
+    generations instead of collapsing them into one null result.
+115. **Remediated, immutable rerun pending P0 — CSS-only carousel motion could
+    leave interaction eligibility at its activation-time horizontal visibility
+    snapshot.** The expanded DPJ trace rejected 67 candidates in 30.2 seconds:
+    37 were currently non-widenable and 30 lost the Alt owner after the page
+    moved them. A long-settle physical check then proved a default-included,
+    onscreen review heading had no Alt hover and created no explicit inclusion.
+    The heading was in the real top page hit stack; it had merely been
+    horizontally offscreen when the bridge was captured, and DPJ moved it with
+    a CSS transform that emits no DOM mutation. Resolution now treats only the
+    current paint-reachable composed hit path as stronger visibility authority,
+    recomputes Shift grouping from locally visible siblings, and keeps the
+    canonical bridge/store identity intact. This is O(hit path) for ordinary
+    include/exclude input; the extra sibling geometry work occurs only for
+    Shift. A chosen widened owner that cannot bind to the current bridge
+    generation now rejects instead of silently degrading to an exact exclusion.
+    A regression moves an initially clipped article onscreen without refreshing
+    the bridge and proves exact Alt inclusion, widened Shift ownership,
+    acknowledgement, and canonical toggle. The focused product/harness gate
+    passes three files / 172 tests. Clean complete-gate and immutable headed
+    evidence remain required.
+116. **Remediated, immutable rerun pending P0 — the painted acknowledgement
+    boundary treated a fresh bridge object as a different physical target.**
+    Gesture resolution, paint acknowledgement, and canonical mutation are
+    intentionally split across one presentation frame and one task. A
+    structural refresh in either gap rebuilds every `EvaluationNode`, so the
+    engine's former object/generation equality check rejected the pending
+    gesture even when the exact same DOM `Element` survived. Interaction
+    decisions now retain the node-to-element identity and rebind by the
+    element-stable bridge key at acknowledgement, toggle, clear, and explicit-
+    ownership checks. The current entry must still be the same physical
+    `Element`, connected, generation-current, and fingerprint-current; a
+    replacement that recycles the XPath or key fails closed. Debug builds retain
+    reason-specific interaction rejection stages, while production compiles
+    them out. Regressions refresh the bridge repeatedly between resolution,
+    acknowledgement, mutation, ownership, and clear, then replace the target at
+    the same XPath and prove rejection.
+117. **Remediated, immutable rerun pending harness P0 — painted explicit-owner
+    rows were not sufficient authority for calling a gesture target clean.**
+    The first post-fix DPJ diagnostic still failed Shift even though its hover
+    preflight had twice selected a strict ancestor. Debug lifecycle evidence
+    showed that `plain-no-create` first cleared a retained explicit ancestor
+    whose canonical decision existed but whose explicit overlay was temporarily
+    unpainted. Removing that owner legitimately changed the following Shift
+    choice, so the timed sequence no longer exercised the structure the
+    preflight had approved. Preparation now opens the real trusted context menu
+    outside the performance window and accepts a target only when Include and
+    Exclude are enabled while Widen and Clear are disabled. The proof consumes
+    the same atomic content capability resolver as the operator and dismisses
+    with trusted Escape before timing. On DPJ it rejected nine latent-owner
+    candidates, selected candidate 40, and then passed all six physical
+    operations: no-create 44.1 ms, widened Shift 72 ms, exact plain clear 63.9
+    ms, Alt include 74 ms, context menu 31.8 ms, and inclusion clear 59.1 ms.
+    This is dirty-tree diagnostic evidence; a clean pushed-source stage remains
+    mandatory.
+118. **Remediated, immutable matrix rerun pending harness P0 — the comparison
+    gate required a rewrite-only action menu from pinned legacy.** Pinned legacy
+    installs `contextmenu` as an alias of its ordinary marking toggle; it has no
+    four-button Include/Exclude/Widen/Clear menu. P25 nevertheless dispatched a
+    right click, waited for rewrite menu actions, and validated those actions for
+    both implementations. That could mutate legacy and then fail an impossible
+    requirement before any honest comparison. Gesture capture now declares the
+    implementation contract explicitly. Both implementations run and compare
+    the five shared operations—plain no-create, Shift widen, exact plain clear,
+    Alt include, and inclusion clear. Only the rewrite runs and validates the
+    action menu and its four capability states. Comparative latency excludes the
+    rewrite-only menu; its timing remains separate diagnostic evidence. Rewrite
+    preparation likewise uses the context capability resolver for clean-owner
+    proof, while legacy never receives the mutating right-click preflight. The
+    focused gate passes four files / 181 tests; the complete gate passes lint,
+    generated page-world parity, all TypeScript projects, 140 files / 1,424
+    tests, a fresh production build, and seven manifest checks.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -899,10 +987,10 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 113; findings
+Implementation remediation is code-complete through finding 118; findings
 110–112 are closed by the immutable pushed-source DPJ gesture run. Findings 108
-and 113 await exact clean pushed reruns, while finding 109 remains a recurrence
-watch. P25 remains open until the exact
+and 113–118 await exact clean pushed reruns, while finding 109 remains a
+recurrence watch. P25 remains open until the exact
 clean pushed commit completes every valid candidate's observer-free headed
 rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,

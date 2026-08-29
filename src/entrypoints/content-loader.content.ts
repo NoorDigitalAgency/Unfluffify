@@ -3148,6 +3148,15 @@ function ensureMarkingListeners(): void {
   let markingMutationTask: ReturnType<typeof setTimeout> | null = null;
   let trailingMarkingMutation: PendingMarkingMutation | null = null;
   const deduper = createPhysicalActionDeduper();
+  const reportMarkingGestureStage = (
+    stage: "resolved" | "queued" | "acknowledged" | "rejected" | "applied",
+    detail: Readonly<Record<string, unknown>>,
+  ): void => {
+    if (typeof __UF_DEBUG_BUILD__ === "undefined" || !__UF_DEBUG_BUILD__) {
+      return;
+    }
+    console.debug("[Unfluffify][marking-gesture]", JSON.stringify({ stage, ...detail }));
+  };
   const isTrustedMarkingInput = (event: Event): boolean => event.isTrusted !== false;
   const overlayXpathFromTarget = (target: EventTarget | null): string => {
     const candidate = target as (Element & {
@@ -3193,6 +3202,12 @@ function ensureMarkingListeners(): void {
       return;
     }
     const mutation: PendingMarkingMutation = { physicalId, target, mode, x, y };
+    reportMarkingGestureStage("queued", {
+      physicalId,
+      mode,
+      targetKey: target.key,
+      targetXpath: target.xpath,
+    });
     const scheduleMutation = (next: PendingMarkingMutation): void => {
       const owner = markingEngine;
       if (!owner) {
@@ -3205,6 +3220,13 @@ function ensureMarkingListeners(): void {
         const changed = next.mode === "clear"
           ? owner.clear?.(next.target) ?? false
           : owner.toggle(next.target, next.mode);
+        reportMarkingGestureStage(changed === false ? "rejected" : "applied", {
+          boundary: "mutation",
+          physicalId: next.physicalId,
+          mode: next.mode,
+          targetKey: next.target.key,
+          targetXpath: next.target.xpath,
+        });
         if (changed === false) {
           owner.rejectAtPoint?.(next.x, next.y);
           return;
@@ -3236,7 +3258,17 @@ function ensureMarkingListeners(): void {
       }
       const acknowledge = (): void => {
         markingMutationFrame = 0;
-        if (!markingActive || markingEngine !== owner || !owner.acknowledge?.(next.target, next.mode)) {
+        const activeOwner = markingActive && markingEngine === owner;
+        const acknowledged = activeOwner && Boolean(owner.acknowledge?.(next.target, next.mode));
+        reportMarkingGestureStage(acknowledged ? "acknowledged" : "rejected", {
+          boundary: "paint",
+          physicalId: next.physicalId,
+          mode: next.mode,
+          targetKey: next.target.key,
+          targetXpath: next.target.xpath,
+          activeOwner,
+        });
+        if (!acknowledged) {
           finish();
           return;
         }
@@ -3322,6 +3354,14 @@ function ensureMarkingListeners(): void {
       event.shiftKey,
       overlayXpathFromTarget(event.target),
     );
+    reportMarkingGestureStage("resolved", {
+      mode,
+      shiftActive: event.shiftKey,
+      targetKey: target?.key ?? null,
+      targetXpath: target?.xpath ?? null,
+      x: Math.round(event.clientX),
+      y: Math.round(event.clientY),
+    });
     if (!target) {
       // Plain exclude mode is intentionally an unmark-only gesture. A miss on
       // an already-included area is a valid no-op; Shift is required to create

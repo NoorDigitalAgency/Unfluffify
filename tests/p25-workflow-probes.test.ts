@@ -279,6 +279,20 @@ describe("P25 exact marking gesture acceptance", () => {
     expect(validateExactMarkingGestureEvidence(exactGestureEvidence())).toEqual({ pass: true, failures: [] });
   });
 
+  it("validates only shared gestures when pinned legacy has no action-menu contract", () => {
+    const evidence = exactGestureEvidence();
+    const legacyEvidence = {
+      ...evidence,
+      operations: evidence.operations.filter((operation) => operation.id !== "context-menu"),
+      contextMenu: [],
+      contextExpectedDisabled: {},
+    };
+    expect(validateExactMarkingGestureEvidence(legacyEvidence, { requireContextMenu: false }))
+      .toEqual({ pass: true, failures: [] });
+    expect(validateExactMarkingGestureEvidence(legacyEvidence).failures)
+      .toContain("context-menu:operation-missing");
+  });
+
   it("rejects an ambient aggregate change on a different target", () => {
     const evidence = exactGestureEvidence();
     evidence.operations[1] = {

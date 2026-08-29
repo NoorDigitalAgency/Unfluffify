@@ -541,7 +541,7 @@ export function validateFullWorkflowEvidence(workflow) {
 
 const REQUIRED_CONTEXT_ACTIONS = Object.freeze(["clear", "exclude", "include", "widen"]);
 
-export function validateExactMarkingGestureEvidence(evidence) {
+export function validateExactMarkingGestureEvidence(evidence, options = {}) {
   const failures = [];
   const operations = new Map((evidence?.operations ?? []).map((operation) => [operation.id, operation]));
   const requireOperation = (id, predicate, reason) => {
@@ -557,18 +557,20 @@ export function validateExactMarkingGestureEvidence(evidence) {
   requireOperation("plain-exact-unmark", (value) => value.assertion?.removedExactOwner === true && value.assertion?.remainingTargetOwned === 0, "exact-owner-not-removed");
   requireOperation("alt-include", (value) => value.assertion?.kind === "explicit-inclusion" && value.assertion?.ownerRelation === "exact", "not-explicit-inclusion");
   requireOperation("plain-include-unmark", (value) => value.assertion?.removedExactOwner === true && value.assertion?.remainingTargetOwned === 0, "inclusion-not-removed");
-  const contextOperation = operations.get("context-menu");
-  if (!contextOperation) failures.push("context-menu:operation-missing");
-  else if (contextOperation.acknowledged !== true || !Number.isFinite(contextOperation.acknowledgementLatencyMs)) failures.push("context-menu:target-acknowledgement-missing");
-  const contextActions = new Map((evidence?.contextMenu ?? []).map((action) => [action.action, action]));
-  for (const id of REQUIRED_CONTEXT_ACTIONS) {
-    if (!contextActions.has(id)) failures.push(`context-menu:${id}:missing`);
-  }
-  if (contextActions.size !== REQUIRED_CONTEXT_ACTIONS.length) failures.push("context-menu:unexpected-action-set");
-  const expectedDisabled = evidence?.contextExpectedDisabled ?? {};
-  for (const id of REQUIRED_CONTEXT_ACTIONS) {
-    if (typeof expectedDisabled[id] !== "boolean") failures.push(`context-menu:${id}:expected-state-missing`);
-    else if (contextActions.get(id)?.disabled !== expectedDisabled[id]) failures.push(`context-menu:${id}:disabled-state-mismatch`);
+  if (options.requireContextMenu !== false) {
+    const contextOperation = operations.get("context-menu");
+    if (!contextOperation) failures.push("context-menu:operation-missing");
+    else if (contextOperation.acknowledged !== true || !Number.isFinite(contextOperation.acknowledgementLatencyMs)) failures.push("context-menu:target-acknowledgement-missing");
+    const contextActions = new Map((evidence?.contextMenu ?? []).map((action) => [action.action, action]));
+    for (const id of REQUIRED_CONTEXT_ACTIONS) {
+      if (!contextActions.has(id)) failures.push(`context-menu:${id}:missing`);
+    }
+    if (contextActions.size !== REQUIRED_CONTEXT_ACTIONS.length) failures.push("context-menu:unexpected-action-set");
+    const expectedDisabled = evidence?.contextExpectedDisabled ?? {};
+    for (const id of REQUIRED_CONTEXT_ACTIONS) {
+      if (typeof expectedDisabled[id] !== "boolean") failures.push(`context-menu:${id}:expected-state-missing`);
+      else if (contextActions.get(id)?.disabled !== expectedDisabled[id]) failures.push(`context-menu:${id}:disabled-state-mismatch`);
+    }
   }
   return { pass: failures.length === 0, failures };
 }

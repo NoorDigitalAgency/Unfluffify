@@ -436,6 +436,103 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
+  it("uses the live physical hit path when a CSS carousel moves snapshot-hidden content onscreen", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const card = new FakeElement("ARTICLE", rect(-500, 10, 260, 120));
+    const title = new FakeElement("H2", rect(-480, 20, 180, 24), "Late visible title");
+    const copy = new FakeElement("P", rect(-480, 54, 180, 40), "Late visible copy");
+    for (const element of [root, card, title, copy]) {
+      element.ownerDocument = doc;
+    }
+    root.appendChild(card);
+    card.appendChild(title);
+    card.appendChild(copy);
+    doc.hits = [title, card, root];
+    const engine = createMarkingEngine(root as unknown as Element);
+
+    // A transform-only carousel transition emits no DOM mutation, so these
+    // nodes retain their original horizontally clipped bridge visibility.
+    Object.assign(card.rect, rect(10, 10, 260, 120));
+    Object.assign(title.rect, rect(20, 20, 180, 24));
+    Object.assign(copy.rect, rect(20, 54, 180, 40));
+
+    const include = engine.resolveAtPoint(40, 30, "include");
+    expect(include?.xpath).toBe("/main[1]/article[1]/h2[1]");
+
+    const widened = engine.resolveAtPoint(40, 30, "exclude", true);
+    expect(widened?.xpath).toBe("/main[1]/article[1]");
+    expect(engine.acknowledge(include!, "include")).toBe(true);
+    expect(engine.toggle(include!, "include")).toBe(true);
+    expect(engine.rows()).toContainEqual({
+      xpath: "/main[1]/article[1]/h2[1]",
+      excluded: false,
+      explicit: true,
+    });
+    engine.dispose();
+  });
+
+  it("rebinds an in-flight gesture across bridge generations only for the same Element", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const article = new FakeElement("ARTICLE", rect(10, 10, 260, 120));
+    const copy = new FakeElement("P", rect(20, 20, 180, 40), "Stable physical copy");
+    for (const element of [root, article, copy]) {
+      element.ownerDocument = doc;
+    }
+    root.appendChild(article);
+    article.appendChild(copy);
+    doc.hits = [copy, article, root];
+    const engine = createMarkingEngine(root as unknown as Element);
+    const resolved = engine.resolveAtPoint(40, 30, "exclude", true)!;
+    expect(resolved.xpath).toBe("/main[1]/article[1]/p[1]");
+
+    engine.refresh();
+    expect(engine.acknowledge(resolved, "exclude")).toBe(true);
+    engine.refresh();
+    expect(engine.toggle(resolved, "exclude")).toBe(true);
+    expect(engine.rows()).toContainEqual({
+      xpath: resolved.xpath,
+      excluded: true,
+      explicit: true,
+    });
+
+    engine.refresh();
+    expect(engine.hasExplicitMark(resolved)).toBe(true);
+    expect(engine.acknowledge(resolved, "clear")).toBe(true);
+    engine.refresh();
+    expect(engine.clear(resolved)).toBe(true);
+    expect(engine.hasExplicitMark(resolved)).toBe(false);
+    engine.dispose();
+  });
+
+  it("rejects an in-flight gesture when a replacement Element reuses its XPath", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const original = new FakeElement("P", rect(20, 20, 180, 40), "Original copy");
+    for (const element of [root, original]) {
+      element.ownerDocument = doc;
+    }
+    root.appendChild(original);
+    doc.hits = [original, root];
+    const engine = createMarkingEngine(root as unknown as Element);
+    const resolved = engine.resolveAtPoint(40, 30, "include")!;
+
+    original.remove();
+    const replacement = new FakeElement("P", rect(20, 20, 180, 40), "Replacement copy");
+    replacement.ownerDocument = doc;
+    root.appendChild(replacement);
+    doc.hits = [replacement, root];
+    engine.refresh();
+
+    expect(replacement.parentElement).toBe(root);
+    expect(engine.acknowledge(resolved, "include")).toBe(false);
+    expect(engine.toggle(resolved, "include")).toBe(false);
+    expect(engine.clear(resolved)).toBe(false);
+    expect(engine.hasExplicitMark(resolved)).toBe(false);
+    engine.dispose();
+  });
+
   it("resolves exact painted exclusion fragments without scanning canonical owners", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));

@@ -25,8 +25,27 @@ DPJ physical-target and immediate explicit-decision findings 110–112. Its full
 workflow then exposed finding 113: a retained zero-height technical footer row
 was still enabled even though it could not receive truthful occurrence focus.
 Typed target availability, reason-specific disabled rows, live target rechecks,
-and enabled-row physical proof are complete-gate green and await a pushed-source
-rerun.
+and enabled-row physical proof landed in pushed commit `dceb7085`. Immutable run
+`2026-08-29T03-31-35-565Z-3a5f9dc9-rewrite-dpj` passed stages 00–04, then
+exposed findings 114–115 before gesture input: the harness stopped after 24
+candidates, and its expanded trace proved CSS-only carousel motion could leave
+an onscreen occurrence in the rewrite's activation-time hidden snapshot. The
+bounded evidence-rich search and point-local live interaction authority are
+implemented. The next same-browser diagnostic exposed findings 116–117 at the
+frame/task acceptance and evidence-authority boundaries: a surviving physical
+Element needed identity-preserving rebinding across bridge generations, and an
+unpainted canonical explicit owner could make the harness's first no-create
+gesture alter the structure approved by preflight. Same-Element rebinding now
+retains the replacement fence, and trusted context-menu capabilities prove a
+candidate is canonically clean before timing. The resulting dirty-tree DPJ gate
+passed all six gestures with a 74 ms worst acknowledgement. Focused
+product/harness coverage and the complete 140-file / 1,424-test gate are green
+and await the commit plus pushed-source reruns. Diff review then exposed finding
+118: P25 required the rewrite-only
+four-action context menu from pinned legacy, whose right-click is only an alias
+of its ordinary toggle. The harness now compares the five genuinely shared
+gestures, gates the action menu only for the rewrite, and excludes that
+rewrite-only operation from comparative latency.
 The observer-free
 headed matrix remains in progress; P25 stays open until it and the final evidence
 commit are synchronized.
@@ -758,6 +777,32 @@ headed-validation gates.
   gate passes lint, all page-world/TypeScript checks, 140 files / 1,418 tests,
   the production build, and seven generated-manifest checks. Commit/push and
   repeat DPJ from a new immutable run before advancing the matrix.
+- Immutable pushed-source run
+  `2026-08-29T03-31-35-565Z-3a5f9dc9-rewrite-dpj` on `dceb7085` passed stages
+  00–04, then failed before physical gesture input because the fixed
+  24-candidate preparation cap did not exhaust DPJ's moving carousel/lazy
+  corpus. Replace the cap with a bounded exhaustive search, retain rejection
+  reasons, and require two matching Alt/Shift/clean authority observations.
+  The expanded trace then proved the product root: a CSS transform can move a
+  bridge-snapshot-hidden item under the pointer without a mutation, leaving Alt
+  with no hover or mark. Let the current paint-reachable composed hit path
+  override only stale interaction visibility, compute Shift grouping from
+  locally visible siblings, and reject an unbound widened owner rather than
+  silently falling back to exact. Gesture acknowledgement and mutation now
+  rebind a stale evaluation object only when its stable key resolves to the exact
+  same physical Element; a replacement at the same XPath remains rejected.
+  Preparation additionally proves canonical cleanliness with the real trusted
+  context menu, because an unpainted explicit row is not evidence that no
+  decision exists. The first DPJ diagnostic rejected nine such latent owners,
+  selected candidate 40, and passed all six operations with a 74 ms worst
+  acknowledgement. Focused product/harness coverage passes four files / 181
+  tests. The review additionally split pinned legacy's five shared gestures from
+  the rewrite-only four-action context menu, avoiding a mutating legacy
+  right-click and keeping parity timing implementation-neutral. The complete
+  gate passes lint, page-world parity, every TypeScript project, 140 files /
+  1,424 tests, a fresh production build, and seven manifest checks. Commit/push,
+  rebuild, and a brand-new DPJ run are required before returning to finding 113
+  and the matrix.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

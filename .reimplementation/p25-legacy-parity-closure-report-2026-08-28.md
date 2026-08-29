@@ -3,7 +3,7 @@
 ## Overall result
 
 **OPEN — remediation and clean-source headed acceptance are still in
-progress.** The P25 audit records 113 distinct legacy/rewrite, architecture,
+progress.** The P25 audit records 118 distinct legacy/rewrite, architecture,
 lifecycle, UX, performance, and evidence-authority findings. All confirmed
 findings have an implemented resolution or an intentional binding decision, but this
 report will not call that a parity PASS until the exact committed source passes
@@ -41,7 +41,14 @@ The rewrite now includes the following closure slices:
 
 - generation-fenced O(visible-hit) marking with painted-fragment owner identity,
   exact plain unmark, Shift-only widened exclusion, eligible Alt inclusion, and
-  one cached target for the four context actions;
+  one cached target for the four context actions; current paint-reachable hits
+  override stale transform-only visibility without a document rebuild, and
+  unbound Shift owners reject rather than degrading to exact; in-flight
+  decisions rebind only to the same physical Element across bridge generations,
+  and headed target preparation proves canonical cleanliness through the real
+  context capability resolver instead of trusting painted rows alone; shared
+  legacy/rewrite gesture timing excludes the rewrite-only action menu, whose
+  capability and latency remain independently gated;
 - independent paint reachability, hidden/suppressed overlay pruning, distinct
   hard/default/explicit/hover/context/focus/silent layers, identity-stable
   scroll fade, one idle redraw, resize restoration, and silent deduplication;
@@ -76,7 +83,7 @@ The final dirty-tree verification before the clean acceptance commit passed:
 | ESLint | PASS |
 | Generated page-world parity | PASS |
 | WXT prepare + all TypeScript projects | PASS |
-| Vitest | PASS — current complete gate: 140 files, 1,418 tests; focused remediation: 4 files, 154 tests |
+| Vitest | PASS — current complete gate: 140 files, 1,424 tests; latest focused remediation: 4 files, 181 tests |
 | Production WXT build | PASS |
 | Generated manifest permissions | PASS — 7 checks |
 | Debug WXT build | PASS |

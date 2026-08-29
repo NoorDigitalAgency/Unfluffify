@@ -694,6 +694,7 @@ export function createMarkingEngine(
   let currentPreviewProjection: PreviewProjection | null = null;
   const generationByNode = new WeakMap<EvaluationNode, number>();
   const fingerprintByNode = new WeakMap<EvaluationNode, string>();
+  const elementByNode = new WeakMap<EvaluationNode, Element>();
 
   const cancelProgressiveGeometryRender = (): boolean => {
     progressiveGeometryCycle += 1;
@@ -756,9 +757,10 @@ export function createMarkingEngine(
     }]));
     widenByKey = new Map<string, WidenNode>();
     toWidenNode(bridge.root, null, widenByKey);
-    for (const { evaluationNode } of bridge.byXpath.values()) {
+    for (const { evaluationNode, element } of bridge.byXpath.values()) {
       generationByNode.set(evaluationNode, bridgeGeneration);
       fingerprintByNode.set(evaluationNode, evaluationNodeFingerprint(evaluationNode));
+      elementByNode.set(evaluationNode, element);
     }
     const evaluation = store.currentEvaluation();
     candidateByXpath = buildCandidateIndex(bridge.root, evaluation.overlay, store.canonicalSet().rows);
@@ -786,6 +788,49 @@ export function createMarkingEngine(
       element?.isConnected !== false
       ? node
       : null;
+  };
+
+  const currentInteractionEntry = (
+    hint: EvaluationNode,
+    stage: "acknowledge" | "toggle" | "clear" | "has-explicit",
+  ): Readonly<{
+    node: EvaluationNode;
+    element: Element;
+  }> | null => {
+    const originalElement = elementByNode.get(hint);
+    const current = bridge.byKey.get(hint.key);
+    const node = current?.evaluationNode;
+    const element = current?.element as (Element & { isConnected?: boolean }) | undefined;
+    // A bridge refresh creates new EvaluationNode objects even when the same
+    // physical Element survives. Rebind that identity-preserving case across
+    // the frame/task acknowledgement boundary, but never let a recycled XPath
+    // or instrumentation key transfer a gesture to a replacement element.
+    const rebound = originalElement &&
+      element === originalElement &&
+      node &&
+      generationByNode.get(node) === bridgeGeneration &&
+      fingerprintByNode.get(node) === evaluationNodeFingerprint(node) &&
+      element.isConnected !== false
+      ? { node, element }
+      : null;
+    if (!rebound && debugWorkTiming) {
+      console.debug("[Unfluffify][marking-interaction]", JSON.stringify({
+        stage,
+        outcome: "rejected",
+        hintKey: hint.key,
+        hintXpath: hint.xpath,
+        currentKey: node?.key ?? null,
+        currentXpath: node?.xpath ?? null,
+        originalElementKnown: Boolean(originalElement),
+        currentEntryKnown: Boolean(current),
+        sameElement: Boolean(originalElement && element === originalElement),
+        currentGeneration: node ? generationByNode.get(node) ?? null : null,
+        bridgeGeneration,
+        fingerprintCurrent: Boolean(node && fingerprintByNode.get(node) === evaluationNodeFingerprint(node)),
+        connected: element?.isConnected !== false,
+      }));
+    }
+    return rebound;
   };
 
   const sameElements = (left: readonly Element[], right: readonly Element[]): boolean =>
@@ -1649,6 +1694,10 @@ export function createMarkingEngine(
       const candidatesByXpath = currentCandidateIndex();
       const candidates: MarkingCandidate[] = [];
       const candidateXpaths = new Set<string>();
+      const pointCandidateKeys = new Set<string>();
+      const canonicalRowsByXpath = new Map(
+        store.canonicalSet().rows.map((row) => [row.xpath, row]),
+      );
       for (const element of hits) {
         const xpath = bridge.byElement.get(element)?.evaluationNode.xpath;
         let candidate = xpath ? candidatesByXpath.get(xpath) : undefined;
@@ -1660,7 +1709,25 @@ export function createMarkingEngine(
         while (candidate) {
           if (!candidateXpaths.has(candidate.xpath)) {
             candidateXpaths.add(candidate.xpath);
-            candidates.push(candidate);
+            pointCandidateKeys.add(candidate.key);
+            const entry = bridge.byXpath.get(candidate.xpath);
+            const liveNode = entry?.evaluationNode;
+            // Bridge visibility is a capture/presentation snapshot. CSS-only
+            // carousel transforms can move an initially off-screen occurrence
+            // under the pointer without emitting a DOM mutation. The current
+            // paint-reachable hit path is stronger interaction authority than
+            // that old horizontal snapshot, so restore only this path's live
+            // markability without rebuilding or rescanning the document.
+            const candidateXpath = candidate.xpath;
+            const selfMarkable = liveNode
+              ? isToggleableBoundary(
+                liveNode.visible ? liveNode : { ...liveNode, visible: true },
+                { hasOwnMark: () => canonicalRowsByXpath.has(candidateXpath) },
+              )
+              : candidate.selfMarkable;
+            candidates.push(selfMarkable === candidate.selfMarkable
+              ? candidate
+              : { ...candidate, selfMarkable });
           }
           candidate = candidate.parent ?? undefined;
         }
@@ -1684,10 +1751,44 @@ export function createMarkingEngine(
       }
       if (shiftActive && mode === "exclude") {
         const widenNode = widenByKey.get(resolved.key) ?? widenByKey.get(resolved.xpath);
-        const widened = widenNode ? chooseWidenTarget(widenNode) : null;
-        return widened
-          ? bridge.byKey.get(widened.key)?.evaluationNode ?? bridge.byXpath.get(resolved.xpath)?.evaluationNode ?? null
-          : bridge.byXpath.get(resolved.xpath)?.evaluationNode ?? null;
+        if (!widenNode) {
+          return null;
+        }
+        const liveVisibility = new Map<string, boolean>();
+        const visibleNow = (node: WidenNode): boolean => {
+          const cached = liveVisibility.get(node.key);
+          if (cached !== undefined) {
+            return cached;
+          }
+          if (pointCandidateKeys.has(node.key)) {
+            liveVisibility.set(node.key, true);
+            return true;
+          }
+          const element = bridge.byKey.get(node.key)?.element;
+          const view = element?.ownerDocument.defaultView;
+          if (!element || !view || !isCurrentlyVisuallyVisible(element)) {
+            liveVisibility.set(node.key, false);
+            return false;
+          }
+          const rect = element.getBoundingClientRect();
+          const viewportWidth = Number.isFinite(view.innerWidth) ? view.innerWidth : Number.POSITIVE_INFINITY;
+          const viewportHeight = Number.isFinite(view.innerHeight) ? view.innerHeight : Number.POSITIVE_INFINITY;
+          const visible = rect.width > 0 && rect.height > 0 &&
+            rect.right > 0 && rect.left < viewportWidth &&
+            rect.bottom > 0 && rect.top < viewportHeight;
+          liveVisibility.set(node.key, visible);
+          return visible;
+        };
+        const widened = chooseWidenTarget(widenNode, {
+          isVisible: visibleNow,
+          getChildren: (node) => (node.children ?? []).map((child) => {
+            const visible = visibleNow(child);
+            return visible === child.visible ? child : { ...child, visible };
+          }),
+        });
+        // Never silently degrade a Shift decision to the exact node when the
+        // chosen live owner cannot be rebound to this bridge generation.
+        return bridge.byKey.get(widened.key)?.evaluationNode ?? null;
       }
       return bridge.byXpath.get(resolved.xpath)?.evaluationNode ?? null;
     },
@@ -1719,49 +1820,37 @@ export function createMarkingEngine(
       node: EvaluationNode,
       mode: "include" | "exclude" | "clear",
     ): boolean {
-      const current = bridge.byXpath.get(node.xpath);
-      const element = current?.element as (Element & { isConnected?: boolean }) | undefined;
-      if (
-        current?.evaluationNode !== node ||
-        generationByNode.get(node) !== bridgeGeneration ||
-        fingerprintByNode.get(node) !== evaluationNodeFingerprint(node) ||
-        element?.isConnected === false ||
-        !element
-      ) {
+      const current = currentInteractionEntry(node, "acknowledge");
+      if (!current) {
         return false;
       }
       if (mode === "clear") {
         const existing = store.canonicalSet().rows.find((row) =>
-          row.xpath === node.xpath && row.explicit === true
+          row.xpath === current.node.xpath && row.explicit === true
         );
         if (!existing) {
           return false;
         }
-        renderer.acknowledge(element, node.xpath, existing.excluded ? "exclude" : "include");
+        renderer.acknowledge(
+          current.element,
+          current.node.xpath,
+          existing.excluded ? "exclude" : "include",
+        );
         return true;
       }
-      renderer.acknowledge(element, node.xpath, mode);
+      renderer.acknowledge(current.element, current.node.xpath, mode);
       return true;
     },
     toggle(node: EvaluationNode, mode: Exclude<MarkMode, "disabled" | "passthrough">): boolean {
-      const current = bridge.byXpath.get(node.xpath);
-      const element = current?.element as (Element & { isConnected?: boolean }) | undefined;
-      if (
-        toggleInProgress ||
-        current?.evaluationNode !== node ||
-        generationByNode.get(node) !== bridgeGeneration ||
-        fingerprintByNode.get(node) !== evaluationNodeFingerprint(node) ||
-        element?.isConnected === false
-      ) {
+      const current = currentInteractionEntry(node, "toggle");
+      if (toggleInProgress || !current) {
         return false;
       }
       toggleInProgress = true;
       hoverResolution = null;
       try {
-        if (element) {
-          renderer.acknowledge(element, node.xpath, mode);
-        }
-        const toggled = store.toggle(node, mode);
+        renderer.acknowledge(current.element, current.node.xpath, mode);
+        const toggled = store.toggle(current.node, mode);
         candidateByXpath = null;
         interactiveMarkingRendered = true;
         renderChangedBranch(toggled, toggled.branchRoot);
@@ -1771,28 +1860,25 @@ export function createMarkingEngine(
       }
     },
     clear(node: EvaluationNode): boolean {
-      const current = bridge.byXpath.get(node.xpath);
-      const element = current?.element as (Element & { isConnected?: boolean }) | undefined;
-      if (
-        toggleInProgress ||
-        current?.evaluationNode !== node ||
-        generationByNode.get(node) !== bridgeGeneration ||
-        fingerprintByNode.get(node) !== evaluationNodeFingerprint(node) ||
-        element?.isConnected === false
-      ) {
+      const current = currentInteractionEntry(node, "clear");
+      if (toggleInProgress || !current) {
         return false;
       }
-      const existing = store.canonicalSet().rows.find((row) => row.xpath === node.xpath && row.explicit === true);
+      const existing = store.canonicalSet().rows.find((row) =>
+        row.xpath === current.node.xpath && row.explicit === true
+      );
       if (!existing) {
         return false;
       }
       toggleInProgress = true;
       hoverResolution = null;
       try {
-        if (element) {
-          renderer.acknowledge(element, node.xpath, existing.excluded ? "exclude" : "include");
-        }
-        const cleared = store.clear(node);
+        renderer.acknowledge(
+          current.element,
+          current.node.xpath,
+          existing.excluded ? "exclude" : "include",
+        );
+        const cleared = store.clear(current.node);
         if (!cleared) {
           return false;
         }
@@ -1805,7 +1891,10 @@ export function createMarkingEngine(
       }
     },
     hasExplicitMark(node: EvaluationNode): boolean {
-      return store.canonicalSet().rows.some((row) => row.xpath === node.xpath && row.explicit === true);
+      const current = currentInteractionEntry(node, "has-explicit");
+      return current !== null && store.canonicalSet().rows.some((row) =>
+        row.xpath === current.node.xpath && row.explicit === true
+      );
     },
     rejectAtPoint(x: number, y: number): void {
       renderer.rejectAtPoint(x, y);
