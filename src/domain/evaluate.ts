@@ -275,33 +275,49 @@ export function evaluateBranch(
   );
 
   const overlay = new Map(previous.overlay);
-  for (const key of overlay.keys()) {
-    if (isXPathInSubtree(key, branch.root.xpath)) {
-      overlay.delete(key);
+  // The evaluation tree is unchanged during a physical mark edit. Delete the
+  // exact branch nodes we just walked instead of testing every document-wide
+  // overlay key against the branch XPath. This preserves the pure/immutable
+  // result contract while making an exact-leaf toggle proportional to that leaf
+  // (apart from the native Map copy) rather than to the complete page.
+  const deletePreviousBranch = (node: EvaluationNode): void => {
+    overlay.delete(node.xpath);
+    for (const child of node.children ?? []) {
+      deletePreviousBranch(child);
     }
-  }
+  };
+  deletePreviousBranch(branch.root);
   for (const [key, value] of branchOverlay) {
     overlay.set(key, value);
   }
 
   // `previous.rows` is already in document order and a DOM subtree occupies one
-  // contiguous range. Preserve that order and splice the freshly walked branch
-  // once instead of sorting the full page after every physical click.
-  const rows: MarkRow[] = [];
-  let branchInserted = false;
-  for (const row of previous.rows) {
-    if (isXPathInSubtree(row.xpath, branch.root.xpath)) {
-      continue;
+  // contiguous range. Locate that range with a logarithmic lower bound, then
+  // let native slice/spread copy the unchanged prefixes. The former per-row
+  // document-order comparison parsed thousands of XPath segments on each click.
+  let lower = 0;
+  let upper = previous.rows.length;
+  while (lower < upper) {
+    const middle = lower + Math.floor((upper - lower) / 2);
+    if (compareXpathsInDocumentOrder(previous.rows[middle]!.xpath, branch.root.xpath) < 0) {
+      lower = middle + 1;
+    } else {
+      upper = middle;
     }
-    if (!branchInserted && compareXpathsInDocumentOrder(row.xpath, branch.root.xpath) > 0) {
-      rows.push(...branchRows);
-      branchInserted = true;
-    }
-    rows.push(row);
   }
-  if (!branchInserted) {
-    rows.push(...branchRows);
+  const branchStart = lower;
+  let branchEnd = branchStart;
+  while (
+    branchEnd < previous.rows.length &&
+    isXPathInSubtree(previous.rows[branchEnd]!.xpath, branch.root.xpath)
+  ) {
+    branchEnd += 1;
   }
+  const rows = [
+    ...previous.rows.slice(0, branchStart),
+    ...branchRows,
+    ...previous.rows.slice(branchEnd),
+  ];
   return {
     overlay,
     rows,

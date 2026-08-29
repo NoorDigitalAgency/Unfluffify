@@ -41,17 +41,16 @@ export function applyClear(markSet: CanonicalMarkSet, xpath: string): CanonicalM
   };
 }
 
-function findNodeByXpath(node: EvaluationNode, xpath: string): EvaluationNode | null {
-  if (node.xpath === xpath) {
-    return node;
-  }
-  for (const child of node.children ?? []) {
-    const found = findNodeByXpath(child, xpath);
-    if (found) {
-      return found;
+function indexNodesByXpath(root: EvaluationNode): ReadonlyMap<string, EvaluationNode> {
+  const result = new Map<string, EvaluationNode>();
+  const visit = (node: EvaluationNode): void => {
+    result.set(node.xpath, node);
+    for (const child of node.children ?? []) {
+      visit(child);
     }
-  }
-  return null;
+  };
+  visit(root);
+  return result;
 }
 
 function nearestAncestorMark(markSet: CanonicalMarkSet, xpath: string): MarkRow | undefined {
@@ -70,24 +69,8 @@ function nearestExcludedAncestorMark(markSet: CanonicalMarkSet, xpath: string): 
     .sort((left, right) => right.xpath.length - left.xpath.length)[0];
 }
 
-function assertBranchSpliceInvariant(
-  previous: EvaluationResult,
-  next: EvaluationResult,
-  branchRootXpath: string,
-): void {
-  const previousOutside = new Map([...previous.overlay]
-    .filter(([xpath]) => !isXPathInSubtree(xpath, branchRootXpath)));
-  const nextOutside = new Map([...next.overlay]
-    .filter(([xpath]) => !isXPathInSubtree(xpath, branchRootXpath)));
-  if (
-    previousOutside.size !== nextOutside.size ||
-    [...previousOutside].some(([xpath, classification]) => nextOutside.get(xpath) !== classification)
-  ) {
-    throw new Error(`Branch evaluation changed overlay state outside ${branchRootXpath}`);
-  }
-}
-
 export function createMarkingStore(domView: DomView, initialMarks: CanonicalMarkSet = { rows: [] }) {
+  const nodeByXpath = indexNodesByXpath(domView.root);
   let marks = initialMarks;
   let result = evaluate(marks, domView);
   return {
@@ -101,26 +84,28 @@ export function createMarkingStore(domView: DomView, initialMarks: CanonicalMark
       branchRoot: EvaluationNode,
       mode: Exclude<MarkMode, "disabled" | "passthrough">,
     ): EvaluationResult & Readonly<{ branchRoot: EvaluationNode }> {
-      const excludedAncestorRows = mode === "exclude"
-        ? marks.rows
-          .filter((row) => row.excluded && row.xpath !== branchRoot.xpath && isXPathInSubtree(branchRoot.xpath, row.xpath))
-          .sort((left, right) => left.xpath.length - right.xpath.length)
-        : [];
-      const outermostExcludedAncestor = excludedAncestorRows[0]
-        ? findNodeByXpath(domView.root, excludedAncestorRows[0].xpath)
+      let outermostExcludedAncestorRow: MarkRow | null = null;
+      const unexcludeAncestorXpaths = new Set<string>();
+      if (mode === "exclude") {
+        for (const row of marks.rows) {
+          if (!row.excluded || row.xpath === branchRoot.xpath || !isXPathInSubtree(branchRoot.xpath, row.xpath)) {
+            continue;
+          }
+          if (!outermostExcludedAncestorRow || row.xpath.length < outermostExcludedAncestorRow.xpath.length) {
+            outermostExcludedAncestorRow = row;
+          }
+          if (row.explicit !== true) {
+            const ancestor = nodeByXpath.get(row.xpath);
+            if (ancestor && isToggleableDefaultTag(ancestor.tagName)) {
+              unexcludeAncestorXpaths.add(row.xpath);
+            }
+          }
+        }
+      }
+      const outermostExcludedAncestor = outermostExcludedAncestorRow
+        ? nodeByXpath.get(outermostExcludedAncestorRow.xpath) ?? null
         : null;
       const evaluationRoot = outermostExcludedAncestor ?? branchRoot;
-      const unexcludeAncestorXpaths = mode === "exclude"
-        ? new Set(
-          marks.rows
-            .filter((row) => row.excluded && row.explicit !== true && row.xpath !== branchRoot.xpath && isXPathInSubtree(branchRoot.xpath, row.xpath))
-            .filter((row) => {
-              const ancestor = findNodeByXpath(domView.root, row.xpath);
-              return ancestor ? isToggleableDefaultTag(ancestor.tagName) : false;
-            })
-            .map((row) => row.xpath),
-        )
-        : new Set<string>();
       marks = applyToggle(marks, branchRoot.xpath, mode, { unexcludeAncestorXpaths });
       const inheritedAncestorMark = nearestAncestorMark(marks, evaluationRoot.xpath);
       const inheritedExcludedAncestor = nearestExcludedAncestorMark(marks, evaluationRoot.xpath);
@@ -130,7 +115,6 @@ export function createMarkingStore(domView: DomView, initialMarks: CanonicalMark
         inheritedAncestorMark,
         inheritedSubmittedExcludedAncestor: inheritedExcludedAncestor?.xpath,
       });
-      assertBranchSpliceInvariant(result, nextResult, evaluationRoot.xpath);
       result = nextResult;
       return { ...result, branchRoot: evaluationRoot };
     },
@@ -148,7 +132,6 @@ export function createMarkingStore(domView: DomView, initialMarks: CanonicalMark
         inheritedAncestorMark,
         inheritedSubmittedExcludedAncestor: inheritedExcludedAncestor?.xpath,
       });
-      assertBranchSpliceInvariant(result, nextResult, branchRoot.xpath);
       result = nextResult;
       return { ...result, branchRoot };
     },

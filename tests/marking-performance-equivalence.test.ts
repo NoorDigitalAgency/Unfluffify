@@ -112,7 +112,10 @@ describe("large-tree evaluator splice performance and output equivalence", () =>
 
     const branchP95 = p95(branchSamples);
     const legacyP95 = p95(legacySamples);
+    // Branch work must retain a wide margin below a full-tree pass. This catches
+    // accidental document-wide XPath comparisons/assertion maps in the physical
+    // input path while remaining relative to the host's current CPU speed.
     expect(branchP95, `branch p95 ${branchP95.toFixed(2)}ms; legacy p95 ${legacyP95.toFixed(2)}ms`)
-      .toBeLessThanOrEqual(legacyP95 * 1.1);
+      .toBeLessThanOrEqual(legacyP95 * 0.2);
   }, 15_000);
 });

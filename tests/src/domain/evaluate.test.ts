@@ -127,6 +127,7 @@ describe("P0 evaluate pass (INV-2.5..INV-2.10, INV-4.1..INV-4.4, INV-5.1..INV-5.
 
     expect(updated.overlay.get(left.xpath)).toBe("exception");
     expect(updated.overlay.get(right.xpath)).toBe(previous.overlay.get(right.xpath));
+    expect(previous.overlay.get(left.xpath)).toBe("implicit-include");
     expect(updated.rows).toContainEqual({ xpath: left.xpath, excluded: true, explicit: true });
     expect(updated.rows).toContainEqual({ xpath: right.xpath, excluded: false });
   });
