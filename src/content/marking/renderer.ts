@@ -244,6 +244,13 @@ function rawClientRectsFor(element: Element): RectLike[] {
   return nearestDescendantRects(element, () => true);
 }
 
+/** Preview retains technical extraction rows, including rows that have no page
+ * box. Keep that taxonomy separate from whether an occurrence can truthfully
+ * receive a visible focus treatment. */
+export function hasRenderableTargetGeometry(element: Element): boolean {
+  return rawClientRectsFor(element).length > 0;
+}
+
 function composedParentElement(element: Element): Element | null {
   if (element.parentElement) {
     return element.parentElement;

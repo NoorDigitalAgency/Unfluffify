@@ -110,11 +110,14 @@ export const PreviewRowList = React.memo(function PreviewRowList({
           : undefined;
         const tone = display.classification === "included" ? "keep" : "remove";
         const classificationLabel = PREVIEW_CLASSIFICATION_LABEL[display.classification] ?? "Excluded";
-        const accessibleName = `${index + 1}. ${display.text}. ${classificationLabel}`;
+        const accessibleName = [
+          `${index + 1}. ${display.text}. ${classificationLabel}`,
+          display.targetUnavailableReason,
+        ].filter(Boolean).join(". ");
         return (
           <li
             key={display.id}
-            className={`preview-sidebar__item preview-sidebar__item--${tone} ${hoveredRowId === display.id ? "preview-sidebar__item--active" : ""}`}
+            className={`preview-sidebar__item preview-sidebar__item--${tone} ${display.targetable ? "" : "preview-sidebar__item--unavailable"} ${hoveredRowId === display.id ? "preview-sidebar__item--active" : ""}`}
             aria-posinset={index + 1}
             aria-setsize={projection.rows.length}
             style={{ minHeight: rowHeight - 5 }}
@@ -131,7 +134,8 @@ export const PreviewRowList = React.memo(function PreviewRowList({
               type="button"
               className="preview-sidebar__item-button"
               aria-label={accessibleName}
-              title={debugTitle}
+              disabled={!display.targetable}
+              title={debugTitle ?? display.targetUnavailableReason ?? undefined}
               onPointerEnter={() => onRowHover?.(display.id, true)}
               onPointerLeave={() => onRowHover?.(display.id, false)}
               onFocus={() => onRowHover?.(display.id, true)}
@@ -144,6 +148,11 @@ export const PreviewRowList = React.memo(function PreviewRowList({
                 <span className={`preview-sidebar__item-public-classification ${PREVIEW_CLASSIFICATION_TONE[display.classification] ?? "u-color-muted"}`}>
                   {classificationLabel}
                 </span>
+                {display.targetUnavailableReason ? (
+                  <span className="preview-sidebar__item-target-status">
+                    {display.targetUnavailableReason}
+                  </span>
+                ) : null}
                 {detail ? (
                   <span className="preview-sidebar__item-debug" data-preview-row-debug-detail="true">
                     <span>Classification: <code>{detail.classification}</code></span>

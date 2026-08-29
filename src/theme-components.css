@@ -1983,6 +1983,16 @@ span.todo-candidate-link {
   transform: translateY(1px);
 }
 
+.preview-sidebar__item-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.64;
+  transform: none;
+}
+
+.preview-sidebar__item-button:disabled:hover {
+  border-color: var(--line);
+}
+
 .preview-sidebar__item--active .preview-sidebar__item-button {
   border-color: color-mix(in srgb, var(--accent) 46%, var(--line));
   background: color-mix(in srgb, var(--accent-light) 72%, transparent);

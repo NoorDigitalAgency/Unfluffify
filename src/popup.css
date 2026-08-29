@@ -122,6 +122,14 @@ body.is-busy {
   display: block;
 }
 
+.preview-sidebar__item-target-status {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.3;
+}
+
 .preview-sidebar__item-copy {
   color: var(--ink);
   font-size: 12px;

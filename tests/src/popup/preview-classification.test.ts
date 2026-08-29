@@ -28,6 +28,8 @@ describe("preview classification projection", () => {
       id: "default-content-row",
       text: "Default extracted content",
       classification: "included",
+      targetable: true,
+      targetUnavailableReason: null,
       debugDetail: null,
     });
   });
@@ -46,18 +48,40 @@ describe("preview classification projection", () => {
       id: "stable-row",
       text: "Readable copy",
       classification: "included",
+      targetable: true,
+      targetUnavailableReason: null,
       debugDetail: null,
     });
     expect(projectPreviewRow(row, true)).toEqual({
       id: "stable-row",
       text: "Readable copy",
       classification: "included",
+      targetable: true,
+      targetUnavailableReason: null,
       debugDetail: {
         classification: "explicit-included",
         xpath: "/html[1]/body[1]/main[1]/p[1]",
         selector: "main > p",
         shadow: "force-open-closed",
       },
+    });
+  });
+
+  it("projects a public-safe reason for a retained row without renderable geometry", () => {
+    const row = {
+      id: "empty-footer",
+      classification: "excluded" as const,
+      text: "footer",
+      xpath: "/html[1]/body[1]/footer[1]",
+      selector: "footer",
+      shadow: "light" as const,
+      target: { state: "unavailable" as const, reason: "no-rendered-box" as const },
+    };
+
+    expect(projectPreviewRow(row, false)).toMatchObject({
+      targetable: false,
+      targetUnavailableReason: "Target has no visible page area",
+      debugDetail: null,
     });
   });
 

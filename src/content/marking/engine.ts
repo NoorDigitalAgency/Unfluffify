@@ -7,7 +7,11 @@ import {
   type EvaluationNode,
   type PreviewSelectorMatchContext,
 } from "../../domain/evaluate";
-import type { PreviewProjection, PreviewRow } from "../../domain/schema/preview";
+import type {
+  PreviewProjection,
+  PreviewRow,
+  PreviewTargetStatus,
+} from "../../domain/schema/preview";
 import {
   captureFlattenedHtml,
   createDomBridgeView,
@@ -21,6 +25,8 @@ import { createMarkingStore } from "./store";
 import { resolveTarget, type MarkingCandidate } from "./resolve";
 import {
   createOverlayRenderer,
+  hasRenderableTargetGeometry,
+  isCurrentlyVisuallyVisible,
   type OverlayRenderTarget,
 } from "./renderer";
 import { buildSilentHighlights, shallowXpathBoundaries } from "./silent-highlight";
@@ -48,6 +54,19 @@ function evaluationNodeFingerprint(node: EvaluationNode): string {
 function createPreviewProjectionId(): string {
   const uuid = globalThis.crypto?.randomUUID?.();
   return uuid ? `preview-${uuid}` : `preview-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function previewTargetStatus(element: Element): PreviewTargetStatus {
+  if ((element as Element & { isConnected?: boolean }).isConnected === false) {
+    return { state: "unavailable", reason: "detached" };
+  }
+  if (!isCurrentlyVisuallyVisible(element)) {
+    return { state: "unavailable", reason: "not-visible" };
+  }
+  if (!hasRenderableTargetGeometry(element)) {
+    return { state: "unavailable", reason: "no-rendered-box" };
+  }
+  return { state: "available" };
 }
 
 const PREVIEW_TEXT_BLOCKED_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"]);
@@ -793,6 +812,7 @@ export function createMarkingEngine(
         xpath: row.xpath,
         ...(row.selector ? { selector: row.selector } : {}),
         shadow: entry.evaluationNode.shadow ?? "light",
+        target: previewTargetStatus(entry.element),
       }];
     });
     return {
@@ -1911,10 +1931,10 @@ export function createMarkingEngine(
       renderer.setFocus(null);
     },
     emphasizePreviewRow(targetProjectionId: string, rowId: string, active: boolean): boolean {
-      if (
-        currentPreviewProjection?.projectionId !== targetProjectionId ||
-        !currentPreviewProjection.rows.some((row) => row.id === rowId)
-      ) {
+      const row = currentPreviewProjection?.projectionId === targetProjectionId
+        ? currentPreviewProjection.rows.find((candidate) => candidate.id === rowId)
+        : undefined;
+      if (!row || row.target?.state === "unavailable") {
         return false;
       }
       if (!active) {
@@ -1925,7 +1945,7 @@ export function createMarkingEngine(
         return true;
       }
       const target = bridge.byKey.get(rowId);
-      if (!target || (target.element as Element & { isConnected?: boolean }).isConnected === false) {
+      if (!target || previewTargetStatus(target.element).state === "unavailable") {
         return false;
       }
       previewEmphasizedRowId = rowId;
@@ -1933,14 +1953,14 @@ export function createMarkingEngine(
       return true;
     },
     activatePreviewRow(targetProjectionId: string, rowId: string): boolean {
-      if (
-        currentPreviewProjection?.projectionId !== targetProjectionId ||
-        !currentPreviewProjection.rows.some((row) => row.id === rowId)
-      ) {
+      const row = currentPreviewProjection?.projectionId === targetProjectionId
+        ? currentPreviewProjection.rows.find((candidate) => candidate.id === rowId)
+        : undefined;
+      if (!row || row.target?.state === "unavailable") {
         return false;
       }
       const target = bridge.byKey.get(rowId);
-      if (!target || (target.element as Element & { isConnected?: boolean }).isConnected === false) {
+      if (!target || previewTargetStatus(target.element).state === "unavailable") {
         return false;
       }
       previewEmphasizedRowId = rowId;

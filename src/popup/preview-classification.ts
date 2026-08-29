@@ -21,8 +21,16 @@ export type PreviewDisplayRow = Readonly<{
   id: string;
   text: string;
   classification: PreviewDisplayClassification;
+  targetable: boolean;
+  targetUnavailableReason: string | null;
   debugDetail: PreviewDebugDetail | null;
 }>;
+
+const TARGET_UNAVAILABLE_LABELS = {
+  detached: "Target is no longer on this page",
+  "not-visible": "Target is not currently visible",
+  "no-rendered-box": "Target has no visible page area",
+} as const;
 
 export function previewDebugDetailEnabled(): boolean {
   return popupDebugBuildEnabled();
@@ -55,10 +63,15 @@ export function projectPreviewRow(
   row: PreviewRow,
   debug = previewDebugDetailEnabled(),
 ): PreviewDisplayRow {
+  const targetUnavailableReason = row.target?.state === "unavailable"
+    ? TARGET_UNAVAILABLE_LABELS[row.target.reason]
+    : null;
   return {
     id: row.id,
     text: debug ? row.text : productionPreviewText(row),
     classification: projectPreviewClassification(row.classification),
+    targetable: targetUnavailableReason === null,
+    targetUnavailableReason,
     debugDetail: debug
       ? {
         classification: row.classification,

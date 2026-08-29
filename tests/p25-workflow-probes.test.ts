@@ -61,8 +61,10 @@ describe("P25 physical popup activation", () => {
   it("proves native semantic preview-row activation with a trusted Space click", async () => {
     const sends: Array<{ method: string; params?: Record<string, unknown> }> = [];
     let evaluation = 0;
+    const expressions: string[] = [];
     const session = {
-      async evaluate() {
+      async evaluate(expression: string) {
+        expressions.push(expression);
         evaluation += 1;
         if (evaluation === 1) {
           return {
@@ -91,6 +93,7 @@ describe("P25 physical popup activation", () => {
     const evidence = await physicalActivatePreviewRow(session, 1);
 
     expect(evidence).toMatchObject({ trustedKeyboard: true, activationKey: "Space" });
+    expect(expressions[0]).toContain("!candidate.disabled");
     expect(sends.map(({ method }) => method)).toEqual([
       "Page.enable",
       "Page.bringToFront",

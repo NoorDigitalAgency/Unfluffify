@@ -936,6 +936,38 @@ describe("P6 DOM bridge", () => {
     expect(doc.documentElement.scrollTop).toBe(520);
   });
 
+  it("retains a zero-box technical row while rejecting untruthful focus and activation", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 900));
+    const footer = new FakeElement("FOOTER", rect(0, 640, 300, 20), "Footer landmark");
+    const scrollIntoView = vi.fn();
+    Object.assign(footer, { scrollIntoView });
+    root.ownerDocument = doc;
+    footer.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(footer);
+
+    const engine = createMarkingEngine(root as unknown as Element);
+    // Model the live DPJ footer: it was renderable when the bridge generation
+    // was captured, then collapsed to a zero-height box before Preview opened.
+    footer.clientRects = [];
+    Object.assign(footer.rect, { height: 0, bottom: 640 });
+    const projection = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: [],
+      exclusionSelectors: ["footer"],
+    });
+    const row = projection.rows.find((candidate) => candidate.text === "Footer landmark");
+
+    expect(row).toMatchObject({
+      classification: "excluded",
+      target: { state: "unavailable", reason: "no-rendered-box" },
+    });
+    expect(engine.emphasizePreviewRow(projection.projectionId, row!.id, true)).toBe(false);
+    expect(engine.activatePreviewRow(projection.projectionId, row!.id)).toBe(false);
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
   it("advances one projection revision when only the preview selector set changes", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));

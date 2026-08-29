@@ -738,7 +738,7 @@ preserves the stronger architecture.
     proven, no speculative product change is justified. The immutable matrix
     retains this as a recurrence watch; any repeat must capture the pre-reveal
     terminal reason and becomes a blocker.
-110. **Remediated, immutable rerun pending harness P0 — DPJ gesture preparation
+110. **Closed harness P0 — DPJ gesture preparation
     treated off-screen carousel content as physical input.** Immutable production
     run `2026-08-29T02-09-47-414Z-f26b4c44-rewrite-dpj` passed preflight, both
     render modes, exact 412×960 activation, network bounds, and marking visuals.
@@ -759,9 +759,10 @@ preserves the stronger architecture.
     dismissal is also proven before the following page click. The corrected
     same-browser diagnostic selected DPJ's nested Kundcase link on its first
     attempt and completed plain no-create, Shift widen, exact clear, Alt include,
-    four-action context state, and plain include clear. Focused P25 and marking
-    regressions pass; only a new clean pushed run may close the immutable gate.
-111. **Remediated, headed verification pending P0 — explicit-include clearing and
+    four-action context state, and plain include clear. Immutable run
+    `2026-08-29T03-11-06-978Z-ac1210ae-rewrite-dpj` repeated that exact prepared
+    physical sequence on pushed source and passed it.
+111. **Closed P0 — explicit-include clearing and
     context capabilities depended on a current painted-owner index.** Repeating
     the same DPJ diagnostic against the unchanged loaded bundle alternated
     between a correct six-operation result and a state where Exclude was enabled,
@@ -779,9 +780,10 @@ preserves the stronger architecture.
     proves descendant plain-clear and a one-read context capability set; the
     focused four-file gate passes 198/198 tests. The complete gate also passes
     lint, every page-world/TypeScript check, 140 files / 1,415 tests, the
-    production build, and seven generated-manifest checks. A rebuilt headed DPJ
-    rerun is still required before this finding is closed.
-112. **Remediated, headed verification pending P0 — the
+    production build, and seven generated-manifest checks. The subsequent
+    immutable pushed-source stage passed immediate context state and clearing
+    while the renderer index remained generation-fenced.
+112. **Closed P0 — the
     semantic explicit-include fallback was still rejected by the final
     unmark-only classification guard.** Immutable pushed-source DPJ run
     `2026-08-29T02-46-05-129Z-244a5cc6-rewrite-dpj` passed stages 00–04 on
@@ -800,8 +802,32 @@ preserves the stronger architecture.
     immediate context ownership plus plain clear through the semantic path. The
     focused marking/P25 gate passes five files / 219 tests. The complete gate
     passes lint, every page-world/TypeScript check, 140 files / 1,415 tests, the
-    production build, and seven generated-manifest checks. A new immutable DPJ
-    run remains required.
+    production build, and seven generated-manifest checks. Immutable production
+    run `2026-08-29T03-11-06-978Z-ac1210ae-rewrite-dpj` on pushed commit
+    `43185a83` then passed the exact DPJ preparation and all six physical gesture
+    outcomes, closing findings 110–112 without relying on a current spatial
+    owner index.
+113. **Remediated, immutable rerun pending P1 — retained technical Content List
+    rows did not expose whether their page occurrence had renderable geometry.**
+    The same immutable run passed stages 00–07, including both render modes,
+    activation/network, marking visuals, all gestures, scroll fade, and resize.
+    Stage 08 then failed `content-list-row-to-page`. The auto-opened production
+    list retained DPJ's selector-backed empty `<footer class="page-footer">`,
+    which had a live element identity but a zero-height client box. It was still
+    an enabled semantic button, so the trusted Space probe correctly activated
+    it but the cyan occurrence layer could not truthfully paint. Pinned legacy's
+    render-target mapper omitted zero-box occurrences; the approved rewrite
+    contract instead retains technical extraction decisions and disables only a
+    genuinely unresolvable occurrence with a specific reason. Preview rows now
+    carry a typed available/unavailable target outcome. Detached, currently
+    hidden, and zero-box occurrences remain in the list but are native-disabled
+    with public-safe reason text; the engine independently rechecks the live
+    target before hover or activation. The physical gate selects enabled native
+    buttons, so an intentionally retained disabled technical row cannot poison
+    the two-way proof. Focused projection, popup, marking, and workflow tests
+    pass four files / 154 tests. The complete gate passes lint, every page-world
+    and TypeScript check, 140 files / 1,418 tests, the production build, and seven
+    generated-manifest checks. A new pushed-source DPJ run must prove both routes.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -873,9 +899,10 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 112; findings 108,
-110, 111, and 112 await exact clean pushed reruns, while finding 109 remains a
-recurrence watch. P25 remains open until the exact
+Implementation remediation is code-complete through finding 113; findings
+110–112 are closed by the immutable pushed-source DPJ gesture run. Findings 108
+and 113 await exact clean pushed reruns, while finding 109 remains a recurrence
+watch. P25 remains open until the exact
 clean pushed commit completes every valid candidate's observer-free headed
 rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,

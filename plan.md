@@ -19,8 +19,14 @@ Those remediations landed in pushed commit `81850ffc`. Immutable rerun
 `2026-08-29T02-46-05-129Z-244a5cc6-rewrite-dpj` again passed stages 00–04, then
 exposed finding 112: the semantic inclusion owner was still discarded by the
 final unmark-only classification guard while the spatial fast path was fenced.
-The guard repair and its forced-fast-path-unavailable regression are complete-
-gate green and await another pushed-source run.
+The guard repair landed in pushed commit `43185a83`. Immutable production run
+`2026-08-29T03-11-06-978Z-ac1210ae-rewrite-dpj` passed stages 00–07, closing the
+DPJ physical-target and immediate explicit-decision findings 110–112. Its full
+workflow then exposed finding 113: a retained zero-height technical footer row
+was still enabled even though it could not receive truthful occurrence focus.
+Typed target availability, reason-specific disabled rows, live target rechecks,
+and enabled-row physical proof are complete-gate green and await a pushed-source
+rerun.
 The observer-free
 headed matrix remains in progress; P25 stays open until it and the final evidence
 commit are synchronized.
@@ -740,6 +746,18 @@ headed-validation gates.
   passes lint, all page-world/TypeScript checks, 140 files / 1,415 tests, the
   production build, and seven generated-manifest checks. Commit/push, rebuild,
   and repeat DPJ from a new immutable run.
+- Immutable pushed-source run
+  `2026-08-29T03-11-06-978Z-ac1210ae-rewrite-dpj` passed stages 00–07 and closed
+  the three DPJ marking-target findings. Stage 08 selected the second semantic
+  row, an empty zero-height `footer` retained for extraction transparency. The
+  row was enabled despite having no possible cyan occurrence focus, so the
+  trusted Space route failed correctly. Retain the technical row, publish typed
+  target availability, disable it with a specific accessible reason, recheck
+  targetability in the content engine, and make the physical gate choose an
+  enabled row. The focused gate is green at four files / 154 tests. The complete
+  gate passes lint, all page-world/TypeScript checks, 140 files / 1,418 tests,
+  the production build, and seven generated-manifest checks. Commit/push and
+  repeat DPJ from a new immutable run before advancing the matrix.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

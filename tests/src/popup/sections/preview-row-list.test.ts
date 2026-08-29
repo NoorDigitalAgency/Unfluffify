@@ -83,4 +83,26 @@ describe("focused Preview row section", () => {
     expect(markup).toContain('aria-setsize="2000"');
     expect(markup).not.toContain("Readable row 1999");
   });
+
+  it("retains an unresolvable technical row but disables activation with a specific reason", () => {
+    const projection = {
+      ...PROJECTION,
+      rows: [{
+        ...PROJECTION.rows[0],
+        classification: "excluded" as const,
+        text: "footer",
+        target: { state: "unavailable" as const, reason: "no-rendered-box" as const },
+      }],
+    };
+    const markup = renderToStaticMarkup(createElement(PreviewRowList, {
+      projection,
+      debug: false,
+      hoveredRowId: null,
+    }));
+
+    expect(markup).toContain("footer");
+    expect(markup).toContain("Target has no visible page area");
+    expect(markup).toContain("disabled=\"\"");
+    expect(markup).toContain("preview-sidebar__item--unavailable");
+  });
 });

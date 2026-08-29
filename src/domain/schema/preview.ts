@@ -19,6 +19,14 @@ export const PreviewShadowProvenanceSchema = z.enum([
   "inaccessible-closed",
 ]);
 
+export const PreviewTargetStatusSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("available") }),
+  z.object({
+    state: z.literal("unavailable"),
+    reason: z.enum(["detached", "not-visible", "no-rendered-box"]),
+  }),
+]);
+
 export const PreviewRowSchema = z.object({
   id: z.string().min(1),
   classification: PreviewClassificationSchema,
@@ -29,6 +37,9 @@ export const PreviewRowSchema = z.object({
   xpath: MarkRowSchema.shape.xpath,
   selector: z.string().min(1).optional(),
   shadow: PreviewShadowProvenanceSchema,
+  // Optional keeps stored/in-flight projections from older rewrite builds
+  // readable. New projections always publish this field.
+  target: PreviewTargetStatusSchema.optional(),
 });
 
 export const PreviewProjectionSchema = z.object({
@@ -59,6 +70,7 @@ export const PreviewTargetResponseSchema = z.object({
 
 export type PreviewClassification = z.infer<typeof PreviewClassificationSchema>;
 export type PreviewShadowProvenance = z.infer<typeof PreviewShadowProvenanceSchema>;
+export type PreviewTargetStatus = z.infer<typeof PreviewTargetStatusSchema>;
 export type PreviewRow = z.infer<typeof PreviewRowSchema>;
 export type PreviewProjection = z.infer<typeof PreviewProjectionSchema>;
 export type PreviewProjectRequest = z.infer<typeof PreviewProjectRequestSchema>;

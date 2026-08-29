@@ -322,8 +322,10 @@ export async function physicalActivatePreviewRow(session, index = 0) {
   await session.send("Page.enable");
   await session.send("Page.bringToFront");
   const before = await session.evaluate(`(() => {
-    const element = document.querySelectorAll('.preview-sidebar__item-button')[${Number(index)}];
-    if (!(element instanceof HTMLButtonElement) || element.disabled) return null;
+    const enabledRows = [...document.querySelectorAll('.preview-sidebar__item-button')]
+      .filter((candidate) => candidate instanceof HTMLButtonElement && !candidate.disabled);
+    const element = enabledRows[${Number(index)}] ?? enabledRows[0];
+    if (!(element instanceof HTMLButtonElement)) return null;
     element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
     element.focus();
     const token = String(Date.now()) + ':' + Math.random().toString(36).slice(2);
