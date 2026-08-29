@@ -275,7 +275,13 @@ export async function physicalActivatePopupControl(
   id,
   method = "pointer",
   fallbackSelector = null,
-  { hitTargetTimeoutMs = 0, pollIntervalMs = 100 } = {},
+  {
+    hitTargetTimeoutMs = 0,
+    pollIntervalMs = 100,
+    trustedActivation = false,
+    activationAckTimeoutMs = 250,
+    maxDispatchAttempts = 3,
+  } = {},
 ) {
   await session.send("Page.enable");
   await session.send("Page.bringToFront");
@@ -324,19 +330,84 @@ export async function physicalActivatePopupControl(
     await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
   const readyAtEpochMs = Date.now();
-  let dispatchedAtEpochMs;
-  if (method === "keyboard") {
-    await session.evaluate(`(document.getElementById(${JSON.stringify(id)}) || (${JSON.stringify(fallbackSelector)} ? document.querySelector(${JSON.stringify(fallbackSelector)}) : null))?.focus()`);
-    dispatchedAtEpochMs = Date.now();
-    await session.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
-    await session.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
-  } else {
-    const x = before.rect.x + before.rect.width / 2;
-    const y = before.rect.y + before.rect.height / 2;
-    await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
-    dispatchedAtEpochMs = Date.now();
-    await session.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 });
-    await session.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 });
+  const activationToken = `${id}:${readyAtEpochMs}:${Math.random().toString(16).slice(2)}`;
+  const proofKey = "__ufP25TrustedActivationProof";
+  const dispatchLimit = trustedActivation
+    ? Math.max(1, Math.floor(Number(maxDispatchAttempts) || 1))
+    : 1;
+  const dispatches = [];
+  let activationProof = null;
+  let dispatchedAtEpochMs = null;
+  for (let attempt = 1; attempt <= dispatchLimit; attempt += 1) {
+    let dispatchRect = before.rect;
+    if (trustedActivation) {
+      if (attempt > 1) {
+        await session.send("Page.bringToFront");
+      }
+      const armed = await session.evaluate(`(() => {
+        const element = document.getElementById(${JSON.stringify(id)}) || (${JSON.stringify(fallbackSelector)} ? document.querySelector(${JSON.stringify(fallbackSelector)}) : null);
+        if (!(element instanceof HTMLElement) || element.disabled) return null;
+        const rect = element.getBoundingClientRect();
+        const x = rect.left + rect.width / 2;
+        const y = rect.top + rect.height / 2;
+        const hit = document.elementFromPoint(x, y);
+        const label = element.closest('label') || ('labels' in element ? element.labels?.[0] : null);
+        const hitMatches = hit === element || Boolean(hit && element.contains(hit)) || Boolean(hit && label?.contains(hit));
+        if (rect.width <= 0 || rect.height <= 0 || !hitMatches) return null;
+        const token = ${JSON.stringify(activationToken)};
+        const proofKey = ${JSON.stringify(proofKey)};
+        element.addEventListener('click', (event) => {
+          globalThis[proofKey] = {
+            token,
+            trusted: event.isTrusted === true,
+            detail: event.detail,
+            atEpochMs: Date.now(),
+            targetId: event.target instanceof HTMLElement ? event.target.id : null,
+          };
+        }, { capture: true, once: true });
+        return { rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height } };
+      })()`);
+      if (!armed?.rect) {
+        throw new Error(`Real popup control #${id} could not arm a trusted activation proof`);
+      }
+      dispatchRect = armed.rect;
+    }
+    const dispatched = Date.now();
+    dispatchedAtEpochMs ??= dispatched;
+    if (method === "keyboard") {
+      await session.evaluate(`(document.getElementById(${JSON.stringify(id)}) || (${JSON.stringify(fallbackSelector)} ? document.querySelector(${JSON.stringify(fallbackSelector)}) : null))?.focus()`);
+      await session.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+      await session.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+    } else {
+      const x = dispatchRect.x + dispatchRect.width / 2;
+      const y = dispatchRect.y + dispatchRect.height / 2;
+      await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+      await session.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 });
+      await session.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 });
+    }
+    dispatches.push({ attempt, atEpochMs: dispatched });
+    if (!trustedActivation) {
+      break;
+    }
+    const acknowledgementDeadline = Date.now() + Math.max(0, Number(activationAckTimeoutMs) || 0);
+    do {
+      activationProof = await session.evaluate(`(() => {
+        const proof = globalThis[${JSON.stringify(proofKey)}];
+        return proof?.token === ${JSON.stringify(activationToken)} ? proof : null;
+      })()`);
+      if (activationProof?.trusted === true) {
+        break;
+      }
+      if (Date.now() < acknowledgementDeadline) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    } while (Date.now() < acknowledgementDeadline);
+    if (activationProof?.trusted === true) {
+      break;
+    }
+  }
+  if (trustedActivation && activationProof?.trusted !== true) {
+    throw new Error(`Real popup control #${id} did not receive a trusted activation after ${dispatches.length} attempts`);
   }
   return {
     method,
@@ -350,6 +421,9 @@ export async function physicalActivatePopupControl(
     },
     dispatchedAtEpochMs,
     dispatchedAt: new Date(dispatchedAtEpochMs).toISOString(),
+    trustedActivation: trustedActivation
+      ? { required: true, attempts: dispatches.length, proof: activationProof, dispatches }
+      : { required: false, attempts: dispatches.length, proof: null, dispatches },
   };
 }
 

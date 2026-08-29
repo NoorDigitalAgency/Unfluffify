@@ -1226,7 +1226,17 @@ async function runContentListWorkflow(popup, siteTarget, aiEvidence) {
       2_000,
     );
     const correlatedRow = pageFocused.preview.domFocusedRow ?? pageFocused.preview.selectedRow;
-    const exitActivation = await physicalActivatePopupControl(popup, "preview-exit", "pointer", ".preview-sidebar__dismiss");
+    const exitActivation = await physicalActivatePopupControl(
+      popup,
+      "preview-exit",
+      "pointer",
+      ".preview-sidebar__dismiss",
+      {
+        trustedActivation: true,
+        activationAckTimeoutMs: 250,
+        maxDispatchAttempts: 3,
+      },
+    );
     const exited = await waitForWorkflowPopupState(popup, (state) => !state.preview.open && !state.busy, 20_000);
     return {
       openActivation,

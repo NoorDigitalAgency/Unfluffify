@@ -1337,6 +1337,19 @@ preserves the stronger architecture.
     dimensions and resize accepts either exact layout or exact interactive
     viewport while continuing to require device scale, page scale, touch,
     pointer, hover, and the complete CDP restore record.
+145. **Closed evidence P0 — the first cross-target Preview-exit pointer dispatch
+    was not proven to reach the side panel.** The exact clean Assist24 rerun
+    passed both render modes and every marking gate, then repeated finding 143's
+    visible symptom even after product-level fact retries: Preview stayed open.
+    That distinguishes an unstarted click handler from a lost fact round trip.
+    Immediately beforehand the page-to-row probe had foregrounded the site
+    target, so a successful CDP dispatch was not evidence that Chrome delivered
+    a click to the side-panel document. Physical popup activation can now arm a
+    capture-phase token on the exact hit-tested control, require `isTrusted`,
+    and retry only an unacknowledged dispatch after foregrounding the panel
+    again. The synchronous trusted-click proof prevents duplicate activation;
+    the product's bounded fact/ack retries remain responsible only after the
+    handler has actually started.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1409,7 +1422,7 @@ preserves the stronger architecture.
 ## Acceptance headline
 
 Implementation remediation is code-complete through finding 134; findings
-135–144 bind the resulting evidence and rerun authority. Immutable
+135–145 bind the resulting evidence and rerun authority. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun,
 findings 126–128 are closed by the clean aggregate, finding 129 is closed by its

@@ -153,6 +153,54 @@ describe("P25 physical popup activation", () => {
     ]);
   });
 
+  it("retries a cross-target pointer dispatch only until a trusted click is observed", async () => {
+    const sends: Array<{ method: string; params?: unknown }> = [];
+    let released = 0;
+    const session = {
+      async evaluate(expression: string) {
+        if (expression.includes("scrollIntoView")) {
+          return {
+            id: "preview-exit",
+            tag: "BUTTON",
+            disabled: false,
+            checked: null,
+            rect: { x: 20, y: 30, width: 80, height: 30 },
+            viewport: { width: 400, height: 700 },
+            hitMatches: true,
+            hit: { id: "preview-exit", tag: "BUTTON", className: "" },
+          };
+        }
+        if (expression.includes("addEventListener('click'")) {
+          return { rect: { x: 20, y: 30, width: 80, height: 30 } };
+        }
+        if (expression.includes("const proof = globalThis")) {
+          return released >= 2
+            ? { token: expression.match(/proof\?\.token === "([^"]+)/)?.[1], trusted: true, atEpochMs: Date.now() }
+            : null;
+        }
+        return null;
+      },
+      async send(method: string, params?: unknown) {
+        sends.push({ method, params });
+        if (method === "Input.dispatchMouseEvent" && (params as { type?: string })?.type === "mouseReleased") {
+          released += 1;
+        }
+      },
+    };
+
+    const evidence = await physicalActivatePopupControl(
+      session,
+      "preview-exit",
+      "pointer",
+      ".preview-sidebar__dismiss",
+      { trustedActivation: true, activationAckTimeoutMs: 0, maxDispatchAttempts: 3 },
+    );
+
+    expect(evidence.trustedActivation).toMatchObject({ required: true, attempts: 2 });
+    expect(sends.filter(({ method }) => method === "Input.dispatchMouseEvent")).toHaveLength(6);
+    expect(sends.filter(({ method }) => method === "Page.bringToFront")).toHaveLength(2);
+  });
+
   it("never waits through an unrelated overlay", async () => {
     let evaluation = 0;
     const session = {
