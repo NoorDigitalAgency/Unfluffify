@@ -2705,6 +2705,305 @@ describe("rewrite popup entrypoint", () => {
     }));
   });
 
+  it("retires an overlapping authority failure until successful AI opens Content List", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    const snapshot = {
+      baseUrl: "https://example.com",
+      renderMode: "rendered" as const,
+      defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"] as const,
+      pages: [{
+        url: "https://example.com/page",
+        renderedHtml: "<html><body><main>AI page</main></body></html>",
+        renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
+      }],
+    };
+    let projectedRunSessionId = "";
+    let projectedRunPhase: "idle" | "running" | "terminal" = "idle";
+    const tabsSendMessage = makeTabsSendMessage((_tabId, message) => {
+      if (message.type === "syncContentSignals") {
+        return {
+          ok: true,
+          organName: projectedRunPhase === "running" ? "running" : "post_ai_clean",
+          runSessionId: projectedRunPhase === "running" ? projectedRunSessionId : "",
+          lastConsumedSeq: Number.MAX_SAFE_INTEGER,
+          tree: "rewrite",
+        };
+      }
+      if (message.type === "captureSubmissionSnapshot") {
+        return { ok: true, snapshot, rows: [] };
+      }
+      if (message.type === "preview.project") {
+        return {
+          projectionId: "authority-race-preview",
+          revision: 1,
+          pageUrl: "https://example.com/page",
+          rows: [{
+            id: "authority-race-main",
+            classification: "explicit-included",
+            text: "AI page",
+            xpath: "/html[1]/body[1]/main[1]",
+            selector: "main",
+            shadow: "light",
+          }],
+        };
+      }
+      return { ok: true, initialized: true, tree: "rewrite" };
+    });
+    const contextResponse = (status: "managed_candidate" | "unavailable") => ({
+      status,
+      generation: 1,
+      observedUrl: "https://example.com/page",
+      draftDisposition: "preserve" as const,
+      environmentKey: "example.com",
+      siteId: 1,
+      baseUrl: "https://example.com",
+      pageKey: "/page",
+      pageTypes: [],
+      membershipFingerprint: "membership",
+      assignmentFingerprint: "assignment",
+      conflicts: [],
+      upstreamCode: status === "unavailable" ? 503 : null,
+      renderModeSet: true,
+      todo: { covered: 0, actionable: 0, pageTypes: [] },
+    });
+    let contextCalls = 0;
+    let holdNextContext = false;
+    let releaseStaleContext: (() => void) | null = null;
+    let staleContextWindow = false;
+    let staleLockAdoptions = 0;
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "fact.reported") {
+        const facts = (message.payload as { sensation?: { facts?: Record<string, unknown> } }).sensation?.facts;
+        if (facts?.runPhase === "running" && typeof facts.runSessionId === "string") {
+          projectedRunSessionId = facts.runSessionId;
+          projectedRunPhase = "running";
+        } else if (facts?.runPhase === "completed" || facts?.runPhase === "failed") {
+          projectedRunPhase = "terminal";
+        }
+      }
+      if (message.name === "page.context") {
+        contextCalls += 1;
+        if (holdNextContext) {
+          holdNextContext = false;
+          return await new Promise<BusFrame>((resolve) => {
+            releaseStaleContext = () => {
+              staleContextWindow = true;
+              resolve(replyFrame(message, contextResponse("unavailable")));
+            };
+          });
+        }
+        // A generation-safe trailing pass reaches fresh authority before its
+        // lock read. The retired pass would instead read the stale failure now.
+        staleContextWindow = false;
+        return replyFrame(message, contextResponse("managed_candidate"));
+      }
+      if (message.name === "ai.run") {
+        return replyFrame(message, {
+          status: "ok",
+          sessionId: "authority-race-ai",
+          selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+        });
+      }
+      if (message.name === "transferPayload.put") {
+        const value = String((message.payload as { value?: unknown }).value ?? "");
+        return replyFrame(message, {
+          handle: {
+            id: "authority-race-rendered",
+            scope: "ai-refinement-rendered",
+            sha256: "a".repeat(64),
+            byteLength: new TextEncoder().encode(value).byteLength,
+          },
+        });
+      }
+      if (message.name === "transferPayload.release") {
+        return replyFrame(message, { released: 1 });
+      }
+      return replyFrame(message, []);
+    }, "rendered", {
+      delegatePageContextToHandler: true,
+      lockDirective(message) {
+        if (staleContextWindow) {
+          staleLockAdoptions += 1;
+          return replyFrame(message, {
+            status: "unavailable",
+            baseUrl: "https://example.com",
+            siteId: 1,
+            lockRole: "unknown",
+            configPresent: true,
+            canEdit: false,
+            blockedReason: "unavailable",
+            lockBanner: { visible: true, reason: "unavailable" },
+          });
+        }
+        return replyFrame(message, {
+          status: "ok",
+          baseUrl: "https://example.com",
+          siteId: 1,
+          lockRole: "editor",
+          configPresent: true,
+          canEdit: true,
+          blockedReason: "editor",
+          authority: {
+            environmentKey: "example.com",
+            editorSessionId: "editor-1",
+            lockToken: "lock-1",
+            propertyRevision: 4,
+            feedRevision: 2,
+          },
+          lockBanner: { visible: false, reason: "editor" },
+        });
+      },
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    await confirmRenderMode(render);
+    props().onEnableChange(true);
+    await waitFor(() => props().diagnostics.contentActive === true, "marking activation");
+
+    holdNextContext = true;
+    props().onRefresh();
+    await waitFor(() => releaseStaleContext !== null, "overlapping authority request");
+    props().onRunAi();
+    await waitFor(
+      () => props().diagnostics.stateName === "preview_open" &&
+        props().presentation.previewProjection?.projectionId === "authority-race-preview",
+      "successful AI Content List projection",
+    );
+
+    releaseStaleContext?.();
+    await waitFor(() => contextCalls >= 3, "fresh trailing authority request");
+    await flushEntrypointWork();
+
+    expect(staleLockAdoptions).toBe(0);
+    expect(props().diagnostics.stateName).toBe("preview_open");
+    expect(props().presentation.selectors).toEqual({
+      inclusionSelectors: ["main"],
+      exclusionSelectors: [".ad"],
+    });
+    expect(props().presentation.previewProjection).toMatchObject({
+      projectionId: "authority-race-preview",
+      rows: [expect.objectContaining({ id: "authority-race-main" })],
+    });
+  });
+
+  it("keeps the fast navigation fence live while slow authority is paused for AI", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    let activeUrl = "https://example.com/a";
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: activeUrl }]);
+    const get = vi.fn(async () => ({ id: 77, url: activeUrl }));
+    const snapshot = {
+      baseUrl: "https://example.com",
+      renderMode: "rendered" as const,
+      defaultExclusionSelectors: ["IMG", "INPUT", "NOSCRIPT", "SELECT", "TITLE", "STYLE", "SCRIPT", "TEMPLATE", "IFRAME", "VIDEO", "SVG"] as const,
+      pages: [{
+        url: "https://example.com/a",
+        renderedHtml: "<html><body><main>Page A</main></body></html>",
+        renderedXPaths: [{ xpath: "/html[1]/body[1]/main[1]", excluded: false }],
+      }],
+    };
+    let projectedRunSessionId = "";
+    let projectedRunPhase: "idle" | "running" | "terminal" = "idle";
+    const tabsSendMessage = makeTabsSendMessage((_tabId, message) => {
+      if (message.type === "syncContentSignals") {
+        return {
+          ok: true,
+          organName: projectedRunPhase === "running" ? "running" : "post_ai_clean",
+          runSessionId: projectedRunPhase === "running" ? projectedRunSessionId : "",
+          lastConsumedSeq: Number.MAX_SAFE_INTEGER,
+          tree: "rewrite",
+        };
+      }
+      if (message.type === "captureSubmissionSnapshot") {
+        return { ok: true, snapshot, rows: [] };
+      }
+      return { ok: true, initialized: true, tree: "rewrite" };
+    });
+    let releaseAi: (() => void) | null = null;
+    const runtime = makeRuntime(async (message) => {
+      if (message.name === "fact.reported") {
+        const facts = (message.payload as { sensation?: { facts?: Record<string, unknown> } }).sensation?.facts;
+        if (facts?.runPhase === "running" && typeof facts.runSessionId === "string") {
+          projectedRunSessionId = facts.runSessionId;
+          projectedRunPhase = "running";
+        } else if (facts?.runPhase === "completed" || facts?.runPhase === "failed") {
+          projectedRunPhase = "terminal";
+        }
+      }
+      if (message.name === "ai.run") {
+        return await new Promise<BusFrame>((resolve) => {
+          releaseAi = () => resolve(replyFrame(message, {
+            status: "ok",
+            sessionId: "stale-page-a-ai",
+            selectors: { inclusionSelectors: ["main.page-a"], exclusionSelectors: [".ad"] },
+          }));
+        });
+      }
+      if (message.name === "transferPayload.put") {
+        const value = String((message.payload as { value?: unknown }).value ?? "");
+        return replyFrame(message, {
+          handle: {
+            id: "navigation-fence-rendered",
+            scope: "ai-refinement-rendered",
+            sha256: "b".repeat(64),
+            byteLength: new TextEncoder().encode(value).byteLength,
+          },
+        });
+      }
+      if (message.name === "transferPayload.release") {
+        return replyFrame(message, { released: 1 });
+      }
+      return replyFrame(message, []);
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, get, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    await confirmRenderMode(render);
+    props().onEnableChange(true);
+    await waitFor(() => props().diagnostics.contentActive === true, "marking activation");
+    props().onRunAi();
+    await waitFor(() => releaseAi !== null, "in-flight AI request");
+
+    activeUrl = "https://example.com/b";
+    const poll = globalThis.window.setInterval.mock.calls[0]?.[0] as () => void;
+    poll();
+    await waitFor(
+      () => tabsSendMessage.mock.calls.some(([, frame]) =>
+        ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "deactivateContentMain"),
+      "navigation deactivation fence",
+    );
+    releaseAi?.();
+    await waitFor(
+      () => props().presentation.temporarilyDisabledOverlay === false,
+      "stale AI action release",
+    );
+
+    expect(runtime.sendMessage.mock.calls.some(([frame]) =>
+      frame.name === "fact.reported" &&
+      (frame.payload as { sensation?: { reason?: string } }).sensation?.reason === "ai-run-completed"
+    )).toBe(false);
+    expect(tabsSendMessage.mock.calls.some(([, frame]) =>
+      ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "markContentMainClean"
+    )).toBe(false);
+    expect(tabsSendMessage.mock.calls.some(([, frame]) =>
+      (frame as BusFrame).name === "preview.project"
+    )).toBe(false);
+    expect(props().presentation.selectors.inclusionSelectors).not.toContain("main.page-a");
+  });
+
   it.each(["rejected", "no_receiver"] as const)(
     "keeps AI freshness fenced when the content clean acknowledgement is %s",
     async (cleanOutcome) => {

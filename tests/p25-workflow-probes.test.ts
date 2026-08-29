@@ -356,6 +356,8 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).toContain('implementation === "legacy" ? "config-toggle" : "header-kebab-toggle"');
     expect(harness).toContain('implementation === "legacy" ? "render-mode-open-view" : "render-mode-open"');
     expect(harness).toContain('"AI returned to idle without opening a usable Content List or showing a failure"');
+    expect(harness).toContain("[state.bodyLead, state.spinnerText]");
+    expect(harness).toContain("Property lock unavailable|saved endpoints did not answer|site lookup");
     expect(harness).toContain('integerOption(options, "ai-timeout-ms", AI_WORKFLOW_TIMEOUT_MS)');
     expect(harness).toContain("const initialInspectionView = before.renderInspectionView");
     expect(harness).toContain("last.renderInspectionView === renderMode && initialInspectionView !== renderMode");

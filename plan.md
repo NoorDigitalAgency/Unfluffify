@@ -4,8 +4,11 @@
 green. The approved plan package was committed and pushed first as `6db3433a`;
 the product closure landed in `9b162bfb`, and the clean-browser regression repair
 landed in `f5c82960`. Headed-launch and evidence hardening landed through
-`ce8494eb`; the observer-free headed matrix is in progress. P25 stays open until
-that matrix is complete and the final evidence commit is synchronized.
+`ce8494eb`, and the scoped marking-refresh repair landed in `33c390e3`. The
+observer-free headed matrix is in progress; finding 107's authority/AI isolation
+repair is verified locally but still needs an immutable pushed-source rerun. P25
+stays open until that matrix is complete and the final evidence commit is
+synchronized.
 
 The complete finding register is
 `.reimplementation/p25-legacy-rewrite-frame-parity-audit-2026-08-28.md`.
@@ -637,6 +640,34 @@ headed-validation gates.
   max p95 16.8 ms, and a 50 ms worst frame. The 111-test DOM bridge suite, type
   checks, and lint pass. Commit/push this exact source, rerun the immutable
   marking-resize stage, then resume the remaining Ledigajobb workflow and matrix.
+- Immutable production run
+  `2026-08-29T00-55-58-246Z-cf9c2d03-rewrite-ledigajobb` on pushed commit
+  `33c390e3` passed stages 00–07. Its exact 412×960 → 388×960 → 412×960
+  resize action took 217.237 ms with 16.8 ms p95/worst frames, zero Long Tasks,
+  752 markable nodes, eight painted rects, and zero invisible, covered, or
+  unresolved paints. Consent suppression retained 114 nodes. This immutable
+  evidence closes findings 105 and 106.
+- Stage 08 then proved the AI request itself healthy—one 202 `/get_selectors`
+  POST carrying 1,118,728 bytes, a terminal job, and one successful 763-byte
+  result—but an unrelated slow-authority `/context` request that began 165
+  seconds after the AI click hung for 100.248 seconds and returned 503. Its stale
+  lock projection arrived after the AI result, stranded the popup in
+  `post_ai_clean` under `locked`, and prevented Content List auto-open. The
+  original harness also reported that no failure was shown even though the
+  spinner visibly identified the site-lookup failure.
+- Treat Run AI as an isolated slow-lane transaction: pause passive authority
+  adoption while leaving the 500 ms local-signal/navigation fence live, retire
+  already-running authority generations, coalesce at most one forced trailing
+  authority pass, and fast-path emulation when the exact target is already
+  applied and no transition is pending. Integration coverage holds an authority
+  request across a successful AI run and proves populated Content List
+  auto-open, zero stale lock adoption, and one fresh trailing context; a second
+  regression proves page-A AI cannot land after page-B navigation. The workflow
+  harness now recognizes the visible site-lookup failure text. Focused suites,
+  lint, type checks, the production build, seven manifest checks, and all 1,410
+  tests pass. A headed dirty-source diagnostic also auto-opened the populated
+  Content List after the real backend completed. Commit and push this exact
+  source, then repeat stage 08 and the remaining immutable matrix before closure.
 
 ### Phase 9 — Evidence, review, commit, and push — in progress
 

@@ -956,10 +956,12 @@ async function runCurrentAi(popup, guard, options) {
       contentListOpenedAtMs ??= compact.elapsedMs;
       if (previewState.preview.rowCount > 0) contentListFirstPaintMs = Math.max(0, compact.elapsedMs - contentListOpenedAtMs);
     }
-    const visibleFailure = /Run AI failed|AI[^\n]{0,80}(?:failed|error)|Content message timed out/i.test(state.bodyLead);
+    const visibleFailureText = [state.bodyLead, state.spinnerText].filter(Boolean).join("\n");
+    const visibleFailure = /Run AI failed|AI[^\n]{0,80}(?:failed|error)|Content message timed out|Property lock unavailable|saved endpoints did not answer|site lookup/i
+      .test(visibleFailureText);
     if (operationObserved && !state.busy) {
       if (previewReady || visibleFailure) {
-        terminal = { state, previewReady, visibleFailure, idleWithoutResult: false };
+        terminal = { state, previewReady, visibleFailure, visibleFailureText, idleWithoutResult: false };
         break;
       }
       idleWithoutResultSince ??= Date.now();
@@ -999,7 +1001,7 @@ async function runCurrentAi(popup, guard, options) {
     failure: !terminal
       ? `AI did not terminalize within ${durationMs} ms`
       : terminal.visibleFailure
-        ? terminal.state.bodyLead.slice(-600)
+        ? terminal.visibleFailureText.slice(-600)
         : terminal.idleWithoutResult
           ? "AI returned to idle without opening a usable Content List or showing a failure"
           : null,

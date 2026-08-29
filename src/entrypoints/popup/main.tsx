@@ -246,6 +246,12 @@ let fastSignalPollQueued = false;
 let boundSignalPullInFlight: Promise<void> | null = null;
 let boundSignalPullQueued = false;
 let saveInFlight: Promise<void> | null = null;
+let aiRunInFlight: Promise<void> | null = null;
+/** A slow authority pass may already be waiting on Hub when Run AI starts.
+ * Retire that pass as an adopter without cancelling its transport: the local
+ * AI transaction must be able to publish its successful result and open the
+ * Content List before a trailing authority retry changes the projection. */
+let authorityRefreshGeneration = 0;
 let popupRefreshInFlight: Promise<void> | null = null;
 let popupRefreshQueued = false;
 let sessionTransitionQueue: Promise<void> = Promise.resolve();
@@ -261,7 +267,7 @@ type PostSaveLocalRecovery = Readonly<{
 let postSaveLocalRecovery: PostSaveLocalRecovery | null = null;
 const authorityRefreshQueue = createAuthorityRefreshQueue({
   intervalMs: AUTHORITY_REFRESH_INTERVAL_MS,
-  isPaused: backgroundPollingPaused,
+  isPaused: authorityPollingPaused,
   run: refreshAuthorityOnce,
 });
 /** Which decided signals have already been consumed, and the queue that keeps
@@ -1050,7 +1056,10 @@ function waitForSignalsAvailable(
 async function refreshTodoContext(
   context: TargetTabContext,
   requestKey = boundTabKey,
-  options: Readonly<{ force?: boolean }> = {},
+  options: Readonly<{
+    force?: boolean;
+    adoptIf?: () => boolean;
+  }> = {},
 ): Promise<void> {
   const refresh = await todoController.requestRefresh({
     tabId: context.tabId,
@@ -1058,6 +1067,9 @@ async function refreshTodoContext(
     force: options.force,
   });
   if (refresh.status === "skipped") {
+    return;
+  }
+  if (options.adoptIf && !options.adoptIf()) {
     return;
   }
   if (boundTabId !== context.tabId || boundTabKey !== requestKey) {
@@ -1478,6 +1490,13 @@ function backgroundPollingPaused(): boolean {
   return saveInFlight !== null || sessionTransitionPending > 0;
 }
 
+/** Fast local signals remain live during AI so edits and navigation fence the
+ * captured generation immediately. Only the slow remote authority lane pauses;
+ * it resumes with one forced trailing pass after the result is projected. */
+function authorityPollingPaused(): boolean {
+  return backgroundPollingPaused() || aiRunInFlight !== null;
+}
+
 function resumeBackgroundPolling(forceAuthority = false): void {
   if (popupRefreshQueued) {
     void refreshPopup();
@@ -1549,41 +1568,101 @@ function queueBoundSignalPull(tabId: number): Promise<void> {
 }
 
 async function refreshAuthorityOnce(force: boolean): Promise<void> {
-  if (backgroundPollingPaused()) {
+  const generation = authorityRefreshGeneration;
+  const mayAdopt = (): boolean =>
+    generation === authorityRefreshGeneration && !authorityPollingPaused();
+  const defer = (): void => {
     void authorityRefreshQueue.queue(force);
+  };
+  if (!mayAdopt()) {
+    defer();
     return;
   }
   const context = await resolveTargetTabContext();
   if (context === null) {
     return;
   }
+  if (!mayAdopt()) {
+    // A real path/query navigation still has to invalidate the old AI binding;
+    // the fast signal lane normally owns that fence, while the retired slow
+    // pass remains completely inert for a same-binding response.
+    if (boundTabKey !== null && tabBindingKey(context) !== boundTabKey) {
+      await handleBoundContext(context);
+    }
+    defer();
+    return;
+  }
   const configuration = configurationController.snapshot();
   if (!configuration.settingsLoaded) {
     await configurationController.loadSettings();
   }
+  if (!mayAdopt()) {
+    defer();
+    return;
+  }
   if (configurationController.snapshot().hasStoredToken) {
     await configurationController.adoptAuthStatus();
   }
+  if (!mayAdopt()) {
+    defer();
+    return;
+  }
   const requestKey = await handleBoundContext(context);
-  await refreshTodoContext(context, requestKey, { force });
+  if (!mayAdopt()) {
+    defer();
+    return;
+  }
+  await refreshTodoContext(context, requestKey, { force, adoptIf: mayAdopt });
+  if (!mayAdopt()) {
+    defer();
+    return;
+  }
   const inspectionProperty = managedRenderInspectionPropertyFor(context, requestKey);
   if (!isConfigurationComplete()) {
     await observeCurrentRenderInspection(context, requestKey, inspectionProperty);
+    if (!mayAdopt()) {
+      defer();
+      return;
+    }
     render();
     return;
   }
-  await refreshLockDirective(context, requestKey);
+  await refreshLockDirective(context, requestKey, { adoptIf: mayAdopt });
+  if (!mayAdopt()) {
+    defer();
+    return;
+  }
   await observeCurrentRenderInspection(context, requestKey, inspectionProperty);
-  await maybeLoadPropertyConfig();
-  await maybeResumeAiRun(context, requestKey);
+  if (!mayAdopt()) {
+    defer();
+    return;
+  }
+  await maybeLoadPropertyConfig(mayAdopt);
+  if (!mayAdopt()) {
+    defer();
+    return;
+  }
+  await maybeResumeAiRun(context, requestKey, mayAdopt);
+  if (!mayAdopt()) {
+    defer();
+    return;
+  }
   if (postSaveLocalRecovery !== null) {
     // A remote Save can commit just as the content realm loses the command that
     // would normally enter silent mode. Keep the old engine fenced until a
     // later status check proves it is gone; only then may the brain consume the
     // successful Save and expose the ordinary silent surface again.
     await reconcileContentStatus(context, requestKey);
+    if (!mayAdopt()) {
+      defer();
+      return;
+    }
   }
   await refreshSilentSelectorPreview(context, requestKey);
+  if (!mayAdopt()) {
+    defer();
+    return;
+  }
   render();
 }
 
@@ -1623,10 +1702,15 @@ async function pollCurrentTabSignals(): Promise<void> {
  * its result; a newly opened panel only projects the durable terminal record
  * back into the already-running brain session. Selector preview remains an
  * explicit operator action. */
-async function maybeResumeAiRun(context: TargetTabContext, requestKey = boundTabKey): Promise<void> {
+async function maybeResumeAiRun(
+  context: TargetTabContext,
+  requestKey = boundTabKey,
+  adoptIf: () => boolean = () => true,
+): Promise<void> {
   const state = store.getState();
   const pageKey = canonicalPageKey(context.url);
   if (
+    !adoptIf() ||
     activeRunSessionId !== null ||
     state.name !== "running" ||
     !state.runSessionId ||
@@ -1650,6 +1734,7 @@ async function maybeResumeAiRun(context: TargetTabContext, requestKey = boundTab
       editorSessionId: activeEditorSessionId,
     }, { target: "background" });
     if (
+      !adoptIf() ||
       !response.ok ||
       boundTabId !== context.tabId ||
       boundTabKey !== requestKey ||
@@ -1663,6 +1748,9 @@ async function maybeResumeAiRun(context: TargetTabContext, requestKey = boundTab
       const dirtyDuringRun = store.getState().runDirtyDuringRun === true;
       if (!dirtyDuringRun) {
         const cleanAcknowledgement = await requestContentCleanAcknowledgement(context.tabId);
+        if (!adoptIf()) {
+          return;
+        }
         if (!cleanAcknowledgement.ok) {
           contentDirty = true;
           lastSubmissionSnapshot = null;
@@ -1700,12 +1788,15 @@ async function maybeResumeAiRun(context: TargetTabContext, requestKey = boundTab
         runAiSessionId: response.data.sessionId,
         runSelectors: response.data.selectors,
       }, requestKey);
-      if (!dirtyDuringRun && store.getState().name === "post_ai_clean") {
+      if (adoptIf() && !dirtyDuringRun && store.getState().name === "post_ai_clean") {
         await showPreview();
       }
       return;
     }
     if (response.data.status === "failed" || response.data.status === "stale") {
+      if (!adoptIf()) {
+        return;
+      }
       if (response.data.status === "failed") {
         notifyAiFailure(captureBindingOccurrence(requestKey), {
           stage: response.data.failureStage ?? "transport",
@@ -2289,6 +2380,13 @@ async function ensureSessionEmulationTarget(
   context: TargetTabContext,
   target: SessionEmulationTarget,
 ): Promise<boolean> {
+  // A proof that is already exact is not a transition. In particular, do not
+  // queue an AI capture behind an unrelated slow authority request merely to
+  // rediscover the mobile posture it already owns. A pending transition still
+  // serializes, because it may be committed to the opposite target.
+  if (sessionTransitionPending === 0 && appliedEmulationMode === target.mode) {
+    return true;
+  }
   return await runSessionTransition(async () => {
     if (appliedEmulationMode === target.mode) {
       return true;
@@ -2415,10 +2513,18 @@ function unavailableLockDirective(context: TargetTabContext): LockDirectiveRespo
 async function refreshLockDirective(
   context: TargetTabContext,
   requestKey = boundTabKey,
-  options: Readonly<{ refreshFence?: boolean }> = {},
+  options: Readonly<{
+    refreshFence?: boolean;
+    adoptIf?: () => boolean;
+  }> = {},
 ): Promise<LockDirectiveResponse | null> {
   const lock = await requestLockDirective(context, options);
-  if (!lock || boundTabId !== context.tabId || boundTabKey !== requestKey) {
+  if (
+    !lock ||
+    (options.adoptIf && !options.adoptIf()) ||
+    boundTabId !== context.tabId ||
+    boundTabKey !== requestKey
+  ) {
     return null;
   }
   activeSiteId = lock.siteId;
@@ -3347,13 +3453,16 @@ function propertyLoadOutcomeFromStatus(status: string, cached: boolean): Propert
   return { status: "failed", cached: false, reason: status || "configuration unavailable" };
 }
 
-async function loadPropertyConfig(siteId: number): Promise<PropertyLoadOutcome> {
+async function loadPropertyConfig(
+  siteId: number,
+  adoptIf: () => boolean = () => true,
+): Promise<PropertyLoadOutcome> {
   const binding = captureBindingOccurrence();
   const candidate = await configurationController.requestPropertyLoad(siteId);
   if (candidate === null) {
     return propertyLoadOutcomeFromStatus(currentPropertyConfiguration().status, true);
   }
-  if (!bindingOccurrenceIsCurrent(binding) || activeSiteId !== siteId) {
+  if (!adoptIf() || !bindingOccurrenceIsCurrent(binding) || activeSiteId !== siteId) {
     return { status: "stale", cached: false, reason: "the property binding changed" };
   }
   const outcome = configurationController.adoptPropertyLoad(candidate);
@@ -3367,14 +3476,16 @@ async function loadPropertyConfig(siteId: number): Promise<PropertyLoadOutcome> 
   return propertyLoadOutcomeFromStatus(currentPropertyConfiguration().status, false);
 }
 
-async function maybeLoadPropertyConfig(): Promise<PropertyLoadOutcome> {
+async function maybeLoadPropertyConfig(
+  adoptIf: () => boolean = () => true,
+): Promise<PropertyLoadOutcome> {
   if (activeSiteId === null) {
     return { status: "unavailable", cached: false, reason: "the property is unresolved" };
   }
   if (currentPropertyConfiguration().attemptedSiteId === activeSiteId) {
     return propertyLoadOutcomeFromStatus(currentPropertyConfiguration().status, true);
   }
-  return await loadPropertyConfig(activeSiteId);
+  return await loadPropertyConfig(activeSiteId, adoptIf);
 }
 
 function renderModeSet(): boolean {
@@ -3880,49 +3991,72 @@ async function runAi(): Promise<void> {
   if (!action) {
     return;
   }
+  const authorityRefreshWasInFlight = authorityRefreshQueue.current() !== null;
+  authorityRefreshGeneration += 1;
   render();
-  try {
-    await runAiOperation(action);
-  } catch (error: unknown) {
-    const binding = {
-      key: action.bindingKey,
-      occurrence: action.bindingOccurrence,
-    };
-    const failedRunId = activeRunSessionId;
-    notifyAiFailure(binding, {
-      stage: "transport",
-      reason: "unexpected_transport_error",
-      status: error instanceof Error ? error.name : "unknown",
-      localRunId: failedRunId,
-    });
+  // Defer entry by one microtask so the slow-lane pause is observable before
+  // runAiOperation reaches its first asynchronous preflight boundary.
+  const operation = Promise.resolve().then(async () => {
     try {
-      const context = failedRunId && bindingOccurrenceIsCurrent(binding)
-        ? await resolveTargetTabContext()
-        : null;
-      if (context && failedRunId && binding.key && bindingOccurrenceIsCurrent(binding)) {
-        await reportPopupFactAndPull(context, "ai-run-unexpected-failure", {
-          runPhase: "failed",
-          runSessionId: failedRunId,
-          runFailureReason: "unexpected_transport_error",
-        }, binding.key);
-        await syncContentRunGeneration(
-          context,
-          brainSignals.consumedThrough(),
-          failedRunId,
-          "terminal",
-        );
+      await runAiOperation(action);
+    } catch (error: unknown) {
+      const binding = {
+        key: action.bindingKey,
+        occurrence: action.bindingOccurrence,
+      };
+      const failedRunId = activeRunSessionId;
+      notifyAiFailure(binding, {
+        stage: "transport",
+        reason: "unexpected_transport_error",
+        status: error instanceof Error ? error.name : "unknown",
+        localRunId: failedRunId,
+      });
+      try {
+        const context = failedRunId && bindingOccurrenceIsCurrent(binding)
+          ? await resolveTargetTabContext()
+          : null;
+        if (context && failedRunId && binding.key && bindingOccurrenceIsCurrent(binding)) {
+          await reportPopupFactAndPull(context, "ai-run-unexpected-failure", {
+            runPhase: "failed",
+            runSessionId: failedRunId,
+            runFailureReason: "unexpected_transport_error",
+          }, binding.key);
+          await syncContentRunGeneration(
+            context,
+            brainSignals.consumedThrough(),
+            failedRunId,
+            "terminal",
+          );
+        }
+      } catch {
+        logEvent("AI terminal projection failed", "unexpected_transport_error", "danger");
+      } finally {
+        if (activeRunSessionId === failedRunId) {
+          activeRunSessionId = null;
+        }
       }
-    } catch {
-      logEvent("AI terminal projection failed", "unexpected_transport_error", "danger");
     } finally {
-      if (activeRunSessionId === failedRunId) {
-        activeRunSessionId = null;
-      }
+      advanceOperatorAction(action, "terminal");
+      operatorActionController.clear(action);
+      render();
     }
+  });
+  aiRunInFlight = operation;
+  try {
+    await operation;
   } finally {
-    advanceOperatorAction(action, "terminal");
-    operatorActionController.clear(action);
-    render();
+    if (aiRunInFlight === operation) {
+      aiRunInFlight = null;
+    }
+    if (
+      authorityRefreshWasInFlight ||
+      authorityRefreshQueue.current() !== null ||
+      authorityRefreshQueue.hasQueued()
+    ) {
+      // A retired authority response may still be in transport. Queueing here
+      // coalesces one forced fresh pass behind it without delaying Content List.
+      void queueAuthorityRefresh(true);
+    }
   }
 }
 

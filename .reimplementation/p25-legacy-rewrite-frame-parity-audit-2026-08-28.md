@@ -627,7 +627,7 @@ preserves the stronger architecture.
     source-contract regression prevents the activation predicate from becoming
     impossible again. No marking action or final publication occurred in the
     failed run.
-105. **Remediated, headed verification pending P0 — Refresh could race the
+105. **Closed P0 — Refresh could race the
     desktop→mobile marking transition.** Immutable run
     `2026-08-28T23-47-25-220Z-a51efe8c-rewrite-ledigajobb` proved silent desktop
     and dispatched a trusted marking click 750 ms after explicit Refresh. The
@@ -643,8 +643,11 @@ preserves the stronger architecture.
     stale action. Regression coverage holds Refresh mid-request, proves no mobile
     apply or content activation occurs early, then proves exact ordered
     activation after release; existing A→B→A and one-post-Save-refresh contracts
-    remain green.
-106. **Remediated, clean headed diagnostic passed; immutable rerun pending P0 —
+    remain green. Immutable production run
+    `2026-08-29T00-55-58-246Z-cf9c2d03-rewrite-ledigajobb` then passed its exact
+    activation/network stage on clean pushed commit `33c390e3`, closing the
+    headed gate as well as the deterministic regression.
+106. **Closed P0 —
     one responsive header class change rebuilt the complete marking bridge.** The
     exact Ledigajobb resize stage restored 412×960 but recorded 616 ms and 438 ms
     Long Tasks. Source-mapped cold profiles attributed the extension work to a
@@ -667,8 +670,45 @@ preserves the stronger architecture.
     Tasks, max reported p95 16.8 ms, and a 50 ms worst frame. The scoped
     visibility, hidden-text reevaluation, net-zero churn, class-branch, and
     role/full-rebuild regressions pass in the 111-test DOM bridge suite; the next
-    clean pushed run must repeat the immutable marking-resize stage before this
-    blocker enters the comparison denominator.
+    clean pushed run repeated the immutable marking-resize stage on commit
+    `33c390e3`: exact 412×960 → 388×960 → 412×960 posture, 217.237 ms total
+    action including the intentional settle, zero Long Tasks, 16.8 ms rAF p95
+    and worst frame, 752 markable sources, eight painted rectangles, zero
+    invisible/composed-invisible/covered/unresolved paint, and 114 consent-
+    suppressed sources. Stages 00–07 all passed on the same run.
+107. **Remediated, headed production diagnostic passed; immutable rerun pending
+    P0 — a passive authority retry could strand a successful AI result behind a
+    transient lock overlay.** Stage 08 of the same immutable run emitted exactly
+    one clean, current-page-only 1,118,728-byte `/get_selectors` POST, received
+    202, polled the job to terminal, and fetched its 763-byte selector result.
+    An unrelated 15-second `/context` pass began about 165 seconds after the AI
+    click, hung for 100.248 seconds, and returned 503 about 79 seconds after the
+    successful result. Its passive lock projection wrapped the popup's running
+    state in `locked`; `run.completed` correctly advanced the retained underlay
+    to `post_ai_clean`, but automatic Content List opening requires the exposed
+    state and therefore never ran. The selectors were not lost and became
+    manually available after authority recovered. The harness compounded the
+    diagnosis by inspecting only body text and reporting “without showing a
+    failure” even though the terminal spinner explicitly said the saved
+    endpoints did not answer the site lookup.
+
+    Local AI is now an authority-adoption transaction. The 500 ms local signal
+    and navigation lane stays live, while only the remote authority lane pauses.
+    A slow pass already in transport is generation-retired: its Todo, lock,
+    configuration, and AI-resume projections cannot adopt after the AI action
+    starts, and one forced fresh pass coalesces behind it only when work was
+    actually retired or queued. An already-proven exact mobile posture bypasses
+    the transition queue, so AI capture does not wait behind an unrelated Hub
+    request; a pending opposite transition still serializes normally. The
+    harness now treats spinner/setup lock failures as visible terminal failures.
+    Integration regressions hold `/context`, complete AI and open a populated
+    Content List, release a synthetic 503, prove zero stale lock adoption and one
+    fresh trailing pass, and separately prove a path change still fences the
+    delayed AI result. The complete automated gate is green at 140 files / 1410
+    tests plus seven generated-manifest tests. A headed production run against
+    Ledigajobb completed the real backend job and automatically opened the full
+    semantic Content List without authority takeover; the exact clean pushed
+    commit must now repeat stage 08 and the remaining workflow stages.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -740,9 +780,10 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 106, but P25 remains
-open until the committed source passes clean automated gates and every valid candidate completes an
-observer-free headed rewrite flow. Rewrite marking
+Implementation remediation is code-complete through finding 107 and the current
+source passes the complete automated gate, but P25 remains open until the exact
+clean pushed commit completes every valid candidate's observer-free headed
+rewrite flow. Rewrite marking
 and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,
 with no input long task over 50 ms; true bottom must reach at least 99.5% of the
 resolved viewport range and restore within 2 px; post-edit projection must be
