@@ -590,7 +590,7 @@ const DEFERRED_BRANCH_RENDER_TARGET_THRESHOLD = 200;
 // every progressive chunk below the measured 50 ms input-frame budget even on
 // a layout-heavy responsive page.
 const PROGRESSIVE_GEOMETRY_TARGET_THRESHOLD = 6;
-const PROGRESSIVE_GEOMETRY_CHUNK_SIZE = 3;
+const PROGRESSIVE_GEOMETRY_CHUNK_SIZE = 2;
 // Newly inserted or removed content needs to become markable on roughly the
 // same cadence as the legacy renderer. Presentation attributes are noisier
 // (carousels commonly emit them in short trains), so retain the longer quiet
@@ -604,7 +604,7 @@ const STRUCTURAL_CHILD_LIST_QUIET_MS = 100;
 const STRUCTURAL_PRESENTATION_QUIET_MS = 250;
 const STRUCTURAL_MUTATION_IDLE_TIMEOUT_MS = 1_200;
 const PROGRESSIVE_PRESENTATION_TARGET_THRESHOLD = 96;
-const PROGRESSIVE_PRESENTATION_CHUNK_SIZE = 64;
+const PROGRESSIVE_PRESENTATION_CHUNK_SIZE = 48;
 // Pinned legacy restores interactive marking at roughly 250 ms. Begin the
 // rewrite's frame-fenced repaint at 230 ms so its paint frame lands in that
 // same visual window instead of adding a frame after it. Silent preview keeps
