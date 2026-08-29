@@ -1082,11 +1082,25 @@ async function ensurePopupSessionView(popup, implementation, timeoutMs = 30_000)
       state.renderChoice &&
       state.renderInspectionView !== state.renderChoice
     ) {
-      await runRenderInspection(popup, {
-        implementation,
-        renderMode: state.renderChoice,
-        timeoutMs: Math.max(1_000, deadline - Date.now()),
-      });
+      try {
+        await runRenderInspection(popup, {
+          implementation,
+          renderMode: state.renderChoice,
+          timeoutMs: Math.max(1_000, deadline - Date.now()),
+        });
+      } catch (error) {
+        const transitioned = await capturePopupState(popup);
+        const transitionedToggle = transitioned.controls.find((control) => control.id === "toggle-enabled");
+        if (
+          transitionedToggle &&
+          !transitionedToggle.disabled &&
+          transitionedToggle.visible !== false &&
+          transitioned.busy === false
+        ) {
+          return transitioned;
+        }
+        throw error;
+      }
       state = await capturePopupState(popup);
       continue;
     }
