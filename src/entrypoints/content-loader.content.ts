@@ -1215,12 +1215,42 @@ async function runActivationStabilization(pageUrl: string): Promise<RevealRunRes
         ? scrollRestoration.observe(resolveViewportScrollOwner(document, window))
         : null;
       let scrollOwner = initialScrollOwner;
-      const refreshScrollOwner = (): typeof scrollOwner => {
+      let zeroRangeReproofUsed = false;
+      const scrollOwnerIsUsable = (owner: typeof scrollOwner): boolean => Boolean(
+        owner &&
+        owner.element.isConnected !== false &&
+        owner.viewportExtent() > 0
+      );
+      const refreshScrollOwner = (force = false): typeof scrollOwner => {
         if (typeof window === "undefined" || typeof document === "undefined") {
+          return scrollOwner;
+        }
+        // Owner discovery deliberately reads and movement-probes a bounded
+        // viewport candidate corpus. It is authority work, not a quiet-sample
+        // measurement: keep the proved owner for the complete ritual unless it
+        // becomes unusable or a real movement stalls.
+        if (!force && scrollOwnerIsUsable(scrollOwner)) {
           return scrollOwner;
         }
         scrollOwner = scrollRestoration.observe(resolveViewportScrollOwner(document, window));
         return scrollOwner;
+      };
+      const currentScrollExtent = (): number => {
+        let owner = refreshScrollOwner();
+        if (
+          owner &&
+          owner.maximumOffset() <= 2 &&
+          !zeroRangeReproofUsed
+        ) {
+          // Lazy materialization can introduce a nested viewport owner after
+          // the initial proof. Permit one explicit no-range re-proof without
+          // turning every quiet poll back into a document-scale owner search.
+          zeroRangeReproofUsed = true;
+          owner = refreshScrollOwner(true);
+        }
+        return owner
+          ? owner.maximumOffset() + owner.viewportExtent()
+          : currentViewportScrollExtent();
       };
       const isStale = (): boolean => !interactionShieldAuthorityActive ||
         lifecycleGeneration !== contentLifecycleGeneration ||
@@ -1237,10 +1267,7 @@ async function runActivationStabilization(pageUrl: string): Promise<RevealRunRes
           document,
           window,
           isStale,
-          measureExtent: () => {
-            const owner = refreshScrollOwner();
-            return owner ? owner.maximumOffset() + owner.viewportExtent() : 0;
-          },
+          measureExtent: currentScrollExtent,
           measureRects: () => revealRectSignature(scrollOwner),
           measureResources: revealResourceSignature,
           measureMotion: () => revealMotionSignature(phase === "post-freeze"),
@@ -1276,12 +1303,7 @@ async function runActivationStabilization(pageUrl: string): Promise<RevealRunRes
           initialScrollHeight: scrollOwner
             ? scrollOwner.maximumOffset() + scrollOwner.viewportExtent()
             : 0,
-          measureExpandedScrollHeight: () => {
-            const owner = refreshScrollOwner();
-            return owner
-              ? owner.maximumOffset() + owner.viewportExtent()
-              : currentViewportScrollExtent();
-          },
+          measureExpandedScrollHeight: currentScrollExtent,
           async scrollTo(position, measuredScrollHeight) {
             if (typeof window === "undefined" || isStale()) {
               return { reached: false, progressed: false };
@@ -1308,32 +1330,52 @@ async function runActivationStabilization(pageUrl: string): Promise<RevealRunRes
               }
               return { reached: allReached, progressed: anyProgress };
             }
-            const resolvedOwner = refreshScrollOwner();
+            let resolvedOwner = refreshScrollOwner();
             if (!resolvedOwner) {
               return { reached: false, progressed: false };
             }
             scrollOwner = resolvedOwner;
-            const beforeOffset = resolvedOwner.currentOffset();
-            const bottomOffset = Math.min(
-              resolvedOwner.maximumOffset(),
-              Math.max(0, measuredScrollHeight - resolvedOwner.viewportExtent()),
-            );
-            const targetOffset = position === "top"
-              ? 0
-              : position === "lazy-threshold"
-                ? Math.round(bottomOffset * 0.5)
+            const targetForOwner = (owner: NonNullable<typeof resolvedOwner>): number => {
+              const bottomOffset = Math.min(
+                owner.maximumOffset(),
+                Math.max(0, measuredScrollHeight - owner.viewportExtent()),
+              );
+              return position === "top"
+                ? 0
+                : position === "lazy-threshold"
+                  ? Math.round(bottomOffset * 0.5)
                   : bottomOffset;
+            };
+            let beforeOffset = resolvedOwner.currentOffset();
+            let targetOffset = targetForOwner(resolvedOwner);
             // The visible walk is driven by bounded extension-owned frames.
             // Native smooth scrolling can remain queued after freeze, while a
             // one-shot auto write would recreate the old mechanical teleport.
-            const scroll = await smoothScrollOwnerTo(
+            let scroll = await smoothScrollOwnerTo(
               resolvedOwner,
               targetOffset,
               isStale,
               window,
             );
-            const afterOffset = resolvedOwner.currentOffset();
-            const progressed = scroll.reached || Math.abs(afterOffset - beforeOffset) > 2;
+            let afterOffset = resolvedOwner.currentOffset();
+            let progressed = scroll.reached || Math.abs(afterOffset - beforeOffset) > 2;
+            if (!scroll.stale && !progressed) {
+              const reprovedOwner = refreshScrollOwner(true);
+              if (reprovedOwner && reprovedOwner.element !== resolvedOwner.element) {
+                resolvedOwner = reprovedOwner;
+                scrollOwner = reprovedOwner;
+                beforeOffset = reprovedOwner.currentOffset();
+                targetOffset = targetForOwner(reprovedOwner);
+                scroll = await smoothScrollOwnerTo(
+                  reprovedOwner,
+                  targetOffset,
+                  isStale,
+                  window,
+                );
+                afterOffset = reprovedOwner.currentOffset();
+                progressed = scroll.reached || Math.abs(afterOffset - beforeOffset) > 2;
+              }
+            }
             if (position !== "bottom") {
               return { reached: scroll.reached, progressed };
             }

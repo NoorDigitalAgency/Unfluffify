@@ -546,6 +546,17 @@ describe("C4 rewrite content entrypoints", () => {
     Reflect.deleteProperty(globalThis, "MutationObserver");
   });
 
+  it("leases one proved scroll owner across quiet and extent samples", () => {
+    const source = readFileSync(resolve(REPO_ROOT, "src", "entrypoints", "content-loader.content.ts"), "utf8");
+
+    expect(source).toContain("const refreshScrollOwner = (force = false)");
+    expect(source).toContain("if (!force && scrollOwnerIsUsable(scrollOwner))");
+    expect(source).toContain("measureExtent: currentScrollExtent");
+    expect(source).toContain("measureExpandedScrollHeight: currentScrollExtent");
+    expect(source).toContain("if (!scroll.stale && !progressed)");
+    expect(source).toContain("const reprovedOwner = refreshScrollOwner(true)");
+  });
+
   it("registers the rewrite activation bridge without loading legacy content-main", async () => {
     const addListener = vi.fn();
     const pageUrl = installTestLocation();

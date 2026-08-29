@@ -222,14 +222,18 @@ function nearestDescendantRects(
 }
 
 function clientRectsFor(element: Element, document: Document): RectLike[] {
-  const visible = ownMeasurableRects(element).filter((rect) =>
-    rectInViewport(rect, document) && rectIsPaintReachable(element, rect, document)
-  );
+  const visible = ownPaintReachableClientRectsFor(element, document);
   if (visible.length > 0) {
     return visible;
   }
   return nearestDescendantRects(element, (candidate, rect) =>
     rectInViewport(rect, document) && rectIsPaintReachable(candidate, rect, document)
+  );
+}
+
+function ownPaintReachableClientRectsFor(element: Element, document: Document): RectLike[] {
+  return ownMeasurableRects(element).filter((rect) =>
+    rectInViewport(rect, document) && rectIsPaintReachable(element, rect, document)
   );
 }
 
@@ -496,7 +500,9 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     }
     const layerKey = LAYER_BY_CLASSIFICATION[classification];
     let presentation = overlayClassFor(classification);
-    let rects = measuredClientRectsFor(target.element);
+    let rects = LIVE_VISIBILITY_EXCLUSION_CLASSIFICATIONS.has(classification)
+      ? ownPaintReachableClientRectsFor(target.element, options.document)
+      : measuredClientRectsFor(target.element);
     if (rects.length === 0 && classification === "explicit-include") {
       rects = rawClientRectsFor(target.element).filter((rect) => rectInViewport(rect, options.document));
       if (!target.visible) {
@@ -625,7 +631,9 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       if (!layer) {
         return;
       }
-      let rects = measuredClientRectsFor(target.element);
+      let rects = isExcludedPresentation
+        ? ownPaintReachableClientRectsFor(target.element, options.document)
+        : measuredClientRectsFor(target.element);
       if (rects.length === 0 && presentation.includes("uf-silent-content-ghost")) {
         rects = rawClientRectsFor(target.element);
       }

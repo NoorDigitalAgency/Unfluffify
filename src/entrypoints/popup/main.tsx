@@ -4616,12 +4616,21 @@ function previewStateIsOpen(): boolean {
   return visibleState === "preview_open" || visibleState === "silent_preview";
 }
 
+function previewExitIsTerminal(): boolean {
+  const state = store.getState();
+  const visibleState = state.name === "locked" ? state.priorState : state.name;
+  return visibleState !== "preview_open" &&
+    visibleState !== "silent_preview" &&
+    visibleState !== "exit_restoring";
+}
+
 async function exitPreview(): Promise<void> {
   const context = await resolveTargetTabContext();
   if (context === null) {
     return;
   }
   const requestKey = await handleBoundContext(context);
+  const binding = captureBindingOccurrence(requestKey);
   await pullSignals(context.tabId, requestKey);
   // Exit is a mechanical restore, not an edit. It remains available if the
   // property lock changes while preview is open, but a stale click cannot birth
@@ -4630,9 +4639,24 @@ async function exitPreview(): Promise<void> {
     render();
     return;
   }
-  await reportPopupFactAndPull(context, "preview-exit-requested", {
-    previewExitRequested: true,
+  // Re-arm the edge for this exact Preview occurrence. A prior interrupted
+  // popup can leave the durable fact true even though a newly opened Preview
+  // is visible; writing false then true makes the request observable without
+  // inventing a second state-machine path.
+  await reportPopupFactAndPull(context, "preview-exit-armed", {
+    previewExitRequested: false,
   }, requestKey);
+  const exited = await reportPopupFactAndPull(context, "preview-exit-requested", {
+    previewExitRequested: true,
+  }, requestKey, previewExitIsTerminal, 20_000);
+  if (!exited && bindingOccurrenceIsCurrent(binding)) {
+    notifyBoundEvent(
+      binding,
+      "Preview exit failed",
+      "the page did not confirm that its marking posture was restored",
+      "danger",
+    );
+  }
   render();
 }
 

@@ -1391,6 +1391,36 @@ describe("P6 DOM bridge", () => {
     renderer.dispose();
   });
 
+  it("retains a collapsed exclusion owner without borrowing visible descendant geometry", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const wrapper = new FakeElement("SECTION", rect(0, 0, 0, 0));
+    const paragraph = new FakeElement("P", rect(20, 40, 180, 30), "Visible descendant");
+    for (const element of [root, wrapper, paragraph]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    wrapper.appendChild(paragraph);
+    root.appendChild(wrapper);
+    doc.hits = [paragraph, root];
+    const renderer = createOverlayRenderer({ document: doc as unknown as Document });
+    const xpath = "/main[1]/section[1]";
+
+    renderer.render({
+      rows: [{ xpath, excluded: true, explicit: true }],
+      overlay: new Map([[xpath, "exception"]]),
+    }, new Map([[xpath, {
+      element: wrapper as unknown as Element,
+      visible: true,
+    }]]));
+
+    expect(renderer.root.children.flatMap((layer) => layer.children).some((candidate) =>
+      candidate.getAttribute("data-uf-overlay-xpath") === xpath
+    )).toBe(false);
+    renderer.dispose();
+  });
+
   it("searches the legacy-bounded collapsed corpus beyond the old 64-node cutoff", () => {
     const doc = new FakeDocument();
     const wrapper = new FakeElement("SECTION", rect(0, 0, 0, 0));
@@ -1590,6 +1620,27 @@ describe("P6 DOM bridge", () => {
     const debugBoxes = renderer.root.children.flatMap((layer) => layer.children);
     expect(debugBoxes.every((box) => box.getAttribute("data-uf-silent-copy") === "true")).toBe(true);
     expect(debugBoxes.map((box) => box.getAttribute("title"))).toContain("XPath: /p[1]");
+    renderer.dispose();
+  });
+
+  it("does not paint silent exclusion classes from descendant-only geometry", () => {
+    const doc = new FakeDocument();
+    const excluded = new FakeElement("SECTION", rect(0, 0, 0, 0));
+    const copy = new FakeElement("P", rect(20, 40, 180, 30), "Visible descendant");
+    excluded.ownerDocument = doc;
+    copy.ownerDocument = doc;
+    excluded.appendChild(copy);
+    doc.hits = [copy];
+    const renderer = createOverlayRenderer({ document: doc as unknown as Document });
+    const xpath = "/section[1]";
+
+    renderer.renderSilentHighlights([], new Map([
+      [xpath, { element: excluded as unknown as Element, visible: true }],
+    ]), { excludedXpaths: [xpath] });
+
+    expect(renderer.root.children.flatMap((layer) => layer.children).some((box) =>
+      box.getAttribute("data-uf-silent-highlight") === xpath
+    )).toBe(false);
     renderer.dispose();
   });
 
