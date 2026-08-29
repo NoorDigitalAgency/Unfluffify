@@ -1089,15 +1089,18 @@ async function ensurePopupSessionView(popup, implementation, timeoutMs = 30_000)
           timeoutMs: Math.max(1_000, deadline - Date.now()),
         });
       } catch (error) {
-        const transitioned = await capturePopupState(popup);
-        const transitionedToggle = transitioned.controls.find((control) => control.id === "toggle-enabled");
-        if (
-          transitionedToggle &&
-          !transitionedToggle.disabled &&
-          transitionedToggle.visible !== false &&
-          transitioned.busy === false
-        ) {
-          return transitioned;
+        while (Date.now() < deadline) {
+          const transitioned = await capturePopupState(popup);
+          const transitionedToggle = transitioned.controls.find((control) => control.id === "toggle-enabled");
+          if (
+            transitionedToggle &&
+            !transitionedToggle.disabled &&
+            transitionedToggle.visible !== false &&
+            transitioned.busy === false
+          ) {
+            return transitioned;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 50));
         }
         throw error;
       }

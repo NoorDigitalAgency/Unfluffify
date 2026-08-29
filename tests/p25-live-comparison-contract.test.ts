@@ -256,7 +256,7 @@ describe("P25 live-comparison identity and candidate contract", () => {
     const source = readFileSync(new URL("../scripts/performance/p25-live-comparison.mjs", import.meta.url), "utf8");
     expect(source).toMatch(/implementation === "rewrite" &&\s*\(!alternate \|\| alternate\.disabled \|\| alternate\.visible === false\)/);
     expect(source).toMatch(/requestedReadyDeadline[\s\S]*?while \(control\?\.disabled[\s\S]*?settledProof = proveMode/);
-    expect(source).toMatch(/catch \(error\)[\s\S]*?transitionedToggle[\s\S]*?return transitioned/);
+    expect(source).toMatch(/catch \(error\)[\s\S]*?while \(Date\.now\(\) < deadline\)[\s\S]*?transitionedToggle[\s\S]*?return transitioned/);
   });
 
   it("normalizes fragment, query ordering, default ports, and trailing slash coherently", () => {
