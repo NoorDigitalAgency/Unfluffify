@@ -544,7 +544,11 @@ export async function physicalActivatePreviewPageTarget(session) {
         const y = Math.max(2, Math.min(innerHeight - 2, rect.top + Math.min(rect.height / 2, 40)));
         const underlay = pageUnderlayAt(x, y);
         const identity = xpath || markId;
-        const readableText = describe(underlay.exact) || xpathTerminalTag(xpath) || describe(underlay.source || resolved);
+        // A technical leaf can be painted independently while its projected
+        // Content List row is the nearest semantic owner. Prefer that owner's
+        // readable label before falling back to a tag name so page-to-row
+        // correlation proves the route that a user can actually recognize.
+        const readableText = describe(underlay.exact) || describe(underlay.source || resolved) || xpathTerminalTag(xpath);
         candidates.push({ geometry: overlay, source: underlay.source || resolved, readableText, underlayDepth: underlay.depth, identity, sourceKind: resolved instanceof Element ? 'resolved-overlay' : 'visible-overlay-underlay' });
       }
     }
