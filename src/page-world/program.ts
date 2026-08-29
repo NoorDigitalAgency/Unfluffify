@@ -506,6 +506,14 @@ const page = globalThis as unknown as PageWorldRoot;
     return false;
   }
 
+  function authoredClassTokens(value: string | null): string {
+    return (value ?? "")
+      .split(/\s+/)
+      .filter((token) => token && !token.startsWith("uf-cursor-"))
+      .sort()
+      .join(" ");
+  }
+
   function isConsentSuppressedElement(element: Element): boolean {
     let cursor: Element | null = element;
     for (let depth = 0; cursor && depth < 32; depth += 1) {
@@ -1412,11 +1420,6 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
               if (motionLocksIntact(target)) continue;
             }
             if (record.attributeName === "class") {
-              const authoredClassTokens = (value: string | null): string => (value ?? "")
-                .split(/\s+/)
-                .filter((token) => token && !token.startsWith("uf-cursor-"))
-                .sort()
-                .join(" ");
               if (
                 authoredClassTokens(record.oldValue) ===
                 authoredClassTokens(target.getAttribute?.("class"))
@@ -2017,9 +2020,23 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
         const target = record.target;
         if (target.nodeType !== 1) continue;
         const elementTarget = target as Element;
-        if (
+        const isDocumentRoot =
           elementTarget === page.document.documentElement ||
-          elementTarget === page.document.body ||
+          elementTarget === page.document.body;
+        if (
+          isDocumentRoot &&
+          record.attributeName === "class" &&
+          authoredClassTokens(record.oldValue) ===
+            authoredClassTokens(elementTarget.getAttribute?.("class"))
+        ) {
+          // Marking changes only an extension-owned cursor class on <html>.
+          // Re-probing the nested scroll owner for that presentation-only
+          // delta makes every Shift/Alt gesture pay a full-document geometry
+          // scan while lazy loading is frozen.
+          continue;
+        }
+        if (
+          isDocumentRoot ||
           (owner && composedElementWithin(owner, elementTarget)) ||
           couldOwnLazyViewport(elementTarget as HTMLElement)
         ) return true;
@@ -2044,6 +2061,7 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
     try {
       lazyOwnerObserver.observe(root, {
         attributes: true,
+        attributeOldValue: true,
         attributeFilter: ["aria-hidden", "class", "hidden", "inert", "style"],
         childList: true,
         subtree: true,

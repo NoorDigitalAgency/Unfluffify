@@ -335,6 +335,9 @@
       }
       return false;
     }
+    function authoredClassTokens(value) {
+      return (value ?? "").split(/\s+/).filter((token) => token && !token.startsWith("uf-cursor-")).sort().join(" ");
+    }
     function isConsentSuppressedElement(element) {
       let cursor = element;
       for (let depth = 0; cursor && depth < 32; depth += 1) {
@@ -1063,7 +1066,6 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
                 if (motionLocksIntact(target)) continue;
               }
               if (record.attributeName === "class") {
-                const authoredClassTokens = (value) => (value ?? "").split(/\s+/).filter((token) => token && !token.startsWith("uf-cursor-")).sort().join(" ");
                 if (authoredClassTokens(record.oldValue) === authoredClassTokens(target.getAttribute?.("class"))) {
                   continue;
                 }
@@ -1578,7 +1580,11 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
           const target = record.target;
           if (target.nodeType !== 1) continue;
           const elementTarget = target;
-          if (elementTarget === page.document.documentElement || elementTarget === page.document.body || owner && composedElementWithin(owner, elementTarget) || couldOwnLazyViewport(elementTarget)) return true;
+          const isDocumentRoot = elementTarget === page.document.documentElement || elementTarget === page.document.body;
+          if (isDocumentRoot && record.attributeName === "class" && authoredClassTokens(record.oldValue) === authoredClassTokens(elementTarget.getAttribute?.("class"))) {
+            continue;
+          }
+          if (isDocumentRoot || owner && composedElementWithin(owner, elementTarget) || couldOwnLazyViewport(elementTarget)) return true;
           continue;
         }
         if (record.type !== "childList") continue;
@@ -1599,6 +1605,7 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
       try {
         lazyOwnerObserver.observe(root, {
           attributes: true,
+          attributeOldValue: true,
           attributeFilter: ["aria-hidden", "class", "hidden", "inert", "style"],
           childList: true,
           subtree: true

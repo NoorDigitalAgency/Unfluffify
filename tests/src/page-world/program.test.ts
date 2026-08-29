@@ -2429,10 +2429,14 @@ describe("P5 page-world program", () => {
     type MutationObserverCallback = (records: MutationRecord[]) => void;
     class FakeMutationObserver {
       readonly observed: Node[] = [];
+      readonly options: MutationObserverInit[] = [];
       constructor(readonly callback: MutationObserverCallback) {
         mutationObservers.push(this);
       }
-      observe(target: Node): void { this.observed.push(target); }
+      observe(target: Node, options?: MutationObserverInit): void {
+        this.observed.push(target);
+        this.options.push(options ?? {});
+      }
       disconnect(): void { this.observed.length = 0; }
       trigger(records: MutationRecord[]): void { this.callback(records); }
     }
@@ -2539,7 +2543,31 @@ describe("P5 page-world program", () => {
     first.owner.dispatch("scroll");
     expect({ firstEarly, firstLate }).toEqual({ firstEarly: 0, firstLate: 0 });
     expect(mutationObservers[0]?.observed).toContain(shadow as unknown as Node);
+    expect(mutationObservers[0]?.options).toContainEqual(expect.objectContaining({
+      attributes: true,
+      attributeOldValue: true,
+    }));
     expect(first.owner.scrollTop).toBe(0);
+
+    const tasksBeforeCursorChange = tasks.length;
+    root.setAttribute("class", "site-shell uf-cursor-exclude");
+    mutationObservers[0]!.trigger([{
+      type: "attributes",
+      target: root,
+      attributeName: "class",
+      oldValue: "site-shell uf-cursor-include",
+    } as unknown as MutationRecord]);
+    expect(tasks).toHaveLength(tasksBeforeCursorChange);
+
+    root.setAttribute("class", "site-shell-dark uf-cursor-exclude");
+    mutationObservers[0]!.trigger([{
+      type: "attributes",
+      target: root,
+      attributeName: "class",
+      oldValue: "site-shell uf-cursor-exclude",
+    } as unknown as MutationRecord]);
+    expect(tasks).toHaveLength(tasksBeforeCursorChange + 1);
+    for (const task of tasks.splice(0)) task();
 
     const replacement = makeOwner();
     shadow.hit = replacement.probe;
