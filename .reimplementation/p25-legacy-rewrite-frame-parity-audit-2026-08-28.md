@@ -1302,6 +1302,24 @@ preserves the stronger architecture.
     `Continue here` plus `Discard and continue` confirmation before proceeding.
     Other-user locks remain untouched and time out visibly; no storage, lock,
     or DOM state is mutated outside the real controls.
+141. **Closed evidence P0 — leaving the two-mode comparison required a current
+    proof for the retained choice.** The required stage order ends on the
+    JavaScript-disabled inspection. When the stored choice remains rendered,
+    the popup correctly rejects Cancel because that choice is not the current
+    inspection generation. Session preparation formerly retried Cancel until
+    timeout. It now physically re-runs the retained choice through the normal
+    Render Inspection lifecycle, waits for its terminal document/generation
+    proof, then leaves the view. The comparison still retains both original
+    immutable mode stages; the extra inspection is an explicit workflow
+    precondition, not fabricated evidence.
+142. **Closed evidence P1 — an interrupted stage directory could prevent the
+    publication guard from finalizing.** A process interruption between atomic
+    stage-directory creation and `stage.json` commit left a truthful but empty
+    directory. Finalization used to throw before requesting guarded shutdown.
+    It now synthesizes an in-memory failed interrupted-stage record from the
+    immutable directory identity, marks validation red, stops and drains the
+    publication guard, and writes the failed aggregate. It never deletes,
+    overwrites, or upgrades the interrupted artifact.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1374,7 +1392,7 @@ preserves the stronger architecture.
 ## Acceptance headline
 
 Implementation remediation is code-complete through finding 134; findings
-135–140 bind the resulting evidence and rerun authority. Immutable
+135–142 bind the resulting evidence and rerun authority. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun,
 findings 126–128 are closed by the clean aggregate, finding 129 is closed by its

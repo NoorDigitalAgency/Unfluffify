@@ -721,7 +721,7 @@ async function stopPersistentPublicationGuard(runDirectory, identity) {
   throw new Error(`Persistent publication guard did not stop cleanly; last evidence=${JSON.stringify(last)}`);
 }
 
-async function readStageRecords(runDirectory) {
+async function readStageRecords(runDirectory, identity = null) {
   const root = join(runDirectory, "stages");
   const directories = (await readdir(root, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
@@ -730,8 +730,46 @@ async function readStageRecords(runDirectory) {
   const records = [];
   for (const directory of directories) {
     const path = join(root, directory, "stage.json");
-    const record = await readJson(path);
-    records.push({ directory, path, record, file: await stat(path) });
+    try {
+      const record = await readJson(path);
+      records.push({ directory, path, record, file: await stat(path) });
+    } catch (error) {
+      if (error?.code !== "ENOENT" || !identity) throw error;
+      const match = /^(\d+)-(.+)-([0-9a-f]{8})$/.exec(directory);
+      if (!match) throw error;
+      const file = await stat(join(root, directory));
+      const [, sequenceRaw, id, noncePrefix] = match;
+      const stageNonce = `${noncePrefix}-0000-4000-8000-000000000000`;
+      const expectation = createStageExpectation({
+        runIdentity: identity,
+        id,
+        sequence: Number(sequenceRaw),
+        stageNonce,
+        documentKey: null,
+        renderMode: null,
+      });
+      const interruptedAt = new Date(file.mtimeMs).toISOString();
+      records.push({
+        directory,
+        path,
+        file,
+        record: {
+          ...expectation,
+          startedAt: interruptedAt,
+          finishedAt: interruptedAt,
+          status: "failed",
+          exitCode: 1,
+          observedProcessExitCode: 1,
+          documentFingerprint: null,
+          document: null,
+          screenshots: {},
+          networkArtifacts: {},
+          data: null,
+          error: "Stage process ended before stage.json was committed; treated as interrupted and failed.",
+          interrupted: true,
+        },
+      });
+    }
   }
   return records;
 }
@@ -968,6 +1006,26 @@ async function ensurePopupSessionView(popup, implementation, timeoutMs = 30_000)
   while (Date.now() < deadline) {
     const toggle = state.controls.find((control) => control.id === "toggle-enabled");
     if (toggle && !toggle.disabled && toggle.visible !== false && state.busy === false) return state;
+
+    // The two immutable comparison stages intentionally finish on the second
+    // inspection mode. If the retained render choice is the other mode, the
+    // product correctly refuses Cancel until that retained choice has a current
+    // document/generation proof. Re-prove it through the real inspection
+    // control before attempting to leave the view.
+    if (
+      implementation === "rewrite" &&
+      state.view === "render-mode" &&
+      state.renderChoice &&
+      state.renderInspectionView !== state.renderChoice
+    ) {
+      await runRenderInspection(popup, {
+        implementation,
+        renderMode: state.renderChoice,
+        timeoutMs: Math.max(1_000, deadline - Date.now()),
+      });
+      state = await capturePopupState(popup);
+      continue;
+    }
 
     // A prior immutable run can leave an extension-owned same-user edit lease in
     // the copied profile. Claiming that lease through the visible controls is a
@@ -1767,7 +1825,7 @@ async function captureStage(options) {
   const { runDirectory, identity } = await loadRun(required(options, "run"));
   const id = required(options, "id");
   if (!REQUIRED_LIVE_STAGE_IDS.includes(id)) throw new Error(`Unknown stage ${id}`);
-  const existing = await readStageRecords(runDirectory);
+  const existing = await readStageRecords(runDirectory, identity);
   if (existing.some((stage) => stage.record.id === id)) throw new Error(`Stage ${id} already exists; stale stage reuse and overwrite are forbidden`);
   const adoptedCandidate = existing.length === 0
     ? null
@@ -1873,7 +1931,7 @@ async function captureStage(options) {
 
 async function finalizeRun(options) {
   const { runDirectory, identity } = await loadRun(required(options, "run"));
-  const records = await readStageRecords(runDirectory);
+  const records = await readStageRecords(runDirectory, identity);
   const documents = {};
   for (const { record } of records) if (record.documentKey && record.document) documents[record.documentKey] = record.document;
   const stages = records.map(({ directory, record, file }) => {
@@ -1897,6 +1955,10 @@ async function finalizeRun(options) {
     if (!directoryCoherent) {
       validation.pass = false;
       validation.checks.push({ id: "stage-directory-coherence", pass: false, detail: { directory, stageNonce: record.stageNonce, id: record.id } });
+    }
+    if (record.interrupted === true) {
+      validation.pass = false;
+      validation.checks.push({ id: "interrupted-stage", pass: false, detail: { directory, id: record.id } });
     }
     return { ...record, validation };
   });
