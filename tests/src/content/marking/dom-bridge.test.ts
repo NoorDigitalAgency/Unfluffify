@@ -1029,10 +1029,12 @@ describe("P6 DOM bridge", () => {
   it("keeps clipped and overflow-clipped technical rows but never advertises a visible route", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
-    const clipped = new FakeElement("A", rect(0, 0, 1, 1), "Skip to footer");
+    const clipped = new FakeElement("A", rect(0, 0, 20, 10), "Skip to footer");
     const viewport = new FakeElement("DIV", rect(0, 20, 120, 30));
     const overflowClipped = new FakeElement("SPAN", rect(0, 90, 80, 20), "Screen-reader status");
-    clipped.style.clip = "rect(0px, 0px, 0px, 0px)";
+    // Common screen-reader-only CSS uses equal non-zero edges. Its nominal
+    // layout box is still measurable, but the legacy clip has no paint area.
+    clipped.style.clip = "rect(1px, 1px, 1px, 1px)";
     viewport.style.overflow = "hidden";
     for (const element of [root, clipped, viewport, overflowClipped]) {
       element.ownerDocument = doc;

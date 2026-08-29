@@ -696,6 +696,8 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).toContain("viewportMatches(data.silentDesktopSetup?.posture, 1920, 1080)");
     expect(harness).toContain("viewportMatches(data.markingPosture, 412, 960)");
     expect(harness).toContain("data.workflow.freshAi.feedbackMs <= 100");
+    expect(harness).toContain('session.evaluate("location.href")');
+    expect(harness).toContain('typeof currentPageHref === "string" ? currentPageHref : identity.expectedUrl');
     expect(harness).toContain("const initialFeedback = await capturePopupAiFeedback(popup)");
     expect(harness).toContain("initialFeedback.capturedAtEpochMs - feedbackStartedAt");
     const app = readFileSync(resolve(process.cwd(), "src/popup/App.tsx"), "utf8");

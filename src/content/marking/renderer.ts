@@ -271,6 +271,28 @@ function composedParentElement(element: Element): Element | null {
   return root && "host" in root ? (root as ShadowRoot).host : null;
 }
 
+function cssRectClipHasNoPaint(value: string): boolean {
+  const match = /^rect\((.*)\)$/iu.exec(value.trim());
+  if (!match) {
+    return false;
+  }
+  const authored = match[1] ?? "";
+  const parts = (authored.includes(",") ? authored.split(",") : authored.split(/\s+/u))
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length !== 4) {
+    return false;
+  }
+  const coordinate = (part: string): number | null => {
+    if (part.toLowerCase() === "auto") return null;
+    const parsed = Number.parseFloat(part);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+  const [top, right, bottom, left] = parts.map(coordinate);
+  return (right !== null && left !== null && right <= left) ||
+    (bottom !== null && top !== null && bottom <= top);
+}
+
 /** Paint hit-testing alone is insufficient for opacity-zero UI: browsers keep
  * such elements pointer-addressable. Recheck the live composed ancestor chain
  * before drawing an exclusion while leaving the evaluator's extraction state
@@ -296,7 +318,7 @@ export function isCurrentlyVisuallyVisible(element: Element): boolean {
     const clipPath = String(style.clipPath ?? "").replaceAll(" ", "").toLowerCase();
     const clip = String(style.clip ?? "").replaceAll(" ", "").toLowerCase();
     const zeroClipPath = /^(?:circle\(0(?:px|%)?(?:at[^)]*)?\)|ellipse\(0(?:px|%)?0(?:px|%)?(?:at[^)]*)?\)|inset\((?:50%){1,4}\))$/u.test(clipPath);
-    const zeroRectClip = /^rect\((?:0(?:px)?[,]?){4}\)$/u.test(clip);
+    const zeroRectClip = cssRectClipHasNoPaint(clip);
     if (
       html.hidden === true ||
       current.hasAttribute("hidden") ||

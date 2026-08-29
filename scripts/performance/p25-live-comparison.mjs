@@ -1445,6 +1445,11 @@ async function runMeasuredFullWorkflow({ popup, site, guard, identity, options }
     await waitForWorkflowPopupState(popup, (state) => !state.preview.open && !state.busy, 20_000);
   }
 
+  const currentPageHref = await withSiteSession(site, (session) => session.evaluate("location.href"));
+  const expectedPageKey = (() => {
+    const url = new URL(typeof currentPageHref === "string" ? currentPageHref : identity.expectedUrl);
+    return `${url.pathname || "/"}${url.search}${url.hash}`;
+  })();
   const saveBoundary = guard.markNetworkBoundary();
   const saveActivation = await physicalActivatePopupControl(popup, "page-save", "pointer");
   const silentTerminal = await waitForWorkflowPopupState(popup, (state) => {
@@ -1457,10 +1462,6 @@ async function runMeasuredFullWorkflow({ popup, site, guard, identity, options }
     (entry) => entry.method === "POST" && /\/save(?:\?|$)/i.test(entry.url),
     { timeoutMs: 20_000 },
   );
-  const expectedPageKey = (() => {
-    const url = new URL(identity.expectedUrl);
-    return `${url.pathname || "/"}${url.search}${url.hash}`;
-  })();
   const saveEntry = saveRequests[0] ?? null;
   const authoritativeAdopted = saveRequests.length === 1 && saveEntry?.status === 200 &&
     typeof saveEntry.finishedAt === "number" && silentTerminal.silentAcknowledged;
