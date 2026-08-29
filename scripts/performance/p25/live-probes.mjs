@@ -234,14 +234,25 @@ export function appliedResizePostureMatches(evidence, posture) {
 
 export function snapshotMatchesAuthoritativePosture(snapshot, posture) {
   const viewport = snapshot?.viewport ?? {};
+  const interactiveViewport = snapshot?.interactiveViewport ?? {};
   const emulation = snapshot?.emulation ?? {};
-  const viewportMatches = viewport.width === posture.width && viewport.height === posture.height;
+  const layoutViewportMatches = viewport.width === posture.width && viewport.height === posture.height;
+  const interactiveViewportMatches = interactiveViewport.width === posture.width && interactiveViewport.height === posture.height;
+  const viewportMatches = layoutViewportMatches || interactiveViewportMatches;
   const deviceScaleMatches = emulation.devicePixelRatio === posture.deviceScaleFactor;
   const pageScaleMatches = emulation.visualViewportScale === posture.pageScaleFactor;
   const modeMatches = posture.mobile
     ? emulation.maxTouchPoints === posture.touch.maxTouchPoints && emulation.pointerCoarse === true && emulation.hoverNone === true
     : emulation.maxTouchPoints === 0;
-  return { viewportMatches, deviceScaleMatches, pageScaleMatches, modeMatches, matches: viewportMatches && deviceScaleMatches && pageScaleMatches && modeMatches };
+  return {
+    viewportMatches,
+    layoutViewportMatches,
+    interactiveViewportMatches,
+    deviceScaleMatches,
+    pageScaleMatches,
+    modeMatches,
+    matches: viewportMatches && deviceScaleMatches && pageScaleMatches && modeMatches,
+  };
 }
 
 export function composedVisibilityEvidence(element, environment = globalThis) {
@@ -682,6 +693,10 @@ const VISUAL_SNAPSHOT_EXPRESSION = `(() => {
     at: Date.now(),
     url: location.href,
     viewport: { width: innerWidth, height: innerHeight, scrollX: Math.round(scrollX), scrollY: Math.round(scrollY) },
+    interactiveViewport: {
+      width: visualViewport?.width ?? innerWidth,
+      height: visualViewport?.height ?? innerHeight,
+    },
     emulation: {
       devicePixelRatio,
       visualViewportScale: visualViewport?.scale ?? 1,

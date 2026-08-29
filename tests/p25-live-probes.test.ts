@@ -230,6 +230,26 @@ describe("P25 authoritative resize probe posture", () => {
       },
     }, posture).matches).toBe(true);
   });
+
+  it("accepts an exact interactive viewport when responsive layout metadata is wider", () => {
+    const posture = AUTHORITATIVE_RESIZE_POSTURES.mobile;
+    expect(snapshotMatchesAuthoritativePosture({
+      viewport: { width: 424, height: 988 },
+      interactiveViewport: { width: 412, height: 960 },
+      emulation: {
+        devicePixelRatio: 1,
+        visualViewportScale: 1,
+        maxTouchPoints: 1,
+        pointerCoarse: true,
+        hoverNone: true,
+      },
+    }, posture)).toMatchObject({
+      viewportMatches: true,
+      layoutViewportMatches: false,
+      interactiveViewportMatches: true,
+      matches: true,
+    });
+  });
 });
 
 describe("P25 composed visual visibility evidence", () => {

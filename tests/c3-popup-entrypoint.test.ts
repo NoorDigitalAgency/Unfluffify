@@ -41,7 +41,9 @@ describe("C3 popup contract", () => {
     expect(popupSource).toContain("function previewExitIsTerminal(): boolean");
     expect(popupSource).toContain('"preview-exit-armed"');
     expect(popupSource).toMatch(/previewExitRequested:\s*false/);
-    expect(popupSource).toMatch(/previewExitIsTerminal,\s*20_000/);
+    expect(popupSource).toContain("runPreviewExitAttempts");
+    expect(popupSource).toContain("PREVIEW_EXIT_MAX_ATTEMPTS = 3");
+    expect(popupSource).toMatch(/previewExitIsTerminal,\s*PREVIEW_EXIT_ATTEMPT_TIMEOUT_MS/);
     expect(popupSource).toContain('"Preview exit failed"');
   });
 });

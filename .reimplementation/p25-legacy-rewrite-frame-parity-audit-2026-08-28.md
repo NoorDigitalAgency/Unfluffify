@@ -1320,6 +1320,23 @@ preserves the stronger architecture.
     immutable directory identity, marks validation red, stops and drains the
     publication guard, and writes the failed aggregate. It never deletes,
     overwrites, or upgrades the interrupted artifact.
+143. **Confirmed rewrite P0 — one trusted Preview exit could lose its required
+    fact/acknowledgement round trip.** Assist24 completed current-run AI and both
+    Content List directions, but the first real Exit click remained in Preview
+    for the full terminal budget; the next trusted click and three exact
+    diagnostic cycles exited immediately. The required popup fact relay logged
+    and swallowed delivery failure, while a single false→true request pair had
+    no recovery path. Preview exit is now one serialized operator occurrence
+    with three bounded, idempotent false→true attempts. Content remains the sole
+    restoration authority, a retired binding stops retries, duplicate clicks
+    coalesce, and final failure is visible with its attempt count.
+144. **Closed evidence P1 — resize posture repeated the preflight viewport
+    oracle bug.** Assist24 marking activation, visual, gestures, and scroll all
+    passed in an exact 412×960 interactive viewport, but resize compared only
+    its 424×988 responsive layout viewport. Visual snapshots now retain both
+    dimensions and resize accepts either exact layout or exact interactive
+    viewport while continuing to require device scale, page scale, touch,
+    pointer, hover, and the complete CDP restore record.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1392,7 +1409,7 @@ preserves the stronger architecture.
 ## Acceptance headline
 
 Implementation remediation is code-complete through finding 134; findings
-135–142 bind the resulting evidence and rerun authority. Immutable
+135–144 bind the resulting evidence and rerun authority. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun,
 findings 126–128 are closed by the clean aggregate, finding 129 is closed by its

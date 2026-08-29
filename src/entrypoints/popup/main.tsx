@@ -68,6 +68,7 @@ import {
   createPopupPreviewController,
   type PopupPreviewOwner,
 } from "../../popup/preview-controller";
+import { runPreviewExitAttempts } from "../../popup/preview-exit";
 import { executeConfirmedCandidateNavigation } from "../../popup/candidate-navigation";
 import {
   createPopupRenderInspectionController,
@@ -124,6 +125,9 @@ type PopupBindingOccurrence = Readonly<{
   occurrence: number;
 }>;
 const operatorActionController = createOperatorActionController({ onChange: render });
+const PREVIEW_EXIT_ATTEMPT_TIMEOUT_MS = 2_000;
+const PREVIEW_EXIT_MAX_ATTEMPTS = 3;
+let previewExitOperation: Promise<void> | null = null;
 
 function effectivePresentationSelectors(): { inclusionSelectors: string[]; exclusionSelectors: string[] } {
   const presentation = store.getPresentation();
@@ -3065,9 +3069,9 @@ async function reportPopupFact(
   reason: string,
   facts: Record<string, unknown>,
   requestKey = boundTabKey,
-): Promise<void> {
+): Promise<boolean> {
   if (boundTabKey !== requestKey) {
-    return;
+    return false;
   }
   try {
     await getPopupBus().emit("fact.reported", {
@@ -3083,8 +3087,10 @@ async function reportPopupFact(
         },
       },
     }, { target: "background" });
+    return true;
   } catch (error) {
     console.error("[Unfluffify][rewrite] Unable to report a popup fact", error);
+    return false;
   }
 }
 
@@ -3102,7 +3108,10 @@ async function reportPopupFactAndPull(
   timeoutMs = 15_000,
 ): Promise<boolean> {
   let observedRevision = signalsAvailableRevisionByTab.get(context.tabId) ?? 0;
-  await reportPopupFact(context, reason, facts, requestKey);
+  const reported = await reportPopupFact(context, reason, facts, requestKey);
+  if (!reported) {
+    return false;
+  }
   if (boundTabId !== context.tabId || boundTabKey !== requestKey) {
     return false;
   }
@@ -4624,7 +4633,7 @@ function previewExitIsTerminal(): boolean {
     visibleState !== "exit_restoring";
 }
 
-async function exitPreview(): Promise<void> {
+async function performPreviewExit(): Promise<void> {
   const context = await resolveTargetTabContext();
   if (context === null) {
     return;
@@ -4639,25 +4648,52 @@ async function exitPreview(): Promise<void> {
     render();
     return;
   }
-  // Re-arm the edge for this exact Preview occurrence. A prior interrupted
-  // popup can leave the durable fact true even though a newly opened Preview
-  // is visible; writing false then true makes the request observable without
-  // inventing a second state-machine path.
-  await reportPopupFactAndPull(context, "preview-exit-armed", {
-    previewExitRequested: false,
-  }, requestKey);
-  const exited = await reportPopupFactAndPull(context, "preview-exit-requested", {
-    previewExitRequested: true,
-  }, requestKey, previewExitIsTerminal, 20_000);
-  if (!exited && bindingOccurrenceIsCurrent(binding)) {
+  const result = await runPreviewExitAttempts({
+    maxAttempts: PREVIEW_EXIT_MAX_ATTEMPTS,
+    isTerminal: previewExitIsTerminal,
+    isCurrent: () => bindingOccurrenceIsCurrent(binding),
+    attempt: async () => {
+      // Re-arm the edge for this exact Preview occurrence. A prior interrupted
+      // popup can leave the durable fact true even though a newly opened
+      // Preview is visible. Repeating this idempotent pair also repairs either
+      // half of a required extension-message round trip that was lost.
+      const armed = await reportPopupFactAndPull(context, "preview-exit-armed", {
+        previewExitRequested: false,
+      }, requestKey);
+      if (!armed || !bindingOccurrenceIsCurrent(binding)) {
+        return false;
+      }
+      return await reportPopupFactAndPull(context, "preview-exit-requested", {
+        previewExitRequested: true,
+      }, requestKey, previewExitIsTerminal, PREVIEW_EXIT_ATTEMPT_TIMEOUT_MS);
+    },
+  });
+  if (!result.exited && bindingOccurrenceIsCurrent(binding)) {
     notifyBoundEvent(
       binding,
       "Preview exit failed",
-      "the page did not confirm that its marking posture was restored",
+      result.error
+        ? `the page did not confirm restoration after ${result.attempts} attempts (${result.error})`
+        : `the page did not confirm restoration after ${result.attempts} attempts`,
       "danger",
     );
   }
   render();
+}
+
+async function exitPreview(): Promise<void> {
+  if (previewExitOperation !== null) {
+    return await previewExitOperation;
+  }
+  const operation = performPreviewExit();
+  previewExitOperation = operation;
+  try {
+    await operation;
+  } finally {
+    if (previewExitOperation === operation) {
+      previewExitOperation = null;
+    }
+  }
 }
 
 function currentPreviewOwner(): PopupPreviewOwner | null {
