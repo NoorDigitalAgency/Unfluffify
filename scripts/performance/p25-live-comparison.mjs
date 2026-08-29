@@ -1338,16 +1338,26 @@ async function runContentListWorkflow(popup, siteTarget, aiEvidence) {
     const beforePageRoute = await captureWorkflowPopupState(popup);
     if (beforePageRoute.preview.domFocusedRowName !== null) throw new Error("Could not clear the prior row DOM focus before the page-to-row route probe");
     const pageActivation = await physicalActivatePreviewPageTarget(site);
-    const pageFocused = await waitForWorkflowPopupState(
-      popup,
-      (state) => {
-        const focused = state.preview.domFocusedRow ?? state.preview.selectedRow;
-        return Boolean(focused &&
-          readableTextsCorrespond(pageActivation.target.readableText, focused.readableText) &&
-          focused.name !== beforePageRoute.preview.selectedRowName);
-      },
-      2_000,
-    );
+    let pageFocused;
+    try {
+      pageFocused = await waitForWorkflowPopupState(
+        popup,
+        (state) => {
+          const focused = state.preview.domFocusedRow ?? state.preview.selectedRow;
+          return Boolean(focused &&
+            readableTextsCorrespond(pageActivation.target.readableText, focused.readableText) &&
+            focused.name !== beforePageRoute.preview.selectedRowName);
+        },
+        2_000,
+      );
+    } catch (error) {
+      const last = await captureWorkflowPopupState(popup);
+      throw new Error(`Content List page-to-row correlation did not terminalize; evidence=${JSON.stringify({
+        pageActivation,
+        beforePageRoute,
+        last,
+      })}\n${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+    }
     const correlatedRow = pageFocused.preview.domFocusedRow ?? pageFocused.preview.selectedRow;
     const exitActivation = await physicalActivatePopupControl(
       popup,

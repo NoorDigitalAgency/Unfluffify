@@ -670,6 +670,7 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).toContain("await physicalActivatePreviewRow(popup, firstPaint.preview.rowCount > 1 ? 1 : 0)");
     expect(harness).toContain("activatedRow: rowActivation.before");
     expect(harness).toContain("await physicalActivatePreviewPageTarget(site)");
+    expect(harness).toContain("Content List page-to-row correlation did not terminalize; evidence=");
     expect(harness).toContain("allowContextPreclean: identity.implementation === \"rewrite\"");
     expect(harness).toContain("preparationReset");
     expect(harness).toContain("integerOption(options, \"activation-timeout-ms\", 45_000)");
