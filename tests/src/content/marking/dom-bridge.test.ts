@@ -2408,6 +2408,26 @@ describe("P6 DOM bridge", () => {
     renderer.dispose();
   });
 
+  it("does not paint an opacity-zero implicit inclusion retained in the hit stack", () => {
+    const doc = new FakeDocument();
+    const paragraph = new FakeElement("P", rect(10, 10, 120, 20), "Hidden carousel copy");
+    paragraph.ownerDocument = doc;
+    paragraph.style.opacity = "0";
+    doc.hits = [paragraph];
+    const renderer = createOverlayRenderer({ document: doc as unknown as Document });
+    const xpath = "/p[1]";
+
+    renderer.render({
+      rows: [{ xpath, excluded: false }],
+      overlay: new Map([[xpath, "implicit-include"]]),
+    }, new Map([[xpath, { element: paragraph as unknown as Element, visible: true }]]));
+
+    expect(renderer.root.children.flatMap((layer) => layer.children).some((overlay) =>
+      overlay.getAttribute("data-uf-overlay-xpath") === xpath
+    )).toBe(false);
+    renderer.dispose();
+  });
+
   it("does not restore raw immutable geometry when another page surface covers it", () => {
     const doc = new FakeDocument();
     const image = new FakeElement("IMG", rect(10, 10, 120, 80));

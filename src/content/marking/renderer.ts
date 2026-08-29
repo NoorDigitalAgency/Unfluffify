@@ -706,10 +706,15 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     if (!target) {
       return;
     }
-    const visuallyHiddenExclusion = LIVE_VISIBILITY_EXCLUSION_CLASSIFICATIONS.has(classification)
+    // Chromium can retain opacity-zero carousel content in elementsFromPoint().
+    // Hit reachability is therefore necessary but not sufficient for ordinary
+    // marking paint. Only an explicit inclusion owns the legacy ghost contract;
+    // implicit content and every exclusion class disappear with live visual
+    // invisibility.
+    const visuallyHiddenClassification = classification !== "explicit-include"
       && !measuredVisibilityFor(target.element);
     const unpaintedException = classification === "exception" && !target.visible;
-    if (visuallyHiddenExclusion || unpaintedException) {
+    if (visuallyHiddenClassification || unpaintedException) {
       return;
     }
     const layerKey = LAYER_BY_CLASSIFICATION[classification];
