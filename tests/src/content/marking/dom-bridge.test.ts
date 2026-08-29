@@ -1463,6 +1463,23 @@ describe("P6 DOM bridge", () => {
     expect(closestScans).toBe(0);
   });
 
+  it("gives an unlabeled visual target the nearest semantic control label", () => {
+    const doc = new FakeDocument();
+    const link = new FakeElement("A", rect(0, 0, 180, 40));
+    const iconWrapper = new FakeElement("DIV", rect(0, 0, 24, 24));
+    const svg = new FakeElement("SVG", rect(0, 0, 24, 24));
+    const label = new FakeElement("SPAN", rect(30, 0, 120, 24), "Kontakta oss");
+    for (const element of [link, iconWrapper, svg, label]) element.ownerDocument = doc;
+    iconWrapper.appendChild(svg);
+    link.appendChild(iconWrapper);
+    link.appendChild(label);
+
+    const metadata = buildPreviewTextMetadata(link as unknown as Element);
+
+    expect(metadata.get(svg as unknown as Element)?.text).toBe("Kontakta oss");
+    expect(metadata.get(link as unknown as Element)?.text).toBe("Kontakta oss");
+  });
+
   it("treats non-string DOM id properties as ordinary content", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));

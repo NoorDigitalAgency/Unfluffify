@@ -124,6 +124,41 @@ function previewTargetStatus(element: Element): PreviewTargetStatus {
 }
 
 const PREVIEW_TEXT_BLOCKED_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE"]);
+const PREVIEW_TEXT_CONTEXTUAL_TAGS = new Set([
+  "AUDIO",
+  "CANVAS",
+  "EMBED",
+  "IFRAME",
+  "IMG",
+  "OBJECT",
+  "PATH",
+  "PICTURE",
+  "SOURCE",
+  "SVG",
+  "USE",
+  "VIDEO",
+]);
+const PREVIEW_TEXT_LABEL_BOUNDARIES = new Set([
+  "A",
+  "BUTTON",
+  "H1",
+  "H2",
+  "H3",
+  "H4",
+  "H5",
+  "H6",
+  "LABEL",
+  "SUMMARY",
+]);
+const PREVIEW_TEXT_LABEL_ROLES = new Set([
+  "button",
+  "heading",
+  "img",
+  "link",
+  "menuitem",
+  "option",
+  "tab",
+]);
 
 function previewTextElementExcluded(element: Element, root: Element): boolean {
   if (PREVIEW_TEXT_BLOCKED_TAGS.has(element.tagName.toUpperCase())) {
@@ -288,6 +323,40 @@ export function buildPreviewTextMetadata(root: Element): WeakMap<Element, Previe
     const stored = { text: boundedPreviewText(text), subtreeText, hasExcludedDescendant };
     storedMetadata.set(element, stored);
     metadata.set(element, stored);
+  }
+  // A visual primitive often owns the selector/marking row while its human
+  // name belongs to the surrounding link or button (for example an unlabeled
+  // SVG next to "Contact us"). Preserve the exact target identity, but inherit
+  // the nearest semantic control label instead of exposing "svg"/"path" in
+  // the production Content List. The completed post-order metadata makes this
+  // a bounded ancestor walk with no layout reads or descendant rescans.
+  for (const element of seen) {
+    const stored = storedMetadata.get(element);
+    const tagName = element.tagName.toUpperCase();
+    if (
+      !stored ||
+      stored.subtreeText ||
+      !PREVIEW_TEXT_CONTEXTUAL_TAGS.has(tagName) ||
+      stored.text !== tagName.toLowerCase()
+    ) continue;
+    let cursor = composedParent(element);
+    while (cursor) {
+      const cursorTagName = cursor.tagName.toUpperCase();
+      if (cursorTagName === "BODY" || cursorTagName === "HTML") break;
+      const explicitLabel = normalizePreviewText(cursor.getAttribute("aria-label") ?? "") ||
+        normalizePreviewText(cursor.getAttribute("title") ?? "");
+      const contextual = storedMetadata.get(cursor)?.subtreeText ?? "";
+      const semanticBoundary = PREVIEW_TEXT_LABEL_BOUNDARIES.has(cursorTagName) ||
+        PREVIEW_TEXT_LABEL_ROLES.has((cursor.getAttribute("role") ?? "").trim().toLowerCase());
+      const label = explicitLabel || (semanticBoundary ? contextual : "");
+      if (label) {
+        const updated = { ...stored, text: boundedPreviewText(label) };
+        storedMetadata.set(element, updated);
+        metadata.set(element, updated);
+        break;
+      }
+      cursor = composedParent(cursor);
+    }
   }
   return metadata;
 }
