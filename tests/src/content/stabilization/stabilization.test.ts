@@ -1912,6 +1912,24 @@ describe("page-visit reveal ritual", () => {
     expect((await controller.run(input)).skipped).toBe(false);
   });
 
+  it("frees the attempt when the completed presentation lease was released", async () => {
+    const controller = createRevealVisitController();
+    const input = {
+      hasVerticalScrollRoom: true,
+      activationStale: false,
+      initialScrollHeight: 1000,
+      scrollTo: () => undefined,
+      suppressLazyLoading: () => undefined,
+      freezeAtBottom: () => undefined,
+    };
+    expect((await controller.run(input)).skipped).toBe(false);
+    expect((await controller.run(input)).skipped).toBe(true);
+
+    controller.resetForPresentationLeaseLoss();
+
+    expect((await controller.run(input)).skipped).toBe(false);
+  });
+
   it("does not spend the attempt on a page it cannot walk", async () => {
     // A page with no scroll room has nothing to reveal, and a stale activation
     // describes a page that has already been navigated away from. Neither should

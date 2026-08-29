@@ -232,6 +232,7 @@ function mockFastRevealVisit(): void {
       },
       createRevealVisitController: () => ({
         resetForNavigation: vi.fn(),
+        resetForPresentationLeaseLoss: vi.fn(),
         async runTask(task: () => Promise<{ skipped: boolean; lazyExpansions: number; frozenAtBottom: boolean }>) {
           return task();
         },
@@ -255,6 +256,7 @@ function mockAlreadyPreparedPageVisit(): void {
       ...actual,
       createRevealVisitController: () => ({
         resetForNavigation: vi.fn(),
+        resetForPresentationLeaseLoss: vi.fn(),
         async runTask() {
           return { skipped: false, lazyExpansions: 0, frozenAtBottom: true };
         },
@@ -555,6 +557,8 @@ describe("C4 rewrite content entrypoints", () => {
     expect(source).toContain("measureExpandedScrollHeight: currentScrollExtent");
     expect(source).toContain("if (!scroll.stale && !progressed)");
     expect(source).toContain("const reprovedOwner = refreshScrollOwner(true)");
+    expect(source).toContain("const matchingPreparedRitual = completedPageVisitRitual");
+    expect(source).toContain("revealController.resetForPresentationLeaseLoss()");
   });
 
   it("registers the rewrite activation bridge without loading legacy content-main", async () => {

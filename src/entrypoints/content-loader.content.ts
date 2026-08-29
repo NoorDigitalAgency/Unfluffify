@@ -3105,10 +3105,12 @@ async function executePageVisitRitual(
  * occurrence promise to every page-load, preparation, or activation caller. */
 function runPageVisitRitual(pageUrl: string, cause: string): Promise<PageVisitRitualOutcome> {
   const identity = pageVisitRitualIdentity(pageUrl);
+  const matchingPreparedRitual = completedPageVisitRitual?.status === "prepared" &&
+    samePageVisitRitualIdentity(completedPageVisitRitual, identity)
+    ? completedPageVisitRitual
+    : null;
   if (
-    completedPageVisitRitual &&
-    completedPageVisitRitual.status === "prepared" &&
-    samePageVisitRitualIdentity(completedPageVisitRitual, identity) &&
+    matchingPreparedRitual &&
     // "Prepared" describes a live presentation lease, not a historical walk.
     // Terminal deactivation destroys the page-world session and lifts the
     // freeze while retaining this content realm. Reusing the old outcome after
@@ -3117,7 +3119,16 @@ function runPageVisitRitual(pageUrl: string, cause: string): Promise<PageVisitRi
     pageWorldSessionNonce !== "" &&
     freezeController.isPaused()
   ) {
-    return Promise.resolve(completedPageVisitRitual);
+    return Promise.resolve(matchingPreparedRitual);
+  }
+  if (matchingPreparedRitual) {
+    // The page-load ritual completed, but a later render inspection or terminal
+    // deactivation released its freeze/page-world lease. The higher-level
+    // outcome already refuses to reuse that stale posture; also reopen the
+    // reveal controller's completion fence so this same-document reactivation
+    // can establish a replacement lease.
+    completedPageVisitRitual = null;
+    revealController.resetForPresentationLeaseLoss();
   }
   if (pendingPageVisitRitual && samePageVisitRitualIdentity(pendingPageVisitRitual.identity, identity)) {
     return pendingPageVisitRitual.promise;

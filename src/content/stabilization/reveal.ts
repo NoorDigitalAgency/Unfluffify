@@ -299,6 +299,10 @@ export function createRevealVisitController(options: RevealVisitControllerOption
     }
     return start(next);
   };
+  const resetCompletionLease = (): void => {
+    generation += 1;
+    completedScopeStrength = -1;
+  };
 
   return {
     run(input: RevealRunInput, request: RevealVisitRequest = {}): Promise<RevealRunResult> {
@@ -306,8 +310,14 @@ export function createRevealVisitController(options: RevealVisitControllerOption
     },
     runTask,
     resetForNavigation(): void {
-      generation += 1;
-      completedScopeStrength = -1;
+      resetCompletionLease();
+    },
+    resetForPresentationLeaseLoss(): void {
+      // A completed walk is reusable only while its freeze/page-world lease is
+      // still alive. Render inspection and terminal deactivation can release
+      // that lease without navigating, so the same document must be allowed to
+      // perform one replacement ritual rather than receiving SKIPPED_REVEAL.
+      resetCompletionLease();
     },
   };
 }
