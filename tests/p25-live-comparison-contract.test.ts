@@ -255,6 +255,7 @@ describe("P25 live-comparison identity and candidate contract", () => {
   it("waits through a transiently absent alternate Render Inspection control", () => {
     const source = readFileSync(new URL("../scripts/performance/p25-live-comparison.mjs", import.meta.url), "utf8");
     expect(source).toMatch(/implementation === "rewrite" &&\s*\(!alternate \|\| alternate\.disabled \|\| alternate\.visible === false\)/);
+    expect(source).toMatch(/requestedReadyDeadline[\s\S]*?while \(control\?\.disabled[\s\S]*?settledProof = proveMode/);
   });
 
   it("normalizes fragment, query ordering, default ports, and trailing slash coherently", () => {

@@ -947,7 +947,23 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
   }
-  const settledProof = proveMode(before, renderMode);
+  let settledProof = proveMode(before, renderMode);
+  if (
+    implementation === "rewrite" &&
+    control?.disabled &&
+    before.busy === false &&
+    !settledProof.modeProven
+  ) {
+    const requestedReadyDeadline = Date.now() + Math.min(timeoutMs, 10_000);
+    while (control?.disabled && Date.now() < requestedReadyDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      before = await capturePopupState(popup);
+      control = before.controls.find((candidate) => candidate.id === controlId);
+      settledProof = proveMode(before, renderMode);
+      if (!control || control.visible === false || before.busy === true) continue;
+      if (!control.disabled || settledProof.modeProven) break;
+    }
+  }
   if (control?.disabled && before.busy === false && settledProof.modeProven) {
     const alternateMode = renderMode === "with-javascript" ? "without-javascript" : "with-javascript";
     const alternateId = implementation === "legacy"
@@ -998,7 +1014,9 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
       throw new Error(`Timed out switching away from the already-selected ${renderMode} mode; last=${JSON.stringify(last)}`);
     }
   }
-  if (!control || control.disabled) throw new Error(`Render Inspection control #${controlId} is unavailable: ${JSON.stringify(control)}`);
+  if (!control || control.disabled) {
+    throw new Error(`Render Inspection control #${controlId} is unavailable: ${JSON.stringify({ control, state: before })}`);
+  }
   const startedAt = new Date().toISOString();
   const initialInspectionView = before.renderInspectionView;
   const controlActivation = await physicalActivatePopupControl(popup, controlId, "pointer", null, activationOptions);
