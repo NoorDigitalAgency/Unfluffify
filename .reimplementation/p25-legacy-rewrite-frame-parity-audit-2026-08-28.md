@@ -1447,6 +1447,20 @@ preserves the stronger architecture.
     with `not-visible`, so keyboard activation no longer promises an impossible
     two-way route. Regression coverage preserves ordinary below-the-fold routing
     and rejects the off-document case without calling `scrollIntoView`.
+155. **Closed acceptance P0 — the exact pushed Assist24 canary and composite are
+    fully green.** Clean pushed commit `998400cb` completed all thirteen headed
+    stages in
+    `2026-08-29T13-33-43-394Z-73acf6d9-rewrite-assist24`: both Render
+    Inspection modes, activation/network, marking visual/gestures/scroll/resize,
+    two measured current-run AI calls, both Content List directions, Preview
+    exit, immediate dirty projection, Discard, one current-page authoritative
+    Save, silent transition/visual/scroll/resize, payload hygiene, and the
+    guarded zero-attempt publication fence. Its final aggregate is green. The
+    same source then passed the complete P25 composite at
+    `output/playwright/p25-parity/acceptance-2026-08-29T13-45-31-950Z.json`,
+    retaining validated P14, P15, P16, P17, P18, P20, and P23 child artifacts.
+    This closes the single-property canary; matrix-wide live parity remains the
+    final acceptance scope.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1519,7 +1533,7 @@ preserves the stronger architecture.
 ## Acceptance headline
 
 Implementation remediation is code-complete through finding 134; findings
-135–154 bind the resulting evidence and rerun authority. Immutable
+135–155 bind the resulting evidence and rerun authority. Immutable
 pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
 recurrence watch, finding 125 awaits an exact clean pushed headed rerun,
 findings 126–128 are closed by the clean aggregate, finding 129 is closed by its
