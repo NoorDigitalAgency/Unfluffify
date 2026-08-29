@@ -1489,6 +1489,14 @@ describe("P6 DOM bridge", () => {
     image.setAttribute("alt", "Fallback alt");
     expect(previewTextForElement(image as unknown as Element)).toBe("Accessible image");
 
+    const search = new FakeElement("INPUT", rect(0, 0, 160, 32));
+    search.setAttribute("placeholder", "Search the catalogue");
+    expect(previewTextForElement(search as unknown as Element)).toBe("Search the catalogue");
+
+    search.setAttribute("aria-label", "Product search");
+    search.setAttribute("value", "private operator input");
+    expect(previewTextForElement(search as unknown as Element)).toBe("Product search");
+
     const unicode = new FakeElement("P", rect(0, 0, 10, 10), "😀".repeat(90));
     const bounded = previewTextForElement(unicode as unknown as Element);
     expect(Array.from(bounded)).toHaveLength(80);

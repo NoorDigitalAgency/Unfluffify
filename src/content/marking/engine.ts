@@ -362,7 +362,12 @@ export function buildPreviewTextMetadata(root: Element): WeakMap<Element, Previe
     }
     const explicitText = normalizePreviewText(element.getAttribute("aria-label") ?? "") ||
       normalizePreviewText(element.getAttribute("alt") ?? "") ||
-      normalizePreviewText(element.getAttribute("title") ?? "");
+      normalizePreviewText(element.getAttribute("title") ?? "") ||
+      // A placeholder is frequently the only human-readable name exposed by
+      // search and filter controls. Keep it behind the stronger accessible
+      // labels above and never fall back to the live value, which may contain
+      // operator-entered or otherwise sensitive content.
+      normalizePreviewText(element.getAttribute("placeholder") ?? "");
     const inheritedSemanticText = descendantSemanticTexts.size === 1
       ? descendantSemanticTexts.values().next().value ?? ""
       : "";
