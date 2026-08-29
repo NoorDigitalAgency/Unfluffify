@@ -198,6 +198,7 @@ function hasNormalizedText(element: Element): boolean {
 function nearestDescendantRects(
   element: Element,
   accept: (candidate: Element, rect: RectLike) => boolean,
+  remember?: (candidate: Element) => void,
 ): RectLike[] {
   if (!hasNormalizedText(element)) {
     return [];
@@ -214,6 +215,7 @@ function nearestDescendantRects(
     }
     const rects = ownMeasurableRects(candidate).filter((rect) => accept(candidate, rect));
     if (rects.length > 0) {
+      remember?.(candidate);
       return rects;
     }
     queue.push(...composedElementChildren(candidate));
@@ -269,6 +271,19 @@ function composedParentElement(element: Element): Element | null {
   }
   const root = element.getRootNode?.();
   return root && "host" in root ? (root as ShadowRoot).host : null;
+}
+
+function isComposedDescendantOf(candidate: Element, ancestor: Element): boolean {
+  let current: Element | null = candidate;
+  let depth = 0;
+  while (current && depth < 200) {
+    if (current === ancestor) {
+      return true;
+    }
+    current = composedParentElement(current);
+    depth += 1;
+  }
+  return false;
 }
 
 function cssRectClipHasNoPaint(value: string): boolean {
@@ -422,6 +437,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   let geometryBatch: Map<Element, RectLike[]> | null = null;
   let ownPaintGeometryBatch: Map<Element, RectLike[]> | null = null;
   let visibilityBatch: Map<Element, boolean> | null = null;
+  let descendantGeometryAnchorByElement = new WeakMap<Element, Element>();
   let geometryBatchGeneration = 0;
 
   const beginRetainedGeometryBatch = (): void => {
@@ -479,12 +495,29 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       return retained;
     }
     const own = measuredOwnPaintRectsFor(element);
-    const measured = own.length > 0
-      ? own
-      : nearestDescendantRects(element, (candidate, rect) =>
-        rectInViewport(rect, options.document) &&
-        rectIsPaintReachable(candidate, rect, options.document)
-      );
+    const accept = (candidate: Element, rect: RectLike): boolean =>
+      rectInViewport(rect, options.document)
+      && rectIsPaintReachable(candidate, rect, options.document);
+    let measured = own;
+    if (measured.length === 0) {
+      const retainedAnchor = descendantGeometryAnchorByElement.get(element);
+      if (
+        retainedAnchor
+        && retainedAnchor.isConnected !== false
+        && isComposedDescendantOf(retainedAnchor, element)
+        && isCurrentlyVisuallyVisible(retainedAnchor)
+      ) {
+        measured = ownMeasurableRects(retainedAnchor).filter((rect) =>
+          accept(retainedAnchor, rect)
+        );
+      }
+      if (measured.length === 0) {
+        descendantGeometryAnchorByElement.delete(element);
+        measured = nearestDescendantRects(element, accept, (candidate) => {
+          descendantGeometryAnchorByElement.set(element, candidate);
+        });
+      }
+    }
     geometryBatch?.set(element, measured);
     return measured;
   };
@@ -999,6 +1032,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       byXpath: ReadonlyMap<string, OverlayRenderTarget>,
       generation = renderGeneration + 1,
     ): void {
+      descendantGeometryAnchorByElement = new WeakMap<Element, Element>();
       beginRetainedGeometryBatch();
       adoptTargets(byXpath, true);
       adoptEvaluationMetadata(evaluation);
@@ -1021,6 +1055,9 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       byXpath: ReadonlyMap<string, OverlayRenderTarget>,
       generation = renderGeneration,
     ): void {
+      for (const target of byXpath.values()) {
+        descendantGeometryAnchorByElement.delete(target.element);
+      }
       beginRetainedGeometryBatch();
       adoptTargets(byXpath);
       adoptEvaluationMetadata(evaluation);

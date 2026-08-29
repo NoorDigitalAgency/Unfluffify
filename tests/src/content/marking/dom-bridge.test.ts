@@ -1618,15 +1618,16 @@ describe("P6 DOM bridge", () => {
     renderer.dispose();
   });
 
-  it("searches the legacy-bounded collapsed corpus beyond the old 64-node cutoff", () => {
+  it("searches the legacy-bounded collapsed corpus once and retains its painted anchor", async () => {
     const doc = new FakeDocument();
     const wrapper = new FakeElement("SECTION", rect(0, 0, 0, 0));
     wrapper.ownerDocument = doc;
-    for (let index = 0; index < 80; index += 1) {
+    const spacers = Array.from({ length: 80 }, () => {
       const spacer = new FakeElement("SPAN", rect(0, 0, 0, 0));
       spacer.ownerDocument = doc;
       wrapper.appendChild(spacer);
-    }
+      return spacer;
+    });
     const paragraph = new FakeElement("P", rect(24, 48, 170, 28), "Late visible copy");
     paragraph.ownerDocument = doc;
     wrapper.appendChild(paragraph);
@@ -1634,16 +1635,27 @@ describe("P6 DOM bridge", () => {
     const renderer = createOverlayRenderer({ document: doc as unknown as Document });
     const xpath = "/section[1]";
 
-    renderer.render({
+    const evaluation = {
       rows: [{ xpath, excluded: false, explicit: true }],
-      overlay: new Map([[xpath, "explicit-include"]]),
-    }, new Map([[xpath, { element: wrapper as unknown as Element, visible: true }]]));
+      overlay: new Map([[xpath, "explicit-include" as const]]),
+    };
+    const targets = new Map([[xpath, { element: wrapper as unknown as Element, visible: true }]]);
+
+    renderer.render(evaluation, targets);
 
     const box = renderer.root.children.flatMap((layer) => layer.children).find((candidate) =>
       candidate.getAttribute("data-uf-overlay-xpath") === xpath
     );
     expect(box?.style.left).toBe("24px");
     expect(box?.style.top).toBe("48px");
+
+    await Promise.resolve();
+    for (const spacer of spacers) spacer.clientRectReadCount = 0;
+    paragraph.clientRectReadCount = 0;
+    renderer.reposition(targets);
+
+    expect(spacers.every((spacer) => spacer.clientRectReadCount === 0)).toBe(true);
+    expect(paragraph.clientRectReadCount).toBeGreaterThan(0);
     renderer.dispose();
   });
 
