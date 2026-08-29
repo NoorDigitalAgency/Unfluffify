@@ -160,6 +160,8 @@ export function createInteractionShield(
   let disposed = false;
   let syncScheduled = false;
   let fallbackScrollOwner: ViewportScrollOwner | null = null;
+  let fallbackScrollOwnerProofHandle: number | null = null;
+  let scheduleFallbackScrollOwnerProof = (): void => undefined;
   let wheelFallbackOccurrence = 0;
   let pendingWheelFallback: {
     occurrence: number;
@@ -192,6 +194,17 @@ export function createInteractionShield(
   const markFallbackScrollOwnerDirty = (): void => {
     invalidateViewportScrollOwnerProofs();
     fallbackScrollOwner = null;
+    scheduleFallbackScrollOwnerProof();
+  };
+
+  const cancelScheduledFallbackScrollOwnerProof = (): void => {
+    if (fallbackScrollOwnerProofHandle === null) return;
+    const clearTask = (view as (Window & { clearTimeout?: Window["clearTimeout"] }) | undefined)
+      ?.clearTimeout;
+    if (typeof clearTask === "function") {
+      clearTask.call(view, fallbackScrollOwnerProofHandle);
+    }
+    fallbackScrollOwnerProofHandle = null;
   };
 
   const composedParentElement = (element: Element): Element | null => {
@@ -939,6 +952,9 @@ export function createInteractionShield(
   };
 
   const resolveFallbackScrollOwner = (): ViewportScrollOwner => {
+    // A physical packet that races the background proof remains correct, but
+    // it also owns the proof now; do not leave a duplicate task queued.
+    cancelScheduledFallbackScrollOwnerProof();
     if (
       !fallbackScrollOwner ||
       fallbackScrollOwner.element.isConnected === false ||
@@ -950,6 +966,26 @@ export function createInteractionShield(
       observeLayering();
     }
     return fallbackScrollOwner;
+  };
+
+  scheduleFallbackScrollOwnerProof = (): void => {
+    if (
+      !view ||
+      !mounted ||
+      disposed ||
+      fallbackScrollOwnerProofHandle !== null
+    ) {
+      return;
+    }
+    // Owner discovery samples hit targets and computed styles and may extend
+    // the layering observer. Prime that proof in a separate task so the first
+    // wheel/touch packet only consumes the cached identity. The synchronous
+    // resolver above remains the correctness fallback when input wins the race.
+    fallbackScrollOwnerProofHandle = view.setTimeout(() => {
+      fallbackScrollOwnerProofHandle = null;
+      if (!mounted || disposed) return;
+      resolveFallbackScrollOwner();
+    }, 0);
   };
 
   const scheduleWheelFallback = (event: Event): boolean => {
@@ -1336,6 +1372,7 @@ export function createInteractionShield(
     addTopLayerListeners();
     addViewportListeners();
     syncLayering();
+    scheduleFallbackScrollOwnerProof();
   };
 
   const unmount = (): void => {
@@ -1344,6 +1381,7 @@ export function createInteractionShield(
     }
     mounted = false;
     syncScheduled = false;
+    cancelScheduledFallbackScrollOwnerProof();
     fallbackScrollOwner = null;
     wheelFallbackOccurrence += 1;
     pendingWheelFallback = null;

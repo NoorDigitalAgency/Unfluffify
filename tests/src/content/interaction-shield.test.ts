@@ -1264,6 +1264,11 @@ describe("interaction shield controller", () => {
     });
     controller.activate("silent-highlighting");
     const shield = controller.element() as unknown as FakeElement;
+    // The expensive viewport-owner proof is primed in a separate task. The
+    // first physical wheel packet must consume it without computed-style work.
+    context.window.flushTasks();
+    const ownerDiscoveryStyleReads = computedStyle.mock.calls.length;
+    expect(ownerDiscoveryStyleReads).toBeGreaterThan(0);
 
     for (const [deltaX, deltaY] of [[20, 100], [25, 140]] as const) {
       context.window.dispatch("wheel", inputEvent(
@@ -1272,8 +1277,7 @@ describe("interaction shield controller", () => {
         { deltaX, deltaY },
       ) as unknown as Event);
     }
-    const ownerDiscoveryStyleReads = computedStyle.mock.calls.length;
-    expect(ownerDiscoveryStyleReads).toBeGreaterThan(0);
+    expect(computedStyle).toHaveBeenCalledTimes(ownerDiscoveryStyleReads);
     context.window.flushTasks();
     expect(scrollShell.scrollTop).toBe(240);
     expect(scrollShell.scrollLeft).toBe(45);
