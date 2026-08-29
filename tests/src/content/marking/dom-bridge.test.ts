@@ -2840,6 +2840,7 @@ describe("P6 DOM bridge", () => {
       }
 
       expect(readsPerFrame.filter((count) => count > 0).every((count) => count <= 48)).toBe(true);
+      expect(readsPerFrame.filter((count) => count === 0).length).toBeGreaterThanOrEqual(4);
       expect(renderer.branchRender).toHaveBeenCalledTimes(1);
       expect(engine.rows().every((row) => row.excluded)).toBe(true);
       engine.dispose();

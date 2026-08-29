@@ -1070,6 +1070,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       evaluation: EvaluationResult,
       byXpath: ReadonlyMap<string, OverlayRenderTarget>,
       generation = renderGeneration,
+      affectedXpaths: ReadonlySet<string> = new Set(byXpath.keys()),
     ): void {
       for (const target of byXpath.values()) {
         descendantGeometryAnchorByElement.delete(target.element);
@@ -1077,10 +1078,10 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       beginRetainedGeometryBatch();
       adoptTargets(byXpath);
       adoptEvaluationMetadata(evaluation);
-      const affected = new Set(byXpath.keys());
+      const affected = affectedXpaths;
       const submittedXpaths = new Set(evaluation.rows.map((row) => row.xpath));
       const used = new Set<string>();
-      for (const xpath of byXpath.keys()) {
+      for (const xpath of affected) {
         const classification = evaluation.overlay.get(xpath);
         if (!classification || (
           classification === "implicit-include" && !submittedXpaths.has(xpath)

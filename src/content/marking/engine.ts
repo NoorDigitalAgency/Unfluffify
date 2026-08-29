@@ -884,6 +884,7 @@ export function createMarkingEngine(
   let deferredBranchRenderHandle: number | null = null;
   let deferredBranchRenderGeneration = 0;
   let deferredBranchTargets = new Map<string, OverlayRenderTarget>();
+  const deferredBranchAffectedXpaths = new Set<string>();
   let progressiveGeometryRenderHandle: number | null = null;
   let progressiveGeometryCycle = 0;
   let progressiveGeometryActive = false;
@@ -1198,6 +1199,7 @@ export function createMarkingEngine(
       presentationClock.cancelFrame(deferredBranchRenderHandle);
       deferredBranchRenderHandle = null;
       deferredBranchTargets.clear();
+      deferredBranchAffectedXpaths.clear();
     }
     beginWorkCycle();
     hoverResolution = null;
@@ -1226,6 +1228,7 @@ export function createMarkingEngine(
       presentationClock.cancelFrame(deferredBranchRenderHandle);
       deferredBranchRenderHandle = null;
       deferredBranchTargets.clear();
+      deferredBranchAffectedXpaths.clear();
     }
     beginWorkCycle();
     hoverResolution = null;
@@ -1249,11 +1252,29 @@ export function createMarkingEngine(
     return next.selectorsSeeded;
   };
   const byXpathElements = (): ReadonlyMap<string, OverlayRenderTarget> => overlayTargets;
-  const byXpathElementsForBranch = (branchRoot: EvaluationNode): Map<string, OverlayRenderTarget> => {
+  const byXpathElementsForBranch = (
+    branchRoot: EvaluationNode,
+    evaluation: ReturnType<typeof store.currentEvaluation>,
+  ): Readonly<{
+    affectedXpaths: ReadonlySet<string>;
+    targets: Map<string, OverlayRenderTarget>;
+  }> => {
     const elements = new Map<string, OverlayRenderTarget>();
+    const affectedXpaths = new Set<string>();
+    const rowXpaths = new Set(evaluation.rows.map((row) => row.xpath));
+    const retainedXpaths = renderer.retainedViewportXpaths();
     const collect = (node: EvaluationNode): void => {
+      affectedXpaths.add(node.xpath);
       const element = bridge.byXpath.get(node.xpath)?.element;
-      if (element) {
+      const classification = evaluation.overlay.get(node.xpath);
+      const viewportClassification = intersectingXpaths.has(node.xpath)
+        && classification !== undefined
+        && classification !== "implicit-include";
+      if (element && (
+        retainedXpaths.has(node.xpath)
+        || rowXpaths.has(node.xpath)
+        || viewportClassification
+      )) {
         elements.set(node.xpath, { element, visible: node.visible });
       }
       for (const child of node.children ?? []) {
@@ -1261,7 +1282,7 @@ export function createMarkingEngine(
       }
     };
     collect(branchRoot);
-    return elements;
+    return { affectedXpaths, targets: elements };
   };
   const renderSilent = (): readonly string[] => {
     const byXpath = byXpathElements();
@@ -1352,9 +1373,10 @@ export function createMarkingEngine(
     evaluation: ReturnType<typeof store.currentEvaluation>,
     branchRoot: EvaluationNode,
   ): void => {
-    const branchTargets = byXpathElementsForBranch(branchRoot);
-    if (branchTargets.size <= DEFERRED_BRANCH_RENDER_TARGET_THRESHOLD) {
-      renderer.renderBranch(evaluation, branchTargets, bridgeGeneration);
+    const branch = byXpathElementsForBranch(branchRoot, evaluation);
+    const branchTargets = branch.targets;
+    if (branch.affectedXpaths.size <= DEFERRED_BRANCH_RENDER_TARGET_THRESHOLD) {
+      renderer.renderBranch(evaluation, branchTargets, bridgeGeneration, branch.affectedXpaths);
       if (silentHighlightsArmed) {
         renderSilentBranch(evaluation, branchTargets);
       }
@@ -1362,6 +1384,9 @@ export function createMarkingEngine(
     }
     for (const [xpath, target] of branchTargets) {
       deferredBranchTargets.set(xpath, target);
+    }
+    for (const xpath of branch.affectedXpaths) {
+      deferredBranchAffectedXpaths.add(xpath);
     }
     deferredBranchRenderGeneration = bridgeGeneration;
     if (deferredBranchRenderHandle !== null) {
@@ -1375,53 +1400,88 @@ export function createMarkingEngine(
       deferredBranchRenderHandle = null;
       const targets = deferredBranchTargets;
       deferredBranchTargets = new Map<string, OverlayRenderTarget>();
+      const affectedXpaths = new Set(deferredBranchAffectedXpaths);
+      deferredBranchAffectedXpaths.clear();
       if (deferredBranchRenderGeneration !== bridgeGeneration) {
         return;
       }
       const current = store.currentEvaluation();
-      renderer.renderBranch(current, targets, bridgeGeneration);
+      renderer.renderBranch(current, targets, bridgeGeneration, affectedXpaths);
       if (silentHighlightsArmed) {
         renderSilentBranch(current, targets);
       }
     });
     deferredBranchRenderHandle = deferredHandle || null;
   };
-  const applyPresentationRefresh = (refreshed: DomBridgePresentationRefresh): void => {
+  type PresentationRefreshAdoption = Readonly<{
+    bridgeChanged: boolean;
+    progressiveGeometryCancelled: boolean;
+    refreshed: DomBridgePresentationRefresh;
+  }>;
+  const adoptPresentationRefresh = (
+    refreshed: DomBridgePresentationRefresh,
+  ): PresentationRefreshAdoption | null => {
     if (refreshed.branchRoots.length === 0) {
-      return;
+      return null;
     }
     const progressiveGeometryCancelled = cancelProgressiveGeometryRender();
     if (deferredBranchRenderHandle !== null) {
       presentationClock.cancelFrame(deferredBranchRenderHandle);
       deferredBranchRenderHandle = null;
       deferredBranchTargets.clear();
+      deferredBranchAffectedXpaths.clear();
     }
+    const bridgeChanged = refreshed.view !== bridge;
+    if (bridgeChanged) {
+      const previousMarks = store.canonicalSet();
+      bridge = refreshed.view;
+      const next = initialMarksForBridge(bridge, previousMarks, undefined);
+      store = createMarkingStore({ root: bridge.root }, next.marks);
+      reportWorkStage("store-evaluate");
+    }
+    return { bridgeChanged, progressiveGeometryCancelled, refreshed };
+  };
+  const indexPresentationRefresh = (adoption: PresentationRefreshAdoption): void => {
+    if (!adoption.bridgeChanged) return;
+    // Attribute-only presentation changes retain element/XPath topology and
+    // text. Keep the existing IntersectionObserver snapshot and preview text
+    // cache instead of disconnecting and walking the complete document.
+    rebuildBridgeIndexes({
+      refreshPreviewTextMetadata: false,
+      rebindIntersections: false,
+    });
+  };
+  const projectPresentationRefresh = (adoption: PresentationRefreshAdoption): void => {
+    if (!adoption.bridgeChanged) return;
+    refreshCurrentPreviewProjection();
+    reconcilePreviewEmphasis();
+  };
+  const paintPresentationRefresh = (adoption: PresentationRefreshAdoption): void => {
     try {
-      if (refreshed.view !== bridge) {
-        const previousMarks = store.canonicalSet();
-        bridge = refreshed.view;
-        const next = initialMarksForBridge(bridge, previousMarks, undefined);
-        store = createMarkingStore({ root: bridge.root }, next.marks);
-        reportWorkStage("store-evaluate");
-        // Attribute-only presentation changes retain element/XPath topology and
-        // text. Keep the existing IntersectionObserver snapshot and preview text
-        // cache instead of disconnecting and walking the complete document.
-        rebuildBridgeIndexes({
-          refreshPreviewTextMetadata: false,
-          rebindIntersections: false,
-        });
-        refreshCurrentPreviewProjection();
-        reconcilePreviewEmphasis();
-      }
       const evaluation = store.currentEvaluation();
-      for (const branchRoot of refreshed.branchRoots) {
+      for (const branchRoot of adoption.refreshed.branchRoots) {
         renderChangedBranch(evaluation, branchRoot);
       }
     } finally {
-      if (progressiveGeometryCancelled) {
+      if (adoption.progressiveGeometryCancelled) {
         revealMarkingAfterRender = false;
         renderer.setScrolling(false);
       }
+    }
+  };
+  const applyPresentationRefresh = (refreshed: DomBridgePresentationRefresh): void => {
+    const adoption = adoptPresentationRefresh(refreshed);
+    if (!adoption) return;
+    try {
+      indexPresentationRefresh(adoption);
+      projectPresentationRefresh(adoption);
+      paintPresentationRefresh(adoption);
+    } catch (error) {
+      if (adoption.progressiveGeometryCancelled) {
+        revealMarkingAfterRender = false;
+        renderer.setScrolling(false);
+      }
+      throw error;
     }
   };
   const renderGeometryProgressively = (
@@ -1672,34 +1732,66 @@ export function createMarkingEngine(
         beginWorkCycle();
         hoverResolution = null;
         const cycle = ++progressivePresentationCycle;
+        let adoption: PresentationRefreshAdoption | null = null;
+        let settled = false;
+        const settleOnce = (): void => {
+          if (settled) return;
+          settled = true;
+          settleMutationRefresh();
+        };
+        const scheduleFrame = (work: () => void): void => {
+          progressivePresentationHandle = presentationClock.requestFrame(() => {
+            progressivePresentationHandle = null;
+            if (disposed || cycle !== progressivePresentationCycle) {
+              settleOnce();
+              return;
+            }
+            try {
+              work();
+            } catch (error) {
+              if (adoption?.progressiveGeometryCancelled) {
+                revealMarkingAfterRender = false;
+                renderer.setScrolling(false);
+              }
+              settleOnce();
+              throw error;
+            }
+          }) || null;
+        };
         const runChunk = (): void => {
           progressivePresentationHandle = null;
           if (disposed || cycle !== progressivePresentationCycle) {
-            settleMutationRefresh();
+            settleOnce();
             return;
           }
           const complete = cursor.step(PROGRESSIVE_PRESENTATION_CHUNK_SIZE);
           if (complete) {
-            // Keep immutable bridge materialization/store adoption out of the
-            // final layout-read slice. Large responsive roots now pay bounded
-            // frame work instead of one 150-600 ms presentation task.
-            progressivePresentationHandle = presentationClock.requestFrame(() => {
-              progressivePresentationHandle = null;
-              if (disposed || cycle !== progressivePresentationCycle) {
-                settleMutationRefresh();
+            // Keep immutable bridge materialization/store adoption, index
+            // rebuilding, preview projection, and paint on separate frames.
+            // Each phase is independently below the input-task budget even on
+            // a 6k-node responsive document.
+            scheduleFrame(() => {
+              adoption = adoptPresentationRefresh(cursor.finish());
+              if (!adoption) {
+                settleOnce();
                 return;
               }
-              try {
-                applyPresentationRefresh(cursor.finish());
-              } finally {
-                settleMutationRefresh();
-              }
-            }) || null;
+              scheduleFrame(() => {
+                indexPresentationRefresh(adoption!);
+                scheduleFrame(() => {
+                  projectPresentationRefresh(adoption!);
+                  scheduleFrame(() => {
+                    paintPresentationRefresh(adoption!);
+                    settleOnce();
+                  });
+                });
+              });
+            });
             return;
           }
-          progressivePresentationHandle = presentationClock.requestFrame(runChunk) || null;
+          scheduleFrame(runChunk);
         };
-        progressivePresentationHandle = presentationClock.requestFrame(runChunk) || null;
+        scheduleFrame(runChunk);
         return;
       }
       try {
@@ -2694,6 +2786,7 @@ export function createMarkingEngine(
         presentationClock.cancelFrame(deferredBranchRenderHandle);
         deferredBranchRenderHandle = null;
         deferredBranchTargets.clear();
+        deferredBranchAffectedXpaths.clear();
       }
       hoverResolution = null;
       silentHighlightsArmed = false;
@@ -2709,6 +2802,7 @@ export function createMarkingEngine(
         presentationClock.cancelFrame(deferredBranchRenderHandle);
         deferredBranchRenderHandle = null;
         deferredBranchTargets.clear();
+        deferredBranchAffectedXpaths.clear();
       }
       hoverResolution = null;
       silentHighlightsArmed = false;
@@ -2724,6 +2818,7 @@ export function createMarkingEngine(
         presentationClock.cancelFrame(deferredBranchRenderHandle);
         deferredBranchRenderHandle = null;
         deferredBranchTargets.clear();
+        deferredBranchAffectedXpaths.clear();
       }
       hoverResolution = null;
       previewEmphasizedRowId = null;
