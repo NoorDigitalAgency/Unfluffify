@@ -1669,10 +1669,12 @@ async function destroyPageWorldSessionAndWait(explicitNonce = ""): Promise<void>
   }
 }
 
-function destroyPageWorldSession(): void {
-  void destroyPageWorldSessionAndWait().catch((error: unknown) => {
+function destroyPageWorldSession(): Promise<void> {
+  const teardown = destroyPageWorldSessionAndWait();
+  void teardown.catch((error: unknown) => {
     console.error("[Unfluffify][rewrite] Unable to confirm page-world teardown", error);
   });
+  return teardown;
 }
 
 function setSpacePassthrough(event: KeyboardEvent, active: boolean): void {
@@ -3742,7 +3744,8 @@ function reconcileMarkingInteractionAvailability(): MarkingInteractionAvailabili
 
 type MarkingDeactivationMode = "terminal" | "silent";
 
-function deactivateMarking(mode: MarkingDeactivationMode = "terminal"): void {
+function deactivateMarking(mode: MarkingDeactivationMode = "terminal"): Promise<void> | null {
+  let terminalTeardown: Promise<void> | null = null;
   markingActive = false;
   userToggleCount = 0;
   selectorsSeeded = false;
@@ -3752,7 +3755,7 @@ function deactivateMarking(mode: MarkingDeactivationMode = "terminal"): void {
   if (mode === "terminal") {
     silentInteractionShieldActive = false;
     spaGuard.disarm();
-    destroyPageWorldSession();
+    terminalTeardown = destroyPageWorldSession();
   } else {
     // Freeze before disposing the interactive engine. The selector-application
     // command arrives separately, so retaining this lease is what prevents a
@@ -3770,6 +3773,7 @@ function deactivateMarking(mode: MarkingDeactivationMode = "terminal"): void {
   syncMarkingCursor();
   lastContentSurfaceSignature = "";
   renderContentSurface();
+  return terminalTeardown;
 }
 
 function pauseMarkingInteractions(): boolean {
@@ -4333,8 +4337,9 @@ function createContentRouter() {
         : { ok: resumeMarkingInteractions(), active: markingActive, dirty: isUserMarkingDirty(), tree: "rewrite" },
       markContentMainClean: () => markContentClean(),
       captureSubmissionSnapshot,
-      deactivateContentMain: () => {
-        deactivateMarking();
+      deactivateContentMain: async () => {
+        const terminalTeardown = deactivateMarking();
+        await terminalTeardown;
         return { ok: true, initialized: false, tree: "rewrite" };
       },
       terminateConsentSuppression: () => {

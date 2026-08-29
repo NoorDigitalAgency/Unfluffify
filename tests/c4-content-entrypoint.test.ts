@@ -2449,6 +2449,21 @@ describe("C4 rewrite content entrypoints", () => {
     });
     const scrollTo = vi.fn();
     const requestAnimationFrame = vi.fn();
+    let holdDestroyAcknowledgement = false;
+    let heldDestroyMessage: TestPageWorldCommand | null = null;
+    const acknowledgePageWorldMessage = (message: TestPageWorldCommand): void => {
+      queueMicrotask(() => dispatchTestEvent(windowListeners, "message", {
+        source: windowObject,
+        data: {
+          kind: "uf-page-bus/1",
+          type: "response",
+          nonce: message.nonce,
+          command: message.command,
+          ok: true,
+          payload: pageWorldAcknowledgement(message),
+        },
+      } as unknown as Event));
+    };
     const windowObject = {
       innerHeight: 500,
       scrollY: 123,
@@ -2461,17 +2476,11 @@ describe("C4 rewrite content entrypoints", () => {
         if (message.kind !== "uf-page-bus/1" || message.type !== "request") {
           return;
         }
-        queueMicrotask(() => dispatchTestEvent(windowListeners, "message", {
-          source: windowObject,
-          data: {
-            kind: "uf-page-bus/1",
-            type: "response",
-            nonce: message.nonce,
-            command: message.command,
-            ok: true,
-            payload: pageWorldAcknowledgement(message),
-          },
-        } as unknown as Event));
+        if (message.command === "DESTROY" && holdDestroyAcknowledgement) {
+          heldDestroyMessage = message;
+          return;
+        }
+        acknowledgePageWorldMessage(message);
       }),
       addEventListener: vi.fn((type: string, listener: EventListener) => {
         addTestListener(windowListeners, type, listener);
@@ -3052,7 +3061,22 @@ describe("C4 rewrite content entrypoints", () => {
     const pauseCountBeforeTerminalDeactivation = windowObject.postMessage.mock.calls.filter(
       ([message]) => message.command === "SET_MOTION_PAUSED",
     ).length;
-    const firstDeactivate = await dispatchContentCommand(listener, "deactivateContentMain");
+    holdDestroyAcknowledgement = true;
+    let firstDeactivateSettled = false;
+    const firstDeactivatePromise = dispatchContentCommand(listener, "deactivateContentMain").then((result) => {
+      firstDeactivateSettled = true;
+      return result;
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(heldDestroyMessage).toMatchObject({
+      command: "DESTROY",
+      sessionNonce: expect.stringMatching(/^rewrite-stabilization-/),
+    });
+    expect(firstDeactivateSettled).toBe(false);
+    holdDestroyAcknowledgement = false;
+    acknowledgePageWorldMessage(heldDestroyMessage!);
+    const firstDeactivate = await firstDeactivatePromise;
     expect(firstDeactivate).toEqual({ ok: true, data: { ok: true, initialized: false, tree: "rewrite" } });
     const reactivated = await dispatchContentCommand(listener, "activateContentMain", { pageUrl: pageUrl.href });
     expect(reactivated).toMatchObject({
