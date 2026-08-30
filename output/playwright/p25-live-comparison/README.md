@@ -31,9 +31,11 @@ screenshots without dispatching a control, and ordinary acceptance deliberately
 keeps that cell red. This is the only valid way to measure later legacy stages
 without converting the known render failure into a synthetic pass.
 
-The 2026-08-30 diagnostic production matrix contains all nine valid candidate
-pairs. Rewrite passes 117/117 headed stages on clean product source
-`af59ce9d`; every pinned-legacy pair is red, all dynamic document fingerprints
+The final 2026-08-30 diagnostic production matrix contains all nine valid
+candidate pairs. Rewrite passes 117/117 headed stages on clean product source
+`01c2c091`; every pinned-legacy pair is red, all dynamic document fingerprints
 are non-equivalent, and strict overall parity is therefore failed rather than
-claimed. Acapedia and 3D Prima are external blocks, Bigbag is N/A, and the matrix
-records zero final publication attempts.
+claimed. Its retained matrix artifact is
+`comparisons/2026-08-30T09-28-27-284Z-matrix.json`. Acapedia and 3D Prima are
+external blocks, Bigbag is N/A, and the matrix records zero final publication
+attempts.

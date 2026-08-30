@@ -2,15 +2,23 @@
 
 ## Result
 
-**Implementation closure complete; clean headed acceptance pending.** The initial
+**REWRITE SANITY PASS; STRICT LEGACY PARITY FAIL.** The initial
 side-by-side audit found 54 product gaps, adversarial run-plan review found 30
 additional lifecycle, input, evidence, and release-gate gaps, and final
 precommit review plus the clean headed campaign extended the register through
-finding 109. The current P25 implementation addresses every classified finding without weakening the
-rewrite's locked contracts. This document remains the finding register rather
-than a PASS claim:
-the clean-source P25 gate and observer-free candidate matrix are the acceptance
-authorities.
+finding 174. The current P25 implementation addresses every classified finding
+without weakening the rewrite's locked contracts. Exact rewrite source
+`01c2c091` passes the clean-source P25 composite and all 117 headed candidate
+stages. The strict nine-pair matrix remains failed because pinned legacy is
+non-terminal at Render Inspection, does not complete the shared workflow, and
+the dynamic document fingerprints are not equivalent. This document remains
+the comprehensive finding register; the clean P25 artifact and exact-head live
+matrix are its acceptance authorities.
+
+Historical `pending` qualifiers inside individual findings preserve the state at
+the checkpoint where each issue was discovered. The finding 174 closure and
+acceptance headline at the end of this register supersede those checkpoint
+labels; no code-owned red candidate cell remains.
 
 Consent suppression is a pass. DPJ cart, account, contact, assembly, country,
 modal, and similar blocking UI is intentionally hidden and excluded from every
@@ -37,11 +45,11 @@ extraction surface. It is not a remediation target.
   and integrated that source; findings below retain the original observations
   while their headers record implementation closure. Historical green artifacts
   still do not certify a different source identity.
-- Valid candidate pages are Ledigajobb, DPJ, Acne Specialisten, Acapedia,
-  Assist24, Arno, ArkivIT, Teknikhallen, Humanova, and any currently valid Aleris
-  candidate. The supplied 3D Prima page is a site-owned 404, Bigbag has no
-  candidate, and Aleris currently serves a not-found body. Those are not content
-  accuracy passes.
+- Valid candidate pages are Ledigajobb, DPJ, Aleris, Acne Specialisten,
+  Assist24, Arno, ArkivIT, Teknikhallen, and Humanova. Acapedia is an external
+  block because the required inspection reload becomes a site-owned 403; the
+  supplied 3D Prima page is a site-owned 404; and Bigbag has no authoritative
+  Hub candidate. Those three dispositions are outside the pass denominator.
 - No final selector publication was issued. Save and checklist fencing were
   exercised where authority permitted.
 
@@ -1627,7 +1635,7 @@ preserves the stronger architecture.
     completed 13/13. The isolated product sample is therefore non-reproducible,
     while the demonstrable collector-tail false attribution is permanently
     excluded by exact page-clock action bounds.
-174. **Remediated rewrite P0; exact-head live proof pending — a marking-only
+174. **Closed rewrite P0 — a marking-only
     rectangle could mask Content List page-to-row routing.** The exact final Acne
     Specialisten batch completed every stage except workflow-summary. Its trusted
     page click landed on a retained header-image rectangle after the reactive
@@ -1638,7 +1646,12 @@ preserves the stronger architecture.
     receives the active projection's XPath authority and ranks only eligible
     rectangles, retaining the same area/depth/layer/paint-order rules and live
     Element fallback. A regression proves that the leaf wins when eligible and
-    the projected owner wins when the leaf is absent from the projection.
+    the projected owner wins when the leaf is absent from the projection. The
+    focused exact-head Acne run
+    `2026-08-30T08-45-08-049Z-90b4ef41-rewrite-acne-specialisten` and the final
+    matrix run
+    `2026-08-30T08-56-22-812Z-c8e59352-rewrite-acne-specialisten` both pass all
+    13 stages, including Content List row-to-page and page-to-row routing.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1711,14 +1724,14 @@ preserves the stronger architecture.
 ## Acceptance headline
 
 Implementation remediation and evidence disposition are complete through
-finding 173. The first exact-head rerun is 116/117 across the nine valid
-candidates: eight candidates pass 13/13, while Acne Specialisten exposed finding
-174 in Content List page-to-row routing. All nine record zero publication
-attempts. Strict legacy parity
-remains failed—not pending—because the pinned baseline cannot terminalize render
-inspection or complete the shared workflow, and the dynamic document pairs are
-not fingerprint-equivalent. P25 may be called a rewrite sanity PASS but not a
-legacy pair PASS. The unchanged acceptance budgets remain: equivalent-page
+finding 174. Exact rewrite source `01c2c091` passes 117/117 stages across the
+nine valid candidates, with every property at 13/13 and zero publication
+attempts. The fresh pinned-legacy batch is authentically red on every property;
+the strict pair matrix therefore remains failed—not pending—because the baseline
+cannot terminalize Render Inspection or complete the shared workflow, and the
+dynamic document pairs are not fingerprint-equivalent. P25 is a rewrite sanity
+PASS but not a legacy pair PASS. The unchanged acceptance budgets remain:
+equivalent-page
 marking/silent p95 no slower than 1.05× legacy, no unattributed extension-owned
 input Long Task over 50 ms, true bottom at least 99.5% with restore within 2 px,
 post-edit projection under one second, slow-action feedback under 100 ms, and no

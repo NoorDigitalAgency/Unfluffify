@@ -4,8 +4,8 @@
 
 Close every code-owned red cell exposed by the first uniform headed rewrite
 matrix, retain every intentional rewrite contract, and rerun the complete
-legacy/rewrite comparison from one clean pushed source commit. P25 remains open
-until no valid candidate has a code-owned failure.
+legacy/rewrite comparison from one clean pushed source commit. This plan is now
+complete: exact rewrite source `01c2c091` has no code-owned red candidate cell.
 
 Consent suppression remains correct extraction hygiene. Suppressed commerce,
 account, contact, assembly, country, cookie, modal, and similar blocking UI
@@ -248,7 +248,14 @@ The first clean exact-head rerun passed 116/117 stages. Acne Specialisten alone
 failed page-to-row correlation because a smaller retained marking rectangle with
 no row in the active Preview projection masked a larger routable rectangle at
 the same point. The remediation preserves retained marking paint but makes the
-active Preview projection the hit-test authority. The terminal run-plan steps
-are a focused Acne rerun followed by a fresh nine-candidate rewrite matrix,
-pinned-legacy comparison, final automated gates, report closure, and the
-publication-attempt audit. No final Lynx publication is authorized.
+active Preview projection the hit-test authority.
+
+The terminal run-plan is complete. Focused Acne run
+`2026-08-30T08-45-08-049Z-90b4ef41-rewrite-acne-specialisten` passes 13/13; the
+fresh exact-head nine-candidate rewrite batch passes 117/117; the fresh pinned
+legacy diagnostic batch is finalized for all nine properties; and the strict
+production comparison matrix is retained at
+`output/playwright/p25-live-comparison/comparisons/2026-08-30T09-28-27-284Z-matrix.json`.
+`pnpm verify`, `pnpm build:debug`, and the complete P25 composite all pass on
+`01c2c091`. The matrix records no missing eligible candidate and zero final Lynx
+publication attempts; no final publication was authorized or transmitted.

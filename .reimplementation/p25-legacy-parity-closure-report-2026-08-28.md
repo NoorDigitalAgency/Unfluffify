@@ -3,7 +3,7 @@
 ## Overall result
 
 **REWRITE SANITY PASS; STRICT LEGACY PARITY FAIL.** The P25 audit now records
-172 distinct legacy/rewrite, architecture, lifecycle, UX, performance, and
+174 distinct legacy/rewrite, architecture, lifecycle, UX, performance, and
 evidence-authority findings. The clean rewrite product source passes every
 headed stage on every valid candidate: 9 properties × 13 stages = 117/117. The
 strict pair matrix remains red because pinned legacy cannot terminalize Render
@@ -24,8 +24,9 @@ adversarial launcher/live-evidence finding, is
 
 - Pinned legacy: `28974c2a0c859c91a7167f4757cf84a47ea31e28`
 - Plan publication commit: `6db3433a4eaf5a424a389c42a4abdb91603beb05`
-- Rewrite product acceptance commit: `af59ce9d0dee8bfcb85d83fb312b86da8b887d76`
-- Latest evidence/harness checkpoint before this report: `b32b96e6`
+- Rewrite product/evidence source: `01c2c091e11244d05c48836b87d1e9fdbad1f263`
+- Exact resize-attribution checkpoint: `21d0e797`
+- Exact Content List ownership checkpoint: `01c2c091`
 - Browser: repository-managed Chromium started only through `pnpm browser:live`
 - Profile: the same `.wxt/browser-profile`, one implementation and browser
   process at a time
@@ -81,18 +82,17 @@ The rewrite now includes the following closure slices:
 
 ## Automated status
 
-The complete repository gate contains 142 test files / 1,504 tests. The final
-closeout rerun additionally protects two evidence-environment boundaries found
-after the live matrix: test build output is rejected when a legacy launcher left
-a non-package manifest version behind, and the marking entrypoint test waits for
-the real paint-acknowledged async toggle instead of sleeping for 25 ms.
+The exact closeout repository gate contains 143 test files / 1,509 tests. It
+includes the final projection-owned Content List hit-routing regression and the
+exact page-clock resize-attribution boundary, as well as the earlier build and
+paint-acknowledgement environment protections.
 
 | Gate | Result |
 | --- | --- |
 | ESLint | PASS |
 | Generated page-world parity | PASS |
 | WXT prepare + all TypeScript projects | PASS |
-| Vitest | PASS — 143 files, 1,508 tests after terminal input-tail hardening |
+| Vitest | PASS — 143 files, 1,509 tests |
 | Production WXT build | PASS |
 | Generated manifest permissions | PASS — 7 checks |
 | Debug WXT build | PASS |
@@ -111,7 +111,7 @@ integrated cleanup:
 | P18 transient/toast/physical marking | PASS — 14/14 checks |
 | P20 integrated recovery/copy | PASS — 4/4 checks |
 | P23 frozen presentation | PASS — 25/25 checks |
-| P25 composite | PASS — all seven ordered child artifacts retained |
+| P25 composite | PASS — all seven ordered child artifacts retained at `2026-08-30T09-41-21-699Z` |
 
 Reveal uses bounded extension-owned animation frames rather than Chromium's
 native smooth-scroll queue. The browser trace proves top, midpoint, lazy lock,
@@ -154,46 +154,74 @@ ordered thirteen-stage contract: preflight, two render modes, activation,
 marking visual, gestures, marking scroll, marking resize, workflow, silent
 visual, silent scroll, silent resize, and publication checklist.
 
-| Property | Stage signature | Sources / rects | Invalid visible paint | AI feedback / terminal | Worst Long Task |
+| Property | Stage signature | Sources / rects | Invalid visible paint | Current-run AI | Worst Long Task |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Ledigajobb | `PFFPFFFFFFFFF` | 36 / 34 | 3 | 462 ms / failed at 18,052 ms | 551 ms |
-| DPJ | `PFFPPFFFFFFFF` | 18 / 18 | 0 | 202 ms / failed at 12,688 ms | 294 ms |
-| Aleris | `PFFPPFPFFFFFF` | 11 / 13 | 0 | 210 ms / failed at 1,867 ms | 69 ms |
-| Acne Specialisten | `PFFPFFFFFFFFF` | 27 / 26 | 7 | 240 ms / failed at 2,285 ms | 123 ms |
-| Assist24 | `PFFPPFPFFFFFF` | 6 / 6 | 0 | 177 ms / failed at 1,817 ms | 0 ms |
-| Arno | `PFFPPFFFFFFFF` | 7 / 17 | 0 | 181 ms / failed at 2,330 ms | 77 ms |
-| ArkivIT | `PFFPFFFFFFFFF` | 12 / 12 | 2 | 184 ms / failed at 1,901 ms | 64 ms |
-| Teknikhallen | `PFFPFFFFFFFFF` | 29 / 29 | 5 | 250 ms / failed at 16,713 ms | 570 ms |
-| Humanova | `PFFPFFFFFFFFF` | 14 / 13 | 1 | 194 ms / failed at 2,003 ms | 115 ms |
+| Ledigajobb | `PFFPFFFFFFFFF` | 36 / 34 | 3 | Not run — baseline lifecycle non-terminal | 456 ms |
+| DPJ | `PFFPPFPFFFFFF` | 18 / 18 | 0 | Not run — baseline lifecycle non-terminal | 272 ms |
+| Aleris | `PFFPPFPFFFFFF` | 9 / 9 | 0 | Not run — baseline lifecycle non-terminal | 69 ms |
+| Acne Specialisten | `PFFPFFPFFFFFF` | 27 / 26 | 7 | Not run — baseline lifecycle non-terminal | 119 ms |
+| Assist24 | `PFFPPFPFFFFFF` | 11 / 11 | 0 | Not run — baseline lifecycle non-terminal | 0 ms |
+| Arno | `PFFPPFPFFFFFF` | 11 / 21 | 0 | Not run — baseline lifecycle non-terminal | 0 ms |
+| ArkivIT | `PFFPPFPFFFFFF` | 12 / 12 | 0 | Not run — baseline lifecycle non-terminal | 70 ms |
+| Teknikhallen | `PFFPFFPFFFFFF` | 30 / 30 | 5 | Not run — baseline lifecycle non-terminal | 386 ms |
+| Humanova | `PFFPFFPFFFFFF` | 13 / 12 | 1 | Not run — baseline lifecycle non-terminal | 84 ms |
 
-Every legacy AI envelope captured executable source and failed payload hygiene.
-The request can return successfully while the popup remains in or falls out of
-its working posture without a usable Content List; none proves fresh AI,
-bidirectional routing, current-page Save, Discard, or the rewrite silent-desktop
-posture. Publication guards remain healthy with zero attempts.
+The fresh baseline deliberately records AI as non-comparable rather than
+dispatching it after the confirmed non-terminal Render Inspection lifecycle.
+Earlier measured legacy diagnostics showed executable source in the AI envelope
+and no usable Content List; those historical payload findings remain in the
+audit but are not relabeled as fresh-current-run AI. No fresh legacy candidate
+proves bidirectional routing, current-page Save, Discard, or the rewrite's
+silent-desktop posture. Publication guards remain healthy with zero attempts.
 
 ## Rewrite headed result
 
 Every valid rewrite candidate passes all thirteen stages on clean pushed product
-source `af59ce9d`:
+source `01c2c091`:
 
 | Property | Stage signature | Sources / rects | Invalid visible paint | AI feedback / terminal | Worst Long Task |
 | --- | --- | ---: | ---: | ---: | ---: |
-| Ledigajobb | `PPPPPPPPPPPPP` | 25 / 25 | 0 | 25 ms / 181,859 ms | 50 ms |
-| DPJ | `PPPPPPPPPPPPP` | 33 / 34 | 0 | 27 ms / 12,470 ms | 63 ms |
-| Aleris | `PPPPPPPPPPPPP` | 15 / 15 | 0 | 15 ms / 1,227 ms | 0 ms |
-| Acne Specialisten | `PPPPPPPPPPPPP` | 15 / 15 | 0 | 16 ms / 6,583 ms | 0 ms |
-| Assist24 | `PPPPPPPPPPPPP` | 12 / 12 | 0 | 20 ms / 1,070 ms | 0 ms |
-| Arno | `PPPPPPPPPPPPP` | 12 / 25 | 0 | 20 ms / 1,161 ms | 0 ms |
-| ArkivIT | `PPPPPPPPPPPPP` | 6 / 6 | 0 | 20 ms / 1,051 ms | 0 ms |
-| Teknikhallen | `PPPPPPPPPPPPP` | 20 / 20 | 0 | 25 ms / 8,638 ms | 0 ms |
-| Humanova | `PPPPPPPPPPPPP` | 19 / 19 | 0 | 19 ms / 6,455 ms | 0 ms |
+| Ledigajobb | `PPPPPPPPPPPPP` | 13 / 13 | 0 | 29 ms / 123,640 ms | 0 ms |
+| DPJ | `PPPPPPPPPPPPP` | 19 / 19 | 0 | 28 ms / 12,460 ms | 0 ms |
+| Aleris | `PPPPPPPPPPPPP` | 9 / 9 | 0 | 21 ms / 1,268 ms | 0 ms |
+| Acne Specialisten | `PPPPPPPPPPPPP` | 17 / 17 | 0 | 29 ms / 6,913 ms | 0 ms |
+| Assist24 | `PPPPPPPPPPPPP` | 12 / 12 | 0 | 26 ms / 1,144 ms | 0 ms |
+| Arno | `PPPPPPPPPPPPP` | 9 / 22 | 0 | 17 ms / 1,236 ms | 0 ms |
+| ArkivIT | `PPPPPPPPPPPPP` | 13 / 13 | 0 | 16 ms / 1,350 ms | 0 ms |
+| Teknikhallen | `PPPPPPPPPPPPP` | 27 / 27 | 0 | 27 ms / 8,817 ms | 0 ms |
+| Humanova | `PPPPPPPPPPPPP` | 14 / 14 | 0 | 16 ms / 6,900 ms | 0 ms |
 
-Ledigajobb's long AI terminal is an authority/backend wait with immediate 25 ms
-feedback, not a frozen popup. DPJ's isolated 63 ms sample is retained in the
-artifact; the stage passes the source-attribution contract. Because every pair's
+Ledigajobb's long AI terminal is an authority/backend wait with immediate 29 ms
+feedback, not a frozen popup. Every exact-head rewrite frame stage records zero
+JavaScript Long Tasks; the post-action collector-tail attribution fixed by
+finding 173 is not counted as input work. Because every pair's
 dynamic document fingerprint differs, source/rect counts and terminal latency
 are descriptive only and are not promoted to strict parity claims.
+
+## Performance, accuracy, and similarity disposition
+
+- **Performance:** all nine exact-head rewrite runs have zero JavaScript Long
+  Tasks in every retained activation, marking, scroll, resize, and silent frame
+  stage. Trusted Run AI feedback paints in 16–29 ms. The fresh legacy runs range
+  from 0 to 456 ms worst Long Task and do not establish the required silent
+  posture. Strict `p95 <= 1.05x` pair claims remain N/A because every dynamic
+  document fingerprint is non-equivalent; the matrix correctly fails rather
+  than comparing unrelated frames.
+- **Accuracy:** rewrite marking visual evidence has zero invisible, covered, or
+  unresolved painted sources on all nine pages. Plain unmark, Shift expansion,
+  Alt inclusion, context actions, Content List auto-open and both routes, fresh
+  AI, one current-page Save, authoritative adoption, Discard, and payload
+  hygiene pass on every candidate. The fresh legacy baseline paints invalid
+  sources on Ledigajobb, Acne Specialisten, Teknikhallen, and Humanova and never
+  completes the shared workflow.
+- **Similarity:** the shared 1/2/3 px border catalog, 4 px radius, overlay layer
+  semantics, hover/focus behavior, reveal order, lazy suppression, and scroll
+  fade/restore intent are retained. Exact count, border, and layer parity are
+  not asserted across different document generations. Intentional rewrite
+  improvements remain: Shift-only exclusion creation, Alt inclusion, semantic
+  keyboard rows, 412x960 marking, 1920x1080 silent shield, hidden-decision/no-
+  invisible-paint separation, clean payloads, one-page Save, and atomic
+  publication fencing.
 
 ## Contract matrix
 
@@ -202,16 +230,16 @@ are descriptive only and are not promoted to strict parity claims.
 | Render type | Rewrite PASS / legacy FAIL | Exact document/generation, two-frame/fallback lifecycle | Rewrite 18/18 cells; legacy inspection non-terminal |
 | Reveal/freeze | Rewrite PASS | Transaction, owner, bottom/restore, quiet-proof gates | All rewrite activations terminal; legacy does not prove true bottom |
 | Lazy loading | Rewrite PASS | Suppression/ledger/no-scroll/open-shadow regressions | Clean rewrite capture and payload on all nine |
-| Highlight visibility | Rewrite PASS / legacy FAIL | Composed visibility and reachability regressions | Rewrite zero invalid paint; legacy invalid paint on five pages |
+| Highlight visibility | Rewrite PASS / legacy FAIL | Composed visibility and reachability regressions | Rewrite zero invalid paint; fresh legacy invalid paint on four pages |
 | Layers/borders/cardinality | Rewrite PASS | Exact catalogs and geometry tests | All rewrite visual cells pass; strict count parity N/A on document drift |
 | Latency/performance | Rewrite PASS / strict parity N/A | Real Long Tasks and physical-input budgets | Rewrite faster in most comparable slices; no exact document pair |
-| Scroll fade/restore | Rewrite PASS / legacy mixed | Marking and silent interim/final frame gates | Rewrite 36/36 viewport cells; legacy marking scroll passes only Aleris/Assist24 |
+| Scroll fade/restore | Rewrite PASS / legacy mixed | Marking and silent interim/final frame gates | Rewrite marking and silent stages pass all nine; legacy marking scroll passes 8/9 but silent restoration passes 0/9 |
 | Marking targets | Rewrite PASS / legacy FAIL | Shared corpus and O(hit) scaling | Rewrite plain/Shift/Alt/context on all nine; legacy completes none |
 | Content List | Rewrite PASS / legacy FAIL | Virtualization, accessibility, two-way routing | Rewrite auto-open and both routes on all nine |
-| AI/spinners | Rewrite PASS / legacy FAIL | Exact ACK, phase, feedback, cleanup tests | Rewrite 15–27 ms feedback; legacy 177–462 ms and no usable list |
+| AI/spinners | Rewrite PASS / legacy non-comparable | Exact ACK, phase, feedback, cleanup tests | Rewrite 16–29 ms feedback; fresh legacy AI is explicitly not run after its non-terminal baseline lifecycle |
 | Freshness | Rewrite PASS | Brain signal generation and no remote wait | Physical post-edit projection below one second on all nine |
 | Save/Discard | Rewrite PASS | One mutation, no retry, posture recovery | One current-page Save, adoption, and Discard on all nine |
-| Consent/capture/payload | PASS | Recursive sanitation and clone restoration | Intentional suppression retained; rewrite payloads clean, legacy source-bearing |
+| Consent/capture/payload | PASS | Recursive sanitation and clone restoration | Intentional suppression retained; rewrite payloads clean; historical legacy source-bearing, fresh legacy AI N/A |
 | Silent shield/posture | Rewrite PASS / legacy FAIL | 1920x1080, nested wheel/touch, top-layer tests | Rewrite visual/scroll/resize on all nine; legacy establishes none |
 | Publication | PASS | Atomic idempotency and coverage fence | Complete matrix records zero `/publish` attempts |
 
@@ -229,25 +257,29 @@ is promoted.
 
 ## Retained evidence anchors
 
-- `output/playwright/p25-live-comparison/runs/2026-08-30T03-13-23-075Z-be2911a9-rewrite-ledigajobb/aggregate.json`
-- `output/playwright/p25-live-comparison/runs/2026-08-30T03-19-31-164Z-085206ee-rewrite-dpj/aggregate.json`
-- `output/playwright/p25-live-comparison/runs/2026-08-30T03-21-09-596Z-e50e858a-rewrite-aleris/aggregate.json`
-- `output/playwright/p25-live-comparison/runs/2026-08-30T03-22-06-257Z-beafbbb7-rewrite-acne-specialisten/aggregate.json`
-- `output/playwright/p25-live-comparison/runs/2026-08-30T03-23-17-905Z-cab44b10-rewrite-assist24/aggregate.json`
-- `output/playwright/p25-live-comparison/runs/2026-08-30T03-24-19-570Z-49da06ae-rewrite-arno/aggregate.json`
-- `output/playwright/p25-live-comparison/runs/2026-08-30T03-25-16-355Z-29745fec-rewrite-arkivit/aggregate.json`
-- `output/playwright/p25-live-comparison/runs/2026-08-30T03-26-15-598Z-b7d47cc1-rewrite-teknikhallen/aggregate.json`
-- `output/playwright/p25-live-comparison/runs/2026-08-30T03-28-41-077Z-528566a1-rewrite-humanova/aggregate.json`
-- `output/playwright/p25-live-comparison/runs/2026-08-30T04-00-11-121Z-783fccb3-legacy-ledigajobb/aggregate.json`
-- `output/playwright/p25-live-comparison/runs/2026-08-30T04-02-36-602Z-df3a3f0c-legacy-dpj/aggregate.json`
-- `output/playwright/p25-live-comparison/runs/2026-08-30T04-04-14-888Z-f07758f7-legacy-aleris/aggregate.json`
-- `output/playwright/p25-live-comparison/runs/2026-08-30T04-05-25-686Z-b29a827e-legacy-acne-specialisten/aggregate.json`
-- `output/playwright/p25-live-comparison/runs/2026-08-30T04-06-24-175Z-8f41c3d8-legacy-assist24/aggregate.json`
-- `output/playwright/p25-live-comparison/runs/2026-08-30T04-07-45-351Z-de29be90-legacy-arno/aggregate.json`
-- `output/playwright/p25-live-comparison/runs/2026-08-30T04-08-37-578Z-446f54fd-legacy-arkivit/aggregate.json`
-- `output/playwright/p25-live-comparison/runs/2026-08-30T04-09-32-856Z-e31b9ebc-legacy-teknikhallen/aggregate.json`
-- `output/playwright/p25-live-comparison/runs/2026-08-30T04-11-18-785Z-13fd40e2-legacy-humanova/aggregate.json`
-- `output/playwright/p25-live-comparison/comparisons/2026-08-30T04-15-26-672Z-matrix.json`
+- Rewrite: `2026-08-30T08-47-19-943Z-a119b9cb-rewrite-ledigajobb`
+- Rewrite: `2026-08-30T08-52-56-638Z-c014883e-rewrite-dpj`
+- Rewrite: `2026-08-30T08-55-01-431Z-68b69a2e-rewrite-aleris`
+- Rewrite: `2026-08-30T08-56-22-812Z-c8e59352-rewrite-acne-specialisten`
+- Rewrite: `2026-08-30T08-58-04-291Z-7d5964e4-rewrite-assist24`
+- Rewrite: `2026-08-30T08-59-28-742Z-93ab739a-rewrite-arno`
+- Rewrite: `2026-08-30T09-00-51-570Z-27bcb1f9-rewrite-arkivit`
+- Rewrite: `2026-08-30T09-02-16-740Z-a8107a2a-rewrite-teknikhallen`
+- Rewrite: `2026-08-30T09-05-05-674Z-ca674688-rewrite-humanova`
+- Focused Acne proof: `2026-08-30T08-45-08-049Z-90b4ef41-rewrite-acne-specialisten`
+- Legacy: `2026-08-30T09-14-49-403Z-048af3cd-legacy-ledigajobb`
+- Legacy: `2026-08-30T09-17-00-931Z-7a18cb29-legacy-dpj`
+- Legacy: `2026-08-30T09-18-34-742Z-9978d99d-legacy-aleris`
+- Legacy: `2026-08-30T09-19-40-422Z-47a37c1f-legacy-acne-specialisten`
+- Legacy: `2026-08-30T09-20-51-498Z-931c9c59-legacy-assist24`
+- Legacy: `2026-08-30T09-22-00-744Z-c19adc89-legacy-arno`
+- Legacy: `2026-08-30T09-23-02-054Z-f9a83a2d-legacy-arkivit`
+- Legacy: `2026-08-30T09-24-10-439Z-d1b5b080-legacy-teknikhallen`
+- Legacy: `2026-08-30T09-25-48-988Z-423d356d-legacy-humanova`
+- Strict matrix:
+  `output/playwright/p25-live-comparison/comparisons/2026-08-30T09-28-27-284Z-matrix.json`
+- Final automated composite:
+  `.temp/p25-final-evidence-01c2c091/p25-parity/acceptance-2026-08-30T09-41-21-699Z.json`
 - `.temp/p25-side-by-side/results/stages/legacy-ledigajobb-clean-activation.json`
 - `.temp/p25-side-by-side/results/stages/legacy-ledigajobb-clean-reveal-observe.json`
 - `.temp/p25-side-by-side/results/stages/rewrite-ledigajobb-p25-unbiased2-core.json`

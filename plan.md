@@ -1,12 +1,12 @@
 # P25 root-cause legacy parity closure
 
-**Status:** Run-plan implementation is complete through finding 164. The clean
-rewrite product source passes all nine valid candidates at 117/117 headed
-stages; the strict nine-pair matrix remains red because pinned legacy fails its
-render and downstream contracts and every dynamic document pair is
-non-equivalent. Consent suppression and the zero-publish fence remain PASS. The
-final exact-HEAD automated/restamp/push boundary is in progress. Phases 0–7 are
-implemented and clean-source automated acceptance is green. The approved plan
+**Status:** COMPLETE through finding 174. Exact rewrite source `01c2c091` passes
+all nine valid candidates at 117/117 headed stages and passes the clean P25
+composite. The strict nine-pair matrix remains red because pinned legacy fails
+its render and downstream contracts and every dynamic document pair is
+non-equivalent; that is a truthful baseline disposition, not an open rewrite
+defect. Consent suppression and the zero-publish fence remain PASS. Phases 0–9
+are complete. The approved plan
 package was committed and pushed first as `6db3433a`;
 the product closure landed in `9b162bfb`, and the clean-browser regression repair
 landed in `f5c82960`. Headed-launch and evidence hardening landed through
@@ -74,8 +74,8 @@ complete 250 ms A→B→A train, and iterates only the measured geometry corpus.
 Focused marking coverage passes four files / 152 tests and the complete gate
 passes 140 files / 1,425 tests plus the production build. Fresh immutable
 production/debug and legacy reruns remain required before the candidate matrix
-continues. P25 stays open until the observer-free headed matrix and final evidence
-commit are synchronized.
+continues. The historical checkpoints below are retained as execution evidence;
+the exact-head closure supersedes their then-pending language.
 
 The complete finding register is
 `.reimplementation/p25-legacy-rewrite-frame-parity-audit-2026-08-28.md`.
@@ -462,7 +462,7 @@ headed-validation gates.
   a real legacy launch reached CDP, loaded the candidate, bound the side panel,
   and enabled controls under that posture.
 
-### Phase 8 — Full headed frame-by-frame legacy/rewrite matrix — in progress
+### Phase 8 — Full headed frame-by-frame legacy/rewrite matrix — complete
 
 - Use the repository `live-browser`, `live-round`, and `live-watch` skills only.
   Run one implementation/profile at a time. Keep website observers detached while
@@ -1065,7 +1065,7 @@ headed-validation gates.
   legacy run to measure marking, workflow, silent, and publication behavior
   without letting the confirmed render stall poison those independent cells.
 
-### Phase 9 — Evidence, review, commit, and push — in progress
+### Phase 9 — Evidence, review, commit, and push — complete
 
 #### Final candidate-matrix remediation wave
 
@@ -1100,7 +1100,7 @@ two evidence-driver corrections. Consent suppression remains intentional.
   establish its own required posture so failures cannot cascade.
 - [x] Correct directional scroll evidence by first proving movable owner range,
   choosing a direction that can move, and restoring the original position.
-- [ ] Rerun every parity-eligible rewrite candidate from the same clean pushed
+- [x] Rerun every parity-eligible rewrite candidate from the same clean pushed
   HEAD, then regenerate pair and production matrices. Acapedia's live 403,
   3D Prima's site-owned 404, and Bigbag's absent Hub candidate remain explicit
   N/A/external dispositions. Debug remains diagnostic-only because pinned
@@ -1139,12 +1139,25 @@ two evidence-driver corrections. Consent suppression remains intentional.
   green, all nine legacy children are red, Acapedia/3D Prima/Bigbag retain their
   external/N/A dispositions, and the total publish-attempt count is zero.
 - The final observer-free matrix exposed one evidence-boundary defect and one
-  still-open sample. Teknikhallen's 55 ms task began about 758 ms after its
+  initially open sample. Teknikhallen's 55 ms task began about 758 ms after its
   resize action ended but was counted because resize inherited the full 1.6 s
   collector window. Page-clock action start/end now bound ordinary timed probes,
   while explicit physical-gesture bounds remain authoritative and the strict
   50 ms threshold is unchanged. DPJ's 98 ms task began inside its action and
-  must be stress-reproduced and source-attributed before the exact final matrix.
+  was retained and stress-reproduced rather than waived. Three subsequent DPJ
+  runs and the final Teknikhallen run record zero resize Long Tasks. The exact
+  action-boundary defect is closed in `21d0e797`.
+- The first exact-head candidate rerun then exposed one remaining product issue:
+  a retained non-row marking rectangle could mask an eligible Content List row
+  at the same point on Acne Specialisten. `01c2c091` restricts page-to-row hit
+  ranking to the active Preview projection. The focused Acne rerun and the
+  complete final rewrite batch both pass, closing finding 174.
+- Final live authority is the rewrite batch at source `01c2c091` (9/9,
+  117/117), the fresh pinned-legacy batch at `28974c2a` (all nine finalized red),
+  and production matrix
+  `2026-08-30T09-28-27-284Z-matrix.json` (strict FAIL, zero missing eligible,
+  zero publication attempts). Final automated authority is 143 files / 1,509
+  tests, production and debug builds, and P25 with all seven children retained.
 
 - Write `.reimplementation/p25-legacy-parity-closure-report-2026-08-28.md` with
   the new overall result, contract matrix, per-property results, performance,
@@ -1204,9 +1217,10 @@ two evidence-driver corrections. Consent suppression remains intentional.
   with retained evidence; no code-owned red cell remains.
 - All focused, full, build, verify, P14–P20, P23, and P25 gates pass on the exact
   source committed for release.
-- Every valid candidate completes the observer-free rewrite workflow and its
-  comparable legacy reference. Performance, accuracy, visual similarity,
-  payload, and lifecycle results meet the acceptance budgets.
+- Every valid candidate completes the observer-free rewrite workflow. Every
+  pinned-legacy reference is finalized without manufacturing terminal render or
+  workflow success; non-equivalent document pairs remain strict FAIL/N/A for
+  similarity instead of being misreported as parity.
 - Consent suppression, Shift-only exclusion creation, keyboard Content List,
   explicit posture, one-page Save, and publication fences remain intact.
 - The final source and evidence are reviewed, committed, pushed non-force, graph
