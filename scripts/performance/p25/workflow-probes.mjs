@@ -716,6 +716,13 @@ export function readableTextsCorrespond(left, right) {
   // of length; the longer substring/token heuristics below are only needed for
   // labels whose row copy contains additional surrounding text.
   if (a === b) return true;
+  // Raw DOM textContent can concatenate adjacent inline/link nodes while the
+  // production Content List restores word boundaries. Exact long identity
+  // after removing whitespace is still conclusive and avoids weakening the
+  // substring/token thresholds used for genuinely different labels.
+  const aCompact = a.replaceAll(" ", "");
+  const bCompact = b.replaceAll(" ", "");
+  if (Math.min(aCompact.length, bCompact.length) >= 8 && aCompact === bCompact) return true;
   if (Math.min(a.length, b.length) >= 8 && (a.includes(b) || b.includes(a))) return true;
   const aAllTokens = a.split(" ").filter(Boolean);
   const bAllTokens = b.split(" ").filter(Boolean);
