@@ -23,6 +23,8 @@
   `review-push`; invoke the `run-plan` skill directly
   when it is exposed in the environment,
   `make-plan` for precise implementation handoffs,
+  `expert-check` for strict, evidence-backed end-to-end product quality audits
+  and release-readiness reports without implicit remediation,
   `safe-change` before non-trivial source edits,
   `live-round` for stable pnpm dev + pnpm browser:live rounds with
   launcher/popup control verification and stuck-state recovery,
