@@ -531,7 +531,7 @@ export async function physicalActivatePreviewPageTarget(session) {
     const focusedXpaths = new Set([...document.querySelectorAll('[data-uf-overlay-focus]')].map((element) => element.getAttribute('data-uf-overlay-focus')).filter(Boolean));
     const focusedMarkIds = new Set([...document.querySelectorAll('[data-layer="focus"] [data-mc-mark-id]')].map((element) => element.getAttribute('data-mc-mark-id')).filter(Boolean));
     for (const source of document.querySelectorAll('[data-uf-ai-preview-clickable="on"]')) {
-      if (!source.classList.contains('uf-ai-preview-focus-target')) candidates.push({ geometry: source, source, identity: source.getAttribute('title') || source.tagName, sourceKind: 'legacy-source' });
+      if (!source.classList.contains('uf-ai-preview-focus-target')) candidates.push({ geometry: source, source, identity: source.getAttribute('title') || source.tagName, sourceKind: 'legacy-source', semanticEvidence: true });
     }
     for (const overlay of document.querySelectorAll('[data-uf-overlay-xpath], [data-uf-silent-highlight], [data-mc-mark-id]')) {
       const xpath = overlay.getAttribute('data-uf-overlay-xpath') || overlay.getAttribute('data-uf-silent-highlight');
@@ -548,8 +548,17 @@ export async function physicalActivatePreviewPageTarget(session) {
         // Content List row is the nearest semantic owner. Prefer that owner's
         // readable label before falling back to a tag name so page-to-row
         // correlation proves the route that a user can actually recognize.
-        const readableText = describe(underlay.exact) || describe(underlay.source || resolved) || xpathTerminalTag(xpath);
-        candidates.push({ geometry: overlay, source: underlay.source || resolved, readableText, underlayDepth: underlay.depth, identity, sourceKind: resolved instanceof Element ? 'resolved-overlay' : 'visible-overlay-underlay' });
+        const exactReadableText = describe(underlay.exact);
+        const resolvedReadableText = resolved instanceof Element ? describe(resolved) : '';
+        const readableText = exactReadableText || describe(underlay.source || resolved) || xpathTerminalTag(xpath);
+        // A parent returned later by elementsFromPoint() can contain readable
+        // text owned by a sibling rather than by the clicked control. Treating
+        // that text as the leaf's name creates a false page-to-row mismatch
+        // (for example an unlabeled menu SVG beside a "Logga in" link). Only
+        // accept text owned by the exact underlay or by the still-resolved
+        // canonical target as correspondence evidence.
+        const semanticEvidence = Boolean(exactReadableText || resolvedReadableText);
+        candidates.push({ geometry: overlay, source: underlay.source || resolved, readableText, semanticEvidence, underlayDepth: underlay.depth, identity, sourceKind: resolved instanceof Element ? 'resolved-overlay' : 'visible-overlay-underlay' });
       }
     }
     const visibleCandidates = candidates.map((candidate) => {
@@ -566,8 +575,9 @@ export async function physicalActivatePreviewPageTarget(session) {
       const sourceArea = sourceRect ? Math.max(1, sourceRect.width * sourceRect.height) : geometryArea;
       return { ...candidate, readableText, geometryArea, sourceArea };
     }).filter(Boolean);
-    const candidate = visibleCandidates.find(({ readableText, underlayDepth = 0, sourceArea, geometryArea }) =>
-      readableText.length <= 160 && underlayDepth <= 1 && sourceArea <= geometryArea * 16) || visibleCandidates[0];
+    const candidate = visibleCandidates.find(({ readableText, semanticEvidence, underlayDepth = 0, sourceArea, geometryArea }) =>
+      semanticEvidence && readableText.length <= 160 && underlayDepth <= 1 && sourceArea <= geometryArea * 16) ||
+      visibleCandidates.find(({ semanticEvidence }) => semanticEvidence);
     if (!candidate) return null;
     const { geometry, identity, sourceKind, readableText } = candidate;
     const rect = geometry.getBoundingClientRect();

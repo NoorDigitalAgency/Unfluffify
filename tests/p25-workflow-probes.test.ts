@@ -337,6 +337,8 @@ describe("P25 physical popup activation", () => {
     expect(expression).toContain("document.elementsFromPoint");
     expect(expression).toContain("geometry: overlay");
     expect(expression).toContain("visible-overlay-underlay");
+    expect(expression).toContain("const semanticEvidence = Boolean(exactReadableText || resolvedReadableText)");
+    expect(expression).toContain("semanticEvidence && readableText.length <= 160");
     expect(expression.indexOf("describe(underlay.source || resolved)")).toBeLessThan(
       expression.indexOf("xpathTerminalTag(xpath)"),
     );
