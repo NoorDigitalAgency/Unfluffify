@@ -2787,6 +2787,13 @@ export function createMarkingEngine(
           return { projectionId: projection.projectionId, rowId };
         }
       }
+      const paintedXpath = renderer.previewXpathAtPoint(x, y);
+      const paintedRow = paintedXpath
+        ? projection.rows.find((row) => row.xpath === paintedXpath)
+        : undefined;
+      if (paintedRow) {
+        return { projectionId: projection.projectionId, rowId: paintedRow.id };
+      }
       return null;
     },
     emphasizeXpath(xpath: string): boolean {

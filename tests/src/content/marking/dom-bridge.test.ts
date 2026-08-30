@@ -1018,6 +1018,37 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
+  it("routes a replaced visible element through its retained silent rectangle", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const original = new FakeElement("P", rect(0, 0, 120, 20), "Content");
+    root.ownerDocument = doc;
+    original.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(original);
+    doc.hits = [original, root];
+
+    const engine = createMarkingEngine(root as unknown as Element);
+    const projection = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: ["p"],
+      exclusionSelectors: [],
+    });
+    engine.renderSilentHighlights();
+    const row = projection.rows.find((candidate) => candidate.xpath === "/main[1]/p[1]");
+    const replacement = new FakeElement("P", rect(0, 0, 120, 20), "Content");
+    replacement.ownerDocument = doc;
+    original.remove();
+    root.appendChild(replacement);
+    doc.hits = [replacement, root];
+
+    expect(engine.previewRowAtPoint(10, 10)).toEqual({
+      projectionId: projection.projectionId,
+      rowId: row?.id,
+    });
+    engine.dispose();
+  });
+
   it("scrolls before focus paint and refreshes that exact Preview target on captured frames", () => {
     const doc = new FakeDocument();
     const animationFrames: Array<() => void> = [];

@@ -33,11 +33,12 @@ type ClassificationBox = {
   paintOrder: number;
 };
 
-type SilentBox = Readonly<{
+type SilentBox = {
   overlay: HTMLElement;
   xpath: string;
   presentation: string;
-}>;
+  rect: RectLike;
+};
 
 type PaintedOwnerFragment = Readonly<{
   xpath: string;
@@ -880,7 +881,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
           overlay.setAttribute("data-uf-silent-highlight", xpath);
           overlay.setAttribute("data-uf-overlay-rect", String(index));
           overlay.className = `uf-silent-rect ${presentation}`;
-          record = { overlay, xpath, presentation };
+          record = { overlay, xpath, presentation, rect: rects[index]! };
           silentBoxes.set(key, record);
           layer.appendChild(overlay);
         }
@@ -891,7 +892,8 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
           record.overlay.removeAttribute?.("data-uf-silent-copy");
           record.overlay.removeAttribute?.("title");
         }
-        placeOverlay(record.overlay, rects[index]!);
+        record.rect = rects[index]!;
+        placeOverlay(record.overlay, record.rect);
         used.add(key);
       }
     };
@@ -1050,6 +1052,37 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         ...classificationByXpath.keys(),
         ...silentPresentationByXpath.keys(),
       ]);
+    },
+    previewXpathAtPoint(x: number, y: number): string | null {
+      if (scrolling) {
+        return null;
+      }
+      let winner: SilentBox | null = null;
+      let winnerRank = -1;
+      // Silent boxes are keyed and identity-stable. Their retained geometry is
+      // therefore stronger page-to-row authority than a page Element identity:
+      // reactive sites can replace a visible node after projection without
+      // changing the row or the rectangle the operator actually clicked.
+      for (const record of silentBoxes.values()) {
+        if (
+          record.overlay.style.visibility === "hidden"
+          || !pointInRect(record.rect, x, y)
+        ) {
+          continue;
+        }
+        const rank = record.presentation.includes("uf-silent-excluded")
+          ? 2
+          : record.presentation.includes("uf-silent-content")
+            ? 1
+            : 0;
+        // Later siblings paint above earlier siblings inside one layer; the
+        // excluded/content/immutable ranks mirror their layer order.
+        if (rank >= winnerRank) {
+          winner = record;
+          winnerRank = rank;
+        }
+      }
+      return winner?.xpath ?? null;
     },
     render(
       evaluation: EvaluationResult,
