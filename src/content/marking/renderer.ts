@@ -1085,7 +1085,11 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         ...silentPresentationByXpath.keys(),
       ]);
     },
-    previewXpathAtPoint(x: number, y: number): string | null {
+    previewXpathAtPoint(
+      x: number,
+      y: number,
+      eligibleXpaths: ReadonlySet<string>,
+    ): string | null {
       if (scrolling) {
         return null;
       }
@@ -1102,6 +1106,12 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         visible: boolean,
         paintOrder: number,
       ): void => {
+        // Marking mode can retain paint for structural/default decisions that
+        // are intentionally absent from the active Content List projection.
+        // Those rectangles must not mask a larger projected row underneath.
+        if (!eligibleXpaths.has(xpath)) {
+          return;
+        }
         visitOrder += 1;
         if (!visible || !pointInRect(rect, x, y)) {
           return;

@@ -1145,7 +1145,7 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
-  it("routes preview clicks through the smallest retained classification rectangle", () => {
+  it("ranks only projection-owned retained rectangles for Preview clicks", () => {
     const doc = new FakeDocument();
     const header = new FakeElement("HEADER", rect(0, 0, 300, 100), "Header navigation");
     const logo = new FakeElement("IMG", rect(16, 50, 139, 25));
@@ -1171,7 +1171,16 @@ describe("P6 DOM bridge", () => {
       [logoXpath, { element: logo as unknown as Element, visible: true }],
     ]));
 
-    expect(renderer.previewXpathAtPoint(85.5, 66)).toBe(logoXpath);
+    expect(renderer.previewXpathAtPoint(
+      85.5,
+      66,
+      new Set([headerXpath, logoXpath]),
+    )).toBe(logoXpath);
+    expect(renderer.previewXpathAtPoint(
+      85.5,
+      66,
+      new Set([headerXpath]),
+    )).toBe(headerXpath);
     renderer.dispose();
   });
 

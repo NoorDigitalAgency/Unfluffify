@@ -1612,7 +1612,7 @@ preserves the stronger architecture.
     raw touch packets. The isolated headed rerun passes 36/36: the nested owner
     moves 290 px while the document remains 900 px, with the prior wheel and
     locked-baseline states retained in the artifact.
-173. **Open evidence P0 — resize Long Tasks were attributed through the entire
+173. **Closed evidence P0 — resize Long Tasks were attributed through the entire
     settled frame-collector tail instead of the timed resize action.** The final
     Teknikhallen rewrite sample recorded a 55 ms task 1,020 ms after collection
     began, although the complete resize/apply/snapshot/restore action ended after
@@ -1620,9 +1620,25 @@ preserves the stronger architecture.
     is not resize-input work. The collector now records page-clock action start
     and end, gives an explicit physical-gesture window precedence, and otherwise
     filters Long Tasks to the exact `during` action. The 50 ms budget is unchanged:
-    DPJ's independent 98 ms task began 164 ms into its 382 ms resize action and
-    remains blocking until observer-free headed stress either reproduces and
-    attributes a product cause or proves the sample transient.
+    DPJ's independent 98 ms task began 164 ms into its 382 ms resize action, so
+    it was retained for observer-free reproduction rather than waived. Three
+    subsequent exact-action DPJ runs and the final Teknikhallen run all recorded
+    zero resize Long Tasks; DPJ completed 13/13 three times and Teknikhallen
+    completed 13/13. The isolated product sample is therefore non-reproducible,
+    while the demonstrable collector-tail false attribution is permanently
+    excluded by exact page-clock action bounds.
+174. **Remediated rewrite P0; exact-head live proof pending — a marking-only
+    rectangle could mask Content List page-to-row routing.** The exact final Acne
+    Specialisten batch completed every stage except workflow-summary. Its trusted
+    page click landed on a retained header-image rectangle after the reactive
+    header reused that XPath for different content, but the rectangle did not
+    own a row in the active 96-row Preview projection. `previewXpathAtPoint`
+    ranked all marking rectangles, so the smaller non-row rectangle won and hid
+    the larger routable projected rectangle beneath it. Renderer hit testing now
+    receives the active projection's XPath authority and ranks only eligible
+    rectangles, retaining the same area/depth/layer/paint-order rules and live
+    Element fallback. A regression proves that the leaf wins when eligible and
+    the projected owner wins when the leaf is absent from the projection.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1695,9 +1711,10 @@ preserves the stronger architecture.
 ## Acceptance headline
 
 Implementation remediation and evidence disposition are complete through
-finding 172. The rewrite's observer-free headed result is 117/117 across every
-valid candidate, with zero invalid overlay paint, clean payloads, complete
-workflow transitions, and zero publication attempts. Strict legacy parity
+finding 173. The first exact-head rerun is 116/117 across the nine valid
+candidates: eight candidates pass 13/13, while Acne Specialisten exposed finding
+174 in Content List page-to-row routing. All nine record zero publication
+attempts. Strict legacy parity
 remains failed—not pending—because the pinned baseline cannot terminalize render
 inspection or complete the shared workflow, and the dynamic document pairs are
 not fingerprint-equivalent. P25 may be called a rewrite sanity PASS but not a

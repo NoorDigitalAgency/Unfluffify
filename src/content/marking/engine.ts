@@ -3262,10 +3262,9 @@ type DeferredBranchRenderChunk = Readonly<{
       // painted leaf while retaining its broad footer/header owner; consult the
       // renderer's canonical retained XPath before that ancestor can steal the
       // route through the live Element bridge.
-      const paintedXpath = renderer.previewXpathAtPoint(x, y);
-      const paintedRow = paintedXpath
-        ? projection.rows.find((row) => row.xpath === paintedXpath)
-        : undefined;
+      const projectedRowsByXpath = new Map(projection.rows.map((row) => [row.xpath, row]));
+      const paintedXpath = renderer.previewXpathAtPoint(x, y, new Set(projectedRowsByXpath.keys()));
+      const paintedRow = paintedXpath ? projectedRowsByXpath.get(paintedXpath) : undefined;
       if (paintedRow) {
         return { projectionId: projection.projectionId, rowId: paintedRow.id };
       }

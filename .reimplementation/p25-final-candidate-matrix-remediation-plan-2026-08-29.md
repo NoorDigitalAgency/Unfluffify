@@ -241,3 +241,14 @@ exact pushed-head live matrix remain the terminal evidence steps.
 - Semantic keyboard Content List rows and two-way routing remain required.
 - Save remains exactly one current-page-only request with authoritative
   adoption; final Lynx publication remains fenced.
+
+### Exact-head rerun addendum — Content List ownership
+
+The first clean exact-head rerun passed 116/117 stages. Acne Specialisten alone
+failed page-to-row correlation because a smaller retained marking rectangle with
+no row in the active Preview projection masked a larger routable rectangle at
+the same point. The remediation preserves retained marking paint but makes the
+active Preview projection the hit-test authority. The terminal run-plan steps
+are a focused Acne rerun followed by a fresh nine-candidate rewrite matrix,
+pinned-legacy comparison, final automated gates, report closure, and the
+publication-attempt audit. No final Lynx publication is authorized.
