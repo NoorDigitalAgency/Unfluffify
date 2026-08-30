@@ -16,6 +16,8 @@ import {
   captureFlattenedHtml,
   createDomBridgePresentationRefreshCursor,
   createDomBridgeView,
+  createDomBridgeViewCursor,
+  type DomBridgeBuildCursor,
   type DomBridgeOptions,
   type DomBridgePresentationRefresh,
   type DomBridgeView,
@@ -247,7 +249,9 @@ function boundedPreviewText(value: string): string {
  * Subtree text is capped because row labels never expose more than 80 code
  * points; retaining every ancestor's full descendant text would recreate an
  * O(N²) allocation pattern on deeply nested pages. */
-export function buildPreviewTextMetadata(root: Element): WeakMap<Element, PreviewTextMetadata> {
+function* buildPreviewTextMetadataProgressively(
+  root: Element,
+): Generator<void, WeakMap<Element, PreviewTextMetadata>, void> {
   const metadata = new WeakMap<Element, PreviewTextMetadata>();
   type StoredMetadata = PreviewTextMetadata & Readonly<{
     subtreeText: string;
@@ -334,6 +338,7 @@ export function buildPreviewTextMetadata(root: Element): WeakMap<Element, Previe
           !excludedChild(node as Element)
         ) stack.push({ element: node as Element, exit: false });
       }
+      yield;
       continue;
     }
     let subtreeText = "";
@@ -382,6 +387,7 @@ export function buildPreviewTextMetadata(root: Element): WeakMap<Element, Previe
     };
     storedMetadata.set(element, stored);
     metadata.set(element, stored);
+    yield;
   }
   // A visual primitive often owns the selector/marking row while its human
   // name belongs to the surrounding link or button (for example an unlabeled
@@ -397,7 +403,10 @@ export function buildPreviewTextMetadata(root: Element): WeakMap<Element, Previe
       stored.subtreeText ||
       !PREVIEW_TEXT_CONTEXTUAL_TAGS.has(tagName) ||
       stored.text !== tagName.toLowerCase()
-    ) continue;
+    ) {
+      yield;
+      continue;
+    }
     let cursor = composedParent(element);
     while (cursor) {
       const cursorTagName = cursor.tagName.toUpperCase();
@@ -416,8 +425,57 @@ export function buildPreviewTextMetadata(root: Element): WeakMap<Element, Previe
       }
       cursor = composedParent(cursor);
     }
+    yield;
   }
   return metadata;
+}
+
+type PreviewTextMetadataCursor = Readonly<{
+  processedSlices: number;
+  step(maxSlices: number): boolean;
+  finish(): WeakMap<Element, PreviewTextMetadata>;
+}>;
+
+function createPreviewTextMetadataCursor(root: Element): PreviewTextMetadataCursor {
+  const generator = buildPreviewTextMetadataProgressively(root);
+  let processedSlices = 0;
+  let complete = false;
+  let result: WeakMap<Element, PreviewTextMetadata> | null = null;
+  return {
+    get processedSlices() {
+      return processedSlices;
+    },
+    step(maxSlices: number): boolean {
+      if (complete) return true;
+      const limit = Math.max(1, Math.floor(maxSlices));
+      let captured = 0;
+      while (captured < limit) {
+        const next = generator.next();
+        if (next.done) {
+          result = next.value;
+          complete = true;
+          return true;
+        }
+        processedSlices += 1;
+        captured += 1;
+      }
+      return false;
+    },
+    finish(): WeakMap<Element, PreviewTextMetadata> {
+      if (!complete || !result) {
+        throw new Error("Preview text metadata capture is incomplete");
+      }
+      return result;
+    },
+  };
+}
+
+export function buildPreviewTextMetadata(root: Element): WeakMap<Element, PreviewTextMetadata> {
+  const cursor = createPreviewTextMetadataCursor(root);
+  while (!cursor.step(Number.MAX_SAFE_INTEGER)) {
+    // Synchronous callers consume the same bounded cursor in one pass.
+  }
+  return cursor.finish();
 }
 
 export function previewTextForElement(element: Element): string {
@@ -621,6 +679,9 @@ const STRUCTURAL_PRESENTATION_QUIET_MS = 250;
 const STRUCTURAL_MUTATION_IDLE_TIMEOUT_MS = 1_200;
 const PROGRESSIVE_PRESENTATION_TARGET_THRESHOLD = 96;
 const PROGRESSIVE_PRESENTATION_CHUNK_SIZE = 48;
+const PROGRESSIVE_STRUCTURAL_CAPTURE_CHUNK_SIZE = 256;
+const PROGRESSIVE_STRUCTURAL_SYNC_THRESHOLD = 96;
+const PROGRESSIVE_PREVIEW_METADATA_CHUNK_SIZE = 512;
 // Pinned legacy restores interactive marking at roughly 250 ms. Begin the
 // rewrite's frame-fenced repaint at 230 ms so its paint frame lands in that
 // same visual window instead of adding a frame after it. Silent preview keeps
@@ -897,6 +958,9 @@ export function createMarkingEngine(
   let deferredBranchTargets = new Map<string, OverlayRenderTarget>();
   const deferredBranchAffectedXpaths = new Set<string>();
   let deferredBranchRevealAfterRender = false;
+  let progressiveStructuralRefreshHandle: number | null = null;
+  let progressiveStructuralRefreshCycle = 0;
+  let progressiveStructuralRefreshActive = false;
   const cancelDeferredBranchRender = (restoreScrolling = true): boolean => {
     if (deferredBranchRenderHandle !== null) {
       presentationClock.cancelFrame(deferredBranchRenderHandle);
@@ -911,6 +975,29 @@ export function createMarkingEngine(
       renderer.setScrolling(false);
     }
     return ownedScrolling;
+  };
+  const settleStructuralRender = (): void => {
+    progressiveStructuralRefreshActive = false;
+    progressiveStructuralRefreshHandle = null;
+    const settle = structuralRenderSettled;
+    structuralRenderSettled = null;
+    settle?.();
+    if (revealMarkingAfterRender) {
+      revealMarkingAfterRender = false;
+      renderer.setScrolling(false);
+    }
+  };
+  const cancelProgressiveStructuralRefresh = (): boolean => {
+    if (!progressiveStructuralRefreshActive) {
+      return false;
+    }
+    progressiveStructuralRefreshCycle += 1;
+    if (progressiveStructuralRefreshHandle !== null) {
+      presentationClock.cancelFrame(progressiveStructuralRefreshHandle);
+      progressiveStructuralRefreshHandle = null;
+    }
+    settleStructuralRender();
+    return true;
   };
   let progressiveGeometryRenderHandle: number | null = null;
   let progressiveGeometryCycle = 0;
@@ -1011,10 +1098,13 @@ export function createMarkingEngine(
 
   const rebuildBridgeIndexes = (indexOptions: Readonly<{
     refreshPreviewTextMetadata?: boolean;
+    previewTextMetadata?: WeakMap<Element, PreviewTextMetadata>;
     rebindIntersections?: boolean;
   }> = {}): void => {
     bridgeGeneration += 1;
-    if (indexOptions.refreshPreviewTextMetadata !== false) {
+    if (indexOptions.previewTextMetadata) {
+      previewTextMetadata = indexOptions.previewTextMetadata;
+    } else if (indexOptions.refreshPreviewTextMetadata !== false) {
       previewTextMetadata = buildPreviewTextMetadata(rootElement);
     }
     overlayTargets = new Map([...bridge.byXpath].map(([xpath, value]) => [xpath, {
@@ -1223,6 +1313,7 @@ export function createMarkingEngine(
   };
 
   const refreshBridge = (refreshOptions: MarkingEngineRefreshOptions = {}): boolean => {
+    cancelProgressiveStructuralRefresh();
     const progressiveGeometryCancelled = cancelProgressiveGeometryRender();
     cancelDeferredBranchRender();
     beginWorkCycle();
@@ -1247,6 +1338,7 @@ export function createMarkingEngine(
   };
 
   const replaceSelectorMarks = (selectors: SelectorSet | null): boolean => {
+    cancelProgressiveStructuralRefresh();
     const progressiveGeometryCancelled = cancelProgressiveGeometryRender();
     cancelDeferredBranchRender();
     beginWorkCycle();
@@ -1597,6 +1689,133 @@ export function createMarkingEngine(
       throw error;
     }
   };
+  const startProgressiveStructuralRefresh = (): void => {
+    if (progressiveStructuralRefreshActive) {
+      return;
+    }
+    progressiveStructuralRefreshActive = true;
+    const cycle = ++progressiveStructuralRefreshCycle;
+    const progressiveGeometryCancelled = cancelProgressiveGeometryRender();
+    if (progressiveGeometryCancelled) {
+      revealMarkingAfterRender = true;
+    }
+    cancelDeferredBranchRender();
+    beginWorkCycle();
+    hoverResolution = null;
+    const previousMarks = store.canonicalSet();
+    const cursor: DomBridgeBuildCursor | null = instrumentation?.createBridge
+      ? null
+      : createDomBridgeViewCursor(rootElement, bridgeOptions);
+    let metadataCursor: PreviewTextMetadataCursor | null = null;
+    let capturedMetadata: WeakMap<Element, PreviewTextMetadata> | null = null;
+
+    const fail = (error: unknown): never => {
+      settleStructuralRender();
+      throw error;
+    };
+    const schedulePhase = (work: () => void): void => {
+      const handle = presentationClock.requestFrame(() => {
+        progressiveStructuralRefreshHandle = null;
+        if (cycle !== progressiveStructuralRefreshCycle) {
+          return;
+        }
+        if (disposed) {
+          settleStructuralRender();
+          return;
+        }
+        try {
+          work();
+        } catch (error) {
+          fail(error);
+        }
+      });
+      progressiveStructuralRefreshHandle = handle || null;
+    };
+    const adoptCapturedBridge = (nextBridge: DomBridgeView): void => {
+      bridge = nextBridge;
+      const next = initialMarksForBridge(bridge, previousMarks, undefined);
+      lastInitializationSeededSelectors = next.selectorsSeeded;
+      store = createMarkingStore({ root: bridge.root }, next.marks);
+      reportWorkStage("store-evaluate");
+    };
+    const finishPaint = (): void => {
+      renderer.render(store.currentEvaluation(), byXpathElements(), bridgeGeneration);
+      reportWorkStage("marking-render");
+      if (silentHighlightsArmed) {
+        schedulePhase(() => {
+          renderSilent();
+          settleStructuralRender();
+        });
+        return;
+      }
+      settleStructuralRender();
+    };
+    const project = (): void => {
+      refreshCurrentPreviewProjection();
+      reconcilePreviewEmphasis();
+      schedulePhase(finishPaint);
+    };
+    const index = (): void => {
+      rebuildBridgeIndexes({
+        previewTextMetadata: capturedMetadata ?? undefined,
+      });
+      schedulePhase(project);
+    };
+    const captureMetadata = (): void => {
+      if (!metadataCursor) {
+        metadataCursor = createPreviewTextMetadataCursor(rootElement);
+      }
+      if (!metadataCursor.step(PROGRESSIVE_PREVIEW_METADATA_CHUNK_SIZE)) {
+        schedulePhase(captureMetadata);
+        return;
+      }
+      capturedMetadata = metadataCursor.finish();
+      schedulePhase(index);
+    };
+    const adopt = (): void => {
+      if (!cursor) {
+        adoptCapturedBridge(buildBridge());
+        rebuildBridgeIndexes();
+        refreshCurrentPreviewProjection();
+        reconcilePreviewEmphasis();
+        renderCurrent();
+        settleStructuralRender();
+        return;
+      }
+      const nextBridge = cursor.finish();
+      reportWorkStage("bridge");
+      adoptCapturedBridge(nextBridge);
+      schedulePhase(captureMetadata);
+    };
+    const captureBridge = (): void => {
+      if (!cursor) {
+        adopt();
+        return;
+      }
+      if (!cursor.step(PROGRESSIVE_STRUCTURAL_CAPTURE_CHUNK_SIZE)) {
+        schedulePhase(captureBridge);
+        return;
+      }
+      if (cursor.processedNodes <= PROGRESSIVE_STRUCTURAL_SYNC_THRESHOLD) {
+        const nextBridge = cursor.finish();
+        reportWorkStage("bridge");
+        adoptCapturedBridge(nextBridge);
+        rebuildBridgeIndexes();
+        refreshCurrentPreviewProjection();
+        reconcilePreviewEmphasis();
+        renderCurrent();
+        settleStructuralRender();
+        return;
+      }
+      schedulePhase(adopt);
+    };
+
+    try {
+      captureBridge();
+    } catch (error) {
+      fail(error);
+    }
+  };
   const renderGeometryProgressively = (
     byXpath: ReadonlyMap<string, OverlayRenderTarget>,
     includeSilent: boolean,
@@ -1706,17 +1925,7 @@ export function createMarkingEngine(
       const nextWork = scheduledWork;
       scheduledWork = null;
       if (nextWork === "structural") {
-        try {
-          refreshBridge({ render: true });
-        } finally {
-          const settle = structuralRenderSettled;
-          structuralRenderSettled = null;
-          settle?.();
-          if (revealMarkingAfterRender) {
-            revealMarkingAfterRender = false;
-            renderer.setScrolling(false);
-          }
-        }
+        startProgressiveStructuralRefresh();
         return;
       }
       // Viewport motion measures only sources that currently intersect or just
@@ -2931,6 +3140,7 @@ export function createMarkingEngine(
     },
     clearOverlays(): void {
       cancelPreviewFocusRefresh();
+      cancelProgressiveStructuralRefresh();
       if (cancelProgressiveGeometryRender()) {
         renderer.setScrolling(false);
       }
@@ -2942,6 +3152,7 @@ export function createMarkingEngine(
     },
     parkPresentation(): void {
       cancelPreviewFocusRefresh();
+      cancelProgressiveStructuralRefresh();
       if (cancelProgressiveGeometryRender()) {
         renderer.setScrolling(false);
       }
@@ -2955,6 +3166,7 @@ export function createMarkingEngine(
     dispose(): void {
       disposed = true;
       cancelPreviewFocusRefresh();
+      cancelProgressiveStructuralRefresh();
       cancelProgressiveGeometryRender();
       cancelDeferredBranchRender();
       hoverResolution = null;

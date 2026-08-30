@@ -55,6 +55,15 @@ export type DomBridgePresentationRefreshCursor = Readonly<{
   finish(): DomBridgePresentationRefresh;
 }>;
 
+export type DomBridgeBuildCursor = Readonly<{
+  /** Number of completed bridge nodes captured by bounded calls to step. */
+  processedNodes: number;
+  /** Process at most maxNodes complete post-order nodes; true means capture is complete. */
+  step(maxNodes: number): boolean;
+  /** Materialize the bridge after step has completed. */
+  finish(): DomBridgeView;
+}>;
+
 type DomBridgePass = Readonly<{
   flattenedChildNodesByElement: WeakMap<Element, Node[]>;
   childrenByElement: WeakMap<Element, Element[]>;
@@ -440,7 +449,7 @@ function shadowProvenanceFor(element: Element): PreviewShadowProvenance {
   return enteredShadow ? "open" : "light";
 }
 
-function buildNode(
+function* buildNodeProgressively(
   element: Element,
   parent: XPathNodeView | null,
   xpath: string,
@@ -449,7 +458,7 @@ function buildNode(
   byXpath: Map<string, DomBridgeNode>,
   pass: DomBridgePass,
   options: DomBridgeOptions,
-): DomBridgeNode | null {
+): Generator<void, DomBridgeNode | null, void> {
   if (isExtensionUi(element)) {
     return null;
   }
@@ -472,7 +481,7 @@ function buildNode(
       const tag = xpathTag(child);
       const nextIndex = (seenTags.get(tag) ?? 0) + 1;
       seenTags.set(tag, nextIndex);
-      const built = buildNode(
+      const built = yield* buildNodeProgressively(
         child,
         xpathNode,
         `${xpath}/${tag}[${nextIndex}]`,
@@ -523,15 +532,19 @@ function buildNode(
   byElement.set(element, bridgeNode);
   byKey.set(key, bridgeNode);
   byXpath.set(xpath, bridgeNode);
+  yield;
   return bridgeNode;
 }
 
-export function createDomBridgeView(rootElement: Element, options: DomBridgeOptions = {}): DomBridgeView {
+export function createDomBridgeViewCursor(
+  rootElement: Element,
+  options: DomBridgeOptions = {},
+): DomBridgeBuildCursor {
   const byElement = new WeakMap<Element, DomBridgeNode>();
   const byKey = new Map<string, DomBridgeNode>();
   const byXpath = new Map<string, DomBridgeNode>();
   const pass = createDomBridgePass();
-  const root = buildNode(
+  const generator = buildNodeProgressively(
     rootElement,
     null,
     `/${xpathTag(rootElement)}[1]`,
@@ -541,15 +554,53 @@ export function createDomBridgeView(rootElement: Element, options: DomBridgeOpti
     pass,
     options,
   );
-  if (!root) {
-    throw new Error("Unable to build marking DOM bridge view for root element");
-  }
+  let processedNodes = 0;
+  let completedRoot: DomBridgeNode | null | undefined;
+  let complete = false;
   return {
-    root: root.evaluationNode,
-    byElement,
-    byKey,
-    byXpath,
+    get processedNodes() {
+      return processedNodes;
+    },
+    step(maxNodes: number): boolean {
+      if (complete) return true;
+      const limit = Math.max(1, Math.floor(maxNodes));
+      let captured = 0;
+      while (captured < limit) {
+        const next = generator.next();
+        if (next.done) {
+          completedRoot = next.value;
+          complete = true;
+          return true;
+        }
+        processedNodes += 1;
+        captured += 1;
+      }
+      return false;
+    },
+    finish(): DomBridgeView {
+      if (!complete) {
+        throw new Error("DOM bridge capture is incomplete");
+      }
+      if (!completedRoot) {
+        throw new Error("Unable to build marking DOM bridge view for root element");
+      }
+      return {
+        root: completedRoot.evaluationNode,
+        byElement,
+        byKey,
+        byXpath,
+      };
+    },
   };
+}
+
+export function createDomBridgeView(rootElement: Element, options: DomBridgeOptions = {}): DomBridgeView {
+  const cursor = createDomBridgeViewCursor(rootElement, options);
+  while (!cursor.step(Number.MAX_SAFE_INTEGER)) {
+    // The synchronous public bridge contract consumes the same cursor in one
+    // pass; mutation-driven live refreshes use its bounded step API instead.
+  }
+  return cursor.finish();
 }
 
 /**

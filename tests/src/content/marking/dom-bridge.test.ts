@@ -12,6 +12,7 @@ import {
 import { MOTION_CAPTURE_LEDGER_ATTR } from "../../../../src/content/marking/capture-hygiene";
 import {
   createDomBridgeView,
+  createDomBridgeViewCursor,
   createDomBridgePresentationRefreshCursor,
   createMarkingEngine,
   createOverlayRenderer,
@@ -334,6 +335,32 @@ describe("P6 DOM bridge", () => {
     const refreshed = cursor.finish();
     expect(cursor.processedNodes).toBe(131);
     expect(refreshed.view.byElement.get(paragraphs[129] as unknown as Element)?.evaluationNode.visible).toBe(false);
+  });
+
+  it("captures a complete bridge in caller-bounded post-order slices", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 3_000));
+    root.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    const paragraphs = Array.from({ length: 130 }, (_, index) => {
+      const paragraph = new FakeElement("P", rect(0, index * 22, 120, 20), `Row ${index}`);
+      paragraph.ownerDocument = doc;
+      root.appendChild(paragraph);
+      return paragraph;
+    });
+
+    const cursor = createDomBridgeViewCursor(root as unknown as Element);
+    expect(cursor.step(32)).toBe(false);
+    expect(cursor.processedNodes).toBe(32);
+    expect(() => cursor.finish()).toThrow(/capture is incomplete/i);
+    while (!cursor.step(32)) {
+      // Exercise the same bounded post-order cursor used by structural refresh.
+    }
+    const bridge = cursor.finish();
+    expect(cursor.processedNodes).toBe(131);
+    expect(bridge.byXpath.size).toBe(131);
+    expect(bridge.byXpath.get("/main[1]/p[130]")?.element).toBe(paragraphs[129]);
   });
 
   it("pierces pointer-events-suppressed descendants and accepts ancestor transparency as reachable", () => {
@@ -2741,6 +2768,66 @@ describe("P6 DOM bridge", () => {
     expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[3]", excluded: false });
     engine.dispose();
     vi.useRealTimers();
+  });
+
+  it("frame-slices a broad child-list bridge rebuild through authoritative adoption", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const callbacks: Array<(records: MutationRecord[]) => void> = [];
+      const animationFrames: Array<() => void> = [];
+      Object.assign(doc.defaultView, {
+        MutationObserver: class {
+          constructor(callback: (records: MutationRecord[]) => void) {
+            callbacks.push(callback);
+          }
+          observe() {}
+          disconnect() {}
+        },
+        requestAnimationFrame(callback: () => void) {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+        cancelAnimationFrame() {},
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 8_000));
+      root.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      const paragraphs = Array.from({ length: 320 }, (_, index) => {
+        const paragraph = new FakeElement("P", rect(0, index * 22, 120, 20), `Row ${index}`);
+        paragraph.ownerDocument = doc;
+        root.appendChild(paragraph);
+        return paragraph;
+      });
+      const engine = createMarkingEngine(root as unknown as Element);
+      const appended = new FakeElement("P", rect(0, 7_100, 120, 20), "Appended");
+      appended.ownerDocument = doc;
+      root.appendChild(appended);
+      callbacks[0]?.([{
+        type: "childList",
+        target: root,
+        addedNodes: [appended],
+        removedNodes: [],
+      }] as unknown as MutationRecord[]);
+
+      vi.advanceTimersByTime(100);
+      expect(animationFrames).toHaveLength(1);
+      animationFrames.shift()?.();
+      expect(engine.rows()).not.toContainEqual({ xpath: "/main[1]/p[321]", excluded: false });
+      let frameCount = 1;
+      while (animationFrames.length > 0) {
+        animationFrames.shift()?.();
+        frameCount += 1;
+      }
+
+      expect(frameCount).toBeGreaterThan(4);
+      expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[321]", excluded: false });
+      expect(paragraphs.every((paragraph) => paragraph.rectReadCount > 0)).toBe(true);
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rebuilds sibling identities when consent suppression hides a bridged element", () => {
