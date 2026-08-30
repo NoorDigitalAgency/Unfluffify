@@ -29,10 +29,7 @@ const EXPECTED_PERMISSIONS = [
 const EXPECTED_HOST_PERMISSIONS = ["<all_urls>"];
 const EXPECTED_WAR = [
   {
-    resources: [
-      "assets/materialdesignicons-webfont.woff2",
-      "cursors/*.svg",
-    ],
+    resources: ["cursors/*.svg"],
     matches: ["<all_urls>"],
   },
 ];
@@ -50,7 +47,8 @@ describe("WXT Part A bridge", () => {
     expect(packageJson.scripts.dev).toBe("wxt");
     expect(packageJson.scripts["wxt:dev"]).toBeUndefined();
     expect(packageJson.scripts["page-world:check"]).toContain("generate-page-world.mjs --check");
-    expect(packageJson.scripts.build).toBe("pnpm page-world:check && wxt build");
+    expect(packageJson.scripts["icons:check"]).toContain("generate-mdi-subset.mjs --check");
+    expect(packageJson.scripts.build).toBe("pnpm page-world:check && pnpm icons:check && wxt build");
     expect(packageJson.scripts.zip).toContain("pnpm build");
     expect(packageJson.scripts.zip).toContain("create-output-zip.mjs");
     expect(packageJson.scripts.lint).toBe("eslint .");

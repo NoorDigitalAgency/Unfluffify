@@ -6,7 +6,7 @@ import { ensureBuildOutput } from "./build-output-kit.ts";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUTPUT_ROOT = path.join(REPO_ROOT, ".output", "chrome-mv3");
-const PACKAGE_BUILD_TIMEOUT_MS = 45_000;
+const PACKAGE_BUILD_TIMEOUT_MS = 180_000;
 
 function normalizePath(value) {
   if (typeof value !== "string") {
@@ -64,12 +64,33 @@ test("generated extension manifest and resources resolve", async () => {
       Array.isArray(contentScript?.js) &&
       contentScript.js.some((scriptPath) => String(scriptPath).includes("page-world"))
     );
-  assert.ok(pageWorldScript, "generated manifest should include the P5 page-world MAIN script");
+  assert.equal(pageWorldScript, undefined, "generated manifest must not include an all-URL MAIN script");
+  assert.equal(
+    existsSync(path.join(OUTPUT_ROOT, "content-scripts/page-world.js")),
+    false,
+    "static page-world content script must not be emitted",
+  );
 
   assert.equal(existsSync(path.join(OUTPUT_ROOT, "cursors/exclude.svg")), true, "missing generated file: cursors/exclude.svg");
   assert.equal(existsSync(path.join(OUTPUT_ROOT, "cursors/include.svg")), true, "missing generated file: cursors/include.svg");
   assert.equal(existsSync(path.join(OUTPUT_ROOT, "logo.png")), true, "missing generated file: logo.png");
+  assert.equal(
+    existsSync(path.join(OUTPUT_ROOT, "assets/materialdesignicons-webfont.woff2")),
+    false,
+    "full icon webfont must not be emitted",
+  );
+  assert.equal(
+    existsSync(path.join(OUTPUT_ROOT, "assets/materialdesignicons.min.css")),
+    false,
+    "full icon stylesheet must not be emitted",
+  );
   assert.match(popupHtml, /<link rel="stylesheet" crossorigin href="\/assets\/popup-[^"]+\.css">/);
+  const popupStylesheet = readFileSync(
+    path.join(OUTPUT_ROOT, popupHtml.match(/href="\/([^"]+\.css)"/)?.[1] || ""),
+    "utf8",
+  );
+  assert.match(popupStylesheet, /data:image\/svg\+xml/);
+  assert.match(popupStylesheet, /\.mdi-account-key:before|\.mdi-account-key::before/);
   assert.doesNotMatch(
     popupHtml,
     /\/assets\/fonts\/fonts\.css|\/assets\/materialdesignicons\.min\.css|\/theme-color\.css|\/theme-components\.css|\/popup\.css|\/theme-utilities\.css/

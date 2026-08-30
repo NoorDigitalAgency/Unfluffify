@@ -1107,14 +1107,18 @@ describe("rewrite popup entrypoint", () => {
     });
     const runtime = makeRuntime(async (message) => replyFrame(message, []), "rendered", {
       emulationApply: (frame) => {
-        const mode = (frame.payload as { mode: "mobile" | "desktop" }).mode;
+        const payload = frame.payload as { mode: "mobile" | "desktop"; allowReload?: boolean };
+        const mode = payload.mode;
+        const reloadRequired = silentTransitionStarted && mode === "desktop" && payload.allowReload !== false;
         return replyFrame(frame, {
           mode,
           width: mode === "desktop" ? 1920 : 412,
           height: mode === "desktop" ? 1080 : 960,
           scale: 1,
-          active: true,
-          identityStale: silentTransitionStarted && mode === "desktop",
+          active: !reloadRequired,
+          identityStale: reloadRequired,
+          reloadRequired,
+          ...(reloadRequired ? { failureReason: "identity_mismatch" } : {}),
         });
       },
     });
@@ -3728,14 +3732,18 @@ describe("rewrite popup entrypoint", () => {
       }, "rendered", {
         deferReconciliationFactAvailability: true,
         emulationApply: (frame) => {
-          const mode = (frame.payload as { mode: "mobile" | "desktop" }).mode;
+          const payload = frame.payload as { mode: "mobile" | "desktop"; allowReload?: boolean };
+          const mode = payload.mode;
+          const reloadRequired = saveCommitted && mode === "desktop" && payload.allowReload !== false;
           return replyFrame(frame, {
             mode,
             width: mode === "desktop" ? 1920 : 412,
             height: mode === "desktop" ? 1080 : 960,
             scale: 1,
-            active: true,
-            identityStale: saveCommitted && mode === "desktop",
+            active: !reloadRequired,
+            identityStale: reloadRequired,
+            reloadRequired,
+            ...(reloadRequired ? { failureReason: "identity_mismatch" } : {}),
           });
         },
       });

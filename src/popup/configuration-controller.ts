@@ -1,4 +1,8 @@
-import type { ConnectionSettings } from "../storage/settings";
+import { validateConnectionSettings } from "../domain/schema/connection-settings";
+import type {
+  ConnectionSettings,
+  ConnectionSettingsFieldErrors,
+} from "../domain/schema/connection-settings";
 import type { ConfigSnapshot, SelectorSet } from "../storage/config";
 import type { RenderMode } from "../domain/schema/property";
 import {
@@ -18,8 +22,10 @@ export type ConfigurationPortResult<T> =
   | Readonly<{ ok: false; code: string }>;
 
 export type SettingsLoadResult = Readonly<{
+  status?: "ok" | "invalid";
   settings: ConnectionSettings;
   hasToken: boolean;
+  reason?: string;
 }>;
 
 export type SettingsSaveResult = Readonly<{
@@ -83,6 +89,8 @@ export type ConfigurationSnapshot = Readonly<{
   settingsSaved: boolean;
   settingsDirty: boolean;
   settingsBusy: boolean;
+  settingsErrors: ConnectionSettingsFieldErrors;
+  settingsInvalid: boolean;
   stageBaseSet: boolean;
   hasStoredToken: boolean;
   authState: PopupAuthState;
@@ -110,14 +118,21 @@ export type PropertyAdoptionOutcome =
   | Readonly<{ status: "adopted"; projectionInvalidated: boolean }>
   | Readonly<{ status: "stale"; projectionInvalidated: false }>;
 
-export type SettingsSavePreparation = Readonly<{
-  payload: ConnectionSettings;
-  definitiveDeletion: boolean;
-}>;
+export type SettingsSavePreparation =
+  | Readonly<{
+    status: "ready";
+    payload: ConnectionSettings;
+    definitiveDeletion: boolean;
+  }>
+  | Readonly<{
+    status: "invalid";
+    fieldErrors: ConnectionSettingsFieldErrors;
+  }>;
 
 export type SettingsSaveOutcome =
   | Readonly<{ status: "saved"; preparation: SettingsSavePreparation }>
   | Readonly<{ status: "failed"; code: string }>
+  | Readonly<{ status: "invalid"; fieldErrors: ConnectionSettingsFieldErrors }>
   | Readonly<{ status: "busy" }>;
 
 export type ConfigurationController = Readonly<{
@@ -159,11 +174,11 @@ export function settingsFormFrom(settings: ConnectionSettings): PopupSettingsFor
 
 /** Zod rejects empty URL fields, so blank inputs must be omitted entirely. */
 export function settingsFromForm(form: PopupSettingsForm): ConnectionSettings {
-  return Object.fromEntries(
-    SETTINGS_FORM_FIELDS
-      .map((field) => [field, form[field].trim()] as const)
-      .filter(([, value]) => value !== ""),
-  ) as ConnectionSettings;
+  const validation = validateConnectionSettings(form);
+  if (!validation.ok) {
+    throw new Error("Connection settings are invalid");
+  }
+  return validation.settings;
 }
 
 export function settingsFormsMatch(left: PopupSettingsForm, right: PopupSettingsForm): boolean {
@@ -180,6 +195,7 @@ export function createConfigurationController(ports: ConfigurationPorts): Config
   let storedSettings: PopupSettingsForm | null = null;
   let settingsBusy = false;
   let settingsLoadReported = false;
+  let settingsInvalid = false;
   let settingsFormDirty = false;
   let credentials = EMPTY_POPUP_CREDENTIALS_FORM;
   let hasStoredToken = false;
@@ -222,6 +238,11 @@ export function createConfigurationController(ports: ConfigurationPorts): Config
     settingsSaved: storedSettings !== null && !settingsFormsMatch(storedSettings, EMPTY_POPUP_SETTINGS_FORM),
     settingsDirty: storedSettings !== null && !settingsFormsMatch(storedSettings, settings),
     settingsBusy,
+    settingsErrors: (() => {
+      const validation = validateConnectionSettings(settings);
+      return validation.ok ? {} : validation.fieldErrors;
+    })(),
+    settingsInvalid,
     stageBaseSet: (storedSettings?.stageBase ?? "").trim() !== "",
     hasStoredToken,
     authState: resolvedAuthState(),
@@ -283,6 +304,21 @@ export function createConfigurationController(ports: ConfigurationPorts): Config
         ports.recordActivity("Settings loaded", "retry succeeded", "success");
         settingsLoadReported = false;
       }
+      if (response.data.status === "invalid") {
+        settingsInvalid = true;
+        hasStoredToken = false;
+        rawAuthState = "signed_out";
+        storedSettings = EMPTY_POPUP_SETTINGS_FORM;
+        if (!settingsFormDirty) settings = storedSettings;
+        ports.recordActivity(
+          "Stored connection invalid",
+          response.data.reason ?? "replace or clear the saved connection",
+          "danger",
+        );
+        ports.onChange();
+        return "loaded";
+      }
+      settingsInvalid = false;
       hasStoredToken = response.data.hasToken;
       if (!hasStoredToken && rawAuthState === "signed_in") {
         rawAuthState = "signed_out";
@@ -298,8 +334,13 @@ export function createConfigurationController(ports: ConfigurationPorts): Config
       return "loaded";
     },
     prepareSettingsSave() {
-      const payload = settingsFromForm(settings);
+      const validation = validateConnectionSettings(settings);
+      if (!validation.ok) {
+        return Object.freeze({ status: "invalid" as const, fieldErrors: validation.fieldErrors });
+      }
+      const payload = validation.settings;
       return Object.freeze({
+        status: "ready" as const,
         payload,
         definitiveDeletion: Object.keys(payload).length === 0 &&
           storedSettings !== null &&
@@ -307,6 +348,10 @@ export function createConfigurationController(ports: ConfigurationPorts): Config
       });
     },
     async saveSettings(preparation) {
+      if (preparation.status === "invalid") {
+        ports.onChange();
+        return { status: "invalid", fieldErrors: preparation.fieldErrors };
+      }
       if (settingsBusy) {
         return { status: "busy" };
       }
@@ -321,6 +366,7 @@ export function createConfigurationController(ports: ConfigurationPorts): Config
       storedSettings = settingsFormFrom(response.data.settings);
       settings = storedSettings;
       settingsFormDirty = false;
+      settingsInvalid = false;
       hasStoredToken = response.data.hasToken;
       if (!hasStoredToken && rawAuthState === "signed_in") {
         rawAuthState = "signed_out";

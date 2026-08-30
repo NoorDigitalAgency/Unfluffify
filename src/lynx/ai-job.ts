@@ -65,11 +65,17 @@ export function failAiJob(
 }
 
 export function markMarkingEdit(state: AiJobState, fingerprint: string): AiJobState {
+  const restoredFreshBaseline =
+    state.phase !== "running" &&
+    state.freshMarkingFingerprint !== "" &&
+    fingerprint === state.freshMarkingFingerprint;
   return {
     ...state,
-    phase: state.phase === "running" ? "running" : "stale-on-edit",
+    phase: state.phase === "running"
+      ? "running"
+      : restoredFreshBaseline ? "fresh" : "stale-on-edit",
     currentMarkingFingerprint: fingerprint,
-    pendingChanges: true,
+    pendingChanges: !restoredFreshBaseline,
   };
 }
 
@@ -106,11 +112,11 @@ export type AiJobPollDeps = Readonly<{
   sleep: (ms: number) => Promise<void>;
   getStatus: (sessionId: string) => Promise<
     { status: "ok"; runStatus: string }
-    | { status: "not_found" | "error"; httpStatus?: number }
+    | { status: "not_found" | "error"; httpStatus?: number; reason?: string }
   >;
   getResult: (sessionId: string) => Promise<
     { status: "ok"; selectors: unknown }
-    | { status: "not_found" | "invalid" | "error"; httpStatus?: number }
+    | { status: "not_found" | "invalid" | "error"; httpStatus?: number; reason?: string }
   >;
   heartbeat: (state: Readonly<{ sessionId: string; phase: AiJobPhase; deadlineAt: number; updatedAt: number }>) => Promise<void> | void;
   acquireComputeLock: () => Promise<() => void> | (() => void);
@@ -160,7 +166,7 @@ export async function pollAiJob(
           status: "error",
           polls,
           failureStage: "status",
-          reason: "status_http_error",
+          reason: status.reason ? `status_${status.reason}` : "status_http_error",
           httpStatus: status.httpStatus,
         };
       }
@@ -182,8 +188,8 @@ export async function pollAiJob(
           reason: result.status === "not_found"
             ? "result_not_found"
             : result.status === "invalid"
-              ? "result_invalid"
-              : "result_http_error",
+              ? result.reason ? `result_${result.reason}` : "result_invalid"
+              : result.reason ? `result_${result.reason}` : "result_http_error",
           httpStatus: result.httpStatus,
         };
       }

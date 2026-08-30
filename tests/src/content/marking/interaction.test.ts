@@ -11,13 +11,26 @@ class FakeElement {
   readonly attributes = new Map<string, string>();
   readonly style: Record<string, string> = {};
   readonly listeners = new Map<string, (event: Event) => void>();
+  readonly ownerDocument: { activeElement: FakeElement | null };
   type = "";
   disabled = false;
+  hidden = false;
+  tabIndex = 0;
+  id = "";
   textContent = "";
   removed = false;
+  constructor(ownerDocument: { activeElement: FakeElement | null } = { activeElement: null }) {
+    this.ownerDocument = ownerDocument;
+  }
   setAttribute(name: string, value: string): void { this.attributes.set(name, value); }
+  getAttribute(name: string): string | null { return this.attributes.get(name) ?? null; }
   appendChild(child: FakeElement): FakeElement { this.children.push(child); return child; }
   addEventListener(type: string, listener: (event: Event) => void): void { this.listeners.set(type, listener); }
+  querySelectorAll(selector: string): FakeElement[] {
+    const role = selector.match(/\[role="([^"]+)"\]/)?.[1];
+    return this.children.filter((child) => !role || child.attributes.get("role") === role);
+  }
+  focus(): void { this.ownerDocument.activeElement = this; }
   contains(target: unknown): boolean { return target === this || this.children.includes(target as FakeElement); }
   remove(): void { this.removed = true; }
 }
@@ -37,7 +50,7 @@ describe("marking interaction controls", () => {
     const documentListeners = new Map<string, (event: Event) => void>();
     const document = {
       documentElement,
-      createElement: () => new FakeElement(),
+      createElement: () => new FakeElement(documentElement.ownerDocument),
       addEventListener: (type: string, listener: (event: Event) => void) => documentListeners.set(type, listener),
       removeEventListener: (type: string) => documentListeners.delete(type),
     } as unknown as Document;
@@ -58,11 +71,30 @@ describe("marking interaction controls", () => {
 
     const menu = documentElement.children[0]!;
     expect(menu.attributes.get("role")).toBe("menu");
+    expect(menu.attributes.get("aria-label")).toBe("Marking actions");
     expect(menu.style.left).toBe("466px");
     expect(menu.style.top).toBe("306px");
     expect(menu.children.map((button) => button.attributes.get("data-uf-marking-menu-action")))
       .toEqual(["include", "exclude", "widen", "clear"]);
     expect(menu.children[1]?.disabled).toBe(true);
+    expect(menu.children.every((button) => button.tabIndex === -1)).toBe(true);
+    expect(documentElement.ownerDocument.activeElement).toBe(menu.children[0]);
+
+    const keyboardEvent = (key: string) => ({
+      key,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    });
+    const arrowDown = keyboardEvent("ArrowDown");
+    menu.listeners.get("keydown")?.(arrowDown as unknown as Event);
+    expect(documentElement.ownerDocument.activeElement).toBe(menu.children[2]);
+    expect(arrowDown.preventDefault).toHaveBeenCalledOnce();
+    const end = keyboardEvent("End");
+    menu.listeners.get("keydown")?.(end as unknown as Event);
+    expect(documentElement.ownerDocument.activeElement).toBe(menu.children[3]);
+    const home = keyboardEvent("Home");
+    menu.listeners.get("keydown")?.(home as unknown as Event);
+    expect(documentElement.ownerDocument.activeElement).toBe(menu.children[0]);
 
     const syntheticPreventDefault = vi.fn();
     const syntheticStopPropagation = vi.fn();
@@ -91,7 +123,7 @@ describe("marking interaction controls", () => {
     Object.assign(documentElement, { clientWidth: 640, clientHeight: 480 });
     const document = {
       documentElement,
-      createElement: () => new FakeElement(),
+      createElement: () => new FakeElement(documentElement.ownerDocument),
     } as unknown as Document;
     const manager = createTransientSurfaceManager();
     const run = vi.fn();

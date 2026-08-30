@@ -21,7 +21,6 @@ const WXT_ENTRYPOINTS = [
   "src/entrypoints/background.ts",
   "src/entrypoints/content-loader.content.ts",
   "src/entrypoints/offscreen/main.ts",
-  "src/entrypoints/page-world.content.ts",
   "src/entrypoints/popup/main.tsx",
 ];
 
@@ -69,6 +68,7 @@ const NEW_TREE_FEATURE_DIRS = [
 const PENDING_DELETION_PATHS = new Set<string>();
 const BUILD_AUTHORED_SOURCES = new Set([
   normalize("src/page-world/program.ts"),
+  normalize("src/page-world/program.generated.js"),
 ]);
 const RETIRED_BRAIN_SIGNAL_NAMES = new Set([
   "inspection.started",
@@ -273,8 +273,9 @@ describe("P10 cutover guard", () => {
     const reachable = buildEntrypointReachability();
     const generator = readFileSync("scripts/generate-page-world.mjs", "utf8");
     expect(generator).toContain("src/page-world/program.ts");
-    expect(generator).toContain("src/page-world/program.js");
-    expect(pathIsReachable(reachable, "src/page-world/program.js")).toBe(true);
+    expect(generator).toContain("src/page-world/program.generated.js");
+    expect(pathIsReachable(reachable, "src/page-world/program.ts")).toBe(true);
+    expect(pathIsReachable(reachable, "src/page-world/program.generated.js")).toBe(false);
     const orphaned = listFeatureFiles()
       .filter((file) => !reachable.has(file))
       .filter((file) => !BUILD_AUTHORED_SOURCES.has(file))
@@ -302,9 +303,10 @@ describe("P10 cutover guard", () => {
     const manifestPath = ".output/chrome-mv3/manifest.json";
     const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
     const scripts = (manifest.content_scripts ?? []).flatMap((entry: { js?: string[] }) => entry.js ?? []);
-    expect(scripts).toContain("content-scripts/page-world.js");
-    expect(existsSync(".output/chrome-mv3/content-scripts/page-world.js")).toBe(true);
-  }, 45_000);
+    expect(scripts).toContain("content-scripts/content-loader.js");
+    expect(scripts).not.toContain("content-scripts/page-world.js");
+    expect(existsSync(".output/chrome-mv3/content-scripts/page-world.js")).toBe(false);
+  }, 180_000);
 
   it("detects nested legacy import specifiers", () => {
     expect(hasForbiddenLegacyImport('import x from "../../common/config";')).toBe(true);

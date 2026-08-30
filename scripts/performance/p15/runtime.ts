@@ -1,6 +1,7 @@
 import type { BusFrame } from "../../../src/messaging/contract";
 import type { BrainSignal, BrainSignalName } from "../../../src/domain/schema/signals";
 import type { ShieldPostureClearReason } from "../../../src/messaging/shield-posture";
+import { createGatePageWorldCapabilityHarness } from "../page-world-capability-harness";
 
 const DURABLE_KEY = "p15-shield-posture";
 const PAGE_CONTEXT_MODE_KEY = "p15-page-context-mode";
@@ -72,6 +73,7 @@ type P15Runtime = Readonly<{
   releasePageContext: () => Record<string, unknown>;
   simulateBackgroundTerminal: (reason: "save" | "discard") => Record<string, unknown>;
   dispatchBackgroundCommand: (name: "session.unregister", payload: Record<string, unknown>) => Record<string, unknown>;
+  notifyPageUrlChanged: (pageUrl: string) => Promise<Record<string, unknown>>;
 }>;
 
 const fixtureWindow = window as FixtureWindow;
@@ -108,6 +110,18 @@ let pageContextDeferred = (() => {
     return false;
   }
 })();
+
+const pageWorld = createGatePageWorldCapabilityHarness({
+  tabId: TAB_ID,
+  documentId: DOCUMENT_ID,
+  currentPageUrl: () => location.href,
+  failurePrefix: "P15",
+  onCommand() {
+    if (fixtureWindow.__p15Fixture) {
+      fixtureWindow.__p15Fixture.state.pageWorldCommandCount += 1;
+    }
+  },
+});
 
 function parseStoredProjection(): ShieldProjection {
   try {
@@ -384,6 +398,31 @@ async function sendBackgroundMessage(message: unknown): Promise<unknown> {
     return undefined;
   }
   switch (frame.name) {
+    case "pageWorld.acquire": {
+      const requestedPageUrl = (frame.payload as { pageUrl?: unknown } | undefined)?.pageUrl;
+      const pageUrl = typeof requestedPageUrl === "string" ? requestedPageUrl : location.href;
+      return replyTo(frame, await pageWorld.acquire(pageUrl));
+    }
+    case "pageWorld.command": {
+      const payload = frame.payload && typeof frame.payload === "object"
+        ? frame.payload as {
+            pageUrl?: unknown;
+            nonce?: unknown;
+            sessionNonce?: unknown;
+            command?: unknown;
+            payload?: unknown;
+          }
+        : {};
+      const pageUrl = typeof payload.pageUrl === "string" ? payload.pageUrl : location.href;
+      return replyTo(frame, await pageWorld.command(pageUrl, {
+        nonce: typeof payload.nonce === "string" ? payload.nonce : undefined,
+        sessionNonce: typeof payload.sessionNonce === "string" ? payload.sessionNonce : undefined,
+        command: typeof payload.command === "string" ? payload.command : undefined,
+        payload: payload.payload && typeof payload.payload === "object"
+          ? payload.payload as Record<string, unknown>
+          : undefined,
+      }));
+    }
     case "page.context": {
       if (pageContextDeferred) {
         return new Promise<BusFrame>((resolve) => {
@@ -604,6 +643,30 @@ async function invalidate(): Promise<Record<string, unknown>> {
   };
 }
 
+async function notifyPageUrlChanged(pageUrl: string): Promise<Record<string, unknown>> {
+  nextCommandSequence += 1;
+  const frame: BusFrame = {
+    kind: "uf-bus/1",
+    frameType: "event",
+    id: `p15-page-url-changed-${nextCommandSequence}`,
+    seq: nextCommandSequence,
+    name: "page.urlChanged",
+    source: "background",
+    sourceInstance: "background:p15-gate",
+    target: "content",
+    payload: { tabId: TAB_ID, documentId: DOCUMENT_ID, pageUrl },
+  };
+  for (const listener of runtimeListeners) {
+    listener(frame, {
+      tab: { id: TAB_ID },
+      frameId: 0,
+      documentId: DOCUMENT_ID,
+    }, () => undefined);
+  }
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  return backgroundSnapshot();
+}
+
 fixtureWindow.__p15Runtime = {
   documentId: DOCUMENT_ID,
   readyState: () => readyState,
@@ -622,6 +685,7 @@ fixtureWindow.__p15Runtime = {
   dispatchPagehide,
   dispatchUnload,
   invalidate,
+  notifyPageUrlChanged,
   setPageContextMode(mode): void {
     pageContextMode = mode;
     if (mode === "transient-retained") {

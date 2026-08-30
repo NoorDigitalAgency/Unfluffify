@@ -638,7 +638,10 @@ async (page) => {
       await deadlinePage.clock.install({ time: new Date("2026-08-21T12:00:00.000Z") });
       await gotoPopup(deadlinePage, "production");
       const popupClockPausedAt = await deadlinePage.evaluate(() => Date.now());
-      await deadlinePage.clock.pauseAt(new Date(popupClockPausedAt));
+      // Clock time continues advancing while the popup loads. Pause at a known
+      // future instant so transport latency cannot turn the requested target
+      // into a past timestamp; toast births occur only after this pause.
+      await deadlinePage.clock.pauseAt(new Date(popupClockPausedAt + 1_000));
 
       const popupDeadlines = [];
       for (const tone of ["success", "warning", "danger"]) {

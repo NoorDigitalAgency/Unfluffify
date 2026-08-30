@@ -38,15 +38,15 @@ body.is-busy {
 
 .mac-close-button {
   display: inline-grid;
-  width: 14px;
-  min-width: 14px;
-  height: 14px;
-  min-height: 14px;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
   place-items: center;
   padding: 0;
-  border: 1px solid color-mix(in srgb, #8f1010 58%, transparent);
-  border-radius: 999px;
-  background: #ff5f57;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
   color: #6f0905;
   box-shadow: none;
   font-size: 11px;
@@ -54,9 +54,23 @@ body.is-busy {
   line-height: 1;
 }
 
+.mac-close-button > span {
+  display: inline-grid;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, #8f1010 58%, transparent);
+  border-radius: 999px;
+  background: #ff5f57;
+}
+
 .mac-close-button:hover:not(:disabled) {
-  background: #ff3b30;
+  background: color-mix(in srgb, #ff5f57 12%, transparent);
   box-shadow: 0 0 0 3px color-mix(in srgb, #ff5f57 18%, transparent);
+}
+
+.mac-close-button:hover:not(:disabled) > span {
+  background: #ff3b30;
 }
 
 .mac-close-button:disabled {

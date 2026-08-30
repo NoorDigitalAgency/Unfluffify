@@ -1,37 +1,33 @@
 // GENERATED from src/page-world/program.ts. Run: pnpm page-world:generate
-/* eslint-disable no-empty -- esbuild removes comments from intentional catch blocks */
+/* eslint-disable no-empty, @typescript-eslint/no-unused-vars -- generated bundle keeps an inert installer until capability injection */
 "use strict";
 (() => {
   // src/page-world/program.ts
-  var page = globalThis;
-  (function installPageWorldProgram() {
-    const RUNTIME_PROPERTY = "__unfluffifyPageWorldRuntime__";
-    const RUNTIME_VERSION = 3;
+  async function installPageWorldProgram(endpointKey, capability) {
+    const page = globalThis;
+    const RUNTIME_VERSION = 4;
     const runtimeHost = page;
-    const existingRuntime = runtimeHost[RUNTIME_PROPERTY];
-    if (existingRuntime && existingRuntime.version === RUNTIME_VERSION && existingRuntime.ready === true && typeof existingRuntime.dispose === "function") {
-      existingRuntime.reinjections += 1;
-      return;
+    const rejected = (code, message) => ({
+      ok: false,
+      nonce: "",
+      command: "",
+      payload: null,
+      failure: { code, message }
+    });
+    if (!/^__uf_[a-f\d]{32,128}$/i.test(endpointKey) || !/^[a-f\d]{64}$/i.test(capability)) {
+      return rejected("PAGE_CAPABILITY_INVALID", "Page-world capability identity is invalid");
     }
-    let inheritedQueuedTimers = [];
-    let inheritedEventRegistrations = [];
-    if (existingRuntime && typeof existingRuntime.dispose === "function") {
+    const existingRuntime = runtimeHost[endpointKey];
+    if (typeof existingRuntime === "function") {
       try {
-        const takeover = existingRuntime.dispose();
-        inheritedQueuedTimers = takeover.queuedTimers;
-        inheritedEventRegistrations = takeover.eventRegistrations;
+        const result = await existingRuntime(capability, { kind: "probe" });
+        return result;
       } catch {
+        return rejected("PAGE_RUNTIME_UNAVAILABLE", "Page-world runtime probe failed");
       }
     }
-    const runtimeLease = {
-      version: RUNTIME_VERSION,
-      reinjections: 0,
-      ready: false,
-      dispose: () => ({ queuedTimers: [], eventRegistrations: [] })
-    };
-    const CHANNEL = "uf-page-bus/1";
-    const LEGACY_CHANNEL = "unfluffify:page-world-relay:v1";
-    const URL_CHANGED_KIND = "uf-page-url-changed/1";
+    const inheritedQueuedTimers = [];
+    let inheritedEventRegistrations = [];
     const OPEN_SHADOW_ATTACHED_EVENT = "uf:open-shadow-attached";
     const MOTION_CAPTURE_LEDGER_ATTR = "data-uf-motion-lock-ledger";
     const MAX_MOTION_LOCKS = 800;
@@ -180,7 +176,6 @@
     const pendingMotionRoots = /* @__PURE__ */ new Set();
     const pendingMotionElements = /* @__PURE__ */ new Set();
     const motionEventCleanups = [];
-    const navigationCleanups = [];
     const lazyEventCleanups = [];
     const lazyTargetRestorations = [];
     let motionStyle = null;
@@ -196,7 +191,6 @@
     let motionSourceHooksInstalled = false;
     let motionErrorCount = 0;
     let lifecyclePhase = "idle";
-    let lastKnownUrl = page.location && page.location.href ? String(page.location.href) : "";
     let nestedLazyViewportOwner = null;
     let lazyOwnerObserver = null;
     let lazyOwnerRefreshScheduled = false;
@@ -247,54 +241,6 @@
       patched.__ufClosedShadowInstrumented = true;
       page.Element.prototype.attachShadow = patched;
       installedAttachShadow = patched;
-    }
-    function emitUrlChanged() {
-      const currentUrl = page.location && page.location.href ? String(page.location.href) : "";
-      if (!currentUrl || currentUrl === lastKnownUrl) return;
-      const previousUrl = lastKnownUrl;
-      lastKnownUrl = currentUrl;
-      page.postMessage?.({
-        kind: URL_CHANGED_KIND,
-        fromUrl: previousUrl,
-        toUrl: currentUrl
-      }, "*");
-    }
-    function installNavigationBridge() {
-      if (!page.history) return;
-      const patchHistoryMethod = (method) => {
-        const original = page.history[method];
-        if (typeof original !== "function") return;
-        const patched = function patchedHistoryMethod(...args) {
-          const result = original.apply(this, args);
-          if (typeof page.queueMicrotask === "function") {
-            page.queueMicrotask(emitUrlChanged);
-          } else {
-            originals.setTimeout.call(page, emitUrlChanged, 0);
-          }
-          return result;
-        };
-        page.history[method] = patched;
-        navigationCleanups.push(() => {
-          if (page.history[method] === patched) page.history[method] = original;
-        });
-      };
-      patchHistoryMethod("pushState");
-      patchHistoryMethod("replaceState");
-      page.addEventListener?.("popstate", emitUrlChanged);
-      page.addEventListener?.("hashchange", emitUrlChanged);
-      if (originals.rootRemoveEventListener) {
-        navigationCleanups.push(() => {
-          try {
-            originals.rootRemoveEventListener?.call(page, "popstate", emitUrlChanged);
-            originals.rootRemoveEventListener?.call(page, "hashchange", emitUrlChanged);
-          } catch {
-          }
-          if (originals.removeEventListener !== originals.rootRemoveEventListener) {
-            originals.removeEventListener?.call(page, "popstate", emitUrlChanged);
-            originals.removeEventListener?.call(page, "hashchange", emitUrlChanged);
-          }
-        });
-      }
     }
     function listenerCapture(options) {
       return typeof options === "boolean" ? options : Boolean(options && options.capture);
@@ -2070,31 +2016,18 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
       sessionNonce = "";
       lifecyclePhase = "idle";
     }
-    function reply(source, request, ok, payload, failure) {
-      if (request.channel === LEGACY_CHANNEL) {
-        source.postMessage({
-          channel: LEGACY_CHANNEL,
-          kind: "response",
-          id: request.id,
-          nonce: request.nonce,
-          command: request.command,
-          ok,
-          result: ok ? payload : void 0,
-          code: ok ? void 0 : failure && failure.code,
-          error: ok ? void 0 : failure && failure.message,
-          details: ok ? void 0 : failure
-        }, "*");
-        return;
-      }
-      source.postMessage({
-        kind: CHANNEL,
-        type: "response",
-        nonce: request.nonce,
-        command: request.command,
+    const responseResolvers = /* @__PURE__ */ new Map();
+    function reply(_source, request, ok, payload, failure) {
+      const nonce = request.nonce ?? "";
+      const resolve = responseResolvers.get(nonce);
+      if (!resolve) return;
+      resolve({
         ok,
-        payload: ok ? payload : null,
+        nonce,
+        command: request.command ?? "",
+        payload: ok && payload && typeof payload === "object" ? payload : null,
         failure: ok ? void 0 : failure
-      }, "*");
+      });
     }
     async function handlePageWorldRequest(request, requestEpoch = commandEpoch) {
       const command = normalizeCommand(request.command);
@@ -2112,7 +2045,7 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
         });
         return;
       }
-      const requestSessionNonce = request.channel === LEGACY_CHANNEL ? request.nonce : request.sessionNonce;
+      const requestSessionNonce = request.sessionNonce;
       if (command === "RECONCILE") {
         resetPageWorldToIdle();
         reply(page, request, true, {
@@ -2250,7 +2183,7 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
       if (command === "RECONCILE") return true;
       if (command !== "DESTROY") return false;
       if (!armed) return true;
-      const requestSessionNonce = request.channel === LEGACY_CHANNEL ? request.nonce : request.sessionNonce;
+      const requestSessionNonce = request.sessionNonce;
       return requestSessionNonce === sessionNonce;
     };
     const preemptForTerminal = () => {
@@ -2290,15 +2223,33 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
       if (!next) return;
       startCommand(next.request).then(next.resolve, next.reject);
     }
-    const handlePageWorldMessage = (event) => {
-      const request = event.data;
-      if (event.source !== globalThis) {
-        return;
+    const dispatchCommand = async (request) => {
+      const nonce = request.nonce ?? "";
+      if (!nonce || responseResolvers.has(nonce)) {
+        return {
+          ok: false,
+          nonce,
+          command: request.command ?? "",
+          payload: null,
+          failure: {
+            code: nonce ? "PAGE_NONCE_IN_USE" : "PAGE_NONCE_REQUIRED",
+            message: nonce ? "Page-world command nonce is already active" : "Page-world command requires a nonce"
+          }
+        };
       }
-      if (!request || !(request.kind === CHANNEL && request.type === "request" || request.channel === LEGACY_CHANNEL && request.kind === "request")) {
-        return;
+      try {
+        return await new Promise((resolve) => {
+          responseResolvers.set(nonce, resolve);
+          void enqueueCommand(request).catch((error) => {
+            reply(page, request, false, null, {
+              code: "PAGE_COMMAND_FAILED",
+              message: error instanceof Error ? error.message : "Page-world command failed"
+            });
+          });
+        });
+      } finally {
+        responseResolvers.delete(nonce);
       }
-      return enqueueCommand(request);
     };
     function uniqueTransferredRegistrations(registrations) {
       const unique = [];
@@ -2409,32 +2360,6 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
       rafTokens.clear();
       idleTokens.clear();
     }
-    function removeRuntimeMessageListener() {
-      try {
-        originals.rootRemoveEventListener?.call(page, "message", handlePageWorldMessage);
-      } catch {
-      }
-      if (originals.removeEventListener !== originals.rootRemoveEventListener) {
-        try {
-          originals.removeEventListener?.call(page, "message", handlePageWorldMessage);
-        } catch {
-        }
-      }
-    }
-    function retireRuntimeMarker() {
-      runtimeLease.ready = false;
-      try {
-        if (runtimeHost[RUNTIME_PROPERTY] !== runtimeLease) return;
-        if (!Reflect.deleteProperty(runtimeHost, RUNTIME_PROPERTY)) {
-          Reflect.set(runtimeHost, RUNTIME_PROPERTY, void 0);
-        }
-      } catch {
-        try {
-          Reflect.set(runtimeHost, RUNTIME_PROPERTY, void 0);
-        } catch {
-        }
-      }
-    }
     function disposeRuntime() {
       commandEpoch += 1;
       activeCommand = null;
@@ -2518,7 +2443,6 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
       installedIntersectionObserver = null;
       installedResizeObserver = null;
       lazyBridgeInstalled = false;
-      runCleanupsSafely(navigationCleanups);
       try {
         if (installedAttachShadow && page.Element && page.Element.prototype.attachShadow === installedAttachShadow && originals.attachShadow) {
           page.Element.prototype.attachShadow = originals.attachShadow;
@@ -2526,20 +2450,46 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
       } catch {
       }
       installedAttachShadow = null;
-      removeRuntimeMessageListener();
-      retireRuntimeMarker();
       return {
         queuedTimers: carriedTimers,
         eventRegistrations: transferredRegistrations
       };
     }
-    runtimeLease.dispose = disposeRuntime;
+    let retired = false;
+    const capabilityDispatcher = async (providedCapability, invocation) => {
+      if (providedCapability !== capability) {
+        return rejected("PAGE_CAPABILITY_REJECTED", "Page-world capability was rejected");
+      }
+      if (retired) {
+        return rejected("PAGE_RUNTIME_RETIRED", "Page-world runtime has been retired");
+      }
+      if (invocation.kind === "probe") {
+        return {
+          ok: true,
+          nonce: "",
+          command: "PROBE",
+          payload: { ready: true, version: RUNTIME_VERSION }
+        };
+      }
+      if (invocation.kind === "retire") {
+        disposeRuntime();
+        retired = true;
+        return {
+          ok: true,
+          nonce: "",
+          command: "RETIRE",
+          payload: { ready: false, retired: true, version: RUNTIME_VERSION }
+        };
+      }
+      if (!invocation.request) {
+        return rejected("PAGE_COMMAND_REQUIRED", "Page-world command request is missing");
+      }
+      return await dispatchCommand(invocation.request);
+    };
     const adoptedInheritedRegistrations = [];
     try {
       installLazyLoadingBridge();
-      installNavigationBridge();
       installClosedShadowInstrumentation();
-      originals.rootAddEventListener.call(page, "message", handlePageWorldMessage);
       for (const registration of uniqueTransferredRegistrations(inheritedEventRegistrations)) {
         registration.target.addEventListener(
           registration.type,
@@ -2553,16 +2503,15 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
         flushQueued();
         restoreTimerBridge();
       }
-      runtimeLease.ready = true;
-      Object.defineProperty(runtimeHost, RUNTIME_PROPERTY, {
-        configurable: true,
+      Object.defineProperty(runtimeHost, endpointKey, {
+        configurable: false,
         enumerable: false,
-        writable: true,
-        value: runtimeLease
+        writable: false,
+        value: capabilityDispatcher
       });
       inheritedEventRegistrations = [];
+      return await capabilityDispatcher(capability, { kind: "probe" });
     } catch (error) {
-      runtimeLease.ready = false;
       removeTransferredRegistrationsBestEffort(adoptedInheritedRegistrations);
       const abandoned = disposeRuntime();
       restoreTransferredRegistrationsBestEffort([
@@ -2570,7 +2519,10 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
         ...abandoned.eventRegistrations
       ]);
       releaseTransferredTimersBestEffort(abandoned.queuedTimers);
-      throw error;
+      return rejected(
+        "PAGE_RUNTIME_INSTALL_FAILED",
+        error instanceof Error ? error.message : "Page-world runtime installation failed"
+      );
     }
-  })();
+  }
 })();

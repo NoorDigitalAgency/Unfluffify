@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import { AiRunPayloadSnapshotSchema, type AiRunPayloadSnapshot } from "../domain/schema/submission";
 import { SelectorSetSchema, type SelectorSet } from "../storage/config";
-import type { JsonTransport } from "./transport";
+import type { JsonRequest, JsonTransport } from "./transport";
 
 export const AI_RUN_POLL_INTERVAL_MS = 5_000;
 export const AI_RUN_TIMEOUT_MS = 8 * 60 * 1000;
@@ -11,13 +11,14 @@ export const GetSelectorsRequestSchema = AiRunPayloadSnapshotSchema;
 export type GetSelectorsRequest = AiRunPayloadSnapshot;
 export type AiStartResult =
   | Readonly<{ status: "ok"; sessionId: string }>
-  | Readonly<{ status: "auth_error" | "error"; httpStatus: number }>;
+  | Readonly<{ status: "auth_error" | "error"; httpStatus: number; reason?: string }>;
 export type AiStatusResult =
   | Readonly<{ status: "ok"; sessionId: string; runStatus: string }>
-  | Readonly<{ status: "not_found" | "error"; httpStatus: number }>;
+  | Readonly<{ status: "not_found" | "error"; httpStatus: number; reason?: string }>;
 export type AiResultResult =
   | Readonly<{ status: "ok"; selectors: SelectorSet }>
-  | Readonly<{ status: "not_found" | "invalid" | "error"; httpStatus: number }>;
+  | Readonly<{ status: "not_found" | "invalid" | "error"; httpStatus: number; reason?: string }>;
+type AiRequestOptions = Readonly<Pick<JsonRequest, "signal" | "deadlineAt">>;
 
 export function parseAiRunStartResponse(payload: unknown): string {
   const parsed = z.object({ session_id: z.string().min(1) }).safeParse(payload);
@@ -43,21 +44,34 @@ export function parseAiRunResultResponse(payload: unknown): SelectorSet {
   return SelectorSetSchema.parse(payload);
 }
 
-export async function startAiRun(transport: JsonTransport, snapshot: GetSelectorsRequest): Promise<AiStartResult> {
+export async function startAiRun(
+  transport: JsonTransport,
+  snapshot: GetSelectorsRequest,
+  options: AiRequestOptions = {},
+): Promise<AiStartResult> {
   const response = await transport({
     method: "POST",
     path: "/get_selectors",
     body: GetSelectorsRequestSchema.parse(snapshot),
+    ...options,
   });
   if (response.status === 401 || response.status === 403) {
     return { status: "auth_error", httpStatus: response.status };
   }
   if (response.status !== 200 && response.status !== 202) {
-    return { status: "error", httpStatus: response.status };
+    return {
+      status: "error",
+      httpStatus: response.status,
+      ...(response.transportFailure ? { reason: response.transportFailure.kind } : {}),
+    };
   }
   const sessionId = parseAiRunStartResponse(response.body);
   if (!sessionId) {
-    return { status: "error", httpStatus: response.status };
+    return {
+      status: "error",
+      httpStatus: response.status,
+      ...(response.transportFailure ? { reason: response.transportFailure.kind } : {}),
+    };
   }
   return { status: "ok", sessionId };
 }
@@ -65,20 +79,30 @@ export async function startAiRun(transport: JsonTransport, snapshot: GetSelector
 export async function getAiRunStatus(
   transport: JsonTransport,
   sessionId: string,
+  options: AiRequestOptions = {},
 ): Promise<AiStatusResult> {
   const response = await transport({
     method: "GET",
     path: `/get_selectors/status/${encodeURIComponent(sessionId)}`,
+    ...options,
   });
   if (response.status === 404) {
     return { status: "not_found", httpStatus: response.status };
   }
   if (response.status !== 200) {
-    return { status: "error", httpStatus: response.status };
+    return {
+      status: "error",
+      httpStatus: response.status,
+      ...(response.transportFailure ? { reason: response.transportFailure.kind } : {}),
+    };
   }
   const parsed = parseAiRunStatusResponse(response.body);
   if (!parsed || parsed.sessionId !== sessionId) {
-    return { status: "error", httpStatus: response.status };
+    return {
+      status: "error",
+      httpStatus: response.status,
+      ...(response.transportFailure ? { reason: response.transportFailure.kind } : {}),
+    };
   }
   return { status: "ok", sessionId: parsed.sessionId, runStatus: parsed.status };
 }
@@ -86,20 +110,30 @@ export async function getAiRunStatus(
 export async function getAiRunResult(
   transport: JsonTransport,
   sessionId: string,
+  options: AiRequestOptions = {},
 ): Promise<AiResultResult> {
   const response = await transport({
     method: "GET",
     path: `/get_selectors/result/${encodeURIComponent(sessionId)}`,
+    ...options,
   });
   if (response.status === 404) {
     return { status: "not_found", httpStatus: response.status };
   }
   if (response.status !== 200) {
-    return { status: "error", httpStatus: response.status };
+    return {
+      status: "error",
+      httpStatus: response.status,
+      ...(response.transportFailure ? { reason: response.transportFailure.kind } : {}),
+    };
   }
   try {
     return { status: "ok", selectors: parseAiRunResultResponse(response.body) };
   } catch {
-    return { status: "invalid", httpStatus: response.status };
+    return {
+      status: "invalid",
+      httpStatus: response.status,
+      ...(response.transportFailure ? { reason: response.transportFailure.kind } : {}),
+    };
   }
 }

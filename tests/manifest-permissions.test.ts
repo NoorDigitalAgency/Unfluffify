@@ -30,6 +30,7 @@ test("manifest uses extension-compatible media permissions", async () => {
   const manifest = await readManifestUnderTest();
 
   assert.equal(manifest.manifest_version, 3);
+  assert.equal(manifest.minimum_chrome_version, "116");
   assert.ok(!manifest.permissions.includes("audioCapture"));
   assert.ok(!manifest.permissions.includes("videoCapture"));
 });
@@ -48,11 +49,11 @@ test("manifest does not register global keyboard shortcuts", async () => {
   assert.equal(Object.hasOwn(manifest, "commands"), false);
 });
 
-test("manifest exposes the content UI icon font without the global icon stylesheet", async () => {
+test("manifest does not expose popup icon implementation assets to page content", async () => {
   const manifest = await readManifestUnderTest();
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
 
-  assert.ok(resources.includes("assets/materialdesignicons-webfont.woff2"));
+  assert.equal(resources.includes("assets/materialdesignicons-webfont.woff2"), false);
   assert.equal(resources.includes("assets/materialdesignicons.min.css"), false);
 });
 
@@ -71,7 +72,7 @@ test("every getURL-injected page resource is web-accessible (no under-scoping)",
   const manifest = await readManifestUnderTest();
   const resources = manifest.web_accessible_resources.flatMap((entry) => entry.resources || []);
   const contentEntrypoint = await readFile(new URL("../src/entrypoints/content-loader.content.ts", import.meta.url));
-  const pageWorld = await readFile(new URL("../src/page-world/program.js", import.meta.url));
+  const pageWorld = await readFile(new URL("../src/page-world/program.generated.js", import.meta.url));
 
   // Any literal extension-resource helper call loaded into the page world
   // (e.g. cursor image url) MUST be web-accessible or the browser blocks the

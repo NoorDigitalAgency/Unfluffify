@@ -7,7 +7,7 @@ import {
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 
-export const ARTIFACT_SCHEMA_VERSION = "p25-parity-browser-gate/v1";
+export const ARTIFACT_SCHEMA_VERSION = "p25-parity-browser-gate/v2";
 
 export const STRICT_P95_LEGACY_RATIO = 1.05;
 export const STRICT_INPUT_LONG_TASK_BUDGET_MS = INPUT_LONG_TASK_BUDGET_MS;
@@ -161,5 +161,38 @@ export function validateP14StrictParity(artifact) {
     inputLongTaskBudgetMs: STRICT_INPUT_LONG_TASK_BUDGET_MS,
     p95Checks,
     longTasks,
+  };
+}
+
+export function validateP14WarmupArtifact(artifact) {
+  const validation = artifact?.validation;
+  const scalarChecks = {
+    smokeMode: artifact?.mode === "smoke",
+    samplesRetained: Array.isArray(artifact?.runs) && artifact.runs.length > 0,
+    sampleCardinality: validation?.sampleCardinality?.pass === true,
+    runPlan: validation?.runPlan?.pass === true,
+    timings: validation?.timings?.pass === true,
+    inputLongTasks: validation?.inputLongTasks?.pass === true,
+    ephemeralCleanup: validation?.ephemeralCleanup?.pass === true,
+    browserEnvironment: validation?.environment?.pass === true,
+    pageErrors: validation?.pageErrors?.pass === true,
+  };
+  const catalogChecks = {
+    semantics: Array.isArray(validation?.semantics)
+      && validation.semantics.length > 0
+      && validation.semantics.every((check) => check?.pass === true),
+    rewriteActivationTransactions: Array.isArray(validation?.rewriteActivationTransactions)
+      && validation.rewriteActivationTransactions.length > 0
+      && validation.rewriteActivationTransactions.every((check) => check?.pass === true),
+    mutationPressure: Array.isArray(validation?.mutationPressure)
+      && validation.mutationPressure.length > 0
+      && validation.mutationPressure.every((check) => check?.pass === true),
+  };
+  return {
+    pass: Object.values(scalarChecks).every(Boolean)
+      && Object.values(catalogChecks).every(Boolean),
+    scalarChecks,
+    catalogChecks,
+    budgetChecksIntentionallyExcluded: true,
   };
 }

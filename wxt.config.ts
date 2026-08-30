@@ -42,6 +42,7 @@ export default defineConfig({
     },
     build: {
       sourcemap: resolveSourcemap(),
+      target: "chrome116",
     },
   }),
   hooks: {
@@ -54,6 +55,7 @@ export default defineConfig({
     version: packageJson.version,
     description:
       "Chrome extension to label what's non-meaningful text content to help AI find the meaningful text content.",
+    minimum_chrome_version: "116",
     action: SOURCE_ACTION,
     permissions: [
       "storage",
@@ -72,7 +74,6 @@ export default defineConfig({
     web_accessible_resources: [
       {
         resources: [
-          "assets/materialdesignicons-webfont.woff2",
           "cursors/*.svg"
         ],
         matches: ["<all_urls>"]

@@ -9,6 +9,7 @@ import type {
   RenderInspectionRecord,
   RenderInspectionRepo,
 } from "../../../src/storage/repositories/render-inspection";
+import { createGatePageWorldCapabilityHarness } from "../page-world-capability-harness";
 
 const TAB_ID = 76;
 const RECORD_KEY = "p16-render-inspection-record";
@@ -83,6 +84,13 @@ let readyError = "";
 let invalidationCallback: (() => void) | null = null;
 let workerRestarts = 0;
 let pageContextResponses = 0;
+
+const pageWorld = createGatePageWorldCapabilityHarness({
+  tabId: TAB_ID,
+  documentId: DOCUMENT_ID,
+  currentPageUrl: () => location.href,
+  failurePrefix: "P16",
+});
 
 function readRecord(): RenderInspectionRecord | null {
   try {
@@ -235,6 +243,31 @@ async function sendBackgroundMessage(message: unknown): Promise<unknown> {
   if (frame.frameType === "event") return undefined;
 
   switch (frame.name) {
+    case "pageWorld.acquire": {
+      const requestedPageUrl = (frame.payload as { pageUrl?: unknown } | undefined)?.pageUrl;
+      const pageUrl = typeof requestedPageUrl === "string" ? requestedPageUrl : location.href;
+      return replyTo(frame, await pageWorld.acquire(pageUrl));
+    }
+    case "pageWorld.command": {
+      const payload = frame.payload && typeof frame.payload === "object"
+        ? frame.payload as {
+            pageUrl?: unknown;
+            nonce?: unknown;
+            sessionNonce?: unknown;
+            command?: unknown;
+            payload?: unknown;
+          }
+        : {};
+      const pageUrl = typeof payload.pageUrl === "string" ? payload.pageUrl : location.href;
+      return replyTo(frame, await pageWorld.command(pageUrl, {
+        nonce: typeof payload.nonce === "string" ? payload.nonce : undefined,
+        sessionNonce: typeof payload.sessionNonce === "string" ? payload.sessionNonce : undefined,
+        command: typeof payload.command === "string" ? payload.command : undefined,
+        payload: payload.payload && typeof payload.payload === "object"
+          ? payload.payload as Record<string, unknown>
+          : undefined,
+      }));
+    }
     case "renderInspection.adopt": {
       const payload = frame.payload as Readonly<{ pageUrl: string; documentNonce: string }>;
       const response = await background.adopt({

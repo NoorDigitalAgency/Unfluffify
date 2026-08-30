@@ -4,10 +4,28 @@ import { createRenderEmulationRuntime } from "../../../src/background/render-emu
 
 const REAL_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
 
-function fakeDebugger() {
+function fakeDebugger(options: Readonly<{ keepDocumentIdentityStale?: boolean }> = {}) {
   const sent: Array<{ method: string; params?: Record<string, unknown> }> = [];
   const attaches: number[] = [];
   const detaches: number[] = [];
+  let width = 1920;
+  let height = 1080;
+  let devicePixelRatio = 1;
+  let visualViewportScale = 1;
+  let maxTouchPoints = 0;
+  let documentUserAgent = REAL_UA;
+  let overrideUserAgent = REAL_UA;
+  let mismatchedProofsRemaining = 0;
+  let media = {
+    pointerCoarse: false,
+    pointerFine: true,
+    hoverNone: false,
+    hoverHover: true,
+    anyPointerCoarse: false,
+    anyPointerFine: true,
+    anyHoverNone: false,
+    anyHoverHover: true,
+  };
   let onDetach: ((source: { tabId?: number }, reason?: string) => void) | null = null;
   let deferredCommand: Readonly<{
     method: string;
@@ -18,6 +36,12 @@ function fakeDebugger() {
     sent,
     attaches,
     detaches,
+    documentReloaded() {
+      documentUserAgent = overrideUserAgent;
+    },
+    mismatchNextProofs(count: number) {
+      mismatchedProofsRemaining = count;
+    },
     detach(tabId: number, reason?: string) {
       onDetach?.({ tabId }, reason);
     },
@@ -61,7 +85,61 @@ function fakeDebugger() {
           deferred.started();
           return;
         }
-        callback?.(method === "Runtime.evaluate" ? { result: { value: REAL_UA } } : {});
+        if (method === "Emulation.setDeviceMetricsOverride") {
+          width = Number(params?.width ?? width);
+          height = Number(params?.height ?? height);
+          devicePixelRatio = Number(params?.deviceScaleFactor ?? devicePixelRatio);
+        } else if (method === "Emulation.setPageScaleFactor") {
+          visualViewportScale = Number(params?.pageScaleFactor ?? visualViewportScale);
+        } else if (method === "Emulation.setTouchEmulationEnabled") {
+          maxTouchPoints = params?.enabled === true ? Number(params.maxTouchPoints ?? 1) : 0;
+        } else if (method === "Emulation.setEmulatedMedia") {
+          const features = Array.isArray(params?.features) ? params.features as Array<{ name?: string; value?: string }> : [];
+          const value = (name: string): string | undefined => features.find((feature) => feature.name === name)?.value;
+          media = {
+            pointerCoarse: value("pointer") === "coarse",
+            pointerFine: value("pointer") === "fine",
+            hoverNone: value("hover") === "none",
+            hoverHover: value("hover") === "hover",
+            anyPointerCoarse: value("any-pointer") === "coarse",
+            anyPointerFine: value("any-pointer") === "fine",
+            anyHoverNone: value("any-hover") === "none",
+            anyHoverHover: value("any-hover") === "hover",
+          };
+        } else if (method === "Emulation.setUserAgentOverride") {
+          overrideUserAgent = String(params?.userAgent ?? "");
+          if (!options.keepDocumentIdentityStale) {
+            documentUserAgent = overrideUserAgent;
+          }
+        }
+        if (method === "Runtime.evaluate") {
+          const expression = String(params?.expression ?? "");
+          if (expression.includes("__unfluffifyEmulationProof")) {
+            const measuredWidth = mismatchedProofsRemaining > 0 ? width + 1 : width;
+            mismatchedProofsRemaining = Math.max(0, mismatchedProofsRemaining - 1);
+            callback?.({
+              result: {
+                value: {
+                  innerWidth: measuredWidth,
+                  innerHeight: height,
+                  devicePixelRatio,
+                  visualViewportScale,
+                  maxTouchPoints,
+                  userAgent: documentUserAgent,
+                  ...media,
+                },
+              },
+            });
+            return;
+          }
+          if (expression.includes("requestAnimationFrame")) {
+            callback?.({ result: { value: true } });
+            return;
+          }
+          callback?.({ result: { value: documentUserAgent } });
+          return;
+        }
+        callback?.({});
       },
       onDetach: {
         addListener(listener: (source: { tabId?: number }, reason?: string) => void) {
@@ -116,6 +194,48 @@ describe("render emulation runtime", () => {
 
     const metrics = debuggerApi.sent.find((call) => call.method === "Emulation.setDeviceMetricsOverride");
     expect(metrics?.params).toMatchObject({ mobile: false, width: 1920 });
+  });
+
+  it("retries one frame-late viewport once and acknowledges only the exact proof", async () => {
+    const debuggerApi = fakeDebugger();
+    debuggerApi.mismatchNextProofs(1);
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+    });
+
+    await expect(runtime.apply(7, "mobile", 1, false)).resolves.toMatchObject({
+      mode: "mobile",
+      width: 412,
+      height: 960,
+      active: true,
+      identityStale: false,
+    });
+    expect(debuggerApi.sent.filter((call) => call.method === "Emulation.setDeviceMetricsOverride"))
+      .toHaveLength(2);
+    expect(debuggerApi.sent.some((call) =>
+      call.method === "Runtime.evaluate" &&
+      String(call.params?.expression ?? "").includes("requestAnimationFrame")
+    )).toBe(true);
+  });
+
+  it("rolls a persistent proof mismatch back to the last exact posture", async () => {
+    const debuggerApi = fakeDebugger();
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+    });
+    await runtime.apply(7, "mobile", 1, false);
+    debuggerApi.mismatchNextProofs(2);
+
+    await expect(runtime.apply(7, "desktop", 1, false)).resolves.toMatchObject({
+      mode: "desktop",
+      active: false,
+      failureReason: "viewport_mismatch",
+    });
+    expect(runtime.heldMode(7)).toBe("mobile");
+    expect(debuggerApi.sent.findLast((call) => call.method === "Emulation.setDeviceMetricsOverride")?.params)
+      .toMatchObject({ width: 412, height: 960, mobile: true });
   });
 
   it("does not chase a tab that is closing", async () => {
@@ -204,6 +324,7 @@ describe("render emulation runtime", () => {
       "Emulation.setTouchEmulationEnabled",
       "Emulation.setEmulatedMedia",
       "Emulation.setUserAgentOverride",
+      "Runtime.evaluate",
     ]);
     expect(debuggerApi.sent[1]?.params).toEqual({ pageScaleFactor: 1 });
     expect(debuggerApi.sent[2]?.params).toEqual({ enabled: true, maxTouchPoints: 1 });
@@ -223,7 +344,7 @@ describe("render emulation runtime", () => {
     // Chrome fixes navigator.userAgent per document, so the override governs the
     // next load. The reload is what makes it real — and it is the popup's call,
     // because only it knows whether a marking session would lose work.
-    const stale = fakeDebugger();
+    const stale = fakeDebugger({ keepDocumentIdentityStale: true });
     const staleTabs = { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() };
     const runtime = createRenderEmulationRuntime({ debuggerApi: stale.api, tabs: staleTabs });
 
@@ -232,8 +353,18 @@ describe("render emulation runtime", () => {
     expect(withoutPermission.identityStale).toBe(true);
     expect(staleTabs.reload).not.toHaveBeenCalled();
 
-    await runtime.apply(7, "mobile", 1, true);
+    await expect(runtime.apply(7, "mobile", 1, true)).resolves.toMatchObject({
+      active: false,
+      identityStale: true,
+      reloadRequired: true,
+      failureReason: "identity_mismatch",
+    });
     expect(staleTabs.reload).toHaveBeenCalledTimes(1);
+    stale.documentReloaded();
+    await expect(runtime.apply(7, "mobile", 1, false)).resolves.toMatchObject({
+      active: true,
+      identityStale: false,
+    });
   });
 
   it("provides script-mode and reload primitives without declaring inspection success", async () => {
@@ -284,6 +415,34 @@ describe("render emulation runtime", () => {
     }
   });
 
+  it("restores the last exact posture when a replacement CDP write throws", async () => {
+    const debuggerApi = fakeDebugger();
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+      apiTimeoutMs: 50,
+    });
+    await runtime.apply(7, "mobile", 1, false);
+
+    vi.useFakeTimers();
+    try {
+      const deferred = debuggerApi.deferNextCommand("Emulation.setDeviceMetricsOverride");
+      const applying = runtime.apply(7, "desktop", 1, false);
+      const rejection = expect(applying).rejects.toThrow(
+        "Debugger command Emulation.setDeviceMetricsOverride timed out",
+      );
+      await deferred.started;
+      await vi.advanceTimersByTimeAsync(50);
+
+      await rejection;
+      expect(runtime.heldMode(7)).toBe("mobile");
+      expect(debuggerApi.sent.findLast((call) => call.method === "Emulation.setDeviceMetricsOverride")?.params)
+        .toMatchObject({ width: 412, height: 960, mobile: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("continues after a missing touch-emulation acknowledgement", async () => {
     vi.useFakeTimers();
     try {
@@ -314,6 +473,10 @@ describe("render emulation runtime", () => {
 
   it("uses promise-only debugger APIs without supplying legacy callbacks", async () => {
     const sent: string[] = [];
+    let width = 1920;
+    let height = 1080;
+    let mobile = false;
+    let maxTouchPoints = 0;
     const debuggerApi = {
       attach: vi.fn(async (_target: { tabId?: number }, _version: string, callback?: () => void) => {
         expect(callback).toBeUndefined();
@@ -324,14 +487,48 @@ describe("render emulation runtime", () => {
       sendCommand: vi.fn(async (
         _target: { tabId?: number },
         method: string,
-        _params?: Record<string, unknown>,
+        params?: Record<string, unknown>,
         callback?: (result?: unknown) => void,
       ) => {
         expect(callback).toBeUndefined();
         sent.push(method);
-        return method === "Runtime.evaluate"
-          ? { result: { value: REAL_UA } }
-          : {};
+        if (method === "Emulation.setDeviceMetricsOverride") {
+          width = Number(params?.width ?? width);
+          height = Number(params?.height ?? height);
+          mobile = params?.mobile === true;
+        }
+        if (method === "Emulation.setTouchEmulationEnabled") {
+          maxTouchPoints = params?.enabled === true ? Number(params.maxTouchPoints ?? 1) : 0;
+        }
+        if (method !== "Runtime.evaluate") {
+          return {};
+        }
+        const expression = String(params?.expression ?? "");
+        if (expression.includes("__unfluffifyEmulationProof")) {
+          return {
+            result: {
+              value: {
+                innerWidth: width,
+                innerHeight: height,
+                devicePixelRatio: 1,
+                visualViewportScale: 1,
+                maxTouchPoints,
+                userAgent: REAL_UA,
+                pointerCoarse: mobile,
+                pointerFine: !mobile,
+                hoverNone: mobile,
+                hoverHover: !mobile,
+                anyPointerCoarse: mobile,
+                anyPointerFine: !mobile,
+                anyHoverNone: mobile,
+                anyHoverHover: !mobile,
+              },
+            },
+          };
+        }
+        return expression.includes("requestAnimationFrame")
+          ? { result: { value: true } }
+          : { result: { value: REAL_UA } };
       }),
     };
     const reload = vi.fn(async (_tabId: number, _options?: Record<string, unknown>, callback?: () => void) => {
@@ -343,7 +540,11 @@ describe("render emulation runtime", () => {
       apiMode: "promise",
     });
 
-    await expect(runtime.apply(7, "mobile", 1, true)).resolves.toMatchObject({ active: true });
+    await expect(runtime.apply(7, "mobile", 1, true)).resolves.toMatchObject({
+      active: false,
+      reloadRequired: true,
+      failureReason: "identity_mismatch",
+    });
     expect(sent).toContain("Emulation.setDeviceMetricsOverride");
     expect(reload).toHaveBeenCalledOnce();
     await expect(runtime.clear(7)).resolves.toMatchObject({ active: false });

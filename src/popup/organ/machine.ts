@@ -56,6 +56,8 @@ export type PopupState = Readonly<{
   runDirtyDuringRun?: boolean;
   runSessionId?: string;
   reconciliationDirty?: boolean;
+  /** Clean state restored when a canonical marking edit is exactly reversed. */
+  markingCleanState?: "pre_ai_clean" | "post_ai_clean";
 }>;
 
 export const INITIAL_POPUP_STATE: PopupState = {
@@ -168,18 +170,37 @@ export function transitionPopupState(state: PopupState, signal: BrainSignal): Po
         }
         : base;
     case "marking.enabled":
-      return { ...base, name: "pre_ai_clean", reconciliationReason: "", priorState: undefined, previewProjection: undefined };
-    case "markings.changed":
+      return {
+        ...base,
+        name: "pre_ai_clean",
+        reconciliationReason: "",
+        priorState: undefined,
+        previewProjection: undefined,
+        markingCleanState: "pre_ai_clean",
+      };
+    case "markings.changed": {
+      const dirty = signal.payload.dirty !== false;
       if (state.name === "running") {
         return {
           ...base,
-          runDirtyDuringRun: true,
+          runDirtyDuringRun: state.runDirtyDuringRun === true || dirty,
         };
+      }
+      if (!dirty) {
+        return state.name === "pre_ai_dirty"
+          ? {
+            ...base,
+            name: state.markingCleanState ?? "pre_ai_clean",
+            reconciliationReason: "",
+            previewProjection: undefined,
+          }
+          : base;
       }
       if (state.name === "preview_open") {
         return {
           ...base,
           name: "pre_ai_dirty",
+          markingCleanState: state.markingCleanState ?? "post_ai_clean",
           priorState: undefined,
           reconciliationReason: "",
           previewProjection: undefined,
@@ -192,8 +213,9 @@ export function transitionPopupState(state: PopupState, signal: BrainSignal): Po
         };
       }
       return state.name === "pre_ai_clean" || state.name === "post_ai_clean"
-        ? { ...base, name: "pre_ai_dirty" }
+        ? { ...base, name: "pre_ai_dirty", markingCleanState: state.name }
         : base;
+    }
     case "run.started":
       return {
         ...base,
@@ -232,6 +254,7 @@ export function transitionPopupState(state: PopupState, signal: BrainSignal): Po
         runDirtyDuringRun: undefined,
         runSessionId: undefined,
         selectors: selectors ?? state.selectors,
+        markingCleanState: "post_ai_clean",
       };
     }
     case "run.failed":
@@ -286,15 +309,15 @@ export function transitionPopupState(state: PopupState, signal: BrainSignal): Po
         ? { ...base, name: "pre_ai_dirty", reconciliationReason: "", priorState: undefined, runDeadlineAt: undefined, reconciliationDirty: undefined, previewProjection: undefined }
         // Saving hands the markings to the backend and ends the session, so the
         // local rows go with it.
-        : { ...base, name: "silent", reconciliationReason: "", priorState: undefined, runDeadlineAt: undefined, reconciliationDirty: undefined, markingRows: [], previewProjection: undefined };
+        : { ...base, name: "silent", reconciliationReason: "", priorState: undefined, runDeadlineAt: undefined, reconciliationDirty: undefined, markingRows: [], previewProjection: undefined, markingCleanState: undefined };
     case "marking.disabled":
     case "session.navigated":
       // Markings live only while marking mode is active, so leaving it must not
       // keep showing rows the page no longer has.
-      return { ...base, name: "silent", reconciliationReason: "", priorState: undefined, runDeadlineAt: undefined, markingRows: [], previewProjection: undefined };
+      return { ...base, name: "silent", reconciliationReason: "", priorState: undefined, runDeadlineAt: undefined, markingRows: [], previewProjection: undefined, markingCleanState: undefined };
     case "session.discarded":
       // Discard resets the page to a clean session; the rows it had are gone.
-      return state.name === "silent" ? base : { ...base, name: "pre_ai_clean", reconciliationReason: "", markingRows: [], previewProjection: undefined };
+      return state.name === "silent" ? base : { ...base, name: "pre_ai_clean", reconciliationReason: "", markingRows: [], previewProjection: undefined, markingCleanState: "pre_ai_clean" };
     case "inspection.started":
       return { ...base, name: "inspecting", priorState: state.name };
     case "inspection.ended":

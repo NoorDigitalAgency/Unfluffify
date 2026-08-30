@@ -133,6 +133,8 @@ describe("popup presentation contract", () => {
       settingsSaved: false,
       settingsDirty: false,
       settingsBusy: false,
+      settingsErrors: {},
+      settingsInvalid: false,
       stageBaseSet: false,
       authState: "unknown",
       authBusy: false,

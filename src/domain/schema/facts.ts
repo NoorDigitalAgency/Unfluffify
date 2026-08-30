@@ -71,6 +71,10 @@ export const TabFactsPatchSchema = z.object({
   /** Monotonic count of operator toggles. Never a row count: the page moves
    *  that on its own. */
   markingToggleSeq: z.number().int().nonnegative().optional(),
+  /** Reversible semantic dirtiness measured against the last clean canonical
+   * decision fingerprint. */
+  markingDirty: z.boolean().optional(),
+  markingFingerprint: z.string().optional(),
   runPhase: z.enum(["idle", "running", "completed", "failed"]).optional(),
   runSessionId: z.string().optional(),
   runDeadlineAt: z.number().int().nonnegative().optional(),
@@ -119,6 +123,8 @@ const TabFactsCompatibilitySchema = z.object({
   /** Monotonic count of operator toggles. Never a row count: the page moves
    *  that on its own. */
   markingToggleSeq: z.number().int().nonnegative().optional(),
+  markingDirty: z.boolean().optional(),
+  markingFingerprint: z.string().optional(),
   runPhase: z.enum(["idle", "running", "completed", "failed"]).optional(),
   runSessionId: z.string().optional(),
   runDeadlineAt: z.number().int().nonnegative().optional(),

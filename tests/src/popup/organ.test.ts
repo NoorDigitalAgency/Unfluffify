@@ -33,6 +33,28 @@ describe("rewrite popup FSM", () => {
     expect(state.name).toBe("pre_ai_dirty");
   });
 
+  it("restores the exact post-AI clean state when a marking edit is canonically reversed", () => {
+    let state = transitionPopupState(
+      {
+        name: "post_ai_clean",
+        lastConsumedSeq: 1,
+        reconciliationReason: "",
+        markingCleanState: "post_ai_clean",
+      },
+      signal(2, "markings.changed", { dirty: true, fingerprint: "changed" }),
+    );
+    expect(state.name).toBe("pre_ai_dirty");
+
+    state = transitionPopupState(
+      state,
+      signal(3, "markings.changed", { dirty: false, fingerprint: "fresh" }),
+    );
+    expect(state).toMatchObject({
+      name: "post_ai_clean",
+      markingCleanState: "post_ai_clean",
+    });
+  });
+
   it("marks preview edits dirty so Save cannot use stale preview selectors", () => {
     const state = transitionPopupState({ name: "preview_open", lastConsumedSeq: 1, reconciliationReason: "" }, signal(2, "markings.changed", { pageUrl: "https://example.com", markedCount: 1 }));
 

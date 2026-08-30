@@ -132,14 +132,14 @@ describe("corrective messaging application contracts", () => {
     const save = applicationContract.commands["settings.save"];
     const load = applicationContract.commands["settings.load"];
 
-    expect(save.request.parse({ stageBase: "stage.example.com", token: "tok_abc" }))
-      .toEqual({ stageBase: "stage.example.com" });
+    expect(save.request.safeParse({ stageBase: "stage.example.com", token: "tok_abc" }).success)
+      .toBe(false);
     expect(save.response.safeParse({ status: "ok", settings: {}, hasToken: true }).success).toBe(true);
     expect(load.response.safeParse({ settings: {}, hasToken: false }).success).toBe(true);
     // hasToken is how the popup learns about the credential — it is required.
     expect(load.response.safeParse({ settings: {} }).success).toBe(false);
-    expect(load.response.parse({ settings: { token: "tok_abc" }, hasToken: true }))
-      .toEqual({ settings: {}, hasToken: true });
+    expect(load.response.safeParse({ settings: { token: "tok_abc" }, hasToken: true }).success)
+      .toBe(false);
   });
 
   it("defines unregister as an explicit positive tab-scoped terminal command", () => {

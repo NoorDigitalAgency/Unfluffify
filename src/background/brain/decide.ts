@@ -54,7 +54,14 @@ export function decideSignals(prev: TabFacts | null, next: TabFacts): readonly S
     decisions.push({
       name: "markings.changed",
       cause: "marking-toggle",
-      payload: { pageUrl, markedCount: next.markingToggleSeq ?? 0 },
+      payload: {
+        pageUrl,
+        markedCount: next.markingToggleSeq ?? 0,
+        dirty: next.markingDirty !== false,
+        ...(next.markingFingerprint === undefined
+          ? {}
+          : { fingerprint: next.markingFingerprint }),
+      },
     });
   }
   if (prev?.runPhase !== "running" && next.runPhase === "running") {

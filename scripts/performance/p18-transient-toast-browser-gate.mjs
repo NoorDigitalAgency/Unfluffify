@@ -182,7 +182,7 @@ async function buildRuntimeBundles() {
       bundle: true,
       format: "iife",
       platform: "browser",
-      target: ["chrome120"],
+      target: ["chrome116"],
       sourcemap: false,
       legalComments: "none",
       charset: "utf8",

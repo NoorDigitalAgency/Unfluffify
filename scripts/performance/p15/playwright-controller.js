@@ -1034,9 +1034,9 @@ async (page) => {
     await waitForDurableStatus("active", "blocked-organ");
     const navigationBefore = await backgroundSnapshot();
     const navigationFrom = page.url();
-    await page.evaluate(() => {
+    await page.evaluate(async () => {
       history.pushState({ p15: true }, "", "/fixture-routed?variant=production");
-      window.postMessage({ kind: "uf-page-url-changed/1", toUrl: location.href }, "*");
+      await window.__p15Runtime.notifyPageUrlChanged(location.href);
       window.__p15Runtime.queueSignals([{ name: "session.navigated", payload: { pageUrl: location.href } }]);
     });
     await waitForContentState("silent");
@@ -1106,10 +1106,10 @@ async (page) => {
     await waitForShield(true);
     await waitForDurableStatus("active", "silent");
     const propertyExitBefore = await backgroundSnapshot();
-    await page.evaluate(() => {
+    await page.evaluate(async () => {
       window.__p15Runtime.setPageContextMode("unmanaged");
       history.pushState({ p15: "property-exit" }, "", "/outside-property");
-      window.postMessage({ kind: "uf-page-url-changed/1", toUrl: location.href }, "*");
+      await window.__p15Runtime.notifyPageUrlChanged(location.href);
     });
     await waitForShield(false);
     await waitForDurableStatus("inactive");

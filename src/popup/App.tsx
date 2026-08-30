@@ -33,9 +33,11 @@ import {
 
 import type { RenderMode } from "../domain/schema/property";
 import type { TransientToast } from "../ui/toast-controller";
+import { focusRovingEdge, moveRovingDomFocus } from "../ui/roving-focus";
 import { DEFAULT_POPUP_VIEW, type PopupView } from "./view";
 import type { PopupPresentation } from "./organ/memory";
 import type { LockAction, LockActionKind } from "../domain/schema/facts";
+import { resolvePopupBlockedReasonCopy } from "./copy";
 import {
   DEFAULT_POPUP_APPEARANCE,
   THEME_OPTIONS,
@@ -332,6 +334,8 @@ export function App({
   const [pendingMaintenanceAction, setPendingMaintenanceAction] = React.useState<"cache" | "unregister" | null>(null);
   const [pendingMarkingDisable, setPendingMarkingDisable] = React.useState(false);
   const [pendingDiscard, setPendingDiscard] = React.useState(false);
+  const headerMenuFocusEdge = React.useRef<"first" | "last">("first");
+  const themeMenuFocusEdge = React.useRef<"first" | "last">("first");
   const headerMenuRef = React.useRef<HTMLDivElement | null>(null);
   const themeMenuRef = React.useRef<HTMLDivElement | null>(null);
   const lockConfirmationRef = React.useRef<HTMLSpanElement | null>(null);
@@ -418,6 +422,8 @@ export function App({
      in, then reach the backend. */
   const setupProblem = !diagnostics.settingsLoaded
     ? "unreadable"
+    : diagnostics.settingsInvalid
+      ? "invalid"
     : !diagnostics.stageBaseSet
       ? "unconfigured"
       : diagnostics.authState === "signed_out" || diagnostics.authState === "invalid"
@@ -453,6 +459,8 @@ export function App({
   ].includes(diagnostics.todoStatus);
   const setupCopy = setupProblem === "unreadable"
     ? "Reading the stored connection… if this persists, reopen the panel."
+    : setupProblem === "invalid"
+      ? "The stored connection is invalid. Replace or clear the highlighted values."
     : setupProblem === "unconfigured"
       ? "Set the stage base host below and save it."
       : setupProblem === "signed_out"
@@ -541,6 +549,23 @@ export function App({
     escape: "dismiss",
     dismiss: () => setThemeMenuOpen(false),
   });
+  React.useEffect(() => {
+    if (!headerMenuOpen) return;
+    focusRovingEdge(
+      headerMenuRef.current?.querySelector("#header-configuration-menu") ?? null,
+      '[role="menuitem"]',
+      headerMenuFocusEdge.current,
+    );
+  }, [headerMenuOpen]);
+  React.useEffect(() => {
+    if (!themeMenuOpen) return;
+    focusRovingEdge(
+      themeMenuRef.current?.querySelector("#theme-options-listbox") ?? null,
+      '[role="option"]',
+      themeMenuFocusEdge.current,
+      `theme-option-${appearance.theme}`,
+    );
+  }, [appearance.theme, themeMenuOpen]);
   useTransientSurfaceRegistration(transientManager, pendingLockActionIsCurrent, {
     id: "lock-confirmation",
     kind: "confirmation",
@@ -558,6 +583,8 @@ export function App({
       root: () => maintenanceConfirmationRef.current,
       outside: "ignore",
       escape: diagnostics.maintenanceBusy ? "block" : "dismiss",
+      modal: true,
+      initialFocus: () => maintenanceConfirmationRef.current?.querySelector("#maintenance-cancel") ?? null,
       dismiss: () => setPendingMaintenanceAction(null),
     },
   );
@@ -567,6 +594,8 @@ export function App({
     root: () => markingDisableConfirmationRef.current,
     outside: "ignore",
     escape: "dismiss",
+    modal: true,
+    initialFocus: () => markingDisableConfirmationRef.current?.querySelector("#marking-disable-cancel") ?? null,
     dismiss: () => setPendingMarkingDisable(false),
   });
   useTransientSurfaceRegistration(transientManager, pendingDiscard, {
@@ -575,6 +604,8 @@ export function App({
     root: () => discardConfirmationRef.current,
     outside: "ignore",
     escape: "dismiss",
+    modal: true,
+    initialFocus: () => discardConfirmationRef.current?.querySelector("#discard-cancel") ?? null,
     dismiss: () => setPendingDiscard(false),
   });
   // Register the checklist before its nested candidate confirmation so Escape
@@ -585,6 +616,8 @@ export function App({
     root: () => checklistRef.current,
     outside: "ignore",
     escape: lynxChecklist.phase === "publishing" ? "block" : "dismiss",
+    modal: true,
+    initialFocus: () => checklistRef.current?.querySelector("#lynx-checklist-cancel") ?? null,
     dismiss: () => onCloseLynxChecklist?.(),
   });
   useTransientSurfaceRegistration(transientManager, pendingCandidatePageKey !== null, {
@@ -594,6 +627,8 @@ export function App({
     root: () => candidateConfirmationRef.current,
     outside: "ignore",
     escape: "dismiss",
+    modal: true,
+    initialFocus: () => candidateConfirmationRef.current?.querySelector("#candidate-navigation-cancel") ?? null,
     dismiss: () => setPendingCandidatePageKey(null),
   });
   useTransientSurfaceRegistration(transientManager, curtainKind === "busy", {
@@ -602,6 +637,7 @@ export function App({
     root: () => busyCurtainRef.current,
     outside: "ignore",
     escape: "block",
+    modal: true,
     dismiss: () => undefined,
   });
   const panelBlocking = resolvePopupPanelBlocking({
@@ -757,15 +793,33 @@ export function App({
             aria-label="Configuration menu"
             aria-haspopup="menu"
             aria-expanded={headerMenuOpen}
+            aria-controls="header-configuration-menu"
             data-transient-trigger="header-menu"
-            onClick={() => setHeaderMenuOpen((open) => !open)}
+            onClick={() => {
+              if (!headerMenuOpen) headerMenuFocusEdge.current = "first";
+              setHeaderMenuOpen((open) => !open);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+              event.preventDefault();
+              event.stopPropagation();
+              headerMenuFocusEdge.current = event.key === "ArrowDown" ? "first" : "last";
+              setHeaderMenuOpen(true);
+            }}
           >
             <i className="mdi mdi-dots-vertical btn-icon" aria-hidden="true" />
           </button>
           <div
+            id="header-configuration-menu"
             className="section-menu header-kebab-menu"
             role="menu"
+            aria-label="Configuration actions"
             hidden={!headerMenuOpen}
+            onKeyDown={(event) => {
+              if (!moveRovingDomFocus(event.currentTarget, '[role="menuitem"]', event.key)) return;
+              event.preventDefault();
+              event.stopPropagation();
+            }}
             {...(headerMenuOpen ? { "data-transient-surface": "header-menu" } : {})}
           >
           {configurationView ? (
@@ -773,6 +827,7 @@ export function App({
               id="config-header-back"
               type="button"
               role="menuitem"
+              tabIndex={-1}
               disabled={!onConfigurationContinue || !diagnostics.configurationComplete}
               onClick={() => {
                 setHeaderMenuOpen(false);
@@ -787,6 +842,7 @@ export function App({
               id="config-header-open"
               type="button"
               role="menuitem"
+              tabIndex={-1}
               disabled={!onOpenConfiguration}
               onClick={() => {
                 setHeaderMenuOpen(false);
@@ -801,6 +857,7 @@ export function App({
               id="render-mode-open"
               type="button"
               role="menuitem"
+              tabIndex={-1}
               disabled={!onOpenRenderMode}
               onClick={() => {
                 setHeaderMenuOpen(false);
@@ -814,6 +871,7 @@ export function App({
               id="clear-domain-cache"
               type="button"
               role="menuitem"
+              tabIndex={-1}
               className="u-btn-danger"
               data-transient-trigger="maintenance-confirmation"
               disabled={!onEmptyDomainCache || !diagnostics.baseUrl || diagnostics.maintenanceBusy}
@@ -941,11 +999,13 @@ export function App({
         <section
           ref={candidateConfirmationRef}
           className="u-alert u-alert-warn candidate-navigation-confirmation"
-          role="alert"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="candidate-navigation-confirmation-title"
           data-candidate-navigation-confirmation={pendingCandidatePageKey}
           data-transient-surface="candidate-confirmation"
         >
-          <strong>Open {pendingCandidatePageKey}?</strong>
+          <strong id="candidate-navigation-confirmation-title">Open {pendingCandidatePageKey}?</strong>
           <span> Any unsaved markings on this page will be discarded.</span>
           <div className="button-row candidate-navigation-confirmation__actions">
             <button
@@ -1178,8 +1238,12 @@ export function App({
             className="session-action-primary"
             disabled={buttons.compute.disabled}
             aria-busy={curtainKind === "busy"}
-            data-blocked-reason={buttons.compute.blockedReason}
-            title={buttons.compute.blockedReason}
+            {...(debugBuild && buttons.compute.blockedReason
+              ? { "data-blocked-reason": buttons.compute.blockedReason }
+              : {})}
+            title={buttons.compute.blockedReason
+              ? resolvePopupBlockedReasonCopy(buttons.compute.blockedReason)
+              : undefined}
             onClick={() => {
               exposeImmediateBusyCurtain("Starting AI run");
               onRunAi?.();
@@ -1193,8 +1257,12 @@ export function App({
             type="button"
             className="u-btn-secondary"
             disabled={buttons.preview.disabled}
-            data-blocked-reason={buttons.preview.blockedReason}
-            title={buttons.preview.blockedReason}
+            {...(debugBuild && buttons.preview.blockedReason
+              ? { "data-blocked-reason": buttons.preview.blockedReason }
+              : {})}
+            title={buttons.preview.blockedReason
+              ? resolvePopupBlockedReasonCopy(buttons.preview.blockedReason)
+              : undefined}
             onClick={onPreview}
           >
             <i className="mdi mdi-eye-outline btn-icon" aria-hidden="true" />
@@ -1206,8 +1274,12 @@ export function App({
               id="page-save"
               type="button"
               disabled={buttons.save.disabled}
-              data-blocked-reason={buttons.save.blockedReason}
-              title={buttons.save.blockedReason}
+              {...(debugBuild && buttons.save.blockedReason
+                ? { "data-blocked-reason": buttons.save.blockedReason }
+                : {})}
+              title={buttons.save.blockedReason
+                ? resolvePopupBlockedReasonCopy(buttons.save.blockedReason)
+                : undefined}
               onClick={onSave}
             >
               <i className="mdi mdi-content-save btn-icon" aria-hidden="true" />
@@ -1218,8 +1290,12 @@ export function App({
               type="button"
               className="u-btn-danger"
               disabled={buttons.discard.disabled}
-              data-blocked-reason={buttons.discard.blockedReason}
-              title={buttons.discard.blockedReason}
+              {...(debugBuild && buttons.discard.blockedReason
+                ? { "data-blocked-reason": buttons.discard.blockedReason }
+                : {})}
+              title={buttons.discard.blockedReason
+                ? resolvePopupBlockedReasonCopy(buttons.discard.blockedReason)
+                : undefined}
               data-transient-trigger="discard-confirmation"
               onClick={() => setPendingDiscard(true)}
             >
@@ -1241,8 +1317,14 @@ export function App({
                 type="button"
                 className="u-btn-secondary"
                 disabled={!onPreview || buttons.preview.disabled || selectorCount === 0}
-                data-blocked-reason={selectorCount === 0 ? "no-saved-selectors" : buttons.preview.blockedReason}
-                title={selectorCount === 0 ? "No saved selectors" : buttons.preview.blockedReason}
+                {...(debugBuild
+                  ? { "data-blocked-reason": selectorCount === 0 ? "no-saved-selectors" : buttons.preview.blockedReason }
+                  : {})}
+                title={selectorCount === 0
+                  ? resolvePopupBlockedReasonCopy("no-saved-selectors")
+                  : buttons.preview.blockedReason
+                    ? resolvePopupBlockedReasonCopy(buttons.preview.blockedReason)
+                    : undefined}
                 onClick={onPreview}
               >
                 <i className="mdi mdi-eye-outline btn-icon" aria-hidden="true" />
@@ -1265,23 +1347,29 @@ export function App({
             to the render-mode view — but App takes `view` as a prop, so a caller
             can still land here, and a dead Run AI needs its reason. */}
         {!renderModeSet ? (
-          <p className="hint u-color-warning" data-blocked-reason={RENDER_MODE_NOT_SET_REASON}>
+          <p
+            className="hint u-color-warning"
+            {...(debugBuild ? { "data-blocked-reason": RENDER_MODE_NOT_SET_REASON } : {})}
+          >
             Choose a render mode before marking.
           </p>
         ) : null}
 
         {presentation.blockedReason && curtainKind === "none" ? (
-          <p className="hint" data-blocked-reason={presentation.blockedReason}>
-            Blocked: {presentation.blockedReason}
+          <p
+            className="hint"
+            {...(debugBuild ? { "data-blocked-reason": presentation.blockedReason } : {})}
+          >
+            {resolvePopupBlockedReasonCopy(presentation.blockedReason)}
           </p>
         ) : null}
       </section>
       ) : null}
 
       {todoVisible ? (
-      <section className="card todo-section" aria-label="Todo List" data-todo-status={diagnostics.todoStatus}>
+      <section className="card todo-section" aria-labelledby="todo-heading" data-todo-status={diagnostics.todoStatus}>
         <div className="section-header">
-          <div className="todo-header" aria-expanded="true">
+          <h2 className="todo-header" id="todo-heading">
             <span className="todo-header-title section-title">
               <i className="mdi mdi-format-list-checks btn-icon" aria-hidden="true" />
               <span>Todo List</span>
@@ -1296,7 +1384,7 @@ export function App({
               />
               {diagnostics.todo.covered}/{diagnostics.todo.actionable}
             </span>
-          </div>
+          </h2>
         </div>
 
         {todoSuspension ? (
@@ -1557,7 +1645,12 @@ export function App({
             id="render-mode-set"
             type="button"
             disabled={!onRenderModeCommit || selectedRenderMode === null || diagnostics.renderModeBusy}
-            data-blocked-reason={selectedRenderMode === null ? RENDER_MODE_NOT_SET_REASON : ""}
+            {...(debugBuild && selectedRenderMode === null
+              ? { "data-blocked-reason": RENDER_MODE_NOT_SET_REASON }
+              : {})}
+            title={selectedRenderMode === null
+              ? resolvePopupBlockedReasonCopy(RENDER_MODE_NOT_SET_REASON)
+              : undefined}
             onClick={onRenderModeCommit}
           >
             <i className="mdi mdi-check btn-icon" aria-hidden="true" />
@@ -1592,7 +1685,7 @@ export function App({
         </div>
         {presentation.markingRows.length === 0 ? (
           <p className="preview-sidebar__empty">
-            Nothing marked yet. Enable marking, then alt-click to include and click to exclude.
+            Nothing marked yet. Hold Shift and click to exclude or expand an exclusion. Hold Alt and click to explicitly include. Plain-click an existing mark to clear it; right-click for contextual actions.
           </p>
         ) : (
           <ul className="preview-sidebar__list">
@@ -1663,6 +1756,8 @@ export function App({
           <span className={`hint u-ms-auto ${!diagnostics.settingsLoaded ? "u-color-warning" : AUTH_TONE[diagnostics.authState]}`}>
             {!diagnostics.settingsLoaded
               ? "unread"
+              : diagnostics.settingsInvalid
+                ? "invalid"
               : !diagnostics.stageBaseSet
                 ? "not configured"
                 : AUTH_LABEL[diagnostics.authState]}
@@ -1683,6 +1778,8 @@ export function App({
                   placeholder={placeholder}
                   autoComplete="off"
                   spellCheck={false}
+                  aria-invalid={Boolean(diagnostics.settingsErrors[field])}
+                  aria-describedby={diagnostics.settingsErrors[field] ? `settings-${field}-error` : undefined}
                   readOnly={!Object.hasOwn(settingsFieldOriginals, field)}
                   disabled={!onSettingsChange || !diagnostics.settingsLoaded || diagnostics.settingsBusy}
                   onChange={(event) => onSettingsChange?.(field, event.currentTarget.value)}
@@ -1718,6 +1815,15 @@ export function App({
                   </button>
                 )}
               </div>
+              {diagnostics.settingsErrors[field] ? (
+                <p
+                  id={`settings-${field}-error`}
+                  className="hint u-color-danger"
+                  data-settings-error={field}
+                >
+                  {diagnostics.settingsErrors[field]}
+                </p>
+              ) : null}
             </div>
           ))}
           <div className="endpoint-row">
@@ -1735,7 +1841,7 @@ export function App({
             <button
               id="settings-save"
               type="button"
-              disabled={!onSettingsSave || diagnostics.settingsBusy || !diagnostics.settingsDirty || !diagnostics.settingsLoaded}
+              disabled={!onSettingsSave || diagnostics.settingsBusy || !diagnostics.settingsDirty || !diagnostics.settingsLoaded || Object.keys(diagnostics.settingsErrors).length > 0}
               onClick={onSettingsSave}
             >
               <i className="mdi mdi-content-save btn-icon" aria-hidden="true" />
@@ -1907,13 +2013,19 @@ export function App({
                     className="theme-dropdown__toggle"
                     aria-haspopup="listbox"
                     aria-expanded={themeMenuOpen}
+                    aria-controls="theme-options-listbox"
                     data-transient-trigger="theme-menu"
                     disabled={!onThemeChange}
-                    onClick={() => setThemeMenuOpen((open) => !open)}
+                    onClick={() => {
+                      if (!themeMenuOpen) themeMenuFocusEdge.current = "first";
+                      setThemeMenuOpen((open) => !open);
+                    }}
                     onKeyDown={(event) => {
                       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                         event.preventDefault();
-                        onThemeChange?.(cycleTheme(appearance.theme, event.key === "ArrowDown" ? 1 : -1));
+                        event.stopPropagation();
+                        themeMenuFocusEdge.current = event.key === "ArrowDown" ? "first" : "last";
+                        setThemeMenuOpen(true);
                       }
                     }}
                   >
@@ -1926,18 +2038,26 @@ export function App({
                   </button>
                   {themeMenuOpen ? (
                     <div
+                      id="theme-options-listbox"
                       className="section-menu theme-dropdown__menu"
                       role="listbox"
-                      aria-label="Theme"
+                      aria-labelledby="theme-field-label"
                       data-transient-surface="theme-menu"
+                      onKeyDown={(event) => {
+                        if (!moveRovingDomFocus(event.currentTarget, '[role="option"]', event.key)) return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                      }}
                     >
                       {THEME_OPTIONS.map((option) => {
                         const selected = option.id === appearance.theme;
                         return (
                           <button
                             key={option.id}
+                            id={`theme-option-${option.id}`}
                             type="button"
                             role="option"
+                            tabIndex={-1}
                             aria-selected={selected}
                             className={selected ? "is-selected" : ""}
                             onClick={() => {
@@ -2138,7 +2258,9 @@ export function App({
         <div className="ui-curtain__content">
           <span className="ui-curtain__spinner" aria-hidden="true" />
           <span className="ui-curtain__title">{presentation.curtainText}</span>
-          <span className="ui-curtain__hint" hidden={!presentation.blockedReason}>{presentation.blockedReason}</span>
+          <span className="ui-curtain__hint" hidden={!presentation.blockedReason}>
+            {resolvePopupBlockedReasonCopy(presentation.blockedReason)}
+          </span>
           <span className="ui-curtain__timer" hidden={!presentation.countdownText}>{presentation.countdownText}</span>
         </div>
       </div> : null}

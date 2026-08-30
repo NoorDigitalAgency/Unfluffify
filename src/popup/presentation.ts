@@ -103,6 +103,8 @@ export type PopupDiagnostics = Readonly<{
   settingsSaved: boolean;
   settingsDirty: boolean;
   settingsBusy: boolean;
+  settingsErrors: Partial<Record<PopupSettingsField, string>>;
+  settingsInvalid: boolean;
   /** Gates login itself — the accounts host is derived from the stage base. */
   stageBaseSet: boolean;
   authState: PopupAuthState;
@@ -165,6 +167,8 @@ export const EMPTY_POPUP_DIAGNOSTICS: PopupDiagnostics = {
   settingsSaved: false,
   settingsDirty: false,
   settingsBusy: false,
+  settingsErrors: {},
+  settingsInvalid: false,
   stageBaseSet: false,
   authState: "unknown",
   authBusy: false,

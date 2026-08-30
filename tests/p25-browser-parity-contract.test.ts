@@ -13,6 +13,7 @@ import {
   STRICT_INPUT_LONG_TASK_BUDGET_MS,
   STRICT_P95_LEGACY_RATIO,
   validateChildArtifactProvenance,
+  validateP14WarmupArtifact,
   validateP14StrictParity,
   validateParityResults,
 } from "../scripts/performance/p25/contract.mjs";
@@ -24,7 +25,7 @@ import {
 
 describe("P25 parity browser gate contract", () => {
   it("pins the complete existing browser-gate sequence without budget overrides", () => {
-    expect(ARTIFACT_SCHEMA_VERSION).toBe("p25-parity-browser-gate/v1");
+    expect(ARTIFACT_SCHEMA_VERSION).toBe("p25-parity-browser-gate/v2");
     expect(PARITY_GATES).toEqual([
       { id: "p14-marking", script: "scripts/performance/p14-marking-browser-gate.mjs", smoke: true, schemaVersion: "p14-marking-browser-gate/v1", artifactRoot: "output/playwright/p14-marking-performance", smokeTempPrefix: null },
       { id: "p15-frozen-shield", script: "scripts/performance/p15-frozen-shield-browser-gate.mjs", smoke: true, schemaVersion: "p15-frozen-shield-browser-gate/v1", artifactRoot: "output/playwright/p15-frozen-shield", smokeTempPrefix: "unfluffify-p15-shield-smoke-" },
@@ -240,5 +241,32 @@ describe("P25 parity browser gate contract", () => {
     const missingMetricArtifact = structuredClone(artifact);
     delete missingMetricArtifact.summaries.small.rewrite.silentActivation;
     expect(validateP14StrictParity(missingMetricArtifact)).toMatchObject({ pass: false });
+  });
+
+  it("accepts a complete P14 smoke warm-up without treating its noisy budgets as acceptance evidence", () => {
+    const artifact = {
+      mode: "smoke",
+      runs: [{ sequence: 1 }],
+      validation: {
+        sampleCardinality: { pass: true },
+        runPlan: { pass: true },
+        timings: { pass: true },
+        inputLongTasks: { pass: true },
+        ephemeralCleanup: { pass: true },
+        environment: { pass: true },
+        pageErrors: { pass: true },
+        semantics: [{ pass: true }],
+        rewriteActivationTransactions: [{ pass: true }],
+        mutationPressure: [{ pass: true }],
+        budgets: [{ pass: false }],
+      },
+    };
+
+    expect(validateP14WarmupArtifact(artifact)).toMatchObject({
+      pass: true,
+      budgetChecksIntentionallyExcluded: true,
+    });
+    artifact.validation.ephemeralCleanup.pass = false;
+    expect(validateP14WarmupArtifact(artifact).pass).toBe(false);
   });
 });

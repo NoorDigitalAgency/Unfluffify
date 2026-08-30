@@ -2,7 +2,7 @@
 
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build, version as esbuildVersion } from "esbuild";
@@ -29,6 +29,24 @@ const playwrightWorkingDirectory = join(buildDirectory, "playwright-cli-session"
 const playwrightCli = join(scriptDirectory, "p14/playwright-cli.sh");
 const smoke = process.argv.includes("--smoke");
 const startedAt = new Date();
+const activeChildProcesses = new Set();
+const cleanupState = {
+  fixtureServerClosed: false,
+  playwrightSessionOpened: false,
+  playwrightSessionClosed: false,
+  playwrightCloseFailure: null,
+  buildDirectoryRemoved: false,
+};
+
+async function pathExists(path) {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+}
 
 function run(command, args, options = {}) {
   return new Promise((resolvePromise, reject) => {
@@ -37,12 +55,17 @@ function run(command, args, options = {}) {
       env: { ...process.env, ...options.env },
       stdio: ["ignore", "pipe", "pipe"],
     });
+    activeChildProcesses.add(child);
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk) => { stdout += chunk; });
     child.stderr?.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      activeChildProcesses.delete(child);
+      reject(error);
+    });
     child.on("close", (code) => {
+      activeChildProcesses.delete(child);
       const result = { code, stdout: stdout.trim(), stderr: stderr.trim() };
       if (code !== 0) {
         reject(new Error([
@@ -159,6 +182,7 @@ async function runBrowser(baseUrl) {
       env: environment,
     });
     opened = true;
+    cleanupState.playwrightSessionOpened = true;
     await run(playwrightCli, ["resize", String(VIEWPORT.width), String(VIEWPORT.height)], {
       cwd: playwrightWorkingDirectory,
       env: environment,
@@ -169,10 +193,15 @@ async function runBrowser(baseUrl) {
     ], { cwd: playwrightWorkingDirectory, env: environment });
   } finally {
     if (opened) {
-      await run(playwrightCli, ["close"], {
-        cwd: playwrightWorkingDirectory,
-        env: environment,
-      }).catch(() => undefined);
+      try {
+        await run(playwrightCli, ["close"], {
+          cwd: playwrightWorkingDirectory,
+          env: environment,
+        });
+        cleanupState.playwrightSessionClosed = true;
+      } catch (error) {
+        cleanupState.playwrightCloseFailure = String(error?.stack ?? error);
+      }
     }
   }
 }
@@ -271,7 +300,7 @@ try {
     bundle: true,
     format: "iife",
     platform: "browser",
-    target: ["chrome120"],
+    target: ["chrome116"],
     sourcemap: false,
     legalComments: "none",
     define: { __UF_DEBUG_BUILD__: "false" },
@@ -288,12 +317,35 @@ try {
 } catch (error) {
   fatal = String(error?.stack ?? error);
 } finally {
-  await server?.close().catch(() => undefined);
-  await rm(buildDirectory, { recursive: true, force: true }).catch(() => undefined);
+  if (server) {
+    try {
+      await server.close();
+      cleanupState.fixtureServerClosed = true;
+    } catch (error) {
+      fatal = [fatal, `Fixture server cleanup failed: ${String(error?.stack ?? error)}`].filter(Boolean).join("\n");
+    }
+  }
+  try {
+    await rm(buildDirectory, { recursive: true, force: true });
+    cleanupState.buildDirectoryRemoved = !(await pathExists(buildDirectory));
+  } catch (error) {
+    fatal = [fatal, `Build cleanup failed: ${String(error?.stack ?? error)}`].filter(Boolean).join("\n");
+  }
 }
 
 const sourceAccepted = smoke || source?.cleanSourceSet === true;
-const pass = fatal === null && payload !== null && catalog.pass && sourceAccepted;
+const cleanup = {
+  ...cleanupState,
+  activeChildProcessCount: activeChildProcesses.size,
+  buildDirectory,
+};
+cleanup.pass = cleanup.fixtureServerClosed
+  && cleanup.playwrightSessionOpened
+  && cleanup.playwrightSessionClosed
+  && cleanup.playwrightCloseFailure === null
+  && cleanup.activeChildProcessCount === 0
+  && cleanup.buildDirectoryRemoved;
+const pass = fatal === null && payload !== null && catalog.pass && sourceAccepted && cleanup.pass;
 const generatedAt = new Date().toISOString();
 const artifact = {
   schemaVersion: ARTIFACT_SCHEMA_VERSION,
@@ -304,6 +356,7 @@ const artifact = {
   pass,
   source,
   sourceRequirement: { requiredClean: !smoke, pass: sourceAccepted },
+  cleanup,
   protocol: {
     browser: `Chromium through pinned @playwright/cli@${PLAYWRIGHT_CLI_VERSION}`,
     viewport: VIEWPORT,
@@ -341,6 +394,7 @@ process.stdout.write(JSON.stringify({
   checksRequired: REQUIRED_CHECK_IDS.length,
   failedChecks: checks.filter((entry) => !entry.pass).map((entry) => entry.id),
   cleanSourceSet: source?.cleanSourceSet ?? false,
+  cleanup,
   fatal,
 }, null, 2) + "\n");
 if (!pass) process.exitCode = 1;

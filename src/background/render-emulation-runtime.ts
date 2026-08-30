@@ -1,5 +1,170 @@
 import { getBrowserRuntimeLastError } from "../common/browser";
-import { applyEmulationViaCdp, clearEmulationViaCdp, deriveGooglebotSmartphoneUserAgent, type EmulationMode } from "../content/stabilization";
+import {
+  applyEmulationViaCdp,
+  clearEmulationViaCdp,
+  deriveGooglebotSmartphoneUserAgent,
+  type EmulationMode,
+  type EmulationState,
+} from "../content/stabilization";
+
+export type EmulationFailureReason =
+  | "viewport_mismatch"
+  | "device_pixel_ratio_mismatch"
+  | "page_scale_mismatch"
+  | "touch_mismatch"
+  | "pointer_media_mismatch"
+  | "identity_unavailable"
+  | "identity_mismatch"
+  | "proof_unavailable";
+
+export type VerifiedEmulationState = EmulationState & Readonly<{
+  identityStale: boolean;
+  /** A reload is a transition request, never proof that the current document is
+   * exact. The replacement document must pass a second apply/probe round. */
+  reloadRequired?: boolean;
+  failureReason?: EmulationFailureReason;
+}>;
+
+type MeasuredEmulationPosture = Readonly<{
+  innerWidth: number;
+  innerHeight: number;
+  devicePixelRatio: number;
+  visualViewportScale: number;
+  maxTouchPoints: number;
+  userAgent: string;
+  pointerCoarse: boolean;
+  pointerFine: boolean;
+  hoverNone: boolean;
+  hoverHover: boolean;
+  anyPointerCoarse: boolean;
+  anyPointerFine: boolean;
+  anyHoverNone: boolean;
+  anyHoverHover: boolean;
+}>;
+
+const EMULATION_PROOF_EXPRESSION = `(() => ({
+  __unfluffifyEmulationProof: true,
+  innerWidth: window.innerWidth,
+  innerHeight: window.innerHeight,
+  devicePixelRatio: window.devicePixelRatio,
+  visualViewportScale: window.visualViewport?.scale ?? 1,
+  maxTouchPoints: navigator.maxTouchPoints,
+  userAgent: navigator.userAgent,
+  pointerCoarse: matchMedia("(pointer: coarse)").matches,
+  pointerFine: matchMedia("(pointer: fine)").matches,
+  hoverNone: matchMedia("(hover: none)").matches,
+  hoverHover: matchMedia("(hover: hover)").matches,
+  anyPointerCoarse: matchMedia("(any-pointer: coarse)").matches,
+  anyPointerFine: matchMedia("(any-pointer: fine)").matches,
+  anyHoverNone: matchMedia("(any-hover: none)").matches,
+  anyHoverHover: matchMedia("(any-hover: hover)").matches,
+}))()`;
+
+const AFTER_BROWSER_FRAME_EXPRESSION =
+  "new Promise((resolve) => requestAnimationFrame(() => resolve(true)))";
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function measuredEmulationPosture(value: unknown): MeasuredEmulationPosture | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const candidate = value as Record<string, unknown>;
+  const innerWidth = finiteNumber(candidate.innerWidth);
+  const innerHeight = finiteNumber(candidate.innerHeight);
+  const devicePixelRatio = finiteNumber(candidate.devicePixelRatio);
+  const visualViewportScale = finiteNumber(candidate.visualViewportScale);
+  const maxTouchPoints = finiteNumber(candidate.maxTouchPoints);
+  if (
+    innerWidth === null ||
+    innerHeight === null ||
+    devicePixelRatio === null ||
+    visualViewportScale === null ||
+    maxTouchPoints === null ||
+    typeof candidate.userAgent !== "string"
+  ) {
+    return null;
+  }
+  const booleanKeys = [
+    "pointerCoarse",
+    "pointerFine",
+    "hoverNone",
+    "hoverHover",
+    "anyPointerCoarse",
+    "anyPointerFine",
+    "anyHoverNone",
+    "anyHoverHover",
+  ] as const;
+  if (booleanKeys.some((key) => typeof candidate[key] !== "boolean")) {
+    return null;
+  }
+  return {
+    innerWidth,
+    innerHeight,
+    devicePixelRatio,
+    visualViewportScale,
+    maxTouchPoints,
+    userAgent: candidate.userAgent,
+    pointerCoarse: candidate.pointerCoarse as boolean,
+    pointerFine: candidate.pointerFine as boolean,
+    hoverNone: candidate.hoverNone as boolean,
+    hoverHover: candidate.hoverHover as boolean,
+    anyPointerCoarse: candidate.anyPointerCoarse as boolean,
+    anyPointerFine: candidate.anyPointerFine as boolean,
+    anyHoverNone: candidate.anyHoverNone as boolean,
+    anyHoverHover: candidate.anyHoverHover as boolean,
+  };
+}
+
+function proveEmulationPosture(
+  state: EmulationState,
+  measured: MeasuredEmulationPosture | null,
+  intendedUserAgent: string,
+): EmulationFailureReason | null {
+  if (!measured) {
+    return "proof_unavailable";
+  }
+  if (measured.innerWidth !== state.width || measured.innerHeight !== state.height) {
+    return "viewport_mismatch";
+  }
+  if (Math.abs(measured.devicePixelRatio - 1) > 0.001) {
+    return "device_pixel_ratio_mismatch";
+  }
+  if (Math.abs(measured.visualViewportScale - 1) > 0.001) {
+    return "page_scale_mismatch";
+  }
+  if (state.mode === "mobile") {
+    if (measured.maxTouchPoints < 1) {
+      return "touch_mismatch";
+    }
+    if (
+      !measured.pointerCoarse || measured.pointerFine ||
+      !measured.hoverNone || measured.hoverHover ||
+      !measured.anyPointerCoarse || measured.anyPointerFine ||
+      !measured.anyHoverNone || measured.anyHoverHover
+    ) {
+      return "pointer_media_mismatch";
+    }
+  } else {
+    if (measured.maxTouchPoints !== 0) {
+      return "touch_mismatch";
+    }
+    if (
+      measured.pointerCoarse || !measured.pointerFine ||
+      measured.hoverNone || !measured.hoverHover ||
+      measured.anyPointerCoarse || !measured.anyPointerFine ||
+      measured.anyHoverNone || !measured.anyHoverHover
+    ) {
+      return "pointer_media_mismatch";
+    }
+  }
+  if (!intendedUserAgent) {
+    return "identity_unavailable";
+  }
+  return measured.userAgent === intendedUserAgent ? null : "identity_mismatch";
+}
 
 type Debuggee = Readonly<{ tabId?: number }>;
 type DebuggerApi = Readonly<{
@@ -267,19 +432,122 @@ export function createRenderEmulationRuntime(input: Readonly<{
       }
     }
   };
-  /** What the CURRENT document believes its user agent is. Chrome fixes
-   *  `navigator.userAgent` when a document is created, so an override applied
-   *  afterwards changes what the next load sees and nothing about this one. */
-  const documentUserAgent = async (tabId: number): Promise<string> => {
+  const intendedUserAgentFor = (mode: EmulationMode, realUserAgent: string): string =>
+    mode === "mobile" ? deriveGooglebotSmartphoneUserAgent(realUserAgent) : realUserAgent;
+  const measurePosture = async (tabId: number): Promise<MeasuredEmulationPosture | null> => {
     try {
       const result = await send(tabId, "Runtime.evaluate", {
-        expression: "navigator.userAgent",
+        expression: EMULATION_PROOF_EXPRESSION,
         returnByValue: true,
       });
-      const value = (result as { result?: { value?: unknown } } | undefined)?.result?.value;
-      return typeof value === "string" ? value : "";
+      return measuredEmulationPosture(
+        (result as { result?: { value?: unknown } } | undefined)?.result?.value,
+      );
     } catch {
-      return "";
+      return null;
+    }
+  };
+  const waitForBrowserFrame = async (tabId: number): Promise<void> => {
+    await send(tabId, "Runtime.evaluate", {
+      expression: AFTER_BROWSER_FRAME_EXPRESSION,
+      awaitPromise: true,
+      returnByValue: true,
+    });
+  };
+  const writePosture = async (
+    tabId: number,
+    held: HeldPosture,
+    realUserAgent: string,
+  ): Promise<EmulationState> => {
+    if (!postureIsCurrent(tabId, held)) {
+      throw new Error("Emulation posture was released");
+    }
+    const state = await applyEmulationViaCdp(
+      {
+        async send(method, params) {
+          if (!postureIsCurrent(tabId, held)) {
+            throw new Error("Emulation posture was released");
+          }
+          const result = await sendEmulationCommand(tabId, method, params);
+          if (!postureIsCurrent(tabId, held)) {
+            throw new Error("Emulation posture was released");
+          }
+          return result;
+        },
+      },
+      held.mode,
+      held.scale,
+      { realUserAgent },
+    );
+    return state;
+  };
+  const writeAndProvePosture = async (
+    tabId: number,
+    held: HeldPosture,
+    realUserAgent: string,
+  ): Promise<Readonly<{
+    state: EmulationState;
+    measured: MeasuredEmulationPosture | null;
+    failureReason: EmulationFailureReason | null;
+  }>> => {
+    let state = await writePosture(tabId, held, realUserAgent);
+    let measured = await measurePosture(tabId);
+    let failureReason = proveEmulationPosture(
+      state,
+      measured,
+      intendedUserAgentFor(held.mode, realUserAgent),
+    );
+    if (failureReason !== null && postureIsCurrent(tabId, held)) {
+      // The renderer/compositor boundary can trail the CDP acknowledgement by a
+      // frame. Re-write the complete serialized posture once; a second mismatch
+      // is evidence, not something to hide behind unbounded retries.
+      await waitForBrowserFrame(tabId).catch(() => undefined);
+      if (postureIsCurrent(tabId, held)) {
+        state = await writePosture(tabId, held, realUserAgent);
+        measured = await measurePosture(tabId);
+        failureReason = proveEmulationPosture(
+          state,
+          measured,
+          intendedUserAgentFor(held.mode, realUserAgent),
+        );
+      }
+    }
+    return { state, measured, failureReason };
+  };
+  const restorePriorPosture = async (
+    tabId: number,
+    attempted: HeldPosture,
+    prior: HeldPosture | undefined,
+  ): Promise<void> => {
+    if (!postureIsCurrent(tabId, attempted)) {
+      return;
+    }
+    if (prior) {
+      const restored: HeldPosture = {
+        mode: prior.mode,
+        scale: prior.scale,
+        epoch: nextPostureEpoch(tabId),
+      };
+      heldPostures.set(tabId, restored);
+      try {
+        const realUserAgent = await realUserAgentFor(tabId);
+        const proof = await writeAndProvePosture(tabId, restored, realUserAgent);
+        if (proof.failureReason === null) {
+          return;
+        }
+      } catch {
+        // Fall through to the neutral browser posture.
+      }
+    }
+    releasePosture(tabId);
+    try {
+      await clearEmulationViaCdp(
+        { send: (method, params) => sendEmulationCommand(tabId, method, params) },
+        { mode: attempted.mode, width: 412, height: 960, scale: attempted.scale, active: true },
+      );
+    } finally {
+      await detach(tabId).catch(() => undefined);
+      realUserAgents.delete(tabId);
     }
   };
   /** Puts a dropped posture back. Deliberately does not reload: the operator is
@@ -294,23 +562,10 @@ export function createRenderEmulationRuntime(input: Readonly<{
       if (!postureIsCurrent(tabId, held)) {
         return;
       }
-      await applyEmulationViaCdp(
-        {
-          async send(method, params) {
-            if (!postureIsCurrent(tabId, held)) {
-              throw new Error("Emulation posture was released");
-            }
-            const result = await sendEmulationCommand(tabId, method, params);
-            if (!postureIsCurrent(tabId, held)) {
-              throw new Error("Emulation posture was released");
-            }
-            return result;
-          },
-        },
-        held.mode,
-        held.scale,
-        { realUserAgent },
-      );
+      const proof = await writeAndProvePosture(tabId, held, realUserAgent);
+      if (proof.failureReason !== null) {
+        throw new Error(`Emulation proof failed: ${proof.failureReason}`);
+      }
     } catch {
       // The tab may be gone, or attaching may be refused. Nothing else to try, and
       // the next apply from the popup will re-establish it.
@@ -340,39 +595,73 @@ export function createRenderEmulationRuntime(input: Readonly<{
     heldMode(tabId: number): EmulationMode | null {
       return heldPostures.get(tabId)?.mode ?? null;
     },
-    async apply(tabId: number, mode: EmulationMode, scale: number, allowReload = false) {
+    async apply(
+      tabId: number,
+      mode: EmulationMode,
+      scale: number,
+      allowReload = false,
+    ): Promise<VerifiedEmulationState> {
+      const priorHeld = heldPostures.get(tabId);
       const held: HeldPosture = { mode, scale, epoch: nextPostureEpoch(tabId) };
       heldPostures.set(tabId, held);
       try {
         return await withEmulationOperation(tabId, async () => {
           const realUserAgent = await realUserAgentFor(tabId);
-          const state = await applyEmulationViaCdp(
-            { send: (method, params) => sendEmulationCommand(tabId, method, params) },
-            mode,
-            scale,
-            { realUserAgent },
-          );
-          // The override is in place for the NEXT load, so the document the operator
-          // is looking at was still fetched under the old identity — and a site that
-          // serves by user agent gave it the desktop page. Forcing the posture means
-          // reloading once so the document itself is the mobile one. Self-terminating:
-          // after the reload the document's own UA matches, so nothing asks again.
-          const intended = mode === "mobile" ? deriveGooglebotSmartphoneUserAgent(realUserAgent) : realUserAgent;
-          const identityStale = Boolean(intended) && await documentUserAgent(tabId) !== intended;
-          if (identityStale && allowReload && input.tabs) {
-            await invokeBrowserApi<void>(
-              () => input.tabs?.reload(tabId, {}),
-              (callback) => input.tabs?.reload(tabId, {}, callback),
-              "Tab reload",
-            ).catch(() => undefined);
+          const proof = await writeAndProvePosture(tabId, held, realUserAgent);
+          if (!postureIsCurrent(tabId, held)) {
+            throw new Error("Emulation posture was released");
           }
-          return { ...state, identityStale };
+          if (proof.failureReason === null) {
+            return {
+              ...proof.state,
+              active: true,
+              identityStale: false,
+            };
+          }
+          const identityStale = proof.failureReason === "identity_mismatch";
+          if (identityStale && allowReload && input.tabs) {
+            try {
+              await invokeBrowserApi<void>(
+                () => input.tabs?.reload(tabId, {}),
+                (callback) => input.tabs?.reload(tabId, {}, callback),
+                "Tab reload",
+              );
+              // This response deliberately remains inactive. Chrome accepted a
+              // transition, but only the replacement document's exact proof may
+              // turn it into an active posture.
+              return {
+                ...proof.state,
+                active: false,
+                identityStale: true,
+                reloadRequired: true,
+                failureReason: proof.failureReason,
+              };
+            } catch {
+              // A refused reload is a normal failed proof and rolls back below.
+            }
+          }
+          await restorePriorPosture(tabId, held, priorHeld);
+          return {
+            ...proof.state,
+            active: false,
+            identityStale,
+            failureReason: proof.failureReason,
+          };
         });
       } catch (error) {
         if (postureIsCurrent(tabId, held)) {
-          releasePosture(tabId);
+          try {
+            await restorePriorPosture(tabId, held, priorHeld);
+          } catch {
+            // Restoration itself is best-effort, but a failed attempt may not
+            // remain the desired posture or keep a half-applied debugger state.
+            if (postureIsCurrent(tabId, held)) {
+              releasePosture(tabId);
+            }
+            await detach(tabId).catch(() => undefined);
+            realUserAgents.delete(tabId);
+          }
         }
-        await detach(tabId).catch(() => undefined);
         throw error;
       }
     },

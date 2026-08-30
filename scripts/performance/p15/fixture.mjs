@@ -110,58 +110,6 @@ export function renderFixturePage({ variant = "production" } = {}) {
       }
       window.visualViewport?.addEventListener("resize", () => { state.visualViewportResizeEvents += 1; });
       window.visualViewport?.addEventListener("scroll", () => { state.visualViewportScrollEvents += 1; });
-      const pageWorld = {
-        armed: false,
-        paused: false,
-        lazySuppressed: false,
-        sessionNonce: "",
-        phase: "idle",
-        initialDiscoveryComplete: false,
-      };
-      window.addEventListener("message", (event) => {
-        const request = event.data;
-        if (
-          event.source !== window ||
-          !request ||
-          request.kind !== "uf-page-bus/1" ||
-          request.type !== "request" ||
-          !["ARM", "RECONCILE", "SET_LAZY_LOADING_SUPPRESSED", "SET_MOTION_PAUSED", "DESTROY"].includes(request.command)
-        ) return;
-        state.pageWorldCommandCount += 1;
-        if (request.command === "ARM") {
-          Object.assign(pageWorld, {
-            armed: true,
-            paused: false,
-            lazySuppressed: false,
-            sessionNonce: request.nonce,
-            phase: "armed",
-            initialDiscoveryComplete: false,
-          });
-        } else if (request.command === "SET_LAZY_LOADING_SUPPRESSED") {
-          pageWorld.lazySuppressed = request.payload?.suppressed === true;
-        } else if (request.command === "SET_MOTION_PAUSED") {
-          pageWorld.paused = request.payload?.paused === true;
-          pageWorld.phase = pageWorld.paused ? "frozen" : "armed";
-          if (pageWorld.paused) pageWorld.initialDiscoveryComplete = true;
-        } else if (request.command === "RECONCILE" || request.command === "DESTROY") {
-          Object.assign(pageWorld, {
-            armed: false,
-            paused: false,
-            lazySuppressed: false,
-            sessionNonce: "",
-            phase: "idle",
-            initialDiscoveryComplete: false,
-          });
-        }
-        window.postMessage({
-          kind: "uf-page-bus/1",
-          type: "response",
-          nonce: request.nonce,
-          command: request.command,
-          ok: true,
-          payload: { ...pageWorld },
-        }, "*");
-      });
       window.__p15Fixture = {
         state,
         snapshot() {

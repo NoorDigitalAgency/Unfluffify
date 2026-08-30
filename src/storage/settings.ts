@@ -1,21 +1,29 @@
 import { z } from "zod";
+import {
+  ConnectionSettingsSchema,
+  type ConnectionSettings,
+} from "../domain/schema/connection-settings";
 import type { KeyValueStore, StorageReadResult } from "./repositories/key-value";
 import { parseStoredValue } from "./repositories/key-value";
 
-/** The endpoint half of the settings — everything an operator types. Kept
- *  separate from the token so a settings write can never carry, and therefore
- *  never drop, the JWT: that credential is owned solely by the login flow. */
-export const ConnectionSettingsSchema = z.object({
-  configEndpoint: z.string().url().optional(),
-  aiEndpoint: z.string().url().optional(),
-  stageBase: z.string().min(1).optional(),
-});
+export {
+  CONNECTION_ENDPOINT_MAX_PATH_LENGTH,
+  ConnectionSettingsSchema,
+  normalizeConnectionEndpoint,
+  normalizeStageBase,
+  validateConnectionSettings,
+} from "../domain/schema/connection-settings";
+export type {
+  ConnectionSettings,
+  ConnectionSettingsField,
+  ConnectionSettingsFieldErrors,
+  ConnectionValidationOptions,
+} from "../domain/schema/connection-settings";
 
 export const SettingsSchema = ConnectionSettingsSchema.extend({
   token: z.string().optional(),
 });
 
-export type ConnectionSettings = z.infer<typeof ConnectionSettingsSchema>;
 export type Settings = z.infer<typeof SettingsSchema>;
 
 function normalizeUrlIdentity(value: string | undefined): string | null {

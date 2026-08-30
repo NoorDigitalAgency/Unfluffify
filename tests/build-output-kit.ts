@@ -11,7 +11,10 @@ const BUILD_LOCK_OWNER_PATH = path.join(BUILD_LOCK_PATH, "owner.json");
 const BUILD_LOCK_HEARTBEAT_PATH = path.join(BUILD_LOCK_PATH, "heartbeat");
 const BUILD_LOCK_HEARTBEAT_INTERVAL_MS = 1_000;
 const BUILD_LOCK_WAIT_MS = 200;
-const BUILD_LOCK_TIMEOUT_MS = 40_000;
+// A forced WXT build competes with the full Vitest suite in CI. The lock is a
+// correctness fence, not a build-time budget, so allow the active owner to
+// finish while its heartbeat proves forward progress.
+const BUILD_LOCK_TIMEOUT_MS = 180_000;
 const BUILD_LOCK_STALE_MS = 15_000;
 
 function sleep(ms: number): Promise<void> {

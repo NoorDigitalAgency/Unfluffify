@@ -25,7 +25,7 @@ import {
 } from "./dom-view";
 import { getComposedHitElements } from "./hit-testing";
 import { isPaintReachableWithinHits } from "./paint-reachability";
-import { createMarkingStore } from "./store";
+import { canonicalMarkingFingerprint, createMarkingStore } from "./store";
 import { resolveTarget, type MarkingCandidate } from "./resolve";
 import {
   createOverlayRenderer,
@@ -3358,6 +3358,9 @@ type DeferredBranchRenderChunk = Readonly<{
     },
     rows() {
       return store.rows();
+    },
+    decisionFingerprint(): string {
+      return canonicalMarkingFingerprint(store.canonicalSet());
     },
     overlayRoot(): HTMLElement {
       return renderer.root;

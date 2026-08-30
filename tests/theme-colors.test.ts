@@ -178,7 +178,7 @@ test("popup injects the CSS layers in the requested order", () => {
     "../../theme-components.css",
     "../../popup.css",
     "../../theme-utilities.css",
-    "../../public/assets/materialdesignicons.min.css"
+    "../../materialdesignicons-subset.css"
   ]);
 });
 

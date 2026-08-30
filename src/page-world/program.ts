@@ -1,15 +1,22 @@
-type PageWorldRequest = Readonly<{
-  kind?: string;
-  type?: string;
-  channel?: string;
-  id?: string;
+export type PageWorldRequest = Readonly<{
   nonce?: string;
   sessionNonce?: string;
   command?: string;
   payload?: Record<string, unknown>;
 }>;
 
-type PageWorldFailure = Readonly<{ code: string; message: string }>;
+export type PageWorldFailure = Readonly<{ code: string; message: string }>;
+export type PageWorldCommandResult = Readonly<{
+  ok: boolean;
+  nonce: string;
+  command: string;
+  payload: Record<string, unknown> | null;
+  failure?: PageWorldFailure;
+}>;
+export type PageWorldCapabilityInvocation = Readonly<{
+  kind: "probe" | "command" | "retire";
+  request?: PageWorldRequest;
+}>;
 
 type PageTimerHandler = string | ((...args: unknown[]) => void);
 type PageTimer = (
@@ -17,12 +24,6 @@ type PageTimer = (
   | Readonly<{ type: "raf"; callback: FrameRequestCallback; args: [] }>
   | Readonly<{ type: "idle"; callback: IdleRequestCallback; args: [] }>
 ) & { cancelled: boolean; nativeId?: unknown; tokenAliases?: Set<unknown> };
-type PageWorldRuntimeLease = {
-  version: number;
-  reinjections: number;
-  ready: boolean;
-  dispose: () => PageWorldRuntimeTakeoverState;
-};
 type PageEventListener = EventListenerOrEventListenerObject;
 type PageListenerOptions = boolean | AddEventListenerOptions | undefined;
 type PageWorldTransferredRegistration = Readonly<{
@@ -91,10 +92,9 @@ type PageWorldRoot = Readonly<{
   scrollTo?: (options: ScrollToOptions) => void;
   queueMicrotask?: (callback: () => void) => void;
   eval?: (source: string) => unknown;
-  postMessage: (message: unknown, targetOrigin: string) => void;
   addEventListener: (
     type: string,
-    listener: (event: MessageEvent) => void,
+    listener: EventListenerOrEventListenerObject,
     options?: boolean | AddEventListenerOptions,
   ) => void;
   removeEventListener?: (
@@ -104,44 +104,37 @@ type PageWorldRoot = Readonly<{
   ) => void;
 };
 
-const page = globalThis as unknown as PageWorldRoot;
-
-(function installPageWorldProgram() {
-  const RUNTIME_PROPERTY = "__unfluffifyPageWorldRuntime__";
-  const RUNTIME_VERSION = 3;
+export async function installPageWorldProgram(
+  endpointKey: string,
+  capability: string,
+): Promise<PageWorldCommandResult> {
+  const page = globalThis as unknown as PageWorldRoot;
+  const RUNTIME_VERSION = 4;
   const runtimeHost = page as PageWorldRoot & Record<string, unknown>;
-  const existingRuntime = runtimeHost[RUNTIME_PROPERTY] as PageWorldRuntimeLease | undefined;
-  if (
-    existingRuntime &&
-    existingRuntime.version === RUNTIME_VERSION &&
-    existingRuntime.ready === true &&
-    typeof existingRuntime.dispose === "function"
-  ) {
-    existingRuntime.reinjections += 1;
-    return;
+  const rejected = (code: string, message: string): PageWorldCommandResult => ({
+    ok: false,
+    nonce: "",
+    command: "",
+    payload: null,
+    failure: { code, message },
+  });
+  if (!/^__uf_[a-f\d]{32,128}$/i.test(endpointKey) || !/^[a-f\d]{64}$/i.test(capability)) {
+    return rejected("PAGE_CAPABILITY_INVALID", "Page-world capability identity is invalid");
   }
-  let inheritedQueuedTimers: PageTimer[] = [];
-  let inheritedEventRegistrations: PageWorldTransferredRegistration[] = [];
-  if (existingRuntime && typeof existingRuntime.dispose === "function") {
+  const existingRuntime = runtimeHost[endpointKey];
+  if (typeof existingRuntime === "function") {
     try {
-      const takeover = existingRuntime.dispose();
-      inheritedQueuedTimers = takeover.queuedTimers;
-      inheritedEventRegistrations = takeover.eventRegistrations;
+      const result = await (existingRuntime as (
+        providedCapability: string,
+        invocation: PageWorldCapabilityInvocation,
+      ) => Promise<PageWorldCommandResult>)(capability, { kind: "probe" });
+      return result;
     } catch {
-      // A partially retired older version must not register another set of
-      // bridges. The fresh version still installs from the best available
-      // native posture and owns the stable runtime marker below.
+      return rejected("PAGE_RUNTIME_UNAVAILABLE", "Page-world runtime probe failed");
     }
   }
-  const runtimeLease: PageWorldRuntimeLease = {
-    version: RUNTIME_VERSION,
-    reinjections: 0,
-    ready: false,
-    dispose: () => ({ queuedTimers: [], eventRegistrations: [] }),
-  };
-  const CHANNEL = "uf-page-bus/1";
-  const LEGACY_CHANNEL = "unfluffify:page-world-relay:v1";
-  const URL_CHANGED_KIND = "uf-page-url-changed/1";
+  const inheritedQueuedTimers: PageTimer[] = [];
+  let inheritedEventRegistrations: PageWorldTransferredRegistration[] = [];
   const OPEN_SHADOW_ATTACHED_EVENT = "uf:open-shadow-attached";
   const MOTION_CAPTURE_LEDGER_ATTR = "data-uf-motion-lock-ledger";
   const MAX_MOTION_LOCKS = 800;
@@ -310,7 +303,6 @@ const page = globalThis as unknown as PageWorldRoot;
   const pendingMotionRoots = new Set<Element>();
   const pendingMotionElements = new Set<Element>();
   const motionEventCleanups: Array<() => void> = [];
-  const navigationCleanups: Array<() => void> = [];
   const lazyEventCleanups: Array<() => void> = [];
   const lazyTargetRestorations: Array<() => void> = [];
   let motionStyle: HTMLStyleElement | null = null;
@@ -326,7 +318,6 @@ const page = globalThis as unknown as PageWorldRoot;
   let motionSourceHooksInstalled = false;
   let motionErrorCount = 0;
   let lifecyclePhase: "idle" | "armed" | "discovering" | "frozen" | "destroying" = "idle";
-  let lastKnownUrl = page.location && page.location.href ? String(page.location.href) : "";
   let nestedLazyViewportOwner: HTMLElement | null = null;
   let lazyOwnerObserver: MutationObserver | null = null;
   let lazyOwnerRefreshScheduled = false;
@@ -398,60 +389,6 @@ const page = globalThis as unknown as PageWorldRoot;
     patched.__ufClosedShadowInstrumented = true;
     page.Element.prototype.attachShadow = patched;
     installedAttachShadow = patched;
-  }
-
-  function emitUrlChanged() {
-    const currentUrl = page.location && page.location.href ? String(page.location.href) : "";
-    if (!currentUrl || currentUrl === lastKnownUrl) return;
-    const previousUrl = lastKnownUrl;
-    lastKnownUrl = currentUrl;
-    page.postMessage?.({
-      kind: URL_CHANGED_KIND,
-      fromUrl: previousUrl,
-      toUrl: currentUrl,
-    }, "*");
-  }
-
-  function installNavigationBridge() {
-    if (!page.history) return;
-    const patchHistoryMethod = (method: "pushState" | "replaceState"): void => {
-      const original = page.history[method];
-      if (typeof original !== "function") return;
-      const patched = function patchedHistoryMethod(
-        this: History,
-        ...args: Parameters<History["pushState"]>
-      ): void {
-        const result = original.apply(this, args);
-        if (typeof page.queueMicrotask === "function") {
-          page.queueMicrotask(emitUrlChanged);
-        } else {
-          originals.setTimeout.call(page, emitUrlChanged, 0);
-        }
-        return result;
-      };
-      page.history[method] = patched;
-      navigationCleanups.push(() => {
-        if (page.history[method] === patched) page.history[method] = original;
-      });
-    };
-    patchHistoryMethod("pushState");
-    patchHistoryMethod("replaceState");
-    page.addEventListener?.("popstate", emitUrlChanged);
-    page.addEventListener?.("hashchange", emitUrlChanged);
-    if (originals.rootRemoveEventListener) {
-      navigationCleanups.push(() => {
-        try {
-          originals.rootRemoveEventListener?.call(page, "popstate", emitUrlChanged);
-          originals.rootRemoveEventListener?.call(page, "hashchange", emitUrlChanged);
-        } catch {
-          // Fall through to the intrinsic EventTarget method below.
-        }
-        if (originals.removeEventListener !== originals.rootRemoveEventListener) {
-          originals.removeEventListener?.call(page, "popstate", emitUrlChanged);
-          originals.removeEventListener?.call(page, "hashchange", emitUrlChanged);
-        }
-      });
-    }
   }
 
   function listenerCapture(options: boolean | EventListenerOptions | undefined): boolean {
@@ -2627,37 +2564,27 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
     lifecyclePhase = "idle";
   }
 
+  const responseResolvers = new Map<string, (result: PageWorldCommandResult) => void>();
+
   function reply(
-    source: Pick<PageWorldRoot, "postMessage">,
+    _source: unknown,
     request: PageWorldRequest,
     ok: boolean,
     payload: unknown,
     failure?: PageWorldFailure,
   ): void {
-    if (request.channel === LEGACY_CHANNEL) {
-      source.postMessage({
-        channel: LEGACY_CHANNEL,
-        kind: "response",
-        id: request.id,
-        nonce: request.nonce,
-        command: request.command,
-        ok,
-        result: ok ? payload : undefined,
-        code: ok ? undefined : failure && failure.code,
-        error: ok ? undefined : failure && failure.message,
-        details: ok ? undefined : failure,
-      }, "*");
-      return;
-    }
-    source.postMessage({
-      kind: CHANNEL,
-      type: "response",
-      nonce: request.nonce,
-      command: request.command,
+    const nonce = request.nonce ?? "";
+    const resolve = responseResolvers.get(nonce);
+    if (!resolve) return;
+    resolve({
       ok,
-      payload: ok ? payload : null,
+      nonce,
+      command: request.command ?? "",
+      payload: ok && payload && typeof payload === "object"
+        ? payload as Record<string, unknown>
+        : null,
       failure: ok ? undefined : failure,
-    }, "*");
+    });
   }
 
   async function handlePageWorldRequest(
@@ -2679,7 +2606,7 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
       });
       return;
     }
-    const requestSessionNonce = request.channel === LEGACY_CHANNEL ? request.nonce : request.sessionNonce;
+    const requestSessionNonce = request.sessionNonce;
     if (command === "RECONCILE") {
       // The isolated content realm can be replaced while this MAIN-world
       // singleton survives. RECONCILE is the one nonce-independent terminal
@@ -2843,9 +2770,7 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
     // lost ACK is unconditionally safe and must not queue behind the cancelled
     // command whose cooperative yield may still be starved.
     if (!armed) return true;
-    const requestSessionNonce = request.channel === LEGACY_CHANNEL
-      ? request.nonce
-      : request.sessionNonce;
+    const requestSessionNonce = request.sessionNonce;
     return requestSessionNonce === sessionNonce;
   };
   const preemptForTerminal = (): void => {
@@ -2896,18 +2821,35 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
     if (!next) return;
     startCommand(next.request).then(next.resolve, next.reject);
   }
-  const handlePageWorldMessage = (event: MessageEvent): Promise<void> | void => {
-    const request = event.data as PageWorldRequest | null;
-    if (event.source as unknown !== globalThis) {
-      return;
+  const dispatchCommand = async (request: PageWorldRequest): Promise<PageWorldCommandResult> => {
+    const nonce = request.nonce ?? "";
+    if (!nonce || responseResolvers.has(nonce)) {
+      return {
+        ok: false,
+        nonce,
+        command: request.command ?? "",
+        payload: null,
+        failure: {
+          code: nonce ? "PAGE_NONCE_IN_USE" : "PAGE_NONCE_REQUIRED",
+          message: nonce
+            ? "Page-world command nonce is already active"
+            : "Page-world command requires a nonce",
+        },
+      };
     }
-    if (!request || !(
-      request.kind === CHANNEL && request.type === "request" ||
-      request.channel === LEGACY_CHANNEL && request.kind === "request"
-    )) {
-      return;
+    try {
+      return await new Promise<PageWorldCommandResult>((resolve) => {
+        responseResolvers.set(nonce, resolve);
+        void enqueueCommand(request).catch((error: unknown) => {
+          reply(page, request, false, null, {
+            code: "PAGE_COMMAND_FAILED",
+            message: error instanceof Error ? error.message : "Page-world command failed",
+          });
+        });
+      });
+    } finally {
+      responseResolvers.delete(nonce);
     }
-    return enqueueCommand(request);
   };
 
   function uniqueTransferredRegistrations(
@@ -3037,39 +2979,6 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
     idleTokens.clear();
   }
 
-  function removeRuntimeMessageListener(): void {
-    try {
-      originals.rootRemoveEventListener?.call(page, "message", handlePageWorldMessage as EventListener);
-    } catch {
-      // Fall through to the intrinsic EventTarget method below.
-    }
-    if (originals.removeEventListener !== originals.rootRemoveEventListener) {
-      try {
-        originals.removeEventListener?.call(page, "message", handlePageWorldMessage as EventListener);
-      } catch {
-        // A browser that rejects both removals is already outside the writable
-        // contract; the rest of teardown still completes.
-      }
-    }
-  }
-
-  function retireRuntimeMarker(): void {
-    runtimeLease.ready = false;
-    try {
-      if (runtimeHost[RUNTIME_PROPERTY] !== runtimeLease) return;
-      if (!Reflect.deleteProperty(runtimeHost, RUNTIME_PROPERTY)) {
-        Reflect.set(runtimeHost, RUNTIME_PROPERTY, undefined);
-      }
-    } catch {
-      try {
-        Reflect.set(runtimeHost, RUNTIME_PROPERTY, undefined);
-      } catch {
-        // Marker publication is configurable in supported documents. A hostile
-        // redefinition cannot prevent the independent bridge cleanups above.
-      }
-    }
-  }
-
   function disposeRuntime(): PageWorldRuntimeTakeoverState {
     commandEpoch += 1;
     activeCommand = null;
@@ -3167,7 +3076,6 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
     installedResizeObserver = null;
     lazyBridgeInstalled = false;
 
-    runCleanupsSafely(navigationCleanups);
     try {
       if (
         installedAttachShadow &&
@@ -3181,24 +3089,53 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
       // Message and marker retirement are final-path operations below.
     }
     installedAttachShadow = null;
-    removeRuntimeMessageListener();
-    retireRuntimeMarker();
     return {
       queuedTimers: carriedTimers,
       eventRegistrations: transferredRegistrations,
     };
   }
 
-  runtimeLease.dispose = disposeRuntime;
+  let retired = false;
+  const capabilityDispatcher = async (
+    providedCapability: string,
+    invocation: PageWorldCapabilityInvocation,
+  ): Promise<PageWorldCommandResult> => {
+    if (providedCapability !== capability) {
+      return rejected("PAGE_CAPABILITY_REJECTED", "Page-world capability was rejected");
+    }
+    if (retired) {
+      return rejected("PAGE_RUNTIME_RETIRED", "Page-world runtime has been retired");
+    }
+    if (invocation.kind === "probe") {
+      return {
+        ok: true,
+        nonce: "",
+        command: "PROBE",
+        payload: { ready: true, version: RUNTIME_VERSION },
+      };
+    }
+    if (invocation.kind === "retire") {
+      disposeRuntime();
+      retired = true;
+      return {
+        ok: true,
+        nonce: "",
+        command: "RETIRE",
+        payload: { ready: false, retired: true, version: RUNTIME_VERSION },
+      };
+    }
+    if (!invocation.request) {
+      return rejected("PAGE_COMMAND_REQUIRED", "Page-world command request is missing");
+    }
+    return await dispatchCommand(invocation.request);
+  };
   const adoptedInheritedRegistrations: PageWorldTransferredRegistration[] = [];
   try {
-    // Publish the singleton only after every bridge is installed. If any page
-    // API rejects setup, the catch below restores the page-authored listeners
-    // and leaves no same-version marker that could brick later reinjection.
+    // Publish the random capability endpoint only after all managed-document
+    // hooks are installed. It is inert without the extension-owned capability,
+    // carries no fixed marker, and never communicates through page events.
     installLazyLoadingBridge();
-    installNavigationBridge();
     installClosedShadowInstrumentation();
-    originals.rootAddEventListener.call(page, "message", handlePageWorldMessage as EventListener);
     for (const registration of uniqueTransferredRegistrations(inheritedEventRegistrations)) {
       registration.target.addEventListener(
         registration.type,
@@ -3212,16 +3149,15 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
       flushQueued();
       restoreTimerBridge();
     }
-    runtimeLease.ready = true;
-    Object.defineProperty(runtimeHost, RUNTIME_PROPERTY, {
-      configurable: true,
+    Object.defineProperty(runtimeHost, endpointKey, {
+      configurable: false,
       enumerable: false,
-      writable: true,
-      value: runtimeLease,
+      writable: false,
+      value: capabilityDispatcher,
     });
     inheritedEventRegistrations = [];
+    return await capabilityDispatcher(capability, { kind: "probe" });
   } catch (error) {
-    runtimeLease.ready = false;
     removeTransferredRegistrationsBestEffort(adoptedInheritedRegistrations);
     const abandoned = disposeRuntime();
     restoreTransferredRegistrationsBestEffort([
@@ -3229,6 +3165,9 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
       ...abandoned.eventRegistrations,
     ]);
     releaseTransferredTimersBestEffort(abandoned.queuedTimers);
-    throw error;
+    return rejected(
+      "PAGE_RUNTIME_INSTALL_FAILED",
+      error instanceof Error ? error.message : "Page-world runtime installation failed",
+    );
   }
-}());
+}

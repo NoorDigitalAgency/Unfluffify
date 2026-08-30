@@ -134,6 +134,70 @@ describe("popup configuration controller", () => {
     });
   });
 
+  it("returns field errors before persistence and normalizes a corrected save", async () => {
+    const saveSettings = vi.fn(async (settings) => ({
+      ok: true as const,
+      data: { status: "ok" as const, settings, hasToken: false },
+    }));
+    const harness = createHarness({ saveSettings });
+    await harness.controller.loadSettings();
+    harness.controller.updateSettings("configEndpoint", "http://unsafe.example/api");
+    harness.controller.updateSettings("stageBase", "https://stage.example/path");
+
+    const invalid = harness.controller.prepareSettingsSave();
+    expect(invalid).toEqual({
+      status: "invalid",
+      fieldErrors: {
+        configEndpoint: "Use an HTTPS endpoint.",
+        stageBase: "Enter only the stage hostname, without a scheme.",
+      },
+    });
+    await expect(harness.controller.saveSettings(invalid)).resolves.toMatchObject({ status: "invalid" });
+    expect(saveSettings).not.toHaveBeenCalled();
+    expect(harness.controller.snapshot().settingsErrors).toEqual(invalid.fieldErrors);
+
+    harness.controller.updateSettings("configEndpoint", " https://HUB.example/api/ ");
+    harness.controller.updateSettings("stageBase", "Stage.Example.");
+    const corrected = harness.controller.prepareSettingsSave();
+    expect(corrected).toEqual({
+      status: "ready",
+      payload: {
+        configEndpoint: "https://hub.example/api",
+        stageBase: "stage.example",
+      },
+      definitiveDeletion: false,
+    });
+    await expect(harness.controller.saveSettings(corrected)).resolves.toMatchObject({ status: "saved" });
+    expect(saveSettings).toHaveBeenCalledWith(corrected.payload);
+  });
+
+  it("surfaces an unsafe legacy profile as invalid instead of adopting it", async () => {
+    const harness = createHarness({
+      loadSettings: vi.fn(async () => ({
+        ok: true,
+        data: {
+          status: "invalid" as const,
+          settings: {},
+          hasToken: false,
+          reason: "legacy profile rejected",
+        },
+      })),
+    });
+
+    await expect(harness.controller.loadSettings()).resolves.toBe("loaded");
+    expect(harness.controller.snapshot()).toMatchObject({
+      settingsLoaded: true,
+      settingsInvalid: true,
+      hasStoredToken: false,
+      stageBaseSet: false,
+    });
+    expect(harness.ports.recordActivity).toHaveBeenCalledWith(
+      "Stored connection invalid",
+      "legacy profile rejected",
+      "danger",
+    );
+  });
+
   it("reports one load warning, preserves a dirty retry form, and records recovery", async () => {
     const load = vi.fn()
       .mockResolvedValueOnce({ ok: false, code: "worker_asleep" })
@@ -186,7 +250,7 @@ describe("popup configuration controller", () => {
     await harness.controller.loadSettings();
     harness.controller.updateSettings("stageBase", " ");
     const preparation = harness.controller.prepareSettingsSave();
-    expect(preparation).toEqual({ payload: {}, definitiveDeletion: true });
+    expect(preparation).toEqual({ status: "ready", payload: {}, definitiveDeletion: true });
 
     const action = harness.controller.saveSettings(preparation);
     expect(harness.controller.snapshot().settingsBusy).toBe(true);

@@ -8,6 +8,7 @@ import {
 } from "../../../../src/popup/App";
 import {
   PreviewRowList,
+  planPreviewRowFocus,
   type PreviewRowListProps,
 } from "../../../../src/popup/sections/PreviewRowList";
 
@@ -82,6 +83,36 @@ describe("focused Preview row section", () => {
     expect(markup).toContain("preview-sidebar__virtual-spacer");
     expect(markup).toContain('aria-setsize="2000"');
     expect(markup).not.toContain("Readable row 1999");
+  });
+
+  it("maps a page-focused row to one bounded non-smooth virtual window", () => {
+    const plan = planPreviewRowFocus({
+      index: 1_500,
+      rowCount: 2_000,
+      rowHeight: 64,
+      viewportHeight: 640,
+      scrollTop: 0,
+      currentWindowStart: 0,
+    });
+
+    expect(plan.shouldScroll).toBe(true);
+    expect(plan.scrollTop).toBe(95_712);
+    expect(plan.windowStart).toBe(1_479);
+    expect(plan.windowStart).toBeLessThanOrEqual(1_500);
+    expect(plan.windowStart + 96).toBeGreaterThan(1_500);
+
+    expect(planPreviewRowFocus({
+      index: 1_500,
+      rowCount: 2_000,
+      rowHeight: 64,
+      viewportHeight: 640,
+      scrollTop: plan.scrollTop,
+      currentWindowStart: plan.windowStart,
+    })).toEqual({
+      windowStart: plan.windowStart,
+      scrollTop: plan.scrollTop,
+      shouldScroll: false,
+    });
   });
 
   it("retains an unresolvable technical row but disables activation with a specific reason", () => {

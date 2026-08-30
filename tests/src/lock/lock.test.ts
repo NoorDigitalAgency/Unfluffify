@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   adoptEditorSession,
+  buildLockAuthenticationFrame,
   buildClientFrame,
   buildPropertyLockWssUrl,
   checkNetworkReachability,
@@ -81,15 +82,25 @@ describe("P9 property-lock client", () => {
 
   it("builds environment-scoped lock frames with editor session, presence, and fence", () => {
     expect(buildPropertyLockWssUrl("https://lock.example.com", "a b")).toBe(
-      "wss://lock.example.com/property-lock?token=a%20b",
+      "wss://lock.example.com/property-lock",
     );
     expect(buildPropertyLockWssUrl("a.lynxdev.se", "token")).toBe(
-      "wss://a.lynxdev.se/property-lock?token=token",
+      "wss://a.lynxdev.se/property-lock",
     );
     expect(buildPropertyLockWssUrl("http://localhost:3000", "token")).toBe(
+      "ws://localhost:3000/property-lock",
+    );
+    expect(buildPropertyLockWssUrl("http://localhost:3000", "token", {
+      allowDebugLoopbackQueryToken: true,
+    })).toBe(
       "ws://localhost:3000/property-lock?token=token",
     );
     expect(buildPropertyLockWssUrl("http://[", "token")).toBe("");
+    expect(buildLockAuthenticationFrame(" bearer ")).toEqual({
+      type: "authenticate",
+      protocol: "bearer-frame-v1",
+      token: "bearer",
+    });
     expect(buildClientFrame({
       type: "heartbeat",
       environmentKey: "stage.example.com",
@@ -113,6 +124,87 @@ describe("P9 property-lock client", () => {
       accept: true,
       discardUnsaved: false,
     });
+  });
+
+  it("authenticates in the first socket frame and gates subscription and queued traffic on its ACK", () => {
+    const ws = fakeSocket();
+    const client = createPropertyLockClient({
+      socket: ws.socket,
+      authentication: { currentToken: () => "private-jwt" },
+      editorSession: editorSession(),
+      persistEditorSession() {},
+    });
+    client.claim();
+    ws.emit("open");
+    expect(ws.sent.map((frame) => JSON.parse(frame))).toEqual([{
+      type: "authenticate",
+      protocol: "bearer-frame-v1",
+      token: "private-jwt",
+    }]);
+
+    ws.emit("message", JSON.stringify({ type: "authenticated", protocol: "bearer-frame-v1" }));
+    expect(JSON.parse(ws.sent[1] ?? "{}")).toMatchObject({
+      type: "subscribe",
+      editorSessionId: "editor-1",
+    });
+    ws.emit("message", JSON.stringify({ type: "subscribed", editorSessionId: "editor-1" }));
+    expect(JSON.parse(ws.sent.at(-1) ?? "{}")).toMatchObject({ type: "take_lock" });
+    expect(client.state().connectivity).toBe("connected");
+  });
+
+  it("fails closed when the secure auth capability is absent, rejected, or not acknowledged", async () => {
+    vi.useFakeTimers();
+    try {
+      const unacknowledged = fakeSocket();
+      const timedOut = createPropertyLockClient({
+        socket: unacknowledged.socket,
+        authentication: { currentToken: () => "private-jwt", timeoutMs: 25 },
+        editorSession: editorSession(),
+        persistEditorSession() {},
+      });
+      unacknowledged.emit("open");
+      await vi.advanceTimersByTimeAsync(25);
+      expect(timedOut.state()).toMatchObject({
+        connectivity: "unavailable",
+        role: "unknown",
+        disconnectReason: "authentication_capability_unavailable",
+      });
+      expect(timedOut.isClosed()).toBe(true);
+      expect(unacknowledged.closeCount).toBe(1);
+      expect(unacknowledged.sent.map((frame) => JSON.parse(frame).type)).toEqual(["authenticate"]);
+
+      const rejectedSocket = fakeSocket();
+      const rejected = createPropertyLockClient({
+        socket: rejectedSocket.socket,
+        authentication: { currentToken: () => "private-jwt" },
+        editorSession: editorSession(),
+        persistEditorSession() {},
+      });
+      rejectedSocket.emit("open");
+      rejectedSocket.emit("message", JSON.stringify({ type: "authentication_failed" }));
+      expect(rejected.state()).toMatchObject({
+        connectivity: "unavailable",
+        disconnectReason: "authentication_rejected",
+      });
+      expect(rejectedSocket.sent.map((frame) => JSON.parse(frame).type)).toEqual(["authenticate"]);
+
+      const oldProtocolSocket = fakeSocket();
+      const oldProtocol = createPropertyLockClient({
+        socket: oldProtocolSocket.socket,
+        authentication: { currentToken: () => "private-jwt" },
+        editorSession: editorSession(),
+        persistEditorSession() {},
+      });
+      oldProtocolSocket.emit("open");
+      oldProtocolSocket.emit("message", JSON.stringify({ type: "subscribed", editorSessionId: "editor-1" }));
+      expect(oldProtocol.state()).toMatchObject({
+        connectivity: "unavailable",
+        disconnectReason: "authentication_ack_required",
+      });
+      expect(oldProtocolSocket.sent.map((frame) => JSON.parse(frame).type)).toEqual(["authenticate"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("mirrors backend-authoritative timers without computing deadlines", () => {

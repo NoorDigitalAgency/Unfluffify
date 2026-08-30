@@ -5,7 +5,11 @@ import {
   LockBannerVocabularySchema,
   type LockBannerVocabulary,
 } from "../../../src/domain/schema/facts";
-import { resolvePopupLockCopy } from "../../../src/popup/copy";
+import {
+  resolvePopupBlockedReasonCopy,
+  resolvePopupLockCopy,
+  resolvePopupOperatorDetail,
+} from "../../../src/popup/copy";
 
 describe("per-layer property-lock copy", () => {
   it("keeps composed copy out of the shared realm vocabulary", () => {
@@ -82,5 +86,20 @@ describe("per-layer property-lock copy", () => {
     }
     expect(resolvePopupLockCopy({ visible: true, reason: "managed-non-candidate" }))
       .toBe("Managed property · this page is not a Live Page candidate");
+  });
+
+  it("keeps production-facing status and exception copy free of internal tokens", () => {
+    expect(resolvePopupBlockedReasonCopy("requires-ai-run"))
+      .toBe("Run AI again to update the selectors for the latest markings.");
+    expect(resolvePopupBlockedReasonCopy("save-authority-changed"))
+      .toBe("Save reconciliation is still finishing.");
+    expect(resolvePopupBlockedReasonCopy("unknown_internal_state"))
+      .toBe("The requested action is temporarily unavailable.");
+    expect(resolvePopupOperatorDetail("TypeError: Cannot read properties of undefined\n at run (main.ts:4:2)"))
+      .toBe("The operation could not be completed. Retry; if it persists, reopen the panel.");
+    expect(resolvePopupOperatorDetail("requires-ai-run"))
+      .toBe("Run AI again to update the selectors for the latest markings.");
+    expect(resolvePopupOperatorDetail("The page changed; run AI again."))
+      .toBe("The page changed; run AI again.");
   });
 });

@@ -1,6 +1,7 @@
 import React from "react";
 
 import type { PreviewProjection } from "../../domain/schema/preview";
+import { isRovingFocusKey, resolveRovingFocusIndex } from "../../ui/roving-focus";
 import { projectPreviewRow } from "../preview-classification";
 
 export const PREVIEW_CLASSIFICATION_LABEL: Readonly<Record<string, string>> = {
@@ -34,6 +35,46 @@ const PREVIEW_WINDOW_OVERSCAN = 16;
 const PREVIEW_ROW_HEIGHT = 64;
 const PREVIEW_DEBUG_ROW_HEIGHT = 116;
 
+export type PreviewRowFocusPlan = Readonly<{
+  windowStart: number;
+  scrollTop: number;
+  shouldScroll: boolean;
+}>;
+
+/** One deterministic mapping owns both virtualization and physical scrolling.
+ * That prevents the old focus → smooth scroll → onScroll → remount loop. */
+export function planPreviewRowFocus(input: Readonly<{
+  index: number;
+  rowCount: number;
+  rowHeight: number;
+  viewportHeight: number;
+  scrollTop: number;
+  currentWindowStart: number;
+}>): PreviewRowFocusPlan {
+  const maxScrollTop = Math.max(0, input.rowCount * input.rowHeight - input.viewportHeight);
+  const rowTop = input.index * input.rowHeight;
+  const rowBottom = rowTop + input.rowHeight;
+  const visibleBottom = input.scrollTop + input.viewportHeight;
+  const shouldScroll = rowTop < input.scrollTop || rowBottom > visibleBottom;
+  const scrollTop = shouldScroll
+    ? Math.min(
+      maxScrollTop,
+      Math.max(0, rowTop - Math.max(0, input.viewportHeight - input.rowHeight) / 2),
+    )
+    : input.scrollTop;
+  const maxWindowStart = Math.max(0, input.rowCount - PREVIEW_WINDOW_SIZE);
+  let windowStart = shouldScroll
+    ? Math.floor(scrollTop / input.rowHeight) - PREVIEW_WINDOW_OVERSCAN
+    : input.currentWindowStart;
+  windowStart = Math.min(maxWindowStart, Math.max(0, windowStart));
+  if (input.index < windowStart) {
+    windowStart = input.index;
+  } else if (input.index >= windowStart + PREVIEW_WINDOW_SIZE) {
+    windowStart = Math.min(maxWindowStart, input.index - PREVIEW_WINDOW_SIZE + 1);
+  }
+  return { windowStart, scrollTop, shouldScroll };
+}
+
 /** Pure rendering seam for proving both disclosure modes even though the normal
  * Vitest compilation intentionally uses a debug extension build. */
 export const PreviewRowList = React.memo(function PreviewRowList({
@@ -47,25 +88,64 @@ export const PreviewRowList = React.memo(function PreviewRowList({
 }: PreviewRowListProps) {
   const rowHeight = __UF_DEBUG_BUILD__ && debug ? PREVIEW_DEBUG_ROW_HEIGHT : PREVIEW_ROW_HEIGHT;
   const [windowStart, setWindowStart] = React.useState(0);
+  const [keyboardFocusedRowId, setKeyboardFocusedRowId] = React.useState<string | null>(null);
+  const viewportRef = React.useRef<HTMLDivElement | null>(null);
   const rowButtons = React.useRef(new Map<string, HTMLButtonElement>());
+  const handledFocusOccurrence = React.useRef<string | null>(null);
+  const programmaticWindowStart = React.useRef<number | null>(null);
   const rowIndex = React.useMemo(() => new Map(
     (projection?.rows ?? []).map((row, index) => [row.id, index] as const),
   ), [projection]);
-  const focusedIndex = focusedRowId === null ? undefined : rowIndex.get(focusedRowId);
+  const targetableRows = React.useMemo(() => (
+    projection?.rows.map((row) => projectPreviewRow(row, false).targetable) ?? []
+  ), [projection]);
+  const requestedFocusRowId = keyboardFocusedRowId ?? focusedRowId;
+  const focusedIndex = requestedFocusRowId === null ? undefined : rowIndex.get(requestedFocusRowId);
 
   React.useEffect(() => {
-    setWindowStart((current) => Math.min(current, Math.max(0, (projection?.rows.length ?? 1) - 1)));
+    setWindowStart((current) => Math.min(
+      current,
+      Math.max(0, (projection?.rows.length ?? 0) - PREVIEW_WINDOW_SIZE),
+    ));
   }, [projection]);
   React.useEffect(() => {
-    if (focusedIndex === undefined) return;
-    setWindowStart(Math.max(0, focusedIndex - PREVIEW_WINDOW_OVERSCAN));
-  }, [focusedIndex]);
+    setKeyboardFocusedRowId(null);
+  }, [focusedRowId, projection?.projectionId]);
   React.useEffect(() => {
-    if (focusedRowId === null || focusedIndex === undefined) return;
-    const button = rowButtons.current.get(focusedRowId);
-    button?.focus({ preventScroll: true });
-    button?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [focusedIndex, focusedRowId, windowStart]);
+    if (requestedFocusRowId === null) {
+      handledFocusOccurrence.current = null;
+    }
+  }, [requestedFocusRowId]);
+  React.useEffect(() => {
+    if (requestedFocusRowId === null || focusedIndex === undefined || !projection) return;
+    const occurrence = `${projection.projectionId}\u0000${requestedFocusRowId}`;
+    if (handledFocusOccurrence.current === occurrence) return;
+    const viewport = viewportRef.current;
+    const plan = planPreviewRowFocus({
+      index: focusedIndex,
+      rowCount: projection.rows.length,
+      rowHeight,
+      viewportHeight: Math.max(rowHeight, viewport?.clientHeight ?? rowHeight),
+      scrollTop: viewport?.scrollTop ?? 0,
+      currentWindowStart: windowStart,
+    });
+    if (plan.windowStart !== windowStart) {
+      setWindowStart(plan.windowStart);
+      return;
+    }
+    const button = rowButtons.current.get(requestedFocusRowId);
+    if (!button) return;
+    button.focus({ preventScroll: true });
+    if (viewport && plan.shouldScroll) {
+      programmaticWindowStart.current = plan.windowStart;
+      if (typeof viewport.scrollTo === "function") {
+        viewport.scrollTo({ top: plan.scrollTop, behavior: "auto" });
+      } else {
+        viewport.scrollTop = plan.scrollTop;
+      }
+    }
+    handledFocusOccurrence.current = occurrence;
+  }, [focusedIndex, projection, requestedFocusRowId, rowHeight, windowStart]);
 
   if (!projection) {
     return <p className="preview-sidebar__empty" role="status">{pending ? "Preparing content list…" : "Content list unavailable"}</p>;
@@ -77,15 +157,21 @@ export const PreviewRowList = React.memo(function PreviewRowList({
   const visibleRows = projection.rows.slice(windowStart, windowEnd);
   return (
     <div
+      ref={viewportRef}
       className="preview-sidebar__viewport"
       onScroll={(event) => {
         const next = Math.max(
           0,
           Math.min(
-            projection.rows.length - 1,
+            Math.max(0, projection.rows.length - PREVIEW_WINDOW_SIZE),
             Math.floor(event.currentTarget.scrollTop / rowHeight) - PREVIEW_WINDOW_OVERSCAN,
           ),
         );
+        if (programmaticWindowStart.current === next) {
+          programmaticWindowStart.current = null;
+          return;
+        }
+        programmaticWindowStart.current = null;
         setWindowStart((current) => current === next ? current : next);
       }}
     >
@@ -117,7 +203,7 @@ export const PreviewRowList = React.memo(function PreviewRowList({
         return (
           <li
             key={display.id}
-            className={`preview-sidebar__item preview-sidebar__item--${tone} ${display.targetable ? "" : "preview-sidebar__item--unavailable"} ${hoveredRowId === display.id ? "preview-sidebar__item--active" : ""}`}
+            className={`preview-sidebar__item preview-sidebar__item--${tone} ${display.targetable ? "" : "preview-sidebar__item--unavailable"} ${hoveredRowId === display.id || requestedFocusRowId === display.id ? "preview-sidebar__item--active" : ""}`}
             aria-posinset={index + 1}
             aria-setsize={projection.rows.length}
             style={{ minHeight: rowHeight - 5 }}
@@ -140,6 +226,15 @@ export const PreviewRowList = React.memo(function PreviewRowList({
               onPointerLeave={() => onRowHover?.(display.id, false)}
               onFocus={() => onRowHover?.(display.id, true)}
               onBlur={() => onRowHover?.(display.id, false)}
+              onKeyDown={(event) => {
+                if (!isRovingFocusKey(event.key)) return;
+                const targetIndex = resolveRovingFocusIndex(event.key, index, targetableRows);
+                const target = targetIndex === null ? null : projection.rows[targetIndex];
+                if (!target) return;
+                event.preventDefault();
+                event.stopPropagation();
+                setKeyboardFocusedRowId(target.id);
+              }}
               onClick={() => onRowActivate?.(display.id)}
             >
               <span className="preview-sidebar__item-index" aria-hidden="true">{index + 1}.</span>

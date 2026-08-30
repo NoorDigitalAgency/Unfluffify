@@ -24,6 +24,9 @@ function surface(
     root: EventTarget;
     outside: "dismiss" | "ignore";
     escape: "dismiss" | "block";
+    modal: boolean;
+    initialFocus: EventTarget;
+    returnFocus: EventTarget;
   }> = {},
 ) {
   return {
@@ -33,10 +36,62 @@ function surface(
     root: () => overrides.root ?? null,
     outside: overrides.outside ?? (kind === "menu" || kind === "tooltip" ? "dismiss" : "ignore"),
     escape: overrides.escape ?? (kind === "busy" ? "block" : "dismiss"),
+    ...(overrides.modal === undefined ? {} : { modal: overrides.modal }),
+    ...(overrides.initialFocus ? { initialFocus: () => overrides.initialFocus ?? null } : {}),
+    ...(overrides.returnFocus ? { returnFocus: () => overrides.returnFocus ?? null } : {}),
     dismiss(reason: TransientDismissReason) {
       dismissed.push([id, reason]);
     },
   } as const;
+}
+
+class FakeFocusElement extends EventTarget {
+  readonly children: FakeFocusElement[] = [];
+  parentElement: FakeFocusElement | null = null;
+  readonly ownerDocument: { activeElement: EventTarget | null };
+  readonly attributes = new Map<string, string>();
+  isConnected = true;
+  disabled = false;
+  hidden = false;
+  inert = false;
+
+  constructor(ownerDocument: { activeElement: EventTarget | null }) {
+    super();
+    this.ownerDocument = ownerDocument;
+  }
+
+  append(child: FakeFocusElement): void {
+    child.parentElement = this;
+    this.children.push(child);
+  }
+
+  focus(): void {
+    this.ownerDocument.activeElement = this;
+  }
+
+  querySelectorAll(): FakeFocusElement[] {
+    return this.children.flatMap((child) => [child, ...child.querySelectorAll()]);
+  }
+
+  contains(target: EventTarget | null): boolean {
+    return target === this || this.children.some((child) => child.contains(target));
+  }
+
+  getAttribute(name: string): string | null {
+    return this.attributes.get(name) ?? null;
+  }
+
+  setAttribute(name: string, value: string): void {
+    this.attributes.set(name, value);
+  }
+
+  removeAttribute(name: string): void {
+    this.attributes.delete(name);
+  }
+
+  hasAttribute(name: string): boolean {
+    return this.attributes.has(name);
+  }
 }
 
 describe("transient surface manager", () => {
@@ -118,6 +173,56 @@ describe("transient surface manager", () => {
     expect(maintenance.handleEscape(escapeEvent())).toBe("blocked");
     expect(maintenance.snapshot()).toEqual([{ id: "maintenance-confirmation", kind: "dialog" }]);
     expect(dismissed).toEqual([["candidate-confirmation", "escape"]]);
+  });
+
+  it("owns modal focus, traps Tab, inerts siblings, and restores exact prior state", () => {
+    const dismissed: Array<readonly [string, TransientDismissReason]> = [];
+    const ownerDocument = { activeElement: null as EventTarget | null };
+    const parent = new FakeFocusElement(ownerDocument);
+    const background = new FakeFocusElement(ownerDocument);
+    const trigger = new FakeFocusElement(ownerDocument);
+    background.append(trigger);
+    const modal = new FakeFocusElement(ownerDocument);
+    const first = new FakeFocusElement(ownerDocument);
+    const last = new FakeFocusElement(ownerDocument);
+    modal.append(first);
+    modal.append(last);
+    parent.append(background);
+    parent.append(modal);
+    background.setAttribute("aria-hidden", "false");
+    trigger.focus();
+
+    const manager = createTransientSurfaceManager();
+    manager.open(surface("confirmation", "dialog", dismissed, {
+      root: modal,
+      modal: true,
+      initialFocus: first,
+      returnFocus: trigger,
+    }));
+
+    expect(ownerDocument.activeElement).toBe(first);
+    expect(background.inert).toBe(true);
+    expect(background.getAttribute("aria-hidden")).toBe("true");
+    expect(modal.inert).toBe(false);
+
+    const forward = {
+      key: "Tab",
+      shiftKey: false,
+      preventDefault: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    };
+    expect(manager.handleKeyDown(forward)).toBe("trapped");
+    expect(ownerDocument.activeElement).toBe(last);
+    expect(manager.handleKeyDown(forward)).toBe("trapped");
+    expect(ownerDocument.activeElement).toBe(first);
+    const backward = { ...forward, shiftKey: true, preventDefault: vi.fn(), stopImmediatePropagation: vi.fn() };
+    expect(manager.handleKeyDown(backward)).toBe("trapped");
+    expect(ownerDocument.activeElement).toBe(last);
+
+    expect(manager.handleEscape(escapeEvent())).toBe("dismissed");
+    expect(background.inert).toBe(false);
+    expect(background.getAttribute("aria-hidden")).toBe("false");
+    expect(ownerDocument.activeElement).toBe(trigger);
   });
 
   it("dismisses confirmations without performing their confirmed action", () => {

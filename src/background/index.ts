@@ -32,6 +32,14 @@ import { actionIconStateForContext, createActionIconController } from "./action-
 import { clearDomainCache } from "../storage/domain-cache";
 import { createInitialTabFacts } from "./brain/fold";
 import type { ShieldPostureProjection } from "../messaging/shield-posture";
+import {
+  createPageWorldCapabilityRuntime,
+  type PageWorldDocumentIdentity,
+} from "./page-world-capability-runtime";
+import {
+  createOffscreenDocumentOwner,
+  type OffscreenDocumentApi,
+} from "./offscreen-document";
 
 export { createRewriteBrain } from "./rewrite-brain";
 
@@ -43,9 +51,25 @@ type RewriteSidePanelApi = Readonly<{
 type InstalledBrowserApi = NonNullable<ReturnType<typeof getInstalledBrowserApi>>;
 type RewriteExtensionApi = InstalledBrowserApi & Readonly<{
   sidePanel?: RewriteSidePanelApi;
-  offscreen?: Readonly<{
-    hasDocument?: () => Promise<boolean> | boolean;
-    createDocument?: (options: { url: string; reasons: string[]; justification: string }) => Promise<void> | void;
+  offscreen?: OffscreenDocumentApi["offscreen"];
+  scripting?: Readonly<{
+    executeScript?: <T>(
+      injection: Readonly<{
+        target: Readonly<{ tabId: number; documentIds: string[] }>;
+        world: "MAIN";
+        func: (...args: never[]) => T | Promise<T>;
+        args: unknown[];
+      }>,
+      callback?: (results: readonly Readonly<{
+        frameId?: number;
+        documentId?: string;
+        result?: T;
+      }>[]) => void,
+    ) => Promise<readonly Readonly<{
+      frameId?: number;
+      documentId?: string;
+      result?: T;
+    }>[]> | void;
   }>;
 }>;
 
@@ -131,21 +155,6 @@ async function openRewriteSidePanelForTab(tab: Readonly<{ id?: number }>, api: R
   await api.sidePanel.open({ tabId: tab.id });
 }
 
-async function ensureOffscreenDocument(api: RewriteExtensionApi): Promise<void> {
-  if (!api.offscreen?.createDocument) {
-    return;
-  }
-  const hasDocument = await Promise.resolve(api.offscreen.hasDocument?.() ?? false);
-  if (hasDocument) {
-    return;
-  }
-  await Promise.resolve(api.offscreen.createDocument({
-    url: "offscreen.html",
-    reasons: ["DOM_PARSER"],
-    justification: "Refine Unfluffify XPath rows against captured HTML",
-  }));
-}
-
 let rewriteBackgroundStarted = false;
 
 export function startRewriteBackground(): void {
@@ -155,6 +164,7 @@ export function startRewriteBackground(): void {
   }
   rewriteBackgroundStarted = true;
   const services = createRewriteBackgroundServices();
+  const offscreenDocuments = createOffscreenDocumentOwner(api as OffscreenDocumentApi);
   const transferPayloads = createTransferPayloadStore();
   const actionIcons = createActionIconController(api.action);
   /** An explicit Unregister must survive the reload it initiates. Content cannot
@@ -176,6 +186,10 @@ export function startRewriteBackground(): void {
     pageUrl: string | null;
   }>;
   const mainNavigationByTab = new Map<number, MainNavigationState>();
+  type ManagedPageWorldAuthority = PageWorldDocumentIdentity;
+  const managedPageWorldAuthorityByTab = new Map<number, ManagedPageWorldAuthority>();
+  const managedPageWorldGenerationByTab = new Map<number, number>();
+  const tabTerminations = new Map<number, Promise<void>>();
   const normalizedPageUrl = (pageUrl: string | null): string | null => {
     if (!pageUrl) return null;
     try {
@@ -610,6 +624,61 @@ export function startRewriteBackground(): void {
     }
     return "ok";
   };
+  const adoptManagedPageWorldAuthority = (
+    tabId: number,
+    documentId: string,
+    pageUrl: string,
+  ): ManagedPageWorldAuthority | null => {
+    const normalizedUrl = normalizedPageUrl(pageUrl);
+    if (!normalizedUrl) return null;
+    const prior = managedPageWorldAuthorityByTab.get(tabId);
+    if (
+      prior?.documentId === documentId &&
+      prior.pageUrl === normalizedUrl
+    ) {
+      return prior;
+    }
+    const generation = (managedPageWorldGenerationByTab.get(tabId) ?? 0) + 1;
+    managedPageWorldGenerationByTab.set(tabId, generation);
+    const authority = { tabId, documentId, pageUrl: normalizedUrl, generation };
+    managedPageWorldAuthorityByTab.set(tabId, authority);
+    return authority;
+  };
+  const pageWorld = createPageWorldCapabilityRuntime({
+    executeScript: api.scripting?.executeScript,
+    storage: api.storage?.session as unknown as Parameters<
+      typeof createPageWorldCapabilityRuntime
+    >[0]["storage"],
+    async authorize(identity) {
+      if (tabTerminations.has(identity.tabId)) return false;
+      const authority = managedPageWorldAuthorityByTab.get(identity.tabId);
+      if (!authority || !(
+        authority.documentId === identity.documentId &&
+        authority.pageUrl === identity.pageUrl &&
+        authority.generation === identity.generation
+      )) {
+        return false;
+      }
+      const navigation = mainNavigationByTab.get(identity.tabId);
+      if (navigation?.pending || (
+        navigation?.pageUrl !== null &&
+        navigation?.pageUrl !== identity.pageUrl
+      )) {
+        return false;
+      }
+      const frame = await queryMainFrame(identity.tabId);
+      return Boolean(
+        frame?.documentId === identity.documentId &&
+        frame.pageUrl === identity.pageUrl &&
+        !await consentSuppressionDisabled(identity.tabId) &&
+        managedPageWorldAuthorityByTab.get(identity.tabId) === authority,
+      );
+    },
+  });
+  const retireManagedPageWorldAuthority = (tabId: number): void => {
+    managedPageWorldAuthorityByTab.delete(tabId);
+    void pageWorld.retireTab(tabId).catch(() => undefined);
+  };
   const runtime = createRewriteBrainRuntime({
     addMessageListener() {},
     rehydrateDurableFacts: services.persistence.rehydrateDurableFacts,
@@ -658,6 +727,27 @@ export function startRewriteBackground(): void {
       const detail = error instanceof Error ? error.message : String(error);
       if (!/receiving end does not exist|no receiver|message port closed|could not establish connection/i.test(detail)) {
         console.warn("[Unfluffify][rewrite] Unable to notify content about signals", error);
+      }
+    } finally {
+      contentBus.dispose();
+    }
+  };
+  const emitPageUrlChangedToContent = async (
+    tabId: number,
+    documentId: string,
+    pageUrl: string,
+  ): Promise<void> => {
+    if (!api.tabs?.sendMessage || tabId <= 0) return;
+    const contentBus = createRealmBus({
+      realm: "background",
+      transport: createTabTransport(api.tabs, tabId),
+    });
+    try {
+      await contentBus.emit("page.urlChanged", { tabId, documentId, pageUrl }, { target: "content" });
+    } catch (error: unknown) {
+      const detail = error instanceof Error ? error.message : String(error);
+      if (!/receiving end does not exist|no receiver|message port closed|could not establish connection/i.test(detail)) {
+        console.warn("[Unfluffify][rewrite] Unable to notify content about navigation", error);
       }
     } finally {
       contentBus.dispose();
@@ -766,7 +856,6 @@ export function startRewriteBackground(): void {
     });
     return queued;
   };
-  const tabTerminations = new Map<number, Promise<void>>();
   const renderInspectionDocumentFenceIsCurrent = (
     tabId: number,
     fence: RenderInspectionDocumentFence,
@@ -925,6 +1014,7 @@ export function startRewriteBackground(): void {
       return renderInspection.preservesNavigationCommit({ tabId, ...commit });
     },
     onMainDocumentNavigationStarted(tabId, pageUrl) {
+      retireManagedPageWorldAuthority(tabId);
       advanceMainNavigation(tabId, true, pageUrl);
       const expectedInspectionReload = renderInspection.observeNavigationStart(tabId, pageUrl);
       if (!expectedInspectionReload) {
@@ -958,9 +1048,11 @@ export function startRewriteBackground(): void {
           pageUrl: frame.pageUrl,
         });
         observeMainDocument(tabId, frame.documentId, frame.pageUrl);
+        void emitPageUrlChangedToContent(tabId, frame.documentId, frame.pageUrl);
       });
     },
     onMainDocumentCommitted(tabId, documentId, pageUrl) {
+      retireManagedPageWorldAuthority(tabId);
       const state = advanceMainNavigation(tabId, false, pageUrl);
       observeMainDocument(tabId, documentId, state.pageUrl);
       const commit = {
@@ -976,19 +1068,30 @@ export function startRewriteBackground(): void {
         renderInspection.navigationCommitted(commit));
     },
     onMainDocumentHistoryChanged(tabId, documentId, pageUrl) {
+      const priorAuthority = managedPageWorldAuthorityByTab.get(tabId);
       const state = advanceMainNavigation(tabId, false, pageUrl);
       if (documentId) {
         observeMainDocument(tabId, documentId, state.pageUrl);
+      }
+      if (
+        priorAuthority &&
+        (priorAuthority.documentId !== documentId || priorAuthority.pageUrl !== state.pageUrl)
+      ) {
+        retireManagedPageWorldAuthority(tabId);
       }
       const commit = { tabId, documentId, pageUrl: state.pageUrl };
       renderInspection.observeNavigationCommit(commit);
       void settleRenderInspection("same-document navigation cleanup", () =>
         renderInspection.navigationCommitted(commit));
+      if (documentId && state.pageUrl) {
+        void emitPageUrlChangedToContent(tabId, documentId, state.pageUrl);
+      }
     },
     onPresenceChanged(tabId, presence) {
       lockRuntime.presenceChanged(tabId, presence);
     },
     onTabTerminated(tabId, reason) {
+      retireManagedPageWorldAuthority(tabId);
       // Navigation/reload and tab close are draft-terminal, unlike a transient
       // network failure. A close releases immediately; navigation retains only
       // the lease while its off-candidate/cross-property deadline is resolved.
@@ -1170,11 +1273,12 @@ export function startRewriteBackground(): void {
       if (await consentSuppressionDisabled(request.tabId)) {
         return {
           mode: request.mode,
-          width: request.mode === "mobile" ? 412 : 1280,
-          height: request.mode === "mobile" ? 960 : 900,
+          width: request.mode === "mobile" ? 412 : 1920,
+          height: request.mode === "mobile" ? 960 : 1080,
           scale: request.scale,
           active: false,
           identityStale: false,
+          failureReason: "consent_suppression_disabled" as const,
         };
       }
       return renderEmulation.apply(
@@ -1273,6 +1377,41 @@ export function startRewriteBackground(): void {
       }
     }
   };
+  const pageWorldIdentityForContent = (
+    pageUrl: string,
+    meta: Readonly<{ source: string; sourceInstance?: string }>,
+  ): PageWorldDocumentIdentity | null => {
+    if (meta.source !== "content") return null;
+    const tabId = parseSenderTabId(meta.sourceInstance);
+    const frameId = parseSenderFrameId(meta.sourceInstance);
+    const documentId = parseSenderDocumentId(meta.sourceInstance);
+    const normalizedUrl = normalizedPageUrl(pageUrl);
+    if (!tabId || frameId !== 0 || !documentId || !normalizedUrl) return null;
+    const authority = managedPageWorldAuthorityByTab.get(tabId);
+    return authority &&
+      authority.documentId === documentId &&
+      authority.pageUrl === normalizedUrl
+      ? authority
+      : null;
+  };
+  bus.onCommand("pageWorld.acquire", async (request, meta) => {
+    const identity = pageWorldIdentityForContent(request.pageUrl, meta);
+    return identity
+      ? await pageWorld.acquire(identity)
+      : { status: "stale" as const, reason: "document-authority-unavailable" };
+  });
+  bus.onCommand("pageWorld.command", async (request, meta) => {
+    const identity = pageWorldIdentityForContent(request.pageUrl, meta);
+    if (!identity) {
+      return { status: "stale" as const, reason: "document-authority-unavailable" };
+    }
+    return await pageWorld.command(identity, {
+      nonce: request.nonce,
+      sessionNonce: request.sessionNonce,
+      command: request.command,
+      payload: request.payload,
+    });
+  });
   bus.onCommand("page.context", (request, meta) => {
     const tabId = request.tabId ?? parseSenderTabId(meta.sourceInstance) ?? 0;
     const incomingDocumentId = parseSenderDocumentId(meta.sourceInstance);
@@ -1313,6 +1452,10 @@ export function startRewriteBackground(): void {
       consentSuppressionAllowed ? actionIconStateForContext(context.status) : "unregistered",
     ).catch(() => undefined);
     if (!consentSuppressionAllowed) {
+      if (mainContentSender) {
+        managedPageWorldAuthorityByTab.delete(tabId);
+        void pageWorld.retireTab(tabId);
+      }
       return {
         ...context,
         consentSuppressionAllowed: false,
@@ -1320,6 +1463,21 @@ export function startRewriteBackground(): void {
         todo: projectTodoCoverage(context.pageTypes, context.pageKey, new Set()),
         shieldPosture: { status: "inactive" as const, revision: 0 },
       };
+    }
+    if (mainContentSender && incomingDocumentId) {
+      const managed = Boolean(context.environmentKey) && context.siteId !== null;
+      if (managed) {
+        const authority = adoptManagedPageWorldAuthority(tabId, incomingDocumentId, request.pageUrl);
+        if (authority) {
+          await pageWorld.acquire(authority).catch(() => ({
+            status: "unavailable" as const,
+            reason: "page-world-install-failed",
+          }));
+        }
+      } else {
+        managedPageWorldAuthorityByTab.delete(tabId);
+        await pageWorld.retireTab(tabId).catch(() => undefined);
+      }
     }
     // Content asks for page context at load time, before a popup necessarily
     // exists. That is the earliest authoritative point at which the background
@@ -1903,7 +2061,7 @@ export function startRewriteBackground(): void {
     released: transferPayloads.releaseScope(request.scope),
   }));
   bus.onCommand("offscreen.refineXpaths", async (request) => {
-    await ensureOffscreenDocument(api);
+    await offscreenDocuments.ensure();
     const response = await bus.request("offscreen.refineXpaths", request, { target: "offscreen" });
     return response.ok ? response.data : { rows: request.rows };
   });
@@ -2190,8 +2348,20 @@ export function startRewriteBackground(): void {
     };
   });
   bus.onCommand("settings.load", async () => {
-    const stored = await services.settings.load();
+    const storedResult = await services.repos.settingsStore.load();
+    if (!storedResult.ok) {
+      return {
+        status: "invalid" as const,
+        settings: {},
+        hasToken: false,
+        reason: storedResult.error.code === "INVALID_STORED_VALUE"
+          ? "The saved connection does not meet the current security requirements."
+          : "The saved connection could not be read.",
+      };
+    }
+    const stored = storedResult.value ?? {};
     return {
+      status: "ok" as const,
       settings: connectionSettingsOf(stored),
       hasToken: Boolean(stored.token?.trim()),
     };
@@ -2211,6 +2381,7 @@ export function startRewriteBackground(): void {
   bus.onCommand("cache.clearDomain", ({ origin }) => clearDomainCache(api.browsingData, origin));
   bus.onCommand("session.unregister", async ({ tabId }) => {
     await beginTabCleanup(tabId, async () => {
+      retireManagedPageWorldAuthority(tabId);
       const currentDocument = await loadMainDocument(tabId);
       const blockedDocumentKey = currentDocument.known
         ? currentDocument.documentId

@@ -1,4 +1,5 @@
 import type { TransientSurfaceManager } from "../../ui/transient-surface-manager";
+import { focusRovingEdge, moveRovingDomFocus } from "../../ui/roving-focus";
 
 export type MarkingMenuAction = Readonly<{
   id: "include" | "exclude" | "widen" | "clear";
@@ -39,6 +40,7 @@ export function openMarkingContextMenu(options: Readonly<{
   root.setAttribute("data-uf-extension-ui", "true");
   root.setAttribute("data-uf-marking-menu", "true");
   root.setAttribute("role", "menu");
+  root.setAttribute("aria-label", "Marking actions");
   root.style.left = `${Math.max(8, Math.min(options.x, (options.document.documentElement.clientWidth || 320) - 174))}px`;
   root.style.top = `${Math.max(8, Math.min(options.y, (options.document.documentElement.clientHeight || 240) - 174))}px`;
 
@@ -55,6 +57,7 @@ export function openMarkingContextMenu(options: Readonly<{
     const button = options.document.createElement("button");
     button.type = "button";
     button.setAttribute("role", "menuitem");
+    button.tabIndex = -1;
     button.setAttribute("data-uf-marking-menu-action", action.id);
     button.disabled = !action.enabled;
     button.textContent = action.label;
@@ -71,6 +74,11 @@ export function openMarkingContextMenu(options: Readonly<{
     });
     root.appendChild(button);
   }
+  root.addEventListener("keydown", (event) => {
+    if (!moveRovingDomFocus(root, '[role="menuitem"]', event.key)) return;
+    event.preventDefault();
+    event.stopPropagation();
+  });
   options.document.documentElement.appendChild(root);
   const surface = options.manager.open({
     id: "marking-context-menu",
@@ -80,6 +88,7 @@ export function openMarkingContextMenu(options: Readonly<{
     escape: "dismiss",
     dismiss: remove,
   });
+  focusRovingEdge(root, '[role="menuitem"]', "first");
   const close = (): void => {
     surface.close("context-change");
   };

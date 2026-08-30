@@ -12,6 +12,23 @@ export type PropertyLockView = Readonly<{
   actions?: readonly LockAction[];
 }>;
 
+export type LockActionReadiness =
+  | Readonly<{ status: "ready" }>
+  | Readonly<{ status: "blocked"; reason: LockReason }>;
+
+/** A role label alone is never mutation authority. This projection is shared
+ * by the background response and the popup's action admission. */
+export function projectLockActionReadiness(input: Readonly<{
+  role: PropertyLockState["role"];
+  canEdit: boolean;
+  hasExactAuthority: boolean;
+  reason: LockReason;
+}>): LockActionReadiness {
+  return input.role === "editor" && input.canEdit && input.hasExactAuthority
+    ? { status: "ready" }
+    : { status: "blocked", reason: input.reason };
+}
+
 export function projectPropertyLockView(state: PropertyLockState): PropertyLockView {
   if (state.terminal) {
     return { bannerVisible: true, reason: "extension-context-invalidated", canEdit: false };

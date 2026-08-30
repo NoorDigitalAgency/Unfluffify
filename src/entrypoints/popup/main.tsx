@@ -3,7 +3,7 @@ import "../../theme-color.css";
 import "../../theme-components.css";
 import "../../popup.css";
 import "../../theme-utilities.css";
-import "../../public/assets/materialdesignicons.min.css";
+import "../../materialdesignicons-subset.css";
 import React from "react";
 
 import {
@@ -55,7 +55,7 @@ import {
   type OperatorActionStage,
 } from "../../popup/operator-action-controller";
 import type { LockAction, LockBannerVocabulary, LockReason } from "../../domain/schema/facts";
-import { resolvePopupLockCopy } from "../../popup/copy";
+import { resolvePopupLockCopy, resolvePopupOperatorDetail } from "../../popup/copy";
 import { pageTypeForCandidate } from "../../domain/todo";
 import { createTodoController } from "../../popup/todo-controller";
 import { createAuthorityRefreshQueue } from "../../popup/authority-refresh-queue";
@@ -78,6 +78,7 @@ import {
 import type { RenderInspectionPropertyScope } from "../../messaging/render-inspection";
 import { AI_RUN_TIMEOUT_MS } from "../../lynx/ai";
 import type { AiFailureStage } from "../../lynx/ai-job";
+import { projectLockActionReadiness } from "../../lock";
 import {
   evaluatePublicationChecklist,
   savedSelectorsFingerprint,
@@ -398,9 +399,13 @@ function notifyEvent(
   detail: string,
   tone: Exclude<PopupLogEntry["tone"], "info">,
 ): void {
-  logEvent(label, detail, tone);
+  const operatorDetail = DEBUG_BUILD ? detail : resolvePopupOperatorDetail(detail);
+  logEvent(label, operatorDetail, tone);
   const toastTone: ToastTone = tone === "warn" ? "warning" : tone;
-  toastController.show({ message: detail ? `${label}: ${detail}` : label, tone: toastTone });
+  toastController.show({
+    message: operatorDetail ? `${label}: ${operatorDetail}` : label,
+    tone: toastTone,
+  });
 }
 
 function captureBindingOccurrence(key = boundTabKey): PopupBindingOccurrence {
@@ -640,6 +645,8 @@ function buildDiagnostics(): PopupDiagnostics {
     settingsSaved: configuration.settingsSaved,
     settingsDirty: configuration.settingsDirty,
     settingsBusy: configuration.settingsBusy,
+    settingsErrors: configuration.settingsErrors,
+    settingsInvalid: configuration.settingsInvalid,
     stageBaseSet: configuration.stageBaseSet,
     authState: configuration.authState,
     authBusy: configuration.authBusy,
@@ -815,7 +822,7 @@ function dispatchSignal(signal: BrainSignal): void {
   const before = beforeState.name;
   store.dispatch(signal);
   if (signal.name === "markings.changed") {
-    contentDirty = true;
+    contentDirty = signal.payload.dirty !== false;
   }
   const afterState = store.getState();
   const after = afterState.name;
@@ -2287,9 +2294,12 @@ type SessionEmulationTarget = Readonly<{
 }>;
 
 type SessionEmulationResult = Readonly<{
+  /** True means either exact now or an accepted reload transition whose
+   * replacement document still has to pass the proof below. */
   active: boolean;
   reloadExpected: boolean;
   priorDocumentNonce: string | null;
+  failureReason: string;
 }>;
 
 async function runSessionTransition<T>(operation: () => Promise<T>): Promise<T> {
@@ -2331,6 +2341,7 @@ async function applySessionEmulationResult(
   let active = false;
   let reloadExpected = false;
   let priorDocumentNonce: string | null = null;
+  let failureReason = "";
   const operation = emulationApplyQueue.then(async () => {
     const priorStatus = await requestContentDelivery(
       context.tabId,
@@ -2351,13 +2362,15 @@ async function applySessionEmulationResult(
       scale: 1,
       allowReload: target.allowReload,
     }, { target: "background" });
-    active = response.ok && response.data.active === true;
+    const exact = response.ok && response.data.active === true;
     reloadExpected = response.ok &&
-      response.data.active === true &&
+      response.data.reloadRequired === true &&
       target.allowReload &&
       response.data.identityStale === true;
+    active = exact || reloadExpected;
+    failureReason = response.ok ? response.data.failureReason ?? "" : response.failure.code;
     appliedEmulationMode = active ? target.mode : null;
-    if (active && !reloadExpected) {
+    if (exact) {
       // The CDP override can settle without a resize event in the content
       // isolated world. Complete the serialized posture only after the active
       // interaction shield has explicitly remeasured the confirmed viewport.
@@ -2369,7 +2382,7 @@ async function applySessionEmulationResult(
   });
   emulationApplyQueue = operation.catch(() => undefined);
   await operation;
-  return { active, reloadExpected, priorDocumentNonce };
+  return { active, reloadExpected, priorDocumentNonce, failureReason };
 }
 
 async function applySessionEmulation(
@@ -2381,6 +2394,7 @@ async function applySessionEmulation(
 
 async function waitForEmulationReload(
   context: TargetTabContext,
+  target: Readonly<{ mode: "mobile" | "desktop" }>,
   expectedProperty?: ReloadPropertyIdentity,
   priorDocumentNonce: string | null = null,
 ) {
@@ -2414,6 +2428,17 @@ async function waitForEmulationReload(
     }),
   });
   if (transition.status === "ready") {
+    const proof = await applySessionEmulationResult(transition.context, {
+      mode: target.mode,
+      allowReload: false,
+    });
+    if (!proof.active || proof.reloadExpected) {
+      return {
+        status: "emulation_failed" as const,
+        context: transition.context,
+        reason: proof.failureReason || "exact emulation proof failed",
+      };
+    }
     await requestContentMessage(transition.context.tabId, {
       type: "refreshInteractionShieldViewport",
       repaintSilent: false,
@@ -2536,7 +2561,12 @@ type LockDirectiveResponse = Readonly<{
 }>;
 
 function lockAllowsEditing(lock: LockDirectiveResponse): boolean {
-  return lock.lockRole === "editor" && lock.canEdit;
+  return projectLockActionReadiness({
+    role: lock.lockRole,
+    canEdit: lock.canEdit,
+    hasExactAuthority: Boolean(lock.authority),
+    reason: lock.blockedReason,
+  }).status === "ready";
 }
 
 async function requestLockDirective(
@@ -2715,6 +2745,7 @@ async function reconcileContentStatus(context: TargetTabContext, requestKey = bo
     pageUrl?: unknown;
     markedCount?: unknown;
     markingToggleSeq?: unknown;
+    markingFingerprint?: unknown;
     contentRows?: unknown;
   };
   if (status.pageUrl && status.pageUrl !== context.url) {
@@ -2769,11 +2800,21 @@ async function reconcileContentStatus(context: TargetTabContext, requestKey = bo
   // a fact and let the brain decide, rather than mint a second signal that could
   // disagree with the brain's own.
   if (status.active === true) {
-    const toggleSeq = typeof status.markingToggleSeq === "number"
+    const exactToggleSeq = typeof status.markingToggleSeq === "number"
       ? status.markingToggleSeq
+      : null;
+    const hasExactToggleSeq = exactToggleSeq !== null;
+    const toggleSeq = hasExactToggleSeq
+      ? exactToggleSeq
       : typeof status.markedCount === "number" ? status.markedCount : 0;
-    if (status.dirty === true && toggleSeq > 0) {
-      await reportPopupFact(context, "marking-toggle-observed", { markingToggleSeq: toggleSeq }, requestKey);
+    if (toggleSeq > 0 && (status.dirty === true || hasExactToggleSeq)) {
+      await reportPopupFact(context, "marking-toggle-observed", {
+        markingToggleSeq: toggleSeq,
+        markingDirty: status.dirty === true,
+        ...(typeof status.markingFingerprint === "string"
+          ? { markingFingerprint: status.markingFingerprint }
+          : {}),
+      }, requestKey);
       // Pull straight away so the brain's decision lands on this open rather than
       // on the next poll tick half a second later.
       await pullSignals(context.tabId, requestKey);
@@ -2818,7 +2859,12 @@ async function setMarkingEnabledOperation(
       let activeContext = context;
       if (emulation.reloadExpected) {
         advanceOperatorAction(action, "reload");
-        const reload = await waitForEmulationReload(context, undefined, emulation.priorDocumentNonce);
+        const reload = await waitForEmulationReload(
+          context,
+          { mode: "mobile" },
+          undefined,
+          emulation.priorDocumentNonce,
+        );
         if (reload.status !== "ready") {
           await applySessionEmulation(context, { mode: priorMode, allowReload: true });
           return {
@@ -2947,6 +2993,7 @@ async function setMarkingEnabledOperation(
         }
         const reload = await waitForEmulationReload(
           context,
+          { mode: "mobile" },
           expectedProperty,
           emulation.priorDocumentNonce,
         );
@@ -3109,7 +3156,12 @@ async function setMarkingEnabledOperation(
         return { contentDeactivated, emulationApplied: true, context, reason: "" };
       }
       advanceOperatorAction(action, "reload");
-      const reload = await waitForEmulationReload(context, undefined, emulation.priorDocumentNonce);
+      const reload = await waitForEmulationReload(
+        context,
+        { mode },
+        undefined,
+        emulation.priorDocumentNonce,
+      );
       if (reload.status !== "ready") {
         return {
           contentDeactivated,
@@ -3497,7 +3549,12 @@ async function setDesktopPreviewEnabled(enabled: boolean): Promise<void> {
     if (!emulation.reloadExpected) {
       return true;
     }
-    const reload = await waitForEmulationReload(context, undefined, emulation.priorDocumentNonce);
+    const reload = await waitForEmulationReload(
+      context,
+      { mode: enabled ? "desktop" : "mobile" },
+      undefined,
+      emulation.priorDocumentNonce,
+    );
     return reload.status === "ready";
   });
   if (!transitioned) {
@@ -3721,6 +3778,11 @@ async function loadRenderModeView(javascriptEnabled: boolean): Promise<void> {
 
 async function saveStoredSettings(): Promise<void> {
   const preparation = configurationController.prepareSettingsSave();
+  if (preparation.status === "invalid") {
+    logEvent("Connection not saved", "Correct the highlighted connection fields.", "danger");
+    render();
+    return;
+  }
   const { payload, definitiveDeletion } = preparation;
   const terminalEpoch = definitiveDeletion ? beginContentCommandTerminal() : null;
   const outcome = await configurationController.saveSettings(preparation);
@@ -3735,6 +3797,14 @@ async function saveStoredSettings(): Promise<void> {
       cancelContentCommandTerminal(terminalEpoch);
     }
     logEvent("Connection save failed", outcome.code, "danger");
+    render();
+    return;
+  }
+  if (outcome.status === "invalid") {
+    if (terminalEpoch !== null) {
+      cancelContentCommandTerminal(terminalEpoch);
+    }
+    logEvent("Connection not saved", "Correct the highlighted connection fields.", "danger");
     render();
     return;
   }
@@ -4531,6 +4601,7 @@ async function performSaveSession(action: OperatorActionOccurrence): Promise<voi
       }
       return await waitForEmulationReload(
         context,
+        { mode },
         expectedProperty,
         emulation.priorDocumentNonce,
       );

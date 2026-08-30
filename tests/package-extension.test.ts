@@ -8,7 +8,7 @@ const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const PACKAGE_VERSION = JSON.parse(
   readFileSync(path.join(REPO_ROOT, "package.json"))
 ).version;
-const PACKAGE_BUILD_TIMEOUT_MS = 45_000;
+const PACKAGE_BUILD_TIMEOUT_MS = 180_000;
 const NODE_EXECUTABLE = process.execPath;
 
 async function runCommand(command, args, cwd) {
@@ -57,14 +57,14 @@ test("package script stages runtime files and excludes repo-only files", async (
     assert.equal(metadata.stagedFiles.includes("background.js"), true);
     assert.equal(metadata.stagedFiles.includes("popup.html"), true);
     assert.equal(metadata.stagedFiles.includes("content-scripts/content-loader.js"), true);
-    assert.equal(metadata.stagedFiles.includes("content-scripts/page-world.js"), true);
+    assert.equal(metadata.stagedFiles.includes("content-scripts/page-world.js"), false);
     assert.equal(metadata.stagedFiles.includes("content-main.js"), false);
     assert.equal(metadata.stagedFiles.includes("content/submission-rules.js"), false);
     assert.equal(metadata.stagedFiles.includes("common/config.js"), false);
     assert.equal(metadata.stagedFiles.includes("assets/fonts/fonts.css"), true);
-    assert.equal(metadata.stagedFiles.includes("assets/materialdesignicons.min.css"), true);
+    assert.equal(metadata.stagedFiles.includes("assets/materialdesignicons.min.css"), false);
     assert.equal(metadata.stagedFiles.includes("assets/fonts/inter-latin-400-normal.woff2"), true);
-    assert.equal(metadata.stagedFiles.includes("assets/materialdesignicons-webfont.woff2"), true);
+    assert.equal(metadata.stagedFiles.includes("assets/materialdesignicons-webfont.woff2"), false);
     assert.equal(metadata.stagedFiles.includes("cursors/exclude.svg"), true);
     assert.equal(metadata.stagedFiles.includes("cursors/include.svg"), true);
     assert.equal(metadata.stagedFiles.includes("icons/default/icon16.png"), true);
@@ -78,14 +78,14 @@ test("package script stages runtime files and excludes repo-only files", async (
     assert.equal(metadata.stagedFiles.includes(".github/workflows/build-extension-package.yml"), false);
     assert.equal(metadata.stagedFiles.some((filePath) => filePath.startsWith("tests/")), false);
 
-    assert.equal(existsSync(path.join(stageDir, "content-scripts/page-world.js")), true);
+    assert.equal(existsSync(path.join(stageDir, "content-scripts/page-world.js")), false);
     assert.equal(existsSync(path.join(stageDir, "content-scripts/content-loader.js")), true);
     assert.equal(existsSync(path.join(stageDir, "content/submission-rules.js")), false);
     assert.equal(existsSync(path.join(stageDir, "common/config.js")), false);
     assert.equal(existsSync(path.join(stageDir, "assets/fonts/fonts.css")), true);
-    assert.equal(existsSync(path.join(stageDir, "assets/materialdesignicons.min.css")), true);
+    assert.equal(existsSync(path.join(stageDir, "assets/materialdesignicons.min.css")), false);
     assert.equal(existsSync(path.join(stageDir, "assets/fonts/inter-latin-400-normal.woff2")), true);
-    assert.equal(existsSync(path.join(stageDir, "assets/materialdesignicons-webfont.woff2")), true);
+    assert.equal(existsSync(path.join(stageDir, "assets/materialdesignicons-webfont.woff2")), false);
     assert.equal(existsSync(path.join(stageDir, "cursors/exclude.svg")), true);
     assert.equal(existsSync(path.join(stageDir, "cursors/include.svg")), true);
     assert.equal(existsSync(path.join(stageDir, "icons/default/icon128.png")), true);

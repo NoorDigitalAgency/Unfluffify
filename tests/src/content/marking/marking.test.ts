@@ -5,6 +5,7 @@ import { getXPath } from "../../../../src/domain/xpath";
 import {
   buildSilentHighlights,
   buildSubmissionSnapshot,
+  canonicalMarkingFingerprint,
   createMarkingStore,
   flattenNode,
   MARKING_OVERLAY_CLASSES,
@@ -25,6 +26,20 @@ const leaf = (key: string, xpath: string): EvaluationNode => ({
 });
 
 describe("P6 content marking engine", () => {
+  it("fingerprints canonical decisions independent of row order and optional false flags", () => {
+    const left = canonicalMarkingFingerprint({ rows: [
+      { xpath: "/html[1]/body[1]/main[1]/p[1]", excluded: false, explicit: true },
+      { xpath: "/html[1]/body[1]/aside[1]", excluded: true },
+    ] });
+    const right = canonicalMarkingFingerprint({ rows: [
+      { xpath: "/html[1]/body[1]/aside[1]", excluded: true, explicit: false },
+      { xpath: "/html[1]/body[1]/main[1]/p[1]", excluded: false, explicit: true },
+    ] });
+
+    expect(right).toBe(left);
+    expect(canonicalMarkingFingerprint({ rows: [] })).not.toBe(left);
+  });
+
   it("uses only the actual hit path when refining an excluded boundary", () => {
     const child: MarkingCandidate = {
       key: "child",

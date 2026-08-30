@@ -34,6 +34,14 @@ const artifactTimestamp = startedAt.toISOString().replaceAll(":", "-").replace("
 const retainedArtifactPath = smoke
   ? join("/tmp", `unfluffify-p16-render-inspection-smoke-${process.pid}.json`)
   : join(outputDirectory, `acceptance-${artifactTimestamp}.json`);
+const activeChildProcesses = new Set();
+const cleanupState = {
+  fixtureServerClosed: false,
+  playwrightSessionOpened: false,
+  playwrightSessionClosed: false,
+  playwrightCloseFailure: null,
+  buildDirectoryRemoved: false,
+};
 
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -57,6 +65,16 @@ async function writeArtifactAtomic(path, contents) {
   await rename(temporaryPath, path);
 }
 
+async function pathExists(path) {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
 function run(command, args, options = {}) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(command, args, {
@@ -64,12 +82,17 @@ function run(command, args, options = {}) {
       env: { ...process.env, ...options.env },
       stdio: ["ignore", "pipe", "pipe"],
     });
+    activeChildProcesses.add(child);
     let stdout = "";
     let stderr = "";
     child.stdout?.on("data", (chunk) => { stdout += chunk; });
     child.stderr?.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", reject);
+    child.on("error", (error) => {
+      activeChildProcesses.delete(child);
+      reject(error);
+    });
     child.on("close", (code) => {
+      activeChildProcesses.delete(child);
       const result = { code, stdout: stdout.trim(), stderr: stderr.trim() };
       if (code !== 0) {
         reject(Object.assign(new Error([
@@ -140,7 +163,7 @@ async function buildRuntimeBundle() {
     bundle: true,
     format: "iife",
     platform: "browser",
-    target: ["chrome120"],
+    target: ["chrome116"],
     sourcemap: false,
     legalComments: "none",
     charset: "utf8",
@@ -260,16 +283,22 @@ async function runPlaywrightCli(baseUrl) {
       env: environment,
     });
     opened = true;
+    cleanupState.playwrightSessionOpened = true;
     return await run(playwrightCli, [
       "run-code",
       `--filename=${join(p16Directory, "playwright-controller.js")}`,
     ], { cwd: playwrightWorkingDirectory, env: environment });
   } finally {
     if (opened) {
-      await run(playwrightCli, ["close"], {
-        cwd: playwrightWorkingDirectory,
-        env: environment,
-      }).catch(() => undefined);
+      try {
+        await run(playwrightCli, ["close"], {
+          cwd: playwrightWorkingDirectory,
+          env: environment,
+        });
+        cleanupState.playwrightSessionClosed = true;
+      } catch (error) {
+        cleanupState.playwrightCloseFailure = String(error?.stack ?? error);
+      }
     }
   }
 }
@@ -301,18 +330,42 @@ try {
 } catch (error) {
   fatal = String(error?.stack ?? error);
 } finally {
-  await fixtureServer?.close().catch(() => undefined);
-  await rm(buildDirectory, { recursive: true, force: true }).catch(() => undefined);
+  if (fixtureServer) {
+    try {
+      await fixtureServer.close();
+      cleanupState.fixtureServerClosed = true;
+    } catch (error) {
+      fatal = [fatal, `Fixture server cleanup failed: ${String(error?.stack ?? error)}`].filter(Boolean).join("\n");
+    }
+  }
+  try {
+    await rm(buildDirectory, { recursive: true, force: true });
+    cleanupState.buildDirectoryRemoved = !(await pathExists(buildDirectory));
+  } catch (error) {
+    fatal = [fatal, `Build cleanup failed: ${String(error?.stack ?? error)}`].filter(Boolean).join("\n");
+  }
 }
 
 const checks = browserPayload?.checks ?? [];
 const catalog = validateCheckCatalog(checks);
 const sourceAccepted = smoke || source?.cleanSourceSet === true;
+const cleanup = {
+  ...cleanupState,
+  activeChildProcessCount: activeChildProcesses.size,
+  buildDirectory,
+};
+cleanup.pass = cleanup.fixtureServerClosed
+  && cleanup.playwrightSessionOpened
+  && cleanup.playwrightSessionClosed
+  && cleanup.playwrightCloseFailure === null
+  && cleanup.activeChildProcessCount === 0
+  && cleanup.buildDirectoryRemoved;
 const pass = !fatal &&
   !controllerFailure &&
   browserPayload?.fatalError == null &&
   catalog.pass &&
-  sourceAccepted;
+  sourceAccepted &&
+  cleanup.pass;
 const finishedAt = new Date();
 const report = {
   schemaVersion: ARTIFACT_SCHEMA_VERSION,
@@ -324,6 +377,7 @@ const report = {
   durationMs: finishedAt.getTime() - startedAt.getTime(),
   source,
   sourceRequirement: { requiredClean: !smoke, pass: sourceAccepted },
+  cleanup,
   host: { platform: platform(), release: release(), architecture: arch(), node: process.version },
   toolchain: { playwrightCli: cli, browserCompiler: bundle?.compiler ?? null },
   runtimeBundle: bundle ? {
@@ -359,6 +413,7 @@ console.log(JSON.stringify({
   artifactPath,
   sha256: digest,
   cleanSourceSet: source?.cleanSourceSet ?? false,
+  cleanup,
   controllerFailure,
   fatal,
 }, null, 2));

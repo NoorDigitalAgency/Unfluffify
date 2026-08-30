@@ -30,6 +30,25 @@ describe("P4 AI-job gate FSM", () => {
     });
   });
 
+  it("restores freshness when canonical decisions return exactly to the AI baseline", () => {
+    const fresh = completeAiJob(startAiJob(createAiJobState()), "marks-v1");
+    const stale = markMarkingEdit(fresh, "marks-v2");
+    const restored = markMarkingEdit(stale, "marks-v1");
+
+    expect(restored).toMatchObject({
+      phase: "fresh",
+      currentMarkingFingerprint: "marks-v1",
+      freshMarkingFingerprint: "marks-v1",
+      pendingChanges: false,
+    });
+    expect(deriveAiJobGates(restored)).toMatchObject({
+      aiRunUpToDate: true,
+      sessionRequiresAiRun: false,
+      runAiDisabled: true,
+      saveEnabled: true,
+    });
+  });
+
   it("css-selector-only-edit-two-gates keeps Run AI disabled but blocks Save", () => {
     const fresh = completeAiJob(startAiJob(createAiJobState()), "marks-v1");
     const cssEdited = markCssSelectorOnlyEdit(fresh);

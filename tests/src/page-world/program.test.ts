@@ -16,9 +16,63 @@ async function dispatchFromPage(
   await listeners[0]({ data: message, source: context as { postMessage: (message: unknown) => void } });
 }
 
+const TEST_ENDPOINT = "__uf_00000000000000000000000000000000";
+const TEST_CAPABILITY = "1".repeat(64);
+const TEST_INSTALLER = "__uf_test_installer";
+const TEST_BRIDGE = "__uf_test_bridge_installed";
+
+/** The tracked generated artifact is deliberately inert: production injects
+ * its exported installer through chrome.scripting only after authority. Tests
+ * expose that lexical export inside their VM and add a test-owned compatibility
+ * listener so the established motion/lazy test corpus can keep its message
+ * fixtures without putting a relay back into product source. */
+function installCapabilityRuntime(source: string, context: Record<string, unknown>): void {
+  const instrumented = source.replace(
+    /\}\)\(\);\s*$/,
+    `globalThis[${JSON.stringify(TEST_INSTALLER)}] = installPageWorldProgram;\n})();`,
+  );
+  vm.runInNewContext(instrumented, { ...context, URL, globalThis: context });
+  const install = context[TEST_INSTALLER] as (
+    endpoint: string,
+    capability: string,
+  ) => Promise<unknown>;
+  void install(TEST_ENDPOINT, TEST_CAPABILITY);
+  if (context[TEST_BRIDGE]) return;
+  context[TEST_BRIDGE] = true;
+  const addEventListener = context.addEventListener as ((
+    type: string,
+    listener: PageWorldListener,
+  ) => void) | undefined;
+  addEventListener?.("message", async (event) => {
+    const request = event.data as Record<string, unknown> | null;
+    if (!request || request.kind !== "uf-page-bus/1" || request.type !== "request") return;
+    const dispatcher = context[TEST_ENDPOINT] as (
+      capability: string,
+      invocation: Readonly<{ kind: "command"; request: unknown }>,
+    ) => Promise<Readonly<{
+      ok: boolean;
+      nonce: string;
+      command: string;
+      payload: unknown;
+      failure?: unknown;
+    }>>;
+    const result = await dispatcher(TEST_CAPABILITY, { kind: "command", request });
+    const postMessage = context.postMessage as ((message: unknown, targetOrigin?: string) => void) | undefined;
+    postMessage?.({
+      kind: "uf-page-bus/1",
+      type: "response",
+      nonce: result.nonce,
+      command: result.command,
+      ok: result.ok,
+      payload: result.payload,
+      failure: result.failure,
+    }, "*");
+  });
+}
+
 describe("P5 page-world program", () => {
   it("captures early closed shadow roots as retrievable open roots", () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const requestedModes: string[] = [];
     const shadowEvents: Array<{ type: string; bubbles: boolean; composed: boolean }> = [];
     class FakeEvent {
@@ -62,7 +116,7 @@ describe("P5 page-world program", () => {
       addEventListener() {},
     };
 
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const host = new FakeElement();
     const root = host.attachShadow({ mode: "closed" });
 
@@ -76,12 +130,11 @@ describe("P5 page-world program", () => {
     }]);
   });
 
-  it("keeps one MAIN runtime across duplicate evaluation and preserves page listeners through safe version takeover", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+  it("keeps one capability runtime across duplicate recovery without exposing a fixed singleton", async () => {
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     type RuntimeListener = (event: { data?: unknown; source?: unknown }) => void;
     const rootListeners = new Map<string, Set<RuntimeListener>>();
     const documentListeners = new Map<string, Set<RuntimeListener>>();
-    let throwDocumentCleanupOnce = false;
     const add = (registry: Map<string, Set<RuntimeListener>>, type: string, listener: RuntimeListener): void => {
       const listeners = registry.get(type) ?? new Set();
       listeners.add(listener);
@@ -112,13 +165,7 @@ describe("P5 page-world program", () => {
       document: {
         documentElement: { toggleAttribute() {}, removeAttribute() {} },
         addEventListener(type: string, listener: RuntimeListener) { add(documentListeners, type, listener); },
-        removeEventListener(type: string, listener: RuntimeListener) {
-          remove(documentListeners, type, listener);
-          if (throwDocumentCleanupOnce) {
-            throwDocumentCleanupOnce = false;
-            throw new Error("hardened document cleanup");
-          }
-        },
+        removeEventListener(type: string, listener: RuntimeListener) { remove(documentListeners, type, listener); },
       },
       Element: FakeElement,
       IntersectionObserver: function NativeIntersectionObserver() {},
@@ -137,21 +184,28 @@ describe("P5 page-world program", () => {
     };
     const realm = { ...sandbox, globalThis: sandbox };
 
-    vm.runInNewContext(source, realm);
+    installCapabilityRuntime(source, realm.globalThis as unknown as Record<string, unknown>);
     const firstPushState = sandbox.history.pushState;
     const firstAttachShadow = FakeElement.prototype.attachShadow;
     const firstIntersectionObserver = sandbox.IntersectionObserver;
+    const firstDispatcher = (sandbox as unknown as Record<string, unknown>)[TEST_ENDPOINT];
+    expect(typeof firstDispatcher).toBe("function");
+    expect(Object.getOwnPropertyDescriptor(sandbox, TEST_ENDPOINT)).toMatchObject({
+      configurable: false,
+      enumerable: false,
+      writable: false,
+    });
+    expect((sandbox as unknown as Record<string, unknown>).__unfluffifyPageWorldRuntime__).toBeUndefined();
     expect(rootListeners.get("message")?.size).toBe(1);
     expect(documentListeners.get("scroll")?.size).toBe(1);
 
-    vm.runInNewContext(source, realm);
+    installCapabilityRuntime(source, realm.globalThis as unknown as Record<string, unknown>);
     expect(sandbox.history.pushState).toBe(firstPushState);
     expect(FakeElement.prototype.attachShadow).toBe(firstAttachShadow);
     expect(sandbox.IntersectionObserver).toBe(firstIntersectionObserver);
+    expect((sandbox as unknown as Record<string, unknown>)[TEST_ENDPOINT]).toBe(firstDispatcher);
     expect(rootListeners.get("message")?.size).toBe(1);
     expect(documentListeners.get("scroll")?.size).toBe(1);
-    expect((sandbox as unknown as Record<string, { reinjections: number }>).__unfluffifyPageWorldRuntime__)
-      .toMatchObject({ reinjections: 1 });
 
     let onceDeliveries = 0;
     const onceListener = (): void => { onceDeliveries += 1; };
@@ -162,19 +216,9 @@ describe("P5 page-world program", () => {
     );
     expect(rootListeners.get("scroll")?.size).toBe(1);
 
-    throwDocumentCleanupOnce = true;
-    (sandbox as unknown as Record<string, { version: number }>).__unfluffifyPageWorldRuntime__.version = 2;
-    vm.runInNewContext(source, realm);
-    expect(rootListeners.get("message")?.size).toBe(1);
-    expect(rootListeners.get("popstate")?.size).toBe(1);
-    expect(rootListeners.get("hashchange")?.size).toBe(1);
-    expect(documentListeners.get("scroll")?.size).toBe(1);
-    expect(documentListeners.get("wheel")?.size).toBe(1);
-    expect(documentListeners.get("touchmove")?.size).toBe(1);
-    expect(rootListeners.get("scroll")?.size).toBe(1);
-    expect(sandbox.history.pushState).not.toBe(firstPushState);
-    expect(FakeElement.prototype.attachShadow).not.toBe(firstAttachShadow);
-    expect(sandbox.IntersectionObserver).not.toBe(firstIntersectionObserver);
+    expect(rootListeners.get("popstate")?.size ?? 0).toBe(0);
+    expect(rootListeners.get("hashchange")?.size ?? 0).toBe(0);
+    expect(sandbox.history.pushState).toBe(firstPushState);
 
     const responses: unknown[] = [];
     const originalPostMessage = sandbox.postMessage;
@@ -210,15 +254,12 @@ describe("P5 page-world program", () => {
     sandbox.postMessage = originalPostMessage;
 
     sandbox.history.pushState({}, "", "/b");
-    expect(urlEvents).toEqual([expect.objectContaining({
-      kind: "uf-page-url-changed/1",
-      fromUrl: "https://example.com/a",
-      toUrl: "https://example.com/b",
-    })]);
+    expect(sandbox.location.href).toBe("https://example.com/b");
+    expect(urlEvents).toEqual([]);
   });
 
-  it("does not publish a bricked singleton when setup fails and permits a clean reinjection", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+  it("rejects the wrong capability and retires the exact runtime cleanly", async () => {
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     type RuntimeListener = (event: { data?: unknown; source?: unknown }) => void | Promise<void>;
     const rootListeners = new Map<string, Set<RuntimeListener>>();
     const documentListeners = new Map<string, Set<RuntimeListener>>();
@@ -230,23 +271,9 @@ describe("P5 page-world program", () => {
     const remove = (registry: Map<string, Set<RuntimeListener>>, type: string, listener: RuntimeListener): void => {
       registry.get(type)?.delete(listener);
     };
-    let rejectHistoryPatch = true;
-    let nativePushState = function nativePushState(): void {};
-    const history = {
-      replaceState() {},
-    } as unknown as History;
-    Object.defineProperty(history, "pushState", {
-      configurable: true,
-      get: () => nativePushState,
-      set: (next: typeof nativePushState) => {
-        if (rejectHistoryPatch) throw new Error("history is temporarily hardened");
-        nativePushState = next;
-      },
-    });
-    const responses: unknown[] = [];
     const sandbox = {
       location: { href: "https://example.com/" },
-      history,
+      history: { pushState() {}, replaceState() {} },
       performance: { now: () => 123 },
       document: {
         documentElement: { toggleAttribute() {}, removeAttribute() {} },
@@ -260,57 +287,64 @@ describe("P5 page-world program", () => {
       clearInterval() {},
       requestAnimationFrame(callback: (now: number) => void) { callback(1); return 1; },
       cancelAnimationFrame() {},
-      postMessage(message: unknown) { responses.push(message); },
+      postMessage() {},
       addEventListener(type: string, listener: RuntimeListener) { add(rootListeners, type, listener); },
       removeEventListener(type: string, listener: RuntimeListener) { remove(rootListeners, type, listener); },
     };
     const realm = { ...sandbox, globalThis: sandbox };
 
-    expect(() => vm.runInNewContext(source, realm)).toThrow("history is temporarily hardened");
-    expect((sandbox as unknown as Record<string, unknown>).__unfluffifyPageWorldRuntime__).toBeUndefined();
-    expect(rootListeners.get("message")?.size ?? 0).toBe(0);
-    expect(documentListeners.get("scroll")?.size ?? 0).toBe(0);
-    expect(documentListeners.get("wheel")?.size ?? 0).toBe(0);
-    expect(documentListeners.get("touchmove")?.size ?? 0).toBe(0);
-
-    rejectHistoryPatch = false;
-    vm.runInNewContext(source, realm);
-    expect((sandbox as unknown as Record<string, { ready: boolean }>).__unfluffifyPageWorldRuntime__)
-      .toMatchObject({ ready: true });
-    expect(rootListeners.get("message")?.size).toBe(1);
-    expect(documentListeners.get("scroll")?.size).toBe(1);
-    await [...(rootListeners.get("message") ?? [])][0]?.({
-      data: { kind: "uf-page-bus/1", type: "request", nonce: "arm", command: "ARM", payload: {} },
-      source: sandbox,
+    installCapabilityRuntime(source, realm.globalThis as unknown as Record<string, unknown>);
+    const dispatcher = (sandbox as unknown as Record<string, unknown>)[TEST_ENDPOINT] as (
+      capability: string,
+      invocation: Readonly<{ kind: "probe" | "retire" }>,
+    ) => Promise<Record<string, unknown>>;
+    expect(await dispatcher("2".repeat(64), { kind: "probe" })).toMatchObject({
+      ok: false,
+      failure: { code: "PAGE_CAPABILITY_REJECTED" },
     });
-    expect(responses).toContainEqual(expect.objectContaining({
-      kind: "uf-page-bus/1",
-      type: "response",
-      nonce: "arm",
+    expect(await dispatcher(TEST_CAPABILITY, { kind: "probe" })).toMatchObject({
       ok: true,
-    }));
+      command: "PROBE",
+      payload: { ready: true, version: 4 },
+    });
+    expect(await dispatcher(TEST_CAPABILITY, { kind: "retire" })).toMatchObject({
+      ok: true,
+      command: "RETIRE",
+      payload: { ready: false, retired: true },
+    });
+    expect(await dispatcher(TEST_CAPABILITY, { kind: "probe" })).toMatchObject({
+      ok: false,
+      failure: { code: "PAGE_RUNTIME_RETIRED" },
+    });
+    expect((sandbox as unknown as Record<string, unknown>).__unfluffifyPageWorldRuntime__).toBeUndefined();
   });
 
-  it("is one plain JavaScript source with the fixed allow-list and nonce response shape", () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+  it("is one inert plain JavaScript capability installer with a fixed command allow-list", () => {
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
 
     expect(source).toContain('"ARM"');
     expect(source).toContain('"RECONCILE"');
     expect(source).toContain('"SET_MOTION_PAUSED"');
     expect(source).toContain('"SET_LAZY_LOADING_SUPPRESSED"');
     expect(source).toContain('"DESTROY"');
-    expect(source).toContain("nonce: request.nonce");
-    expect(source).toContain("command: request.command");
+    expect(source).toContain('const nonce = request.nonce ?? ""');
+    expect(source).toContain('command: request.command ?? ""');
     expect(source).toContain("sessionNonce = request.nonce");
     expect(source).toContain("PAGE_NONCE_MISMATCH");
     expect(source).toContain("if (armed && request.nonce !== sessionNonce && (paused || lazySuppressed))");
     expect(source).toContain("requestSessionNonce !== sessionNonce");
     expect(source).toContain("initialDiscoveryComplete: motionInitialDiscoveryComplete");
+    expect(source).toContain("Object.defineProperty(runtimeHost, endpointKey");
+    expect(source).toContain("providedCapability !== capability");
+    expect(source).not.toContain("__unfluffifyPageWorldRuntime__");
+    expect(source).not.toContain("uf-page-bus/1");
+    expect(source).not.toContain("unfluffify:page-world-relay:v1");
+    expect(source).not.toContain("uf-page-url-changed/1");
     expect(() => new Function(source)).not.toThrow();
   });
 
   it("pauses and flushes timer callbacks through the page-world bridge", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: Array<(event: { data: unknown; source: { postMessage: (message: unknown) => void } }) => void> = [];
     const responses: unknown[] = [];
     const context = {
@@ -326,7 +360,7 @@ describe("P5 page-world program", () => {
         listeners.push(listener);
       },
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const send = (message: unknown) => dispatchFromPage(listeners, context as Record<string, unknown>, message, responses);
 
     await send({ kind: "uf-page-bus/1", type: "request", nonce: "n1", command: "ARM", payload: {} });
@@ -341,7 +375,7 @@ describe("P5 page-world program", () => {
 
   it("freezes and restores the complete motion-source matrix, including late work", async () => {
     const MAX_EXPECTED_DISCOVERY_BEFORE_ACK = 800;
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: PageWorldListener[] = [];
     const eventListeners = new Map<string, EventListener>();
     const observedMotionRoots: unknown[] = [];
@@ -552,7 +586,7 @@ describe("P5 page-world program", () => {
       cancelIdleCallback() {},
       addEventListener(_type: string, listener: PageWorldListener) { listeners.push(listener); },
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const responses: unknown[] = [];
     const send = (message: unknown) => dispatchFromPage(
       listeners,
@@ -761,7 +795,7 @@ describe("P5 page-world program", () => {
   });
 
   it("rejects and cleans up a critically incomplete discovery generation while tolerating isolated elements", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: PageWorldListener[] = [];
     const responses: Array<Record<string, unknown>> = [];
     class FakeStyle {
@@ -838,7 +872,7 @@ describe("P5 page-world program", () => {
         if (type === "message") listeners.push(listener);
       },
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const send = (message: unknown) => dispatchFromPage(
       listeners,
       context as unknown as Record<string, unknown>,
@@ -894,8 +928,8 @@ describe("P5 page-world program", () => {
     });
   });
 
-  it("relays MAIN-world pushState URL changes to the isolated content script", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+  it("leaves page History untouched and emits no public navigation messages", async () => {
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: PageWorldListener[] = [];
     const messages: unknown[] = [];
     const context = {
@@ -924,20 +958,21 @@ describe("P5 page-world program", () => {
       },
     };
     const thisContext = context;
-    vm.runInNewContext(source, { ...context, globalThis: context, URL });
+    const nativePushState = context.history.pushState;
+    const nativeReplaceState = context.history.replaceState;
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
 
     context.history.pushState({}, "", "/b");
     await Promise.resolve();
 
-    expect(messages).toContainEqual({
-      kind: "uf-page-url-changed/1",
-      fromUrl: "https://example.com/a",
-      toUrl: "https://example.com/b",
-    });
+    expect(context.location.href).toBe("https://example.com/b");
+    expect(context.history.pushState).toBe(nativePushState);
+    expect(context.history.replaceState).toBe(nativeReplaceState);
+    expect(messages).toEqual([]);
   });
 
   it("suppresses interval callbacks and lazy observer callbacks while paused/suppressed", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: Array<(event: { data: unknown; source: { postMessage: (message: unknown) => void } }) => void> = [];
     let intervalCallback = () => undefined;
     let observerCallback = () => undefined;
@@ -961,7 +996,7 @@ describe("P5 page-world program", () => {
         listeners.push(listener);
       },
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const send = (message: unknown) => dispatchFromPage(listeners, context as Record<string, unknown>, message, responses);
     await send({ kind: "uf-page-bus/1", type: "request", nonce: "n1", command: "ARM", payload: {} });
     await send({ kind: "uf-page-bus/1", type: "request", nonce: "n2", sessionNonce: "n1", command: "SET_MOTION_PAUSED", payload: { paused: true } });
@@ -977,7 +1012,7 @@ describe("P5 page-world program", () => {
   });
 
   it("preserves observer constructor identity for instanceof checks", () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: PageWorldListener[] = [];
     class FakeIntersectionObserver {
       constructor(_callback: () => void) {}
@@ -998,14 +1033,14 @@ describe("P5 page-world program", () => {
         listeners.push(listener);
       },
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
 
     expect(new context.IntersectionObserver(() => undefined)).toBeInstanceOf(context.IntersectionObserver);
     expect(Object.getPrototypeOf(context.IntersectionObserver)).toBe(FakeIntersectionObserver);
   });
 
   it("calls saved native timer APIs with the page global receiver", () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: PageWorldListener[] = [];
     const context: Record<string, unknown> = {
       performance: { now: () => 123 },
@@ -1034,15 +1069,15 @@ describe("P5 page-world program", () => {
       return 1;
     };
 
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
 
     expect(() => (context.setTimeout as (callback: () => void) => number)(() => undefined)).not.toThrow();
     expect(() => (context.setInterval as (callback: () => void) => number)(() => undefined)).not.toThrow();
     expect(() => (context.requestAnimationFrame as (callback: (now: number) => void) => number)(() => undefined)).not.toThrow();
   });
 
-  it("responds to the production page-world relay protocol", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+  it("ignores the retired relay protocol and rejects direct commands without the capability", async () => {
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: Array<(event: { data: unknown; source: { postMessage: (message: unknown) => void } }) => void> = [];
     const responses: unknown[] = [];
     const context = {
@@ -1059,7 +1094,7 @@ describe("P5 page-world program", () => {
         listeners.push(listener);
       },
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     await dispatchFromPage(listeners, context as Record<string, unknown>, {
       channel: "unfluffify:page-world-relay:v1",
       kind: "request",
@@ -1069,18 +1104,22 @@ describe("P5 page-world program", () => {
       payload: {},
     }, responses);
 
-    expect(responses[0]).toMatchObject({
-      channel: "unfluffify:page-world-relay:v1",
-      kind: "response",
-      id: "legacy-1",
-      nonce: "legacy-nonce",
-      command: "PAGE_WORLD_ARM",
-      ok: true,
+    expect(responses).toEqual([]);
+    const dispatcher = (context as unknown as Record<string, unknown>)[TEST_ENDPOINT] as (
+      capability: string,
+      invocation: Readonly<{ kind: "command"; request: Record<string, unknown> }>,
+    ) => Promise<Record<string, unknown>>;
+    expect(await dispatcher("2".repeat(64), {
+      kind: "command",
+      request: { nonce: "hostile", command: "ARM", payload: {} },
+    })).toMatchObject({
+      ok: false,
+      failure: { code: "PAGE_CAPABILITY_REJECTED" },
     });
   });
 
   it("adopts an inactive ARM after ACK loss and makes DESTROY retry idempotent", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: PageWorldListener[] = [];
     const responses: Array<Record<string, unknown>> = [];
     const context = {
@@ -1094,7 +1133,7 @@ describe("P5 page-world program", () => {
       cancelAnimationFrame() {},
       addEventListener(_type: string, listener: PageWorldListener) { listeners.push(listener); },
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const send = (message: unknown) => dispatchFromPage(
       listeners,
       context as unknown as Record<string, unknown>,
@@ -1120,7 +1159,7 @@ describe("P5 page-world program", () => {
   });
 
   it("preempts a starved motion proof and acknowledges DESTROY immediately", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: PageWorldListener[] = [];
     const responses: Array<Record<string, unknown>> = [];
     const nativeTasks: Array<() => void> = [];
@@ -1180,7 +1219,7 @@ describe("P5 page-world program", () => {
         if (type === "message") listeners.push(listener);
       },
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const dispatch = (message: unknown): Promise<void> | void => {
       (context as Record<string, unknown>).postMessage = (response: unknown) => {
         responses.push(response as Record<string, unknown>);
@@ -1300,7 +1339,7 @@ describe("P5 page-world program", () => {
   });
 
   it("reconciles an orphaned active lease before a replacement realm takes ownership", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: PageWorldListener[] = [];
     const responses: Array<Record<string, unknown>> = [];
     const attributes = new Set<string>();
@@ -1350,7 +1389,7 @@ describe("P5 page-world program", () => {
         if (type === "message") listeners.push(listener);
       },
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const send = (message: unknown) => dispatchFromPage(
       listeners,
       context as unknown as Record<string, unknown>,
@@ -1414,7 +1453,7 @@ describe("P5 page-world program", () => {
   });
 
   it("installs observer wrappers synchronously before ARM", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: Array<(event: { data: unknown; source: { postMessage: (message: unknown) => void } }) => void> = [];
     let observerCallback = () => undefined;
     const context = {
@@ -1435,7 +1474,7 @@ describe("P5 page-world program", () => {
         listeners.push(listener);
       },
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     let observed = false;
     new context.IntersectionObserver(() => { observed = true; });
     const send = (message: unknown) => dispatchFromPage(listeners, context as Record<string, unknown>, message);
@@ -1446,7 +1485,7 @@ describe("P5 page-world program", () => {
   });
 
   it("does not globally wrap timers until the first freeze transaction", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: Array<(event: { data: unknown; source: { postMessage: (message: unknown) => void } }) => void> = [];
     let nativeTimeout: (() => void) | null = null;
     const context = {
@@ -1463,7 +1502,7 @@ describe("P5 page-world program", () => {
         listeners.push(listener);
       },
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const send = (message: unknown) => dispatchFromPage(listeners, context as Record<string, unknown>, message);
     await send({ kind: "uf-page-bus/1", type: "request", nonce: "n1", command: "ARM", payload: {} });
     let fired = false;
@@ -1475,7 +1514,7 @@ describe("P5 page-world program", () => {
   });
 
   it("keeps released timer cancellation and replacement-freeze delivery epoch-fenced", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: PageWorldListener[] = [];
     const responses: Array<Record<string, unknown>> = [];
     const nativeTasks: Array<() => void> = [];
@@ -1522,7 +1561,7 @@ describe("P5 page-world program", () => {
       },
       postMessage(response: unknown) { responses.push(response as Record<string, unknown>); },
     };
-    vm.runInNewContext(source, { ...sandbox, globalThis: sandbox });
+    installCapabilityRuntime(source, sandbox as unknown as Record<string, unknown>);
     const send = (message: unknown): Promise<void> | void => listeners[0]?.({
       data: message,
       source: sandbox as unknown as { postMessage: (message: unknown) => void },
@@ -1606,8 +1645,8 @@ describe("P5 page-world program", () => {
     expect(deferredDelivery).toBe(true);
   });
 
-  it("rehydrates inherited timer tokens and allocates collision-free tokens across takeover", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+  it("retains deferred timer tokens across duplicate capability recovery", async () => {
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const messageListeners = new Set<PageWorldListener>();
     const nativeTasks: Array<{ id: number; delay: number; callback: () => void; cancelled: boolean }> = [];
     let nextNativeId = 0;
@@ -1664,7 +1703,7 @@ describe("P5 page-world program", () => {
       postMessage() {},
     };
     const realm = { ...sandbox, globalThis: sandbox };
-    vm.runInNewContext(source, realm);
+    installCapabilityRuntime(source, realm.globalThis as unknown as Record<string, unknown>);
     const send = async (message: unknown): Promise<void> => {
       const listener = [...messageListeners][0];
       await listener?.({ data: message, source: sandbox });
@@ -1691,18 +1730,8 @@ describe("P5 page-world program", () => {
     const cancelledOldToken = sandbox.setTimeout(() => { cancelledOldFired = true; }, 0);
     const retainedOldToken = sandbox.setTimeout(() => { retainedOldFired = true; }, 0);
 
-    (sandbox as unknown as Record<string, { version: number }>).__unfluffifyPageWorldRuntime__.version = 2;
-    vm.runInNewContext(source, realm);
+    installCapabilityRuntime(source, realm.globalThis as unknown as Record<string, unknown>);
     expect(messageListeners.size).toBe(1);
-    await send({ kind: "uf-page-bus/1", type: "request", nonce: "new", command: "ARM", payload: {} });
-    await send({
-      kind: "uf-page-bus/1",
-      type: "request",
-      nonce: "new-freeze",
-      sessionNonce: "new",
-      command: "SET_MOTION_PAUSED",
-      payload: { paused: true },
-    });
     let cancelledNewFired = false;
     const cancelledNewToken = sandbox.setTimeout(() => { cancelledNewFired = true; }, 0);
     expect(new Set([cancelledOldToken, retainedOldToken, cancelledNewToken]).size).toBe(3);
@@ -1710,7 +1739,7 @@ describe("P5 page-world program", () => {
 
     sandbox.clearTimeout(cancelledOldToken);
     sandbox.clearTimeout(cancelledNewToken);
-    expect(runNextZeroDelayTask()).toBe(true);
+    expect(runNextZeroDelayTask()).toBe(false);
     expect({ cancelledOldFired, retainedOldFired, cancelledNewFired }).toEqual({
       cancelledOldFired: false,
       retainedOldFired: false,
@@ -1719,8 +1748,8 @@ describe("P5 page-world program", () => {
     await send({
       kind: "uf-page-bus/1",
       type: "request",
-      nonce: "new-release",
-      sessionNonce: "new",
+      nonce: "old-release",
+      sessionNonce: "old",
       command: "SET_MOTION_PAUSED",
       payload: { paused: false },
     });
@@ -1735,7 +1764,7 @@ describe("P5 page-world program", () => {
   });
 
   it("allows deferred timeout cancellation while paused and preserves callback receiver", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: PageWorldListener[] = [];
     let nativeTimeout: (() => void) | null = null;
     const context: Record<string, unknown> = {
@@ -1752,7 +1781,7 @@ describe("P5 page-world program", () => {
         listeners.push(listener);
       },
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const send = (message: unknown) => dispatchFromPage(listeners, context, message);
     await send({ kind: "uf-page-bus/1", type: "request", nonce: "n1", command: "ARM", payload: {} });
     await send({ kind: "uf-page-bus/1", type: "request", nonce: "n2", sessionNonce: "n1", command: "SET_MOTION_PAUSED", payload: { paused: true } });
@@ -1768,7 +1797,7 @@ describe("P5 page-world program", () => {
   });
 
   it("aliases pre-pause native timer tokens after deferral and freezes string timeout handlers", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: PageWorldListener[] = [];
     type TimeoutTask = {
       readonly callback: string | ((...args: unknown[]) => void);
@@ -1837,7 +1866,7 @@ describe("P5 page-world program", () => {
       },
       postMessage() {},
     };
-    vm.runInNewContext(source, { ...sandbox, globalThis: sandbox });
+    installCapabilityRuntime(source, sandbox as unknown as Record<string, unknown>);
     const send = (message: unknown) => dispatchFromPage(
       listeners,
       sandbox as unknown as Record<string, unknown>,
@@ -1942,7 +1971,7 @@ describe("P5 page-world program", () => {
   });
 
   it("clears lazy suppression on destroy and gates only page-level lazy listeners", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: Array<(event: { data: unknown; source: { postMessage: (message: unknown) => void } }) => void> = [];
     let registered: ((event: unknown) => void) | null = null;
     const attrs: Array<{ name: string; value: boolean }> = [];
@@ -1963,7 +1992,7 @@ describe("P5 page-world program", () => {
       },
       removeEventListener() { registered = null; },
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const send = (message: unknown) => dispatchFromPage(listeners, context as Record<string, unknown>, message, responses);
     await send({ kind: "uf-page-bus/1", type: "request", nonce: "n1", command: "ARM", payload: {} });
     let handled = false;
@@ -1978,7 +2007,7 @@ describe("P5 page-world program", () => {
   });
 
   it("suppresses a nested owner when reversible movement rejects a phantom document range", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: PageWorldListener[] = [];
     const documentListeners = new Map<string, Array<(event: TestEvent) => void>>();
     type TestEvent = {
@@ -2088,7 +2117,7 @@ describe("P5 page-world program", () => {
       },
       removeEventListener() {},
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const send = (message: unknown) => dispatchFromPage(
       listeners,
       context as unknown as Record<string, unknown>,
@@ -2140,7 +2169,7 @@ describe("P5 page-world program", () => {
   });
 
   it("suppresses the dominant light-DOM app shell despite a genuine three-pixel root range", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const messageListeners: PageWorldListener[] = [];
     type TestEvent = {
       target: FakeTarget;
@@ -2260,7 +2289,7 @@ describe("P5 page-world program", () => {
       },
       removeEventListener() {},
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const send = (message: unknown) => dispatchFromPage(
       messageListeners,
       context as unknown as Record<string, unknown>,
@@ -2308,7 +2337,7 @@ describe("P5 page-world program", () => {
   });
 
   it("suppresses an open-shadow viewport owner and refreshes ownership after replacement", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const messageListeners: PageWorldListener[] = [];
     type TestEvent = {
       target: FakeTarget;
@@ -2520,7 +2549,7 @@ describe("P5 page-world program", () => {
       },
       removeEventListener() {},
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const send = (message: unknown) => dispatchFromPage(
       messageListeners,
       context as unknown as Record<string, unknown>,
@@ -2599,7 +2628,7 @@ describe("P5 page-world program", () => {
   });
 
   it("ignores a higher-scoring consent-hidden modal and suppresses the real nested owner", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const messageListeners: PageWorldListener[] = [];
     type TestEvent = {
       target: FakeTarget;
@@ -2730,7 +2759,7 @@ describe("P5 page-world program", () => {
       },
       removeEventListener() {},
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const send = (message: unknown) => dispatchFromPage(
       messageListeners,
       context as unknown as Record<string, unknown>,
@@ -2783,7 +2812,7 @@ describe("P5 page-world program", () => {
   });
 
   it("keeps EventTarget.prototype untouched and preserves page listener removal", () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: Array<(event: { data: unknown; source: { postMessage: (message: unknown) => void } }) => void> = [];
     const registered = new Set<unknown>();
     const context = {
@@ -2805,7 +2834,7 @@ describe("P5 page-world program", () => {
       },
       removeEventListener(_type: string, listener: unknown) { registered.delete(listener); },
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const original = () => undefined;
     const prototypeAdd = context.EventTarget.prototype.addEventListener;
     context.addEventListener("scroll", original);
@@ -2816,7 +2845,7 @@ describe("P5 page-world program", () => {
   });
 
   it("removes the correct page wrapper when one handler owns multiple lazy events", () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: Array<(event: { data: unknown; source: { postMessage: (message: unknown) => void } }) => void> = [];
     const registeredByType = new Map<string, Set<unknown>>();
     const context = {
@@ -2840,7 +2869,7 @@ describe("P5 page-world program", () => {
       },
       removeEventListener(type: string, listener: unknown) { registeredByType.get(type)?.delete(listener); },
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const original = () => undefined;
     context.addEventListener("scroll", original);
     context.addEventListener("wheel", original);
@@ -2853,7 +2882,7 @@ describe("P5 page-world program", () => {
   });
 
   it("uses DOM capture identity and suppresses duplicate page lazy wrappers", () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: Array<(event: { data: unknown; source: { postMessage: (message: unknown) => void } }) => void> = [];
     const registered = new Set<string>();
     const context = {
@@ -2877,7 +2906,7 @@ describe("P5 page-world program", () => {
         registered.delete(`${type}:${Boolean(typeof options === "boolean" ? options : options?.capture)}:${String(listener)}`);
       },
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const original = () => undefined;
     context.addEventListener("scroll", original, true);
     context.addEventListener("scroll", original, true);
@@ -2888,7 +2917,7 @@ describe("P5 page-world program", () => {
   });
 
   it("preserves AbortSignal and once semantics for page-level lazy listeners", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: PageWorldListener[] = [];
     const registered = new Map<unknown, boolean | AddEventListenerOptions | undefined>();
     const context = {
@@ -2917,7 +2946,7 @@ describe("P5 page-world program", () => {
         if (["scroll", "wheel", "touchmove"].includes(type)) registered.delete(listener);
       },
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const send = (message: unknown) => dispatchFromPage(listeners, context, message);
     const dispatchScroll = (): void => {
       for (const [listener, options] of [...registered]) {
@@ -2982,7 +3011,7 @@ describe("P5 page-world program", () => {
   });
 
   it("flushes deferred timers on destroy", async () => {
-    const source = readFileSync("src/page-world/program.js", "utf8");
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
     const listeners: Array<(event: { data: unknown; source: { postMessage: (message: unknown) => void } }) => void> = [];
     let nativeTimeout: (() => void) | null = null;
     const context = {
@@ -2999,7 +3028,7 @@ describe("P5 page-world program", () => {
         listeners.push(listener);
       },
     };
-    vm.runInNewContext(source, { ...context, globalThis: context });
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
     const send = (message: unknown) => dispatchFromPage(listeners, context as Record<string, unknown>, message);
     await send({ kind: "uf-page-bus/1", type: "request", nonce: "n1", command: "ARM", payload: {} });
     await send({ kind: "uf-page-bus/1", type: "request", nonce: "n2", sessionNonce: "n1", command: "SET_MOTION_PAUSED", payload: { paused: true } });

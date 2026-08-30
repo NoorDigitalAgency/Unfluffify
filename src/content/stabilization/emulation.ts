@@ -49,6 +49,17 @@ const GOOGLEBOT_SMARTPHONE_MEDIA_FEATURES = [
   { name: "any-hover", value: "none" },
 ] as const;
 
+/** Desktop is also an explicit crawler-review posture. Clearing the mobile
+ * features would delegate pointer/hover truth to the operator's hardware (and
+ * makes a touch-capable laptop nondeterministic), so assert the desktop half of
+ * the contract just as deliberately as the mobile half. */
+const DESKTOP_MEDIA_FEATURES = [
+  { name: "pointer", value: "fine" },
+  { name: "hover", value: "hover" },
+  { name: "any-pointer", value: "fine" },
+  { name: "any-hover", value: "hover" },
+] as const;
+
 /** Chrome's real user agent, rewritten into the Android form of the SAME build.
  *
  *  The version is carried across rather than hard-coded on purpose: a UA claiming
@@ -120,7 +131,9 @@ export async function applyEmulationViaCdp(
     : { enabled: false });
   await client.send("Emulation.setEmulatedMedia", {
     media: "",
-    features: mode === "mobile" ? [...GOOGLEBOT_SMARTPHONE_MEDIA_FEATURES] : [],
+    features: mode === "mobile"
+      ? [...GOOGLEBOT_SMARTPHONE_MEDIA_FEATURES]
+      : [...DESKTOP_MEDIA_FEATURES],
   });
   // The viewport alone does not convince a site that sniffs identity rather than
   // measuring the window, and those sites serve a different page — which is the

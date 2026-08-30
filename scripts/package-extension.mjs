@@ -197,13 +197,13 @@ async function collectManifestEntryPoints(manifest) {
       entryPoints.add(extensionPage);
     }
   }
-  // Stable extension-page public assets (for example the popup logo and the
-  // raw font/icon stylesheets) are not guaranteed to appear in built HTML after
-  // bundling, so stage them explicitly when present in the build output.
+  // Stable extension-page public assets (for example the popup logo and font
+  // stylesheet) are not guaranteed to appear in built HTML after bundling, so
+  // stage them explicitly when present in the build output. Popup icons are a
+  // generated SVG-mask subset bundled into the popup stylesheet.
   for (const staticAsset of [
     "logo.png",
     "assets/fonts/fonts.css",
-    "assets/materialdesignicons.min.css",
   ]) {
     const absolutePath = join(SOURCE_ROOT, staticAsset);
     if (await isFile(absolutePath)) {

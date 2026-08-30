@@ -1,3 +1,4 @@
+import { mdiCodeBlockTags, mdiSnowflake } from "@mdi/js";
 import { defineContentScript } from "wxt/utils/define-content-script";
 
 import { browser, getInstalledBrowserApi } from "../common/browser";
@@ -114,6 +115,10 @@ let markingActive = false;
  *  would read as an edit, and a toggle that removes rows would not. One toggle is
  *  one change, which is the only definition that holds on a dynamic page. */
 let userToggleCount = 0;
+/** Canonical decision identity acknowledged as clean by activation or the last
+ * successful AI result. Unlike a toggle counter, this makes an exact clear of a
+ * temporary mark genuinely reversible. */
+let cleanMarkingFingerprint: string | null = null;
 /** Brain-facing event cursor. AI cleanup resets userToggleCount because the
  * current decisions are no longer dirty, but it must not reset this sequence:
  * the next operator edit still has to advance past the last observed fact. */
@@ -153,6 +158,7 @@ let contentPresentation: ContentPresentation = memoryForContent(contentState);
 let contentAuthority: ContentAuthorityState = createDefaultContentAuthority(lastKnownPageUrl);
 let contentSignalPollHandle: ReturnType<Window["setInterval"]> | null = null;
 let signalsAvailableUnsubscribe: (() => void) | null = null;
+let pageUrlChangedUnsubscribe: (() => void) | null = null;
 const CONTENT_SIGNAL_POLL_MS = 500;
 const MARKING_CURSOR_STYLE_ID = "unfluffify-marking-cursor-style";
 const MARKING_CURSOR_CLASSES = [
@@ -269,8 +275,22 @@ const CONTENT_LOCK_ACTION_LABEL: Readonly<Record<LockActionKind, string>> = {
   "take-over": "Take over",
 };
 
+function readMarkingDecisionFingerprint(): string | null {
+  const readFingerprint = markingEngine?.decisionFingerprint;
+  return typeof readFingerprint === "function"
+    ? readFingerprint.call(markingEngine)
+    : null;
+}
+
 function isUserMarkingDirty(): boolean {
-  return userToggleCount > 0;
+  const current = readMarkingDecisionFingerprint();
+  return cleanMarkingFingerprint === null || current === null
+    ? userToggleCount > 0
+    : current !== cleanMarkingFingerprint;
+}
+
+function currentMarkingFingerprint(): string {
+  return readMarkingDecisionFingerprint() ?? "";
 }
 
 function currentPageUrl(): string {
@@ -906,83 +926,49 @@ async function requestStabilizationPageCommand(
   payload: Record<string, unknown>,
   sessionNonce = "",
 ): Promise<{ nonce: string; payload: Record<string, unknown> }> {
-  if (typeof window === "undefined") {
-    throw new Error(`Page-world command unavailable: ${command}`);
-  }
   stabilizationPageRequestSequence += 1;
   const nonce = `rewrite-stabilization-${Date.now()}-${stabilizationPageRequestSequence}`;
-  return await new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (
-      result?: { nonce: string; payload: Record<string, unknown> },
-      error?: Error,
-    ): void => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timeoutHandle);
-      window.removeEventListener("message", handleMessage);
-      if (error) {
-        reject(error);
-      } else if (result) {
-        resolve(result);
-      }
-    };
-    const handleMessage = (event: MessageEvent): void => {
-      if (event.source && event.source !== window) {
-        return;
-      }
-      const response = event.data as {
-        kind?: string;
-        type?: string;
-        nonce?: string;
-        command?: string;
-        ok?: boolean;
-        payload?: unknown;
-        failure?: { message?: string };
-      } | null;
-      if (
-        !response ||
-        response.kind !== "uf-page-bus/1" ||
-        response.type !== "response" ||
-        response.nonce !== nonce ||
-        response.command !== command
-      ) {
-        return;
-      }
-      if (!response.ok) {
-        finish(undefined, stabilizationCommandError(
-          command,
-          nonce,
-          response.failure?.message ?? `Page-world command failed: ${command}`,
-        ));
-        return;
-      }
-      finish({
-        nonce,
-        payload: response.payload && typeof response.payload === "object"
-          ? response.payload as Record<string, unknown>
-          : {},
-      });
-    };
-    const timeoutHandle = setTimeout(() => {
-      finish(undefined, stabilizationCommandError(
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(stabilizationCommandError(
         command,
         nonce,
         `Page-world command timed out: ${command}`,
       ));
     }, stabilizationCommandTimeout(command));
-    window.addEventListener("message", handleMessage);
-    window.postMessage?.({
-      kind: "uf-page-bus/1",
-      type: "request",
-      nonce,
-      sessionNonce: command === "ARM" || command === "RECONCILE" ? undefined : sessionNonce,
-      command,
-      payload,
-    }, "*");
   });
+  try {
+    const response = await Promise.race([
+      getContentBus().request("pageWorld.command", {
+        pageUrl: currentPageUrl(),
+        nonce,
+        sessionNonce: command === "ARM" || command === "RECONCILE" ? undefined : sessionNonce,
+        command,
+        payload,
+      }, { target: "background" }),
+      timeout,
+    ]);
+    if (!response.ok) {
+      throw stabilizationCommandError(command, nonce, response.failure.message);
+    }
+    if (response.data.status !== "ok") {
+      throw stabilizationCommandError(command, nonce, `Page-world command unavailable: ${response.data.reason}`);
+    }
+    if (!response.data.result.ok) {
+      throw stabilizationCommandError(
+        command,
+        nonce,
+        response.data.result.failure?.message ?? `Page-world command failed: ${command}`,
+      );
+    }
+    return {
+      nonce,
+      payload: response.data.result.payload ?? {},
+    };
+  } finally {
+    if (timeoutHandle !== null) clearTimeout(timeoutHandle);
+  }
 }
 
 function requireStabilizationPageState(
@@ -1737,7 +1723,11 @@ function markModeForClick(event: MouseEvent): "passthrough" | "include" | "exclu
  *  are fetched from getContentMainStatus when the popup wants them, rather than
  *  riding a signal. */
 function reportMarkingToggle(): void {
-  void reportContentFact("marking-toggle", { markingToggleSeq })
+  void reportContentFact("marking-toggle", {
+    markingToggleSeq,
+    markingDirty: isUserMarkingDirty(),
+    markingFingerprint: currentMarkingFingerprint(),
+  })
     .catch((error: unknown) => {
       console.error("[Unfluffify][rewrite] Unable to report a marking toggle", error);
     });
@@ -1839,11 +1829,6 @@ function ensureContentSurfaceStyles(): void {
   style.id = CONTENT_SURFACE_STYLE_ID;
   style.setAttribute("data-uf-extension-ui", "true");
   style.textContent = `
-@font-face {
-  font-family: "Unfluffify Material Design Icons";
-  src: url(${JSON.stringify(extensionAssetUrl("assets/materialdesignicons-webfont.woff2"))}) format("woff2");
-  font-display: block;
-}
 @keyframes uf-content-surface-spin { to { transform: rotate(360deg); } }
 @keyframes uf-content-toast-in {
   from { opacity: 0; transform: translate(-50%, 8px); }
@@ -1938,7 +1923,18 @@ function ensureContentSurfaceStyles(): void {
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.22);
   backdrop-filter: blur(6px);
   pointer-events: none;
-  font: 18px/1 "Unfluffify Material Design Icons";
+}
+[data-uf-content-surface-icon="true"] {
+  display: block;
+  width: 18px;
+  height: 18px;
+  background-color: currentColor;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
 }
 [data-uf-content-toast="true"] {
   position: fixed;
@@ -2007,6 +2003,17 @@ function ensureContentSurfaceStyles(): void {
 }
 `;
   document.documentElement.appendChild(style);
+}
+
+function createContentSurfaceIcon(pathData: string): HTMLElement {
+  const icon = document.createElement("span");
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="${pathData}"/></svg>`;
+  const maskImage = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("data-uf-content-surface-icon", "true");
+  icon.style.maskImage = maskImage;
+  icon.style.webkitMaskImage = maskImage;
+  return icon;
 }
 
 function pausedNoticeCopy(reason: string): string {
@@ -2178,6 +2185,7 @@ function disposeTerminalContentSurfaces(): void {
   markingEngine = null;
   markingActive = false;
   userToggleCount = 0;
+  cleanMarkingFingerprint = null;
   selectorsSeeded = false;
   markingInteractionsPaused = false;
   pageInspectionActive = false;
@@ -2734,12 +2742,8 @@ function renderContentSurface(): void {
     indicator.setAttribute("role", "status");
     indicator.setAttribute("aria-label", "Page motion paused");
     indicator.title = "Page motion paused";
-    const snowflake = document.createElement("span");
-    snowflake.setAttribute("aria-hidden", "true");
-    snowflake.textContent = String.fromCodePoint(0xF0717);
-    const codeTags = document.createElement("span");
-    codeTags.setAttribute("aria-hidden", "true");
-    codeTags.textContent = String.fromCodePoint(0xF1C86);
+    const snowflake = createContentSurfaceIcon(mdiSnowflake);
+    const codeTags = createContentSurfaceIcon(mdiCodeBlockTags);
     indicator.appendChild(snowflake);
     indicator.appendChild(codeTags);
     root.appendChild(indicator);
@@ -3793,6 +3797,7 @@ function deactivateMarking(mode: MarkingDeactivationMode = "terminal"): Promise<
   let terminalTeardown: Promise<void> | null = null;
   markingActive = false;
   userToggleCount = 0;
+  cleanMarkingFingerprint = null;
   selectorsSeeded = false;
   removeNavigationGate?.();
   markingInteractionsPaused = false;
@@ -3932,18 +3937,8 @@ function installNavigationWatcher(): void {
   }
   navigationWatcherInstalled = true;
   lastKnownPageUrl = typeof location !== "undefined" ? location.href : "";
-  const handlePageWorldMessage = (event: MessageEvent): void => {
-    if (event.source !== window || !event.data || typeof event.data !== "object") {
-      return;
-    }
-    const data = event.data as { kind?: unknown; toUrl?: unknown };
-    if (data.kind === "uf-page-url-changed/1" && typeof data.toUrl === "string") {
-      handleUrlChanged();
-    }
-  };
   window.addEventListener("popstate", () => handleUrlChanged());
   window.addEventListener("hashchange", () => handleUrlChanged());
-  window.addEventListener("message", handlePageWorldMessage);
 }
 
 function resetMarking(): boolean {
@@ -3956,6 +3951,7 @@ function resetMarking(): boolean {
   destroyPageWorldSession();
   markingEngine = createAuthoritativeMarkingEngine(document.documentElement, { render: true });
   userToggleCount = 0;
+  cleanMarkingFingerprint = readMarkingDecisionFingerprint();
   selectorsSeeded = false;
   lastKnownPageUrl = typeof location !== "undefined" ? location.href : lastKnownPageUrl;
   silentInteractionShieldActive = false;
@@ -4011,6 +4007,7 @@ async function activateContentMain(payload: unknown): Promise<Record<string, unk
     };
   }
   if (document.documentElement) {
+    const startingCleanSession = !markingActive;
     removeSilentDebugCopyListener?.();
     lastKnownPageUrl = nextPageUrl || lastKnownPageUrl;
     if (!markingActive) {
@@ -4041,6 +4038,9 @@ async function activateContentMain(payload: unknown): Promise<Record<string, unk
       // Silent preview already keeps this bridge current through its observers.
       // Switching presentation must not synchronously rebuild the entire page.
       markingEngine.renderMarking();
+    }
+    if (startingCleanSession) {
+      cleanMarkingFingerprint = readMarkingDecisionFingerprint();
     }
     silentInteractionShieldActive = false;
     releaseDurablePostureLocally();
@@ -4270,6 +4270,8 @@ function contentStatus(): Record<string, unknown> {
     markedCount: userToggleCount,
     decisionRowCount: contentRows.length,
     markingToggleSeq,
+    markingFingerprint: currentMarkingFingerprint(),
+    cleanMarkingFingerprint: cleanMarkingFingerprint ?? "",
     contentRows,
     sessionState: contentState,
     authority: contentAuthority,
@@ -4292,6 +4294,7 @@ function contentStatus(): Record<string, unknown> {
 
 function markContentClean(): Record<string, unknown> {
   userToggleCount = 0;
+  cleanMarkingFingerprint = readMarkingDecisionFingerprint();
   return { ok: true, active: markingActive, dirty: isUserMarkingDirty(), tree: "rewrite" };
 }
 
@@ -4531,14 +4534,10 @@ export default defineContentScript({
     // runtime and its freeze can survive. Reconcile only when the DOM exposes
     // an active posture; normal documents pay no command or timeout overhead.
     const documentElement = typeof document !== "undefined" ? document.documentElement : null;
-    if (
+    const orphanedPageWorldPosture = Boolean(
       documentElement?.hasAttribute?.("data-uf-page-motion-paused") ||
       documentElement?.hasAttribute?.("data-uf-lazy-loading-suppressed")
-    ) {
-      void reconcilePageWorldSessionAndWait().catch((error: unknown) => {
-        console.error("[Unfluffify][rewrite] Unable to reconcile orphaned page-world posture", error);
-      });
-    }
+    );
     const transientSurfaces = ensureContentTransientSurfaces();
     if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
       transientSurfaces.attach(window);
@@ -4596,6 +4595,8 @@ export default defineContentScript({
       }
       signalsAvailableUnsubscribe?.();
       signalsAvailableUnsubscribe = null;
+      pageUrlChangedUnsubscribe?.();
+      pageUrlChangedUnsubscribe = null;
       removePreviewPageListener?.();
       contentSignalScheduler.dispose();
     });
@@ -4605,6 +4606,10 @@ export default defineContentScript({
       void contentSignalScheduler.request().catch((error: unknown) => {
         console.error("[Unfluffify][rewrite] Unable to pull available content signals", error);
       });
+    });
+    pageUrlChangedUnsubscribe?.();
+    pageUrlChangedUnsubscribe = bus.on("page.urlChanged", () => {
+      handleUrlChanged();
     });
     bus.onCommand("command.dispatch", (command) => createContentRouter().dispatch(command));
     bus.onCommand("preview.project", (request) => previewController.project(request));
@@ -4623,7 +4628,15 @@ export default defineContentScript({
     pageContextBindQueue = Promise.allSettled([inspectionAdoption, retainedAdoption]).then(() => undefined);
     // Bind and adopt the authoritative current posture before consuming signals.
     // A rehydrated worker can have a signal head without replayable history.
-    void establishPageContext().finally(() => ensureContentSignalPolling());
+    void establishPageContext().then(async () => {
+      if (orphanedPageWorldPosture) {
+        await reconcilePageWorldSessionAndWait();
+      }
+    }).catch((error: unknown) => {
+      if (orphanedPageWorldPosture) {
+        console.error("[Unfluffify][rewrite] Unable to reconcile orphaned page-world posture", error);
+      }
+    }).finally(() => ensureContentSignalPolling());
     // A content script can be reinjected while the tab's lock state is unchanged.
     // Announce the new consumer so background can replay its current authority
     // once, without restoring the popup's old 500ms presentation push.

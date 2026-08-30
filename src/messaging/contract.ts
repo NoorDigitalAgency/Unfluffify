@@ -26,6 +26,7 @@ export const BusFrameSchema = z.object({
 
 export const PageCommandNameSchema = z.enum([
   "ARM",
+  "RECONCILE",
   "SET_MOTION_PAUSED",
   "SET_LAZY_LOADING_SUPPRESSED",
   "DESTROY",

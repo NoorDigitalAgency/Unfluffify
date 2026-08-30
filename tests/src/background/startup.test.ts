@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { BusFrame } from "../../../src/messaging/contract";
 import { DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS } from "../../../src/domain/constants";
+import { deriveGooglebotSmartphoneUserAgent } from "../../../src/content/stabilization/emulation";
 
 describe("rewrite background startup", () => {
   afterEach(() => {
@@ -429,6 +430,7 @@ describe("rewrite background startup", () => {
   it("serves CDP device emulation through the shipped typed bus", async () => {
     const addMessageListener = vi.fn();
     const debuggerCalls: unknown[] = [];
+    const realUserAgent = "Mozilla/5.0 Chrome/126.0.0.0 Safari/537.36";
     globalThis.chrome = {
       runtime: {
         sendMessage: vi.fn(),
@@ -439,9 +441,35 @@ describe("rewrite background startup", () => {
           debuggerCalls.push({ method: "attach", target, version });
           callback();
         },
-        sendCommand(target: unknown, method: string, params: unknown, callback: () => void) {
+        sendCommand(target: unknown, method: string, params: unknown, callback: (result?: unknown) => void) {
           debuggerCalls.push({ method, target, params });
-          callback();
+          const expression = (params as { expression?: string } | undefined)?.expression ?? "";
+          if (method === "Runtime.evaluate" && expression === "navigator.userAgent") {
+            callback({ result: { value: realUserAgent } });
+          } else if (method === "Runtime.evaluate" && expression.includes("__unfluffifyEmulationProof")) {
+            callback({
+              result: {
+                value: {
+                  innerWidth: 412,
+                  innerHeight: 960,
+                  devicePixelRatio: 1,
+                  visualViewportScale: 1,
+                  maxTouchPoints: 1,
+                  userAgent: deriveGooglebotSmartphoneUserAgent(realUserAgent),
+                  pointerCoarse: true,
+                  pointerFine: false,
+                  hoverNone: true,
+                  hoverHover: false,
+                  anyPointerCoarse: true,
+                  anyPointerFine: false,
+                  anyHoverNone: true,
+                  anyHoverHover: false,
+                },
+              },
+            });
+          } else {
+            callback({ result: { value: true } });
+          }
         },
         detach(target: unknown, callback: () => void) {
           debuggerCalls.push({ method: "detach", target });
@@ -574,8 +602,8 @@ describe("rewrite background startup", () => {
     });
 
     const settings = {
-      configEndpoint: "https://config.example.com/",
-      aiEndpoint: "https://ai.example.com/",
+      configEndpoint: "https://config.example.com",
+      aiEndpoint: "https://ai.example.com",
       stageBase: "stage.example.com",
     };
     expect(await call("settings.save", settings, "settings-save-1", 2)).toMatchObject({
@@ -728,7 +756,7 @@ describe("rewrite background startup", () => {
       });
 
       await call("settings.save", {
-        stageBase: "https://A.example.com.",
+        stageBase: "A.example.com.",
         configEndpoint: "https://HUB.example.com/api/",
         aiEndpoint: "https://AI.example.com/",
       }, "s-4", 4);
@@ -1010,7 +1038,10 @@ describe("rewrite background startup", () => {
       }, "content");
       await waitForLoadCount(2);
       pendingLoads[1]!.reject(new Error("load transport failed"));
-      await expect(invalidatingRefresh).resolves.toMatchObject({ ok: false });
+      await expect(invalidatingRefresh).resolves.toMatchObject({
+        ok: true,
+        payload: { status: "managed_candidate" },
+      });
 
       const retry = request("config.load", { siteId: 4821 });
       await waitForLoadCount(3);
@@ -1155,7 +1186,16 @@ describe("rewrite background startup", () => {
       expect(listeners.has("open")).toBe(true);
 
       socket.emit("open");
-      const subscribe = JSON.parse(socketFrames[0] ?? "{}");
+      expect(JSON.parse(socketFrames[0] ?? "{}")).toMatchObject({
+        type: "authenticate",
+        protocol: "bearer-frame-v1",
+        token: "jwt-live",
+      });
+      socket.emit("message", JSON.stringify({
+        type: "authenticated",
+        protocol: "bearer-frame-v1",
+      }));
+      const subscribe = JSON.parse(socketFrames[1] ?? "{}");
       expect(subscribe).toMatchObject({
         type: "subscribe",
         environmentKey: "stage.example.com",

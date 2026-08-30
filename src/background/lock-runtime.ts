@@ -3,6 +3,7 @@ import {
   PROPERTY_LOCK_CROSS_PROPERTY_COOLDOWN_TIMEOUT_MS,
   PROPERTY_LOCK_OFF_CANDIDATE_WARNING_TIMEOUT_MS,
   PROPERTY_LOCK_SUSPENDED_RECOVERY_GRACE_MS,
+  projectLockActionReadiness,
   projectPropertyLockView,
   type PropertyLockPresence,
   type PropertyLockState,
@@ -128,19 +129,26 @@ function lockStateFromState(input: Readonly<{
         ? projectPropertyLockView(input.state)
         : { bannerVisible: true, reason: NO_LOCK_STATE_REASON[input.status], canEdit: false };
   const lockRole = input.state?.role ?? "unknown";
-  const blockedReason = view.reason;
-  const authority = view.canEdit && input.state?.role === "editor" &&
+  const hasExactAuthority = Boolean(input.state?.role === "editor" &&
     input.state.environmentKey &&
     input.state.editorSessionId &&
     input.state.lockToken &&
     input.state.propertyRevision !== undefined &&
-    input.state.feedRevision !== undefined
+    input.state.feedRevision !== undefined);
+  const actionReadiness = projectLockActionReadiness({
+    role: lockRole,
+    canEdit: view.canEdit,
+    hasExactAuthority,
+    reason: view.reason,
+  });
+  const blockedReason = actionReadiness.status === "blocked" ? actionReadiness.reason : view.reason;
+  const authority = actionReadiness.status === "ready" && input.state
     ? {
-        environmentKey: input.state.environmentKey,
-        editorSessionId: input.state.editorSessionId,
-        lockToken: input.state.lockToken,
-        propertyRevision: input.state.propertyRevision,
-        feedRevision: input.state.feedRevision,
+        environmentKey: input.state.environmentKey!,
+        editorSessionId: input.state.editorSessionId!,
+        lockToken: input.state.lockToken!,
+        propertyRevision: input.state.propertyRevision!,
+        feedRevision: input.state.feedRevision!,
       }
     : undefined;
   return {
@@ -154,7 +162,7 @@ function lockStateFromState(input: Readonly<{
       input.status === "suspended_candidate_removed" ||
       input.status === "suspended_candidate_feed_conflict"
     ) && input.siteId !== null,
-    canEdit: view.canEdit,
+    canEdit: actionReadiness.status === "ready",
     blockedReason,
     ...(authority ? { authority } : {}),
     lockBanner: {
@@ -810,9 +818,20 @@ export function createPropertyLockRuntime(input: Readonly<{
     action(request: LockActionRequest): Readonly<{ status: "ok" | "unavailable" }> {
       const activeKey = activeKeyByTab.get(request.tabId);
       const client = activeKey ? clients.get(activeKey) : undefined;
-      if (!client || client.isClosed()) {
+      if (
+        !client ||
+        client.isClosed() ||
+        localWarningByTab.has(request.tabId) ||
+        suspendedContextByTab.has(request.tabId)
+      ) {
         return { status: "unavailable" };
       }
+      const allowed = projectPropertyLockView(client.state()).actions?.some((candidate) =>
+        candidate.kind === request.kind &&
+        (candidate.kind !== "accept-takeover" && candidate.kind !== "reject-takeover" ||
+          candidate.suggestionId === request.suggestionId)
+      ) === true;
+      if (!allowed) return { status: "unavailable" };
       switch (request.kind) {
         case "continue-here":
           client.continueEditing(false, request.confirmDiscard === true);

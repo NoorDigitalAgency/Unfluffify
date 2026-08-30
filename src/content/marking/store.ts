@@ -3,6 +3,17 @@ import type { CanonicalMarkSet, MarkMode, MarkRow } from "../../domain/schema/ma
 import { isToggleableDefaultTag } from "../../domain/taxonomy";
 import { isXPathInSubtree } from "../../domain/xpath";
 
+/** Stable semantic identity for the operator's canonical decisions. Evaluation
+ * rows are deliberately excluded: defaults and live DOM growth may change them
+ * without an edit. `explicit: false` is normalized to the same meaning as an
+ * omitted flag, and row order is irrelevant. */
+export function canonicalMarkingFingerprint(markSet: CanonicalMarkSet): string {
+  return markSet.rows
+    .map((row) => `${row.xpath}\u0000${row.excluded ? "1" : "0"}\u0000${row.explicit === true ? "1" : "0"}`)
+    .sort()
+    .join("\u0001");
+}
+
 export function applyToggle(
   markSet: CanonicalMarkSet,
   xpath: string,

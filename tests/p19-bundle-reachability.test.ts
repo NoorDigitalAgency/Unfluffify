@@ -31,7 +31,7 @@ async function buildSourceInputs(entryPoint: string): Promise<ReadonlySet<string
     metafile: true,
     outdir: join(P19_REPO_ROOT, ".tmp/p19-bundle-reachability"),
     platform: "browser",
-    target: "chrome120",
+    target: "chrome116",
     write: false,
   });
   if (!result.metafile) {

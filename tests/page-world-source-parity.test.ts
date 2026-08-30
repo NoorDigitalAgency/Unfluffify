@@ -8,7 +8,7 @@ const REPO_ROOT = resolve(import.meta.dirname, "..");
 describe("TypeScript-authored page-world artifact", () => {
   it("keeps the generated JavaScript byte-identical to the TypeScript build", () => {
     const sourcePath = resolve(REPO_ROOT, "src/page-world/program.ts");
-    const generatedPath = resolve(REPO_ROOT, "src/page-world/program.js");
+    const generatedPath = resolve(REPO_ROOT, "src/page-world/program.generated.js");
     expect(existsSync(sourcePath)).toBe(true);
     expect(existsSync(generatedPath)).toBe(true);
 

@@ -1,6 +1,7 @@
 import type { BrainSignal } from "../../../src/domain/schema/signals";
 import type { BusFrame } from "../../../src/messaging/contract";
 import { TOAST_DURATION_MS } from "../../../src/ui/toast-controller";
+import { createGatePageWorldCapabilityHarness } from "../page-world-capability-harness";
 
 type RuntimeSender = Readonly<{
   tab?: Readonly<{ id?: number }>;
@@ -80,6 +81,17 @@ let readyError = "";
 let invalidationCallback: (() => void) | null = null;
 let shieldRevision = 0;
 let shieldProjection: ShieldProjection = { status: "inactive", revision: 0 };
+
+const pageWorld = createGatePageWorldCapabilityHarness({
+  tabId: TAB_ID,
+  documentId: DOCUMENT_ID,
+  currentPageUrl: () => location.href,
+  failurePrefix: "P18",
+  onCommand(command) {
+    window.__p18PageState.pageWorldCommands += 1;
+    window.__p18PageState.pageWorldCommandNames.push(command);
+  },
+});
 
 function clone<T>(value: T): T {
   return structuredClone(value);
@@ -196,6 +208,32 @@ async function sendBackgroundMessage(message: unknown): Promise<unknown> {
   backgroundFrames.push(clone(frame));
   if (frame.frameType === "event") return undefined;
   switch (frame.name) {
+    case "pageWorld.acquire": {
+      const pageUrl = typeof (frame.payload as { pageUrl?: unknown } | undefined)?.pageUrl === "string"
+        ? (frame.payload as { pageUrl: string }).pageUrl
+        : location.href;
+      return replyTo(frame, await pageWorld.acquire(pageUrl));
+    }
+    case "pageWorld.command": {
+      const payload = frame.payload && typeof frame.payload === "object"
+        ? frame.payload as {
+            pageUrl?: unknown;
+            nonce?: unknown;
+            sessionNonce?: unknown;
+            command?: unknown;
+            payload?: unknown;
+          }
+        : {};
+      const pageUrl = typeof payload.pageUrl === "string" ? payload.pageUrl : location.href;
+      return replyTo(frame, await pageWorld.command(pageUrl, {
+        nonce: typeof payload.nonce === "string" ? payload.nonce : undefined,
+        sessionNonce: typeof payload.sessionNonce === "string" ? payload.sessionNonce : undefined,
+        command: typeof payload.command === "string" ? payload.command : undefined,
+        payload: payload.payload && typeof payload.payload === "object"
+          ? payload.payload as Record<string, unknown>
+          : undefined,
+      }));
+    }
     case "page.context":
       return replyTo(frame, pageContextResponse());
     case "signals.pull": {

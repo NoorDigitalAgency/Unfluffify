@@ -317,6 +317,43 @@ function replyFrame(request: BusFrame, payload: unknown): BusFrame {
   };
 }
 
+function pageWorldCommandReply(request: BusFrame): BusFrame {
+  const command = request.payload as TestPageWorldCommand;
+  return replyFrame(request, {
+    status: "ok",
+    result: {
+      ok: true,
+      nonce: command.nonce ?? "",
+      command: command.command ?? "",
+      payload: pageWorldAcknowledgement(command),
+    },
+  });
+}
+
+function dispatchPageUrlChanged(
+  addListener: { mock: { calls: unknown[][] } },
+  pageUrl: string,
+  documentId = "test-document",
+): void {
+  commandSeq += 1;
+  const listener = addListener.mock.calls[0]?.[0] as ((
+    message: unknown,
+    sender: unknown,
+    sendResponse: (value: unknown) => void,
+  ) => unknown) | undefined;
+  listener?.({
+    kind: "uf-bus/1",
+    frameType: "event",
+    id: `test-page-url-changed-${commandSeq}`,
+    seq: commandSeq,
+    name: "page.urlChanged",
+    source: "background",
+    sourceInstance: "background:test",
+    target: "content",
+    payload: { tabId: 77, documentId, pageUrl },
+  } satisfies BusFrame, { tab: { id: 77 }, documentId }, () => undefined);
+}
+
 async function dispatchContentCommand(
   listener: (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown,
   name: string,
@@ -615,7 +652,7 @@ describe("C4 rewrite content entrypoints", () => {
     const nextPageUrl = "https://example.com/next";
     const addListener = vi.fn();
     const locationValue = installTestLocation(pageUrl);
-    const { documentListeners, windowListeners } = installMinimalContentDom();
+    const { documentListeners } = installMinimalContentDom();
 
     const projection = {
       projectionId: "projection-p17",
@@ -1042,10 +1079,7 @@ describe("C4 rewrite content entrypoints", () => {
     // The URL watcher is synchronous: an immediate B projection must construct
     // a new engine/bridge rather than retagging the projection from route A.
     locationValue.href = nextPageUrl;
-    dispatchTestEvent(windowListeners, "message", {
-      source: window,
-      data: { kind: "uf-page-url-changed/1", toUrl: nextPageUrl },
-    } as unknown as MessageEvent);
+    dispatchPageUrlChanged(addListener, nextPageUrl);
     expect(engine.clearHover).toHaveBeenCalledTimes(2);
     expect(engine.dispose).toHaveBeenCalledTimes(1);
 
@@ -2141,12 +2175,14 @@ describe("C4 rewrite content entrypoints", () => {
     expect(createMarkingEngine).not.toHaveBeenCalled();
   });
 
-  it("keeps the MAIN-world page-world entrypoint bound to the new program", () => {
-    const pageWorldEntrypointSource = readFileSync(
-      resolve(REPO_ROOT, "src", "entrypoints", "page-world.content.ts"),
+  it("routes page-world work through the background capability command only", () => {
+    const contentSource = readFileSync(
+      resolve(REPO_ROOT, "src", "entrypoints", "content-loader.content.ts"),
       "utf8",
     );
-    expect(pageWorldEntrypointSource).toContain('import "../page-world/program.js";');
+    expect(contentSource).toContain('request("pageWorld.command"');
+    expect(contentSource).not.toContain("uf-page-bus/1");
+    expect(contentSource).not.toContain("window.postMessage");
   });
 
   it("sweeps a managed non-candidate before render-mode gates and re-sweeps late insertions", async () => {
@@ -2287,10 +2323,7 @@ describe("C4 rewrite content entrypoints", () => {
     expect(hideConsentOverlays).toHaveBeenCalledTimes(2);
 
     locationValue.href = "https://example.com/another-page";
-    dispatchTestEvent(windowListeners, "message", {
-      source: windowObject,
-      data: { kind: "uf-page-url-changed/1", toUrl: locationValue.href },
-    } as unknown as Event);
+    dispatchPageUrlChanged(addListener, locationValue.href);
     for (let index = 0; index < 20 && hideConsentOverlays.mock.calls.length < 3; index += 1) {
       await Promise.resolve();
     }
@@ -2301,10 +2334,7 @@ describe("C4 rewrite content entrypoints", () => {
     expect(restoreConsentOverlays).not.toHaveBeenCalled();
 
     locationValue.href = "https://example.com/outside";
-    dispatchTestEvent(windowListeners, "message", {
-      source: windowObject,
-      data: { kind: "uf-page-url-changed/1", toUrl: locationValue.href },
-    } as unknown as Event);
+    dispatchPageUrlChanged(addListener, locationValue.href);
     for (let index = 0; index < 20 && restoreConsentOverlays.mock.calls.length === 0; index += 1) {
       await Promise.resolve();
     }
@@ -2366,9 +2396,29 @@ describe("C4 rewrite content entrypoints", () => {
       document.documentElement.appendChild(markingOverlay);
       return engine;
     });
-    const sendMessage = vi.fn(async (message: BusFrame) => message.name === "page.context"
-      ? managedPageContextReply(message, pageUrl.href)
-      : { ok: true });
+    let holdDestroyAcknowledgement = false;
+    let heldDestroyMessage: TestPageWorldCommand | null = null;
+    let releaseHeldDestroy: (() => void) | undefined;
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "page.context") {
+        return managedPageContextReply(message, pageUrl.href);
+      }
+      if (message.name === "pageWorld.command") {
+        const command = message.payload as TestPageWorldCommand;
+        if (command.command === "DESTROY" && holdDestroyAcknowledgement) {
+          heldDestroyMessage = command;
+          return await new Promise<BusFrame>((resolve) => {
+            releaseHeldDestroy = () => resolve(pageWorldCommandReply(message));
+          });
+        }
+        return pageWorldCommandReply(message);
+      }
+      return { ok: true };
+    });
+    const pageWorldRequests = (): TestPageWorldCommand[] => sendMessage.mock.calls
+      .map(([frame]) => frame as BusFrame)
+      .filter((frame) => frame.name === "pageWorld.command")
+      .map((frame) => frame.payload as TestPageWorldCommand);
     type SurfaceElement = {
       id: string;
       attributes: Record<string, string>;
@@ -2450,39 +2500,12 @@ describe("C4 rewrite content entrypoints", () => {
     });
     const scrollTo = vi.fn();
     const requestAnimationFrame = vi.fn();
-    let holdDestroyAcknowledgement = false;
-    let heldDestroyMessage: TestPageWorldCommand | null = null;
-    const acknowledgePageWorldMessage = (message: TestPageWorldCommand): void => {
-      queueMicrotask(() => dispatchTestEvent(windowListeners, "message", {
-        source: windowObject,
-        data: {
-          kind: "uf-page-bus/1",
-          type: "response",
-          nonce: message.nonce,
-          command: message.command,
-          ok: true,
-          payload: pageWorldAcknowledgement(message),
-        },
-      } as unknown as Event));
-    };
     const windowObject = {
       innerHeight: 500,
       scrollY: 123,
       scrollTo,
       requestAnimationFrame,
-      postMessage: vi.fn((message: TestPageWorldCommand & {
-        kind?: string;
-        type?: string;
-      }) => {
-        if (message.kind !== "uf-page-bus/1" || message.type !== "request") {
-          return;
-        }
-        if (message.command === "DESTROY" && holdDestroyAcknowledgement) {
-          heldDestroyMessage = message;
-          return;
-        }
-        acknowledgePageWorldMessage(message);
-      }),
+      postMessage: vi.fn(),
       addEventListener: vi.fn((type: string, listener: EventListener) => {
         addTestListener(windowListeners, type, listener);
       }),
@@ -2521,8 +2544,8 @@ describe("C4 rewrite content entrypoints", () => {
       exclusionSelectors: ["header"],
     };
     await dispatchContentCommand(listener, "activateContentMain", { selectors: initialSelectors });
-    for (let index = 0; index < 20 && !windowObject.postMessage.mock.calls.some(
-      ([message]) => message.command === "SET_MOTION_PAUSED"
+    for (let index = 0; index < 20 && !pageWorldRequests().some(
+      (message) => message.command === "SET_MOTION_PAUSED"
     ); index += 1) {
       await Promise.resolve();
     }
@@ -2538,10 +2561,12 @@ describe("C4 rewrite content entrypoints", () => {
     );
     expect(pauseIndicator?.attributes["aria-label"]).toBe("Page motion paused");
     expect(pauseIndicator?.title).toBe("Page motion paused");
-    expect(pauseIndicator?.children.map((element) => element.textContent)).toEqual([
-      String.fromCodePoint(0xF0717),
-      String.fromCodePoint(0xF1C86),
-    ]);
+    expect(pauseIndicator?.children).toHaveLength(2);
+    expect(pauseIndicator?.children.every((element) =>
+      element.attributes["data-uf-content-surface-icon"] === "true"
+      && element.attributes["aria-hidden"] === "true"
+      && element.style.maskImage?.startsWith('url("data:image/svg+xml,')
+    )).toBe(true);
     expect(contentElements.some((element) =>
       element.attributes["data-uf-content-curtain-copy"] === "true"
       && element.textContent === "Inspecting page... it will be ready soon"
@@ -2599,27 +2624,26 @@ describe("C4 rewrite content entrypoints", () => {
       'cursor: url("chrome-extension://test/cursors/include.svg") 4 3, copy !important',
     );
     expect(contentElements.find((element) => element.id === "unfluffify-content-surface-style")?.textContent)
-      .toContain('chrome-extension://test/assets/materialdesignicons-webfont.woff2');
-    expect(window.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      .not.toContain("materialdesignicons-webfont.woff2");
+    expect(pageWorldRequests()).toContainEqual(expect.objectContaining({
       command: "RECONCILE",
       sessionNonce: undefined,
-    }), "*");
-    expect(window.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+    }));
+    expect(pageWorldRequests()).toContainEqual(expect.objectContaining({
       command: "ARM",
       sessionNonce: undefined,
-    }), "*");
-    const stabilizationCommands = window.postMessage.mock.calls
-      .map(([message]) => (message as TestPageWorldCommand).command)
-      .filter(Boolean);
+    }));
+    const stabilizationCommands = pageWorldRequests().map((message) => message.command).filter(Boolean);
     expect(stabilizationCommands.indexOf("RECONCILE")).toBeLessThan(stabilizationCommands.indexOf("ARM"));
-    expect(window.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+    expect(pageWorldRequests()).toContainEqual(expect.objectContaining({
       command: "SET_LAZY_LOADING_SUPPRESSED",
       sessionNonce: expect.stringMatching(/^rewrite-stabilization-/),
-    }), "*");
-    expect(window.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+    }));
+    expect(pageWorldRequests()).toContainEqual(expect.objectContaining({
       command: "SET_MOTION_PAUSED",
       sessionNonce: expect.stringMatching(/^rewrite-stabilization-/),
-    }), "*");
+    }));
+    expect(windowObject.postMessage).not.toHaveBeenCalled();
     expect(requestAnimationFrame).not.toHaveBeenCalled();
     expect(scrollTo).not.toHaveBeenCalled();
     const inputCallsBeforeSynthetic = {
@@ -2966,14 +2990,11 @@ describe("C4 rewrite content entrypoints", () => {
     expect(unresolvedClick.stopPropagation).toHaveBeenCalledTimes(1);
     expect(engine.toggle).toHaveBeenCalledTimes(3);
     expect(engine.rejectAtPoint).toHaveBeenCalledTimes(1);
-    const destroyCallsBeforeSilent = window.postMessage.mock.calls.filter(([message]) =>
-      (message as { command?: string }).command === "DESTROY"
-    ).length;
+    const destroyCallsBeforeSilent = pageWorldRequests().filter((message) => message.command === "DESTROY").length;
     const enterSilent = await dispatchContentCommand(listener, "enterSilentContentMain");
     expect(engine.dispose).toHaveBeenCalledTimes(1);
-    expect(window.postMessage.mock.calls.filter(([message]) =>
-      (message as { command?: string }).command === "DESTROY"
-    )).toHaveLength(destroyCallsBeforeSilent);
+    expect(pageWorldRequests().filter((message) => message.command === "DESTROY"))
+      .toHaveLength(destroyCallsBeforeSilent);
     expect(contentRoot?.children.some((element) =>
       element.attributes["data-uf-motion-pause-indicator"] === "true"
     )).toBe(true);
@@ -3076,8 +3097,8 @@ describe("C4 rewrite content entrypoints", () => {
     expect(currentToast()).toBeUndefined();
     dispatchTestEvent(windowListeners, "pageshow", { type: "pageshow" } as Event);
 
-    const pauseCountBeforeTerminalDeactivation = windowObject.postMessage.mock.calls.filter(
-      ([message]) => message.command === "SET_MOTION_PAUSED",
+    const pauseCountBeforeTerminalDeactivation = pageWorldRequests().filter(
+      (message) => message.command === "SET_MOTION_PAUSED",
     ).length;
     holdDestroyAcknowledgement = true;
     let firstDeactivateSettled = false;
@@ -3093,7 +3114,7 @@ describe("C4 rewrite content entrypoints", () => {
     });
     expect(firstDeactivateSettled).toBe(false);
     holdDestroyAcknowledgement = false;
-    acknowledgePageWorldMessage(heldDestroyMessage!);
+    releaseHeldDestroy?.();
     const firstDeactivate = await firstDeactivatePromise;
     expect(firstDeactivate).toEqual({ ok: true, data: { ok: true, initialized: false, tree: "rewrite" } });
     const reactivated = await dispatchContentCommand(listener, "activateContentMain", { pageUrl: pageUrl.href });
@@ -3101,24 +3122,23 @@ describe("C4 rewrite content entrypoints", () => {
       ok: true,
       data: { ok: true, initialized: true, interactionsReady: true },
     });
-    for (let index = 0; index < 20 && windowObject.postMessage.mock.calls.filter(
-      ([message]) => message.command === "SET_MOTION_PAUSED"
+    for (let index = 0; index < 20 && pageWorldRequests().filter(
+      (message) => message.command === "SET_MOTION_PAUSED"
     ).length === pauseCountBeforeTerminalDeactivation; index += 1) {
       await Promise.resolve();
     }
-    expect(windowObject.postMessage.mock.calls.filter(
-      ([message]) => message.command === "SET_MOTION_PAUSED",
-    )).toHaveLength(pauseCountBeforeTerminalDeactivation + 1);
+    expect(pageWorldRequests().filter((message) => message.command === "SET_MOTION_PAUSED"))
+      .toHaveLength(pauseCountBeforeTerminalDeactivation + 1);
 
     const deactivate = await dispatchContentCommand(listener, "deactivateContentMain");
     expect(currentToast()).toBeUndefined();
     expect(shieldHarness.instances.at(-1)?.setActive)
       .toHaveBeenCalledWith("silent-highlights", false);
     expect(engine.setInputTransparent).toHaveBeenCalledWith(false);
-    expect(window.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+    expect(pageWorldRequests()).toContainEqual(expect.objectContaining({
       command: "DESTROY",
       sessionNonce: expect.stringMatching(/^rewrite-stabilization-/),
-    }), "*");
+    }));
     expect(deactivate).toEqual({ ok: true, data: { ok: true, initialized: false, tree: "rewrite" } });
 
     await dispatchContentCommand(listener, "applySilentSelectors", { selectors: silentSelectors });
@@ -3128,10 +3148,7 @@ describe("C4 rewrite content entrypoints", () => {
     await Promise.resolve();
     expect(toastCopy(currentToast())).toBe("Highlight details copied.");
     pageUrl.href = "https://example.com/next";
-    dispatchTestEvent(windowListeners, "message", {
-      source: windowObject,
-      data: { kind: "uf-page-url-changed/1", toUrl: pageUrl.href },
-    } as unknown as Event);
+    dispatchPageUrlChanged(addListener, pageUrl.href);
     expect(currentToast()).toBeUndefined();
     await applyLockState(listener);
     await dispatchContentCommand(listener, "applySilentSelectors", { selectors: silentSelectors });
@@ -3246,39 +3263,13 @@ describe("C4 rewrite content entrypoints", () => {
     });
     let pendingMotion: TestPageWorldCommand | null = null;
     const posted: Array<Record<string, unknown>> = [];
+    let releasePendingMotion: (() => void) | undefined;
     const scrollTo = vi.fn();
     const windowObject = {
       innerHeight: 500,
       scrollY: 0,
       scrollTo,
-      postMessage: vi.fn((message: Record<string, unknown>) => {
-        posted.push(message);
-        if (message.type !== "request" || typeof message.nonce !== "string") {
-          return;
-        }
-        if (message.command === "SET_MOTION_PAUSED") {
-          pendingMotion = message as TestPageWorldCommand;
-          return;
-        }
-        if (
-          message.command === "ARM" ||
-          message.command === "RECONCILE" ||
-          message.command === "SET_LAZY_LOADING_SUPPRESSED" ||
-          message.command === "DESTROY"
-        ) {
-          queueMicrotask(() => dispatchTestEvent(windowListeners, "message", {
-            source: windowObject,
-            data: {
-              kind: "uf-page-bus/1",
-              type: "response",
-              nonce: message.nonce,
-              command: message.command,
-              ok: true,
-              payload: pageWorldAcknowledgement(message as TestPageWorldCommand),
-            },
-          } as unknown as Event));
-        }
-      }),
+      postMessage: vi.fn(),
       addEventListener: vi.fn((type: string, listener: EventListener) => {
         addTestListener(windowListeners, type, listener);
       }),
@@ -3317,6 +3308,17 @@ describe("C4 rewrite content entrypoints", () => {
       }
       if (message.name === "shield.posture.current") {
         return replyFrame(message, { status: "unavailable", reason: "document-unbound" });
+      }
+      if (message.name === "pageWorld.command") {
+        const command = message.payload as TestPageWorldCommand;
+        posted.push(command as Record<string, unknown>);
+        if (command.command === "SET_MOTION_PAUSED") {
+          pendingMotion = command;
+          return await new Promise<BusFrame>((resolve) => {
+            releasePendingMotion = () => resolve(pageWorldCommandReply(message));
+          });
+        }
+        return pageWorldCommandReply(message);
       }
       return undefined;
     });
@@ -3386,17 +3388,7 @@ describe("C4 rewrite content entrypoints", () => {
     releaseSignals?.();
     const motion = pendingMotion;
     expect(motion).not.toBeNull();
-    dispatchTestEvent(windowListeners, "message", {
-      source: windowObject,
-      data: {
-        kind: "uf-page-bus/1",
-        type: "response",
-        nonce: motion!.nonce,
-        command: motion!.command,
-        ok: true,
-        payload: pageWorldAcknowledgement(motion!),
-      },
-    } as unknown as Event);
+    releasePendingMotion?.();
     for (let attempt = 0; attempt < 20; attempt += 1) {
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
@@ -3741,10 +3733,7 @@ describe("C4 rewrite content entrypoints", () => {
       sender: unknown,
       sendResponse: (value: unknown) => void
     ) => unknown;
-    dispatchTestEvent(windowListeners, "message", {
-      source: windowObject,
-      data: { kind: "uf-page-url-changed/1", toUrl: "https://example.com/b" },
-    } as unknown as Event);
+    dispatchPageUrlChanged(addListener, "https://example.com/b");
     await applyLockState(listener);
     await dispatchContentCommand(listener, "activateContentMain", { pageUrl: "https://example.com/a" });
     const pageContextCallsBeforeFragment = sendMessage.mock.calls.filter(
@@ -3767,10 +3756,7 @@ describe("C4 rewrite content entrypoints", () => {
     }
     expect(signalPullStarted).toBe(true);
     locationValue.href = "https://example.com/b";
-    dispatchTestEvent(windowListeners, "message", {
-      source: windowObject,
-      data: { kind: "uf-page-url-changed/1", toUrl: "https://example.com/b" },
-    } as unknown as Event);
+    dispatchPageUrlChanged(addListener, "https://example.com/b");
     releaseSignalPull?.();
     await Promise.resolve();
     await Promise.resolve();
@@ -3921,10 +3907,7 @@ describe("C4 rewrite content entrypoints", () => {
     expect(deferredPullStarted).toBe(true);
 
     locationValue.href = "https://example.com/b";
-    dispatchTestEvent(windowListeners, "message", {
-      source: windowObject,
-      data: { kind: "uf-page-url-changed/1", toUrl: locationValue.href },
-    } as unknown as Event);
+    dispatchPageUrlChanged(addListener, locationValue.href);
     for (let attempt = 0; attempt < 20 && !navigationReported; attempt += 1) {
       await Promise.resolve();
     }
@@ -3976,10 +3959,7 @@ describe("C4 rewrite content entrypoints", () => {
         break;
       }
     }
-    dispatchTestEvent(windowListeners, "message", {
-      source: windowObject,
-      data: { kind: "uf-page-url-changed/1", toUrl: locationValue.href },
-    } as unknown as Event);
+    dispatchPageUrlChanged(addListener, locationValue.href);
     overrideSignals = [{
       kind: "uf-signal/1",
       tabId: 77,
@@ -4008,15 +3988,9 @@ describe("C4 rewrite content entrypoints", () => {
     // C route must not reuse the historical B -> C signal; it waits for seq 7.
     overrideSignals = [];
     locationValue.href = "https://example.com/b";
-    dispatchTestEvent(windowListeners, "message", {
-      source: windowObject,
-      data: { kind: "uf-page-url-changed/1", toUrl: locationValue.href },
-    } as unknown as Event);
+    dispatchPageUrlChanged(addListener, locationValue.href);
     locationValue.href = "https://example.com/c";
-    dispatchTestEvent(windowListeners, "message", {
-      source: windowObject,
-      data: { kind: "uf-page-url-changed/1", toUrl: locationValue.href },
-    } as unknown as Event);
+    dispatchPageUrlChanged(addListener, locationValue.href);
     for (let attempt = 0; attempt < 20; attempt += 1) {
       await Promise.resolve();
     }
@@ -4521,10 +4495,7 @@ describe("C4 rewrite content entrypoints", () => {
     expect(deferredDocumentPostureStarted).toBe(true);
     const setCountBeforeNavigation = postureSetRequests.length;
     locationValue.href = "https://example.com/next";
-    windowListeners.get("message")?.({
-      source: window,
-      data: { kind: "uf-page-url-changed/1", toUrl: locationValue.href },
-    } as unknown as Event);
+    dispatchPageUrlChanged(addListener, locationValue.href);
     queueSignal("session.navigated", { pageUrl: locationValue.href });
     await applyLockState(listener);
     releaseDocumentPostureSet?.();

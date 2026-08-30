@@ -199,9 +199,17 @@ describe("popup App surface", () => {
     expect(markup).toContain("property-lock__status");
     expect(markup).toContain("property-lock__detail");
     expect(markup).toContain('id="header-kebab-toggle"');
+    expect(markup).toMatch(/id="header-kebab-toggle"[^>]*aria-controls="header-configuration-menu"/);
+    expect(markup).toContain('id="header-configuration-menu"');
+    expect(markup).toContain('role="menu"');
+    expect(markup).toContain('role="menuitem" tabindex="-1"');
     expect(markup).toContain('id="clear-domain-cache"');
     expect(markup).toContain('id="unregister-current-tab"');
     expect(markup).not.toMatch(/id="unregister-current-tab"[^>]*disabled/);
+    expect(markup).toContain("Hold Shift and click to exclude or expand an exclusion");
+    expect(markup).toContain("Hold Alt and click to explicitly include");
+    expect(markup).toContain("Plain-click an existing mark to clear it");
+    expect(markup).not.toContain("alt-click to include and click to exclude");
   });
 
   it("keeps each view's controls off the other view", () => {
@@ -531,6 +539,27 @@ describe("popup App surface", () => {
     expect(clean).toContain("Saved");
     expect(dirty).not.toMatch(/id="settings-save"[^>]*disabled/);
     expect(dirty).toContain("Unsaved changes");
+  });
+
+  it("labels unsafe connection fields and blocks persistence", () => {
+    const markup = renderConfigurationView({
+      ...SIGNED_IN,
+      settingsDirty: true,
+      settingsErrors: {
+        configEndpoint: "Use an HTTPS endpoint.",
+        stageBase: "Enter only the stage hostname, without a scheme.",
+      },
+    }, {
+      configEndpoint: "http://unsafe.example",
+      aiEndpoint: "https://ai.example",
+      stageBase: "https://stage.example",
+    });
+
+    expect(markup).toContain('data-settings-error="configEndpoint"');
+    expect(markup).toContain('data-settings-error="stageBase"');
+    expect(markup).toMatch(/id="settings-configEndpoint"[^>]*aria-invalid="true"/);
+    expect(markup).toMatch(/id="settings-stageBase"[^>]*aria-describedby="settings-stageBase-error"/);
+    expect(markup).toMatch(/id="settings-save"[^>]*disabled/);
   });
 
   it("starts every connection field behind an explicit per-field Change action", () => {
@@ -1125,7 +1154,9 @@ describe("popup App surface", () => {
       todo: { ...todo, covered: 6 },
     });
 
-    expect(pending).toContain('aria-label="Todo List"');
+    expect(pending).toContain('aria-labelledby="todo-heading"');
+    expect(pending).toContain('<h2 class="todo-header" id="todo-heading">');
+    expect(pending).not.toContain('class="todo-header" aria-expanded');
     expect(pending).toMatch(/todo-status-line--pending[^>]*data-todo-summary="4\/6"/);
     expect(done).toMatch(/todo-status-line--done[^>]*data-todo-summary="6\/6"/);
     expect(pending).toContain('data-marked-count="0/1"');

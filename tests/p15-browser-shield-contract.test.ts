@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -88,6 +89,14 @@ describe("P15 real-browser frozen interaction-shield gate contract", () => {
 
     const production = renderFixturePage({ variant: "production" });
     const debug = renderFixturePage({ variant: "debug" });
+    const runtime = readFileSync(new URL("../scripts/performance/p15/runtime.ts", import.meta.url), "utf8");
+    const pageWorldHarness = readFileSync(
+      new URL("../scripts/performance/page-world-capability-harness.ts", import.meta.url),
+      "utf8",
+    );
+    expect(runtime).toContain("createGatePageWorldCapabilityHarness");
+    expect(pageWorldHarness).toContain('command === "RECONCILE"');
+    expect(pageWorldHarness).toContain("initialDiscoveryComplete");
     expect(production).toContain('<script src="/runtime-production.js"></script>');
     expect(debug).toContain('<script src="/runtime-debug.js"></script>');
     for (const page of [production, debug]) {
@@ -101,8 +110,6 @@ describe("P15 real-browser frozen interaction-shield gate contract", () => {
       expect(page).toContain('data-uf-extension-ui');
       expect(page).toContain('data-uf-fixture-spoof-surface');
       expect(page).toContain("attachShadow({ mode: \"open\" })");
-      expect(page).toContain('"RECONCILE"');
-      expect(page).toContain("initialDiscoveryComplete");
       expect(page).toContain("min-height: 3600px");
     }
   });

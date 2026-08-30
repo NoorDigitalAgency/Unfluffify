@@ -6,11 +6,11 @@ import { build } from "esbuild";
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(SCRIPT_DIR, "..");
 const SOURCE_PATH = resolve(REPO_ROOT, "src/page-world/program.ts");
-const GENERATED_PATH = resolve(REPO_ROOT, "src/page-world/program.js");
+const GENERATED_PATH = resolve(REPO_ROOT, "src/page-world/program.generated.js");
 const CHECK_ONLY = process.argv.includes("--check");
 const BANNER = [
   "// GENERATED from src/page-world/program.ts. Run: pnpm page-world:generate",
-  "/* eslint-disable no-empty -- esbuild removes comments from intentional catch blocks */",
+  "/* eslint-disable no-empty, @typescript-eslint/no-unused-vars -- generated bundle keeps an inert installer until capability injection */",
   "",
 ].join("\n");
 
@@ -20,7 +20,7 @@ const result = await build({
   write: false,
   format: "iife",
   platform: "browser",
-  target: ["chrome114"],
+  target: ["chrome116"],
   legalComments: "none",
   charset: "utf8",
 });
@@ -29,7 +29,7 @@ const generated = `${BANNER}${result.outputFiles[0].text}`;
 if (CHECK_ONLY) {
   const current = await readFile(GENERATED_PATH, "utf8").catch(() => "");
   if (current !== generated) {
-    process.stderr.write("src/page-world/program.js is stale; run pnpm page-world:generate\n");
+    process.stderr.write("src/page-world/program.generated.js is stale; run pnpm page-world:generate\n");
     process.exitCode = 1;
   }
 } else {

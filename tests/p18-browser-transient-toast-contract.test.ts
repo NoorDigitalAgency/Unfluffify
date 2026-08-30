@@ -104,6 +104,14 @@ describe("P18 real-browser transient-surface and toast gate contract", () => {
     const production = renderPopupFixturePage({ variant: "production" });
     const debug = renderPopupFixturePage({ variant: "debug" });
     const content = renderContentFixturePage({ variant: "production" });
+    const contentRuntime = readFileSync(
+      new URL("../scripts/performance/p18/content-runtime.ts", import.meta.url),
+      "utf8",
+    );
+    const pageWorldHarness = readFileSync(
+      new URL("../scripts/performance/page-world-capability-harness.ts", import.meta.url),
+      "utf8",
+    );
 
     expect(production).toContain('<script src="/popup-runtime-production.js"></script>');
     expect(debug).toContain('<script src="/popup-runtime-debug.js"></script>');
@@ -116,8 +124,10 @@ describe("P18 real-browser transient-surface and toast gate contract", () => {
     expect(content).toContain('data-p18-mark-target="primary"');
     expect(content).toContain('data-p18-mark-target="replacement"');
     expect(content).toContain('id="p18-page-action"');
-    expect(content).toContain('"RECONCILE"');
-    expect(content).toContain('payload: { ...pageWorld }');
+    expect(contentRuntime).toContain("createGatePageWorldCapabilityHarness");
+    expect(contentRuntime).toContain('case "pageWorld.acquire"');
+    expect(contentRuntime).toContain('case "pageWorld.command"');
+    expect(pageWorldHarness).toContain('command === "RECONCILE"');
   });
 
   it("keeps the nested candidate-confirmation fixture on the pending-session branch", () => {

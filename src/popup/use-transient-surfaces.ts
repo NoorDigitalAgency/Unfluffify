@@ -29,7 +29,7 @@ export function useTransientSurfaceManager(options: Readonly<{
       manager.handlePointerDown(event);
     };
     const handleKeyDown = (event: KeyboardEvent): void => {
-      manager.handleEscape(event);
+      manager.handleKeyDown(event);
     };
     // Capture first so an Escape safety action is decided before a focused
     // control or page bridge can interpret the same physical key press.
@@ -89,6 +89,9 @@ export function useTransientSurfaceRegistration(
       root: () => latestSpec.current.root(),
       outside: spec.outside,
       escape: spec.escape,
+      modal: spec.modal,
+      initialFocus: () => latestSpec.current.initialFocus?.() ?? null,
+      returnFocus: () => latestSpec.current.returnFocus?.() ?? null,
     });
-  }, [spec.escape, spec.outside]);
+  }, [spec.escape, spec.modal, spec.outside]);
 }

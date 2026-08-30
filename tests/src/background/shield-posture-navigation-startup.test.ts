@@ -1316,7 +1316,17 @@ describe("P15 shield navigation/startup ordering", () => {
       }
       expect(socketListeners.has("open")).toBe(true);
       socket.emit("open");
-      const subscribe = JSON.parse(socketFrames[0] ?? "{}");
+      expect(JSON.parse(socketFrames[0] ?? "{}")).toMatchObject({
+        type: "authenticate",
+        protocol: "bearer-frame-v1",
+        token: "jwt",
+      });
+      socket.emit("message", JSON.stringify({
+        type: "authenticated",
+        protocol: "bearer-frame-v1",
+      }));
+      const subscribe = JSON.parse(socketFrames[1] ?? "{}");
+      expect(subscribe).toMatchObject({ type: "subscribe" });
       socket.emit("message", JSON.stringify({
         type: "subscribed",
         identity: "user@example.com",
@@ -1326,6 +1336,7 @@ describe("P15 shield navigation/startup ordering", () => {
         type: "lock_state",
         state: "locked",
         isEditor: true,
+        environmentKey: "stage.example.com",
         editorSessionId: subscribe.editorSessionId,
         lockToken: "fence-a",
         propertyRevision: 1,
@@ -1352,6 +1363,7 @@ describe("P15 shield navigation/startup ordering", () => {
         state: "locked",
         isEditor: true,
         editorName: "Current editor",
+        environmentKey: "stage.example.com",
         editorSessionId: subscribe.editorSessionId,
         lockToken: "fence-current",
         propertyRevision: 3,

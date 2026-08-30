@@ -160,6 +160,105 @@ describe("rewrite background services", () => {
     }
   });
 
+  it("bounds requests by the earlier absolute deadline and returns a typed timeout", async () => {
+    const originalFetch = globalThis.fetch;
+    let observedSignal: AbortSignal | undefined;
+    globalThis.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      observedSignal = init?.signal ?? undefined;
+      return await new Promise<Response>((_resolve, reject) => {
+        observedSignal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), {
+          once: true,
+        });
+      });
+    }) as typeof fetch;
+    try {
+      const transport = createFetchJsonTransport(() => ({ configEndpoint: "https://config.example.com" }));
+      await expect(transport({
+        method: "GET",
+        path: "/context",
+        deadlineAt: Date.now() + 5,
+      })).resolves.toEqual({
+        status: 0,
+        body: { error: "request_timeout" },
+        headers: {},
+        transportFailure: { kind: "timeout", message: "The request timed out." },
+      });
+      expect(observedSignal?.aborted).toBe(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("composes caller cancellation and normalizes network failures", async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+      const controller = new AbortController();
+      globalThis.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) =>
+        await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), {
+            once: true,
+          });
+        })) as typeof fetch;
+      const transport = createFetchJsonTransport(() => ({ configEndpoint: "https://config.example.com" }));
+      const cancelled = transport({ method: "GET", path: "/context", signal: controller.signal });
+      controller.abort();
+      await expect(cancelled).resolves.toMatchObject({
+        status: 0,
+        transportFailure: { kind: "cancelled", message: "The request was cancelled." },
+      });
+
+      globalThis.fetch = vi.fn(async () => { throw new TypeError("private network detail"); }) as typeof fetch;
+      await expect(transport({ method: "GET", path: "/context" })).resolves.toEqual({
+        status: 0,
+        body: { error: "request_network" },
+        headers: {},
+        transportFailure: { kind: "network", message: "The service could not be reached." },
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("accepts empty and valid JSON while typing malformed responses with bounded diagnostics", async () => {
+    const originalFetch = globalThis.fetch;
+    const responses = [
+      new Response(null, { status: 204 }),
+      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      new Response("not-json", { status: 200 }),
+      new Response(`private ${"x".repeat(1_000)}`, { status: 502 }),
+    ];
+    globalThis.fetch = vi.fn(async () => responses.shift()!) as typeof fetch;
+    try {
+      const transport = createFetchJsonTransport(() => ({ configEndpoint: "https://config.example.com" }));
+      await expect(transport({ method: "GET", path: "/empty" })).resolves.toMatchObject({
+        status: 204,
+        body: null,
+      });
+      await expect(transport({ method: "GET", path: "/json" })).resolves.toMatchObject({
+        status: 200,
+        body: { ok: true },
+      });
+      await expect(transport({ method: "GET", path: "/malformed-success" })).resolves.toMatchObject({
+        status: 200,
+        body: { error: "The service returned an unreadable response." },
+        transportFailure: {
+          kind: "invalid_response",
+          message: "The service returned an unreadable response.",
+          diagnostic: "not-json",
+        },
+      });
+      const malformedFailure = await transport({ method: "GET", path: "/malformed-failure" });
+      expect(malformedFailure).toMatchObject({
+        status: 502,
+        body: { error: "The service returned an unreadable response." },
+        transportFailure: { kind: "invalid_response" },
+      });
+      expect(malformedFailure.transportFailure?.diagnostic).toHaveLength(512);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("stores the JWT on a successful login and drops it on logout", async () => {
     const originalIndexedDb = globalThis.indexedDB;
     const originalFetch = globalThis.fetch;
@@ -285,7 +384,7 @@ describe("rewrite background services", () => {
     }
   });
 
-  it("gives the property-lock socket the rotated token on its next connect", async () => {
+  it("keeps original and rotated credentials out of property-lock connection URLs", async () => {
     const originalIndexedDb = globalThis.indexedDB;
     Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: undefined });
     const urls: string[] = [];
@@ -303,17 +402,17 @@ describe("rewrite background services", () => {
       });
       await services.repos.settingsStore.save({ configEndpoint: "https://lock.example.com", token: "original-jwt" });
 
-      // The WS is exempt from rotation: it has no response headers and carries
-      // its token in the connect query string, so it picks up a rotation only
-      // by reading settings again on the next connect.
+      // REST rotation still updates the credential source used by the secure
+      // first-frame carrier, but neither value may enter a connection URL.
       await services.createLockClient({ environmentKey: "a.example.com", tabId: 1, siteId: 42 });
       await services.lynx.resolvePropertyContext("a.example.com", "https://example.com/a");
       await services.createLockClient({ environmentKey: "a.example.com", tabId: 2, siteId: 42 });
 
       expect(urls).toEqual([
-        "wss://lock.example.com/property-lock?token=original-jwt",
-        "wss://lock.example.com/property-lock?token=rotated-jwt",
+        "wss://lock.example.com/property-lock",
+        "wss://lock.example.com/property-lock",
       ]);
+      expect(JSON.stringify(urls)).not.toContain("jwt");
     } finally {
       Object.defineProperty(globalThis, "indexedDB", { configurable: true, value: originalIndexedDb });
     }
@@ -354,9 +453,10 @@ describe("rewrite background services", () => {
       await vi.advanceTimersByTimeAsync(2_000);
 
       expect(urls).toEqual([
-        "wss://lock.example.com/property-lock?token=original-jwt",
-        "wss://lock.example.com/property-lock?token=rotated-jwt",
+        "wss://lock.example.com/property-lock",
+        "wss://lock.example.com/property-lock",
       ]);
+      await expect(services.settings.load()).resolves.toMatchObject({ token: "rotated-jwt" });
       expect(client.editorSession().editorSessionId).toBe("editor-reconnect-token");
       client.close();
     } finally {
@@ -837,7 +937,12 @@ describe("rewrite background services", () => {
 
     await runtime.directive(request);
     sockets[0].emit("open");
-    sockets[0].emit("message", JSON.stringify({ type: "subscribed", identity: "backend-1" }));
+    const editorSessionId = JSON.parse(sockets[0].sent[0] ?? "{}").editorSessionId;
+    sockets[0].emit("message", JSON.stringify({
+      type: "subscribed",
+      identity: "backend-1",
+      editorSessionId,
+    }));
     await runtime.directive(request);
 
     const sentTypes = sockets[0].sent.map((frame) => JSON.parse(frame).type);
@@ -847,7 +952,17 @@ describe("rewrite background services", () => {
     expect(contextRequests).toHaveLength(1);
 
     sockets[0].emit("message", JSON.stringify({ type: "lock_state", state: "locked", isEditor: false, editorName: "Other" }));
-    sockets[0].emit("message", JSON.stringify({ type: "lock_state", state: "locked", isEditor: true, editorName: "Me" }));
+    sockets[0].emit("message", JSON.stringify({
+      type: "lock_state",
+      state: "locked",
+      isEditor: true,
+      editorName: "Me",
+      environmentKey: "stage.example.com",
+      editorSessionId,
+      lockToken: "fence-current",
+      propertyRevision: 1,
+      feedRevision: 1,
+    }));
     await Promise.resolve();
     await Promise.resolve();
     expect(tabMessages).toEqual(expect.arrayContaining([
@@ -1135,6 +1250,7 @@ describe("rewrite background services", () => {
       type: "lock_state",
       state: "locked",
       isEditor: true,
+      environmentKey: "stage.example.com",
       editorSessionId: sessionId,
       lockToken: "fence-old",
       propertyRevision: 1,

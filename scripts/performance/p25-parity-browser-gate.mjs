@@ -12,6 +12,7 @@ import {
   STRICT_INPUT_LONG_TASK_BUDGET_MS,
   STRICT_P95_LEGACY_RATIO,
   validateChildArtifactProvenance,
+  validateP14WarmupArtifact,
   validateP14StrictParity,
   validateParityResults,
 } from "./p25/contract.mjs";
@@ -78,40 +79,66 @@ function sameSourceIdentity(left, right) {
     JSON.stringify(left.status) === JSON.stringify(right.status);
 }
 
-function runGate(gate) {
+function isolatedGateEnvironment(gateId) {
+  const environment = { ...process.env };
+  delete environment.PLAYWRIGHT_CLI_SESSION;
+  delete environment.PWDEBUG;
+  return {
+    ...environment,
+    UF_P25_RUN_TOKEN: runToken,
+    UF_P25_GATE_ID: gateId,
+    UF_P25_EXTERNAL_OBSERVER: "none",
+  };
+}
+
+function childProcessReaped(childPid) {
+  if (!Number.isInteger(childPid)) {
+    return true;
+  }
+  try {
+    process.kill(childPid, 0);
+    return false;
+  } catch (error) {
+    return error?.code === "ESRCH";
+  }
+}
+
+function runGate(gate, options = {}) {
   return new Promise((resolvePromise) => {
-    const args = [gate.script, ...(smoke && gate.smoke ? ["--smoke"] : [])];
+    const gateId = options.id ?? gate.id;
+    const gateArguments = options.args
+      ?? (smoke && gate.smoke ? ["--smoke"] : []);
+    const args = [gate.script, ...gateArguments];
     const started = Date.now();
     const child = spawn(process.execPath, args, {
       cwd: repositoryRoot,
-      env: process.env,
+      env: isolatedGateEnvironment(gateId),
       stdio: ["ignore", "pipe", "pipe"],
     });
     const childPid = child.pid ?? null;
+    let settled = false;
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", (error) => resolvePromise({
-      id: gate.id,
+    const finish = (exitCode, error = null) => {
+      if (settled) return;
+      settled = true;
+      resolvePromise({
+      id: gateId,
       script: gate.script,
-      smoke: smoke && gate.smoke,
-      exitCode: -1,
+      arguments: gateArguments,
+      smoke: gateArguments.includes("--smoke"),
+      exitCode,
       childPid,
+      processReaped: childProcessReaped(childPid),
       durationMs: Date.now() - started,
       stdout: stdout.trim(),
-      stderr: [stderr.trim(), error.stack ?? error.message].filter(Boolean).join("\n"),
-    }));
-    child.on("close", (code) => resolvePromise({
-      id: gate.id,
-      script: gate.script,
-      smoke: smoke && gate.smoke,
-      exitCode: code ?? -1,
-      childPid,
-      durationMs: Date.now() - started,
-      stdout: stdout.trim(),
-      stderr: stderr.trim(),
-    }));
+      stderr: [stderr.trim(), error?.stack ?? error?.message].filter(Boolean).join("\n"),
+      });
+    };
+    child.on("error", (error) => finish(-1, error));
+    child.on("close", (code) => finish(code ?? -1));
   });
 }
 
@@ -157,6 +184,18 @@ async function retainGateArtifact(gate, result, index) {
       ? validateP14StrictParity(parsed)
       : null;
     const strictParityPass = strictParity?.pass ?? true;
+    const cleanup = gate.id === "p14-marking"
+      ? parsed?.validation?.ephemeralCleanup ?? null
+      : parsed?.cleanup ?? null;
+    const teardown = {
+      processReaped: result.processReaped === true,
+      artifactCleanupReported: cleanup !== null,
+      artifactCleanupPass: cleanup?.pass ?? null,
+      requiredArtifactCleanup: true,
+    };
+    teardown.pass = teardown.processReaped
+      && (!teardown.requiredArtifactCleanup || teardown.artifactCleanupPass === true)
+      && (teardown.artifactCleanupPass !== false);
     const provenance = validateChildArtifactProvenance({
       gate,
       mode: smoke ? "smoke" : "acceptance",
@@ -168,7 +207,7 @@ async function retainGateArtifact(gate, result, index) {
       repositoryRoot,
       preflightSource,
     });
-    const validated = schemaMatches && passMatchesExit && strictParityPass && provenance.pass;
+    const validated = schemaMatches && passMatchesExit && strictParityPass && provenance.pass && teardown.pass;
     const reason = !schemaMatches
       ? "artifact-schema-mismatch"
       : !passMatchesExit
@@ -177,6 +216,8 @@ async function retainGateArtifact(gate, result, index) {
           ? "p14-strict-parity-failed"
           : !provenance.pass
             ? "child-artifact-provenance-failed"
+            : !teardown.pass
+              ? "child-teardown-failed"
           : null;
     return {
       validated,
@@ -186,6 +227,7 @@ async function retainGateArtifact(gate, result, index) {
       pass: parsed?.pass ?? null,
       strictParity,
       provenance,
+      teardown,
       summary,
       sourcePath,
       retainedPath,
@@ -203,12 +245,84 @@ async function retainGateArtifact(gate, result, index) {
   }
 }
 
+async function retainP14WarmupArtifact(gate, result) {
+  const summary = parseLastJsonObject(result.stdout);
+  const reportedPath = summary?.artifactPath ?? summary?.artifact ?? null;
+  if (typeof reportedPath !== "string" || reportedPath.length === 0) {
+    return { validated: false, reason: "warmup-summary-omitted-artifact-path", summary };
+  }
+  const sourcePath = isAbsolute(reportedPath) ? reportedPath : resolve(repositoryRoot, reportedPath);
+  try {
+    const [serialized, sourceFile] = await Promise.all([
+      readFile(sourcePath, "utf8"),
+      stat(sourcePath),
+    ]);
+    const parsed = JSON.parse(serialized);
+    await mkdir(retainedChildDirectory, { recursive: true });
+    const retainedPath = join(retainedChildDirectory, "00-p14-warmup.json");
+    await writeFile(retainedPath, serialized);
+    const functional = validateP14WarmupArtifact(parsed);
+    const provenance = validateChildArtifactProvenance({
+      gate,
+      mode: "acceptance",
+      artifactPath: sourcePath,
+      artifact: parsed,
+      artifactMtimeMs: sourceFile.mtimeMs,
+      p25StartedAt: startedAt.toISOString(),
+      childPid: result.childPid,
+      repositoryRoot,
+      preflightSource,
+    });
+    const teardown = {
+      processReaped: result.processReaped === true,
+      artifactCleanupPass: parsed?.validation?.ephemeralCleanup?.pass === true,
+      playwrightSessionClosed: parsed?.validation?.ephemeralCleanup?.playwrightSessionClosed === true,
+    };
+    teardown.pass = Object.values(teardown).every(Boolean);
+    const validated = parsed?.schemaVersion === gate.schemaVersion
+      && functional.pass
+      && provenance.pass
+      && teardown.pass;
+    return {
+      validated,
+      reason: validated ? null : "p14-warmup-validation-failed",
+      schemaVersion: parsed?.schemaVersion ?? null,
+      childExitCode: result.exitCode,
+      functional,
+      provenance,
+      teardown,
+      summary,
+      sourcePath,
+      retainedPath,
+      bytes: Buffer.byteLength(serialized),
+      sha256: sha256(serialized),
+    };
+  } catch (error) {
+    return {
+      validated: false,
+      reason: "p14-warmup-artifact-unreadable",
+      summary,
+      sourcePath,
+      error: String(error?.stack ?? error),
+    };
+  }
+}
+
 const preflightSource = await captureSourceIdentity();
 const cleanSourceRequired = !smoke;
 const preflightAccepted = !cleanSourceRequired || preflightSource.cleanSourceSet;
 const results = [];
+let warmup = null;
 if (preflightAccepted) {
-  for (const gate of PARITY_GATES) {
+  const p14Gate = PARITY_GATES[0];
+  process.stdout.write("[P25] p14 deterministic warm-up (fresh smoke child)\n");
+  const warmupResult = await runGate(p14Gate, {
+    id: "p14-warmup",
+    args: ["--smoke"],
+  });
+  warmupResult.artifact = await retainP14WarmupArtifact(p14Gate, warmupResult);
+  warmup = warmupResult;
+  for (const gate of warmup.artifact.validated ? PARITY_GATES : []) {
     process.stdout.write(`[P25] ${gate.id}${smoke && gate.smoke ? " (smoke)" : ""}\n`);
     const result = await runGate(gate);
     result.artifact = await retainGateArtifact(gate, result, results.length);
@@ -225,7 +339,7 @@ const artifact = {
   generatedAt: new Date().toISOString(),
   startedAt: startedAt.toISOString(),
   mode: smoke ? "smoke" : "acceptance",
-  pass: validation.pass && sourceAccepted,
+  pass: warmup?.artifact?.validated === true && validation.pass && sourceAccepted,
   source: {
     requiredClean: cleanSourceRequired,
     accepted: sourceAccepted,
@@ -238,6 +352,12 @@ const artifact = {
     order: PARITY_GATES.map(({ id }) => id),
     artifactSchemas: Object.fromEntries(PARITY_GATES.map(({ id, schemaVersion }) => [id, schemaVersion])),
     budgetPolicy: "Each component gate runs unchanged; P25 supplies no budget overrides.",
+    p14Warmup: {
+      child: "fresh process and fresh playwright-cli session/profile",
+      samples: "full smoke run retained as functional warm-up evidence; budget outcomes do not replace measured acceptance samples",
+      externalObserver: "none",
+      teardown: "warm-up child, browser session, and ephemeral profile must be closed before measured P14 starts",
+    },
     strictParity: {
       p14RewriteP95MaximumLegacyRatio: STRICT_P95_LEGACY_RATIO,
       inputLongTaskMaximumMs: STRICT_INPUT_LONG_TASK_BUDGET_MS,
@@ -246,6 +366,7 @@ const artifact = {
     },
   },
   validation,
+  warmup,
   results,
 };
 const timestamp = artifact.generatedAt.replaceAll(":", "-").replace(".", "-");
@@ -262,6 +383,10 @@ process.stdout.write(`${JSON.stringify({
   complete: validation.complete,
   missing: validation.missing,
   failed: validation.failed,
+  warmup: {
+    validated: warmup?.artifact?.validated ?? false,
+    path: warmup?.artifact?.retainedPath ?? null,
+  },
   retainedChildren: results.map(({ id, artifact: childArtifact }) => ({
     id,
     validated: childArtifact?.validated ?? false,

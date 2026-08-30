@@ -1836,7 +1836,15 @@ describe("P5 page stabilization", () => {
     ]);
     expect(calls[1].params).toEqual({ pageScaleFactor: 1 });
     expect(calls[2].params).toEqual({ enabled: false });
-    expect(calls[3].params).toEqual({ media: "", features: [] });
+    expect(calls[3].params).toEqual({
+      media: "",
+      features: [
+        { name: "pointer", value: "fine" },
+        { name: "hover", value: "hover" },
+        { name: "any-pointer", value: "fine" },
+        { name: "any-hover", value: "hover" },
+      ],
+    });
     expect(calls[4].params).toEqual({ userAgent: real });
   });
 

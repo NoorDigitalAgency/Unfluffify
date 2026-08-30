@@ -2,6 +2,7 @@ import { adoptEditorSession, type EditorSession } from "./identity";
 import { checkNetworkReachability } from "./reachability";
 import { reducePropertyLockState, INITIAL_PROPERTY_LOCK_STATE, type PropertyLockState } from "./reducer";
 import {
+  buildLockAuthenticationFrame,
   buildClientFrame,
   parseServerMessage,
   type LockClientMessageType,
@@ -28,6 +29,8 @@ const QUALIFYING_PRESENCE: PropertyLockPresence = {
   focusedWindow: true,
   browserIdle: false,
 };
+
+export const PROPERTY_LOCK_AUTHENTICATION_TIMEOUT_MS = 5_000;
 
 export type PropertyLockFence = Readonly<{
   editorSessionId: string;
@@ -73,6 +76,12 @@ export function createPropertyLockClient(input: Readonly<{
   networkReachable?: () => Promise<boolean>;
   now?: () => number;
   operationId?: () => string;
+  /** Production credential carrier. When present, no subscription or queued
+   * traffic is sent until the server acknowledges the first auth frame. */
+  authentication?: Readonly<{
+    currentToken: () => string;
+    timeoutMs?: number;
+  }>;
 }>) {
   const now = input.now ?? Date.now;
   const operationId = input.operationId ?? (() => globalThis.crypto?.randomUUID?.() ?? `lock-${now()}-${Math.random()}`);
@@ -86,6 +95,9 @@ export function createPropertyLockClient(input: Readonly<{
   let initialSocket = input.socket ?? null;
   let socketOpen = false;
   let subscribed = false;
+  let authenticationReady = !input.authentication;
+  let authenticationBlocked = false;
+  let authenticationTimer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
   let wantsLock = false;
   let reconnectAttempts = 0;
@@ -156,8 +168,44 @@ export function createPropertyLockClient(input: Readonly<{
     }
   };
 
+  const clearAuthenticationTimer = (): void => {
+    if (authenticationTimer !== null) {
+      clearTimeout(authenticationTimer);
+      authenticationTimer = null;
+    }
+  };
+
+  const failAuthentication = (socket: WebSocketLike, reason: string): void => {
+    if (disposed || currentSocket !== socket) return;
+    clearAuthenticationTimer();
+    authenticationReady = false;
+    authenticationBlocked = true;
+    disposed = true;
+    currentSocket = null;
+    socketOpen = false;
+    subscribed = false;
+    resolveStatusWaiters(null);
+    pendingFrames.splice(0);
+    setState({
+      ...state,
+      role: "unknown",
+      connectivity: "unavailable",
+      state: "locked",
+      timings: {},
+      disconnectReason: reason,
+    });
+    try {
+      socket.close();
+    } catch {
+      // The unavailable state is already authoritative for this client.
+    }
+  };
+
   const send = (type: LockClientMessageType, extra?: Readonly<Record<string, string | number | boolean>>): void => {
     if (disposed) {
+      return;
+    }
+    if (type === "subscribe" && (!socketOpen || !authenticationReady)) {
       return;
     }
     if (type !== "subscribe" && (!socketOpen || !subscribed)) {
@@ -230,6 +278,8 @@ export function createPropertyLockClient(input: Readonly<{
     currentSocket = null;
     socketOpen = false;
     subscribed = false;
+    authenticationReady = !input.authentication;
+    clearAuthenticationTimer();
     resolveStatusWaiters(null);
     setState({
       ...state,
@@ -282,13 +332,54 @@ export function createPropertyLockClient(input: Readonly<{
         return;
       }
       socketOpen = true;
-      send("subscribe");
+      if (!input.authentication) {
+        send("subscribe");
+        return;
+      }
+      const token = input.authentication.currentToken().trim();
+      if (!token) {
+        failAuthentication(socket, "authentication_credential_missing");
+        return;
+      }
+      socket.send(JSON.stringify(buildLockAuthenticationFrame(token)));
+      authenticationTimer = setTimeout(() => {
+        failAuthentication(socket, "authentication_capability_unavailable");
+      }, input.authentication.timeoutMs ?? PROPERTY_LOCK_AUTHENTICATION_TIMEOUT_MS);
     });
     socket.addEventListener("message", (event) => {
       if (disposed || currentSocket !== socket) {
         return;
       }
-      const message = parseServerMessage(JSON.parse(String(event.data)));
+      let message: LockServerMessage;
+      try {
+        message = parseServerMessage(JSON.parse(String(event.data)));
+      } catch {
+        if (input.authentication && !authenticationReady) {
+          failAuthentication(socket, "authentication_protocol_invalid");
+        }
+        return;
+      }
+      if (message.type === "authentication_failed") {
+        failAuthentication(socket, "authentication_rejected");
+        return;
+      }
+      if (message.type === "authenticated") {
+        if (!input.authentication || message.protocol !== "bearer-frame-v1") {
+          failAuthentication(socket, "authentication_protocol_invalid");
+          return;
+        }
+        clearAuthenticationTimer();
+        authenticationReady = true;
+        if (typeof message.token === "string" && message.token.trim()) {
+          void input.onTokenUpdate?.(message.token);
+        }
+        send("subscribe");
+        return;
+      }
+      if (input.authentication && !authenticationReady) {
+        failAuthentication(socket, "authentication_ack_required");
+        return;
+      }
       if (message.type === "token_update" && typeof message.token === "string" && message.token.trim()) {
         void input.onTokenUpdate?.(message.token);
       }
@@ -352,7 +443,7 @@ export function createPropertyLockClient(input: Readonly<{
   };
 
   function connect(): void {
-    if (disposed || currentSocket) {
+    if (disposed || authenticationBlocked || currentSocket) {
       return;
     }
     let socket: WebSocketLike | null;
@@ -464,10 +555,12 @@ export function createPropertyLockClient(input: Readonly<{
       disposed = true;
       clearReconnectTimer();
       clearConnectionLossTimer();
+      clearAuthenticationTimer();
       const socket = currentSocket;
       currentSocket = null;
       socketOpen = false;
       subscribed = false;
+      authenticationReady = !input.authentication;
       resolveStatusWaiters(null);
       socket?.close();
       pendingFrames.splice(0);

@@ -410,7 +410,7 @@ async function buildBrowserBundles() {
     bundle: true,
     format: "iife",
     platform: "browser",
-    target: ["chrome120"],
+    target: ["chrome116"],
     sourcemap: false,
     legalComments: "none",
     charset: "utf8",
@@ -539,19 +539,36 @@ async function runPlaywrightCli(baseUrl) {
   };
   await mkdir(playwrightWorkingDirectory, { recursive: true });
   let opened = false;
+  let closeAttempted = false;
+  let closed = false;
+  let controllerResult;
   try {
     await run(playwrightCli, ["open", baseUrl], { env: cliEnvironment, cwd: playwrightWorkingDirectory });
     opened = true;
     await run(playwrightCli, ["resize", "1280", "900"], { env: cliEnvironment, cwd: playwrightWorkingDirectory });
-    return await run(playwrightCli, [
+    controllerResult = await run(playwrightCli, [
       "run-code",
       `--filename=${join(p14Directory, "playwright-controller.js")}`,
     ], { env: cliEnvironment, cwd: playwrightWorkingDirectory });
   } finally {
     if (opened) {
+      closeAttempted = true;
       await run(playwrightCli, ["close"], { env: cliEnvironment, cwd: playwrightWorkingDirectory });
+      closed = true;
     }
   }
+  return {
+    controllerResult,
+    lifecycle: {
+      session,
+      opened,
+      closeAttempted,
+      closed,
+      observer: "none",
+      workingDirectory: relative(repositoryRoot, playwrightWorkingDirectory).replaceAll("\\", "/"),
+      profilePolicy: "fresh gate-owned playwright-cli session under a pre-cleaned ephemeral build directory",
+    },
+  };
 }
 
 function validateSemanticSignatures(signatures) {
@@ -922,8 +939,11 @@ async function main() {
     const sourceIdentity = await captureSourceIdentity();
     server = await startFixtureServer();
     let cliResult;
+    let cliLifecycle;
     try {
-      cliResult = await runPlaywrightCli(server.baseUrl);
+      const cliRun = await runPlaywrightCli(server.baseUrl);
+      cliResult = cliRun.controllerResult;
+      cliLifecycle = cliRun.lifecycle;
     } finally {
       await server.close();
     }
@@ -934,6 +954,7 @@ async function main() {
     }
     await rm(buildDirectory, { recursive: true, force: true });
     const ephemeralCleanup = {
+      playwrightSessionClosed: cliLifecycle?.closed === true,
       buildDirectoryAbsent: !(await pathExists(buildDirectory)),
       rootPlaywrightCliAbsent: !(await pathExists(join(repositoryRoot, ".playwright-cli"))),
     };
@@ -996,7 +1017,9 @@ async function main() {
           executable: playwrightCli,
           version: playwrightCliVersion,
           expectedVersion: expectedPlaywrightCliVersion,
+          lifecycle: cliLifecycle,
         },
+        externalObserver: "none",
         syntheticFixtureOrigin: "http://p14.test (route-fulfilled from the ephemeral control server so legacy default-port URL normalization remains exact)",
         viewport: { width: 1280, height: 900, devicePixelRatio: 1 },
         warmups: counts.warmups,

@@ -73,6 +73,13 @@ function graphqlEndpointBase(stageBase: string | undefined): string | undefined 
   return host ? `https://api.${host}` : undefined;
 }
 
+export const JSON_REQUEST_TIMEOUT_MS = 15_000;
+const MAX_JSON_DIAGNOSTIC_LENGTH = 512;
+
+function boundedDiagnostic(value: string): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, MAX_JSON_DIAGNOSTIC_LENGTH);
+}
+
 export function createFetchJsonTransport(settings: () => EndpointSettings): JsonTransport {
   return async (request) => {
     const current = settings();
@@ -87,21 +94,83 @@ export function createFetchJsonTransport(settings: () => EndpointSettings): Json
     if (!url) {
       return { status: 503, body: { error: "endpoint_unconfigured" }, headers: {} };
     }
+    if (request.signal?.aborted) {
+      return {
+        status: 0,
+        body: { error: "request_cancelled" },
+        headers: {},
+        transportFailure: { kind: "cancelled", message: "The request was cancelled." },
+      };
+    }
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    const deadlineAt = Math.min(
+      request.deadlineAt ?? Number.POSITIVE_INFINITY,
+      startedAt + JSON_REQUEST_TIMEOUT_MS,
+    );
+    if (deadlineAt <= startedAt) {
+      return {
+        status: 0,
+        body: { error: "request_timeout" },
+        headers: {},
+        transportFailure: { kind: "timeout", message: "The request timed out." },
+      };
+    }
+    let timedOut = false;
+    const onCallerAbort = (): void => controller.abort();
+    request.signal?.addEventListener("abort", onCallerAbort, { once: true });
+    const timeoutHandle = globalThis.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, Math.min(0x7fff_ffff, Math.max(1, deadlineAt - startedAt)));
     const sendToken = current.token && !isUnauthenticatedPath(request.path);
-    const response = await fetch(url, {
-      method: request.method,
-      headers: {
-        "content-type": "application/json",
-        ...(sendToken ? { authorization: "Bearer " + current.token } : {}),
-      },
-      body: request.body === undefined ? undefined : JSON.stringify(request.body),
-    });
-    const text = await response.text();
-    return {
-      status: response.status,
-      body: text ? JSON.parse(text) : null,
-      headers: Object.fromEntries(response.headers.entries()),
-    };
+    try {
+      const response = await fetch(url, {
+        method: request.method,
+        headers: {
+          "content-type": "application/json",
+          ...(sendToken ? { authorization: "Bearer " + current.token } : {}),
+        },
+        body: request.body === undefined ? undefined : JSON.stringify(request.body),
+        signal: controller.signal,
+      });
+      const text = await response.text();
+      const headers = Object.fromEntries(response.headers.entries());
+      if (!text.trim()) {
+        return { status: response.status, body: null, headers };
+      }
+      try {
+        return { status: response.status, body: JSON.parse(text), headers };
+      } catch {
+        const diagnostic = boundedDiagnostic(text);
+        return {
+          status: response.status,
+          body: { error: "The service returned an unreadable response." },
+          headers,
+          transportFailure: {
+            kind: "invalid_response",
+            message: "The service returned an unreadable response.",
+            ...(diagnostic ? { diagnostic } : {}),
+          },
+        };
+      }
+    } catch {
+      const kind = timedOut ? "timeout" : request.signal?.aborted ? "cancelled" : "network";
+      const message = kind === "timeout"
+        ? "The request timed out."
+        : kind === "cancelled"
+          ? "The request was cancelled."
+          : "The service could not be reached.";
+      return {
+        status: 0,
+        body: { error: `request_${kind}` },
+        headers: {},
+        transportFailure: { kind, message },
+      };
+    } finally {
+      globalThis.clearTimeout(timeoutHandle);
+      request.signal?.removeEventListener("abort", onCallerAbort);
+    }
   };
 }
 
@@ -213,8 +282,8 @@ export function createRewriteBackgroundServices(input: Readonly<{
     const continuation = pollAiJob(scope.sessionId, {
       now: Date.now,
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-      getStatus: (sessionId) => getAiRunStatus(transport, sessionId),
-      getResult: (sessionId) => getAiRunResult(transport, sessionId),
+      getStatus: (sessionId) => getAiRunStatus(transport, sessionId, { deadlineAt: scope.deadlineAt }),
+      getResult: (sessionId) => getAiRunResult(transport, sessionId, { deadlineAt: scope.deadlineAt }),
       heartbeat: (state) => runRecordRepo.save({
         ...scope,
         sessionId: state.sessionId,
@@ -474,9 +543,11 @@ export function createRewriteBackgroundServices(input: Readonly<{
       resolvePropertyContext: (environmentKey: string, url: string) =>
         resolvePropertyContext(transport, environmentKey, url),
       async runAiJob(snapshot: Parameters<typeof startAiRun>[1], context: AiRunContext) {
+        const startedAt = Date.now();
+        const deadlineAt = startedAt + AI_RUN_TIMEOUT_MS;
         let started: Awaited<ReturnType<typeof startAiRun>>;
         try {
-          started = await startAiRun(transport, snapshot);
+          started = await startAiRun(transport, snapshot, { deadlineAt });
         } catch {
           return {
             status: "error" as const,
@@ -488,10 +559,13 @@ export function createRewriteBackgroundServices(input: Readonly<{
           return {
             ...started,
             failureStage: "start" as const,
-            reason: started.status === "auth_error" ? "start_auth_error" : "start_http_error",
+            reason: started.status === "auth_error"
+              ? "start_auth_error"
+              : started.reason
+                ? `start_${started.reason}`
+                : "start_http_error",
           };
         }
-        const startedAt = Date.now();
         const recordScope = {
           sessionId: started.sessionId,
           tabId: context.tabId,
@@ -501,7 +575,7 @@ export function createRewriteBackgroundServices(input: Readonly<{
           siteId: context.siteId,
           pageKey: context.pageKey,
           startedAt,
-          deadlineAt: startedAt + AI_RUN_TIMEOUT_MS,
+          deadlineAt,
         };
         await runRecordRepo.save({
           ...recordScope,
@@ -640,13 +714,24 @@ export function createRewriteBackgroundServices(input: Readonly<{
       const currentSettings = await loadSettings();
       const wsEndpoint = currentSettings.configEndpoint ?? currentSettings.stageBase ?? "";
       let wsToken = currentSettings.token ?? "";
+      const allowDebugLoopbackQueryToken = typeof __UF_DEBUG_BUILD__ !== "undefined" && __UF_DEBUG_BUILD__;
+      const lockSocketUrl = (): string => buildPropertyLockWssUrl(
+        wsEndpoint,
+        wsToken,
+        { allowDebugLoopbackQueryToken },
+      );
       return createPropertyLockClient({
         ...(input.socket ? { socket: input.socket } : {
           socketFactory: () => (input.socketFactory ?? createWebSocketSocket)(
-            buildPropertyLockWssUrl(wsEndpoint, wsToken),
+            lockSocketUrl(),
           ),
           networkReachable: input.networkReachability ?? checkNetworkReachability,
         }),
+        ...(
+          input.socket || input.socketFactory || lockSocketUrl().includes("?token=")
+            ? {}
+            : { authentication: { currentToken: () => wsToken } }
+        ),
         editorSession,
         presence: inputContext.presence,
         hasUnsavedWork: inputContext.hasUnsavedWork,

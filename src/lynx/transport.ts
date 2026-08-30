@@ -2,12 +2,25 @@ export type JsonRequest = Readonly<{
   method: "GET" | "POST";
   path: string;
   body?: unknown;
+  /** Optional caller-owned cancellation. The transport never mutates it. */
+  signal?: AbortSignal;
+  /** Absolute wall-clock deadline. The transport also applies its own default. */
+  deadlineAt?: number;
+}>;
+
+export type JsonTransportFailureKind = "timeout" | "cancelled" | "network" | "invalid_response";
+export type JsonTransportFailure = Readonly<{
+  kind: JsonTransportFailureKind;
+  message: string;
+  /** Bounded service detail for debug diagnostics; never operator copy. */
+  diagnostic?: string;
 }>;
 
 export type JsonResponse = Readonly<{
   status: number;
   body: unknown;
   headers?: Readonly<Record<string, string>>;
+  transportFailure?: JsonTransportFailure;
 }>;
 
 export type JsonTransport = (request: JsonRequest) => Promise<JsonResponse>;

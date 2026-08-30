@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const LockClientMessageTypeSchema = z.enum([
+  "authenticate",
   "subscribe",
   "heartbeat",
   "activity",
@@ -13,6 +14,8 @@ export const LockClientMessageTypeSchema = z.enum([
 ]);
 
 export const LockServerMessageTypeSchema = z.enum([
+  "authenticated",
+  "authentication_failed",
   "subscribed",
   "lock_state",
   "disconnect_warning",
@@ -50,15 +53,35 @@ export const PropertyLockPresenceSchema = z.object({
 
 export type PropertyLockPresence = z.infer<typeof PropertyLockPresenceSchema>;
 
-export function buildPropertyLockWssUrl(endpointBase: string, token: string): string {
+export const LockAuthenticationFrameSchema = z.object({
+  type: z.literal("authenticate"),
+  protocol: z.literal("bearer-frame-v1"),
+  token: z.string().trim().min(1),
+});
+
+export function buildLockAuthenticationFrame(token: string): z.infer<typeof LockAuthenticationFrameSchema> {
+  return LockAuthenticationFrameSchema.parse({
+    type: "authenticate",
+    protocol: "bearer-frame-v1",
+    token: token.trim(),
+  });
+}
+
+export function buildPropertyLockWssUrl(
+  endpointBase: string,
+  token = "",
+  options: Readonly<{ allowDebugLoopbackQueryToken?: boolean }> = {},
+): string {
   const trimmed = endpointBase.trim();
-  if (!trimmed || !token.trim()) {
+  if (!trimmed) {
     return "";
   }
   try {
     const base = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
-    const protocol = base.hostname === "localhost" || base.hostname === "127.0.0.1" ? "ws:" : "wss:";
-    return `${protocol}//${base.host}/property-lock?token=${encodeURIComponent(token)}`;
+    const loopback = base.hostname === "localhost" || base.hostname === "127.0.0.1" || base.hostname === "[::1]";
+    const protocol = loopback ? "ws:" : "wss:";
+    const queryToken = options.allowDebugLoopbackQueryToken && loopback ? token.trim() : "";
+    return `${protocol}//${base.host}/property-lock${queryToken ? `?token=${encodeURIComponent(queryToken)}` : ""}`;
   } catch {
     return "";
   }

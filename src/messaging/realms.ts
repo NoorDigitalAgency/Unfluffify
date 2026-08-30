@@ -1,4 +1,4 @@
-import { defineContract } from "./contract";
+import { defineContract, PageCommandNameSchema } from "./contract";
 import {
   CommandEnvelopeSchema,
   CommandReplySchema,
@@ -124,6 +124,20 @@ const EmulationStateResponseSchema = z.object({
   /** True when the document was loaded under a different identity than the one now
    *  in force, so what the operator is looking at is not what the override says. */
   identityStale: z.boolean().optional(),
+  /** Chrome accepted the identity override and reload, but the replacement
+   * document still owes an exact measured proof before `active` may become true. */
+  reloadRequired: z.boolean().optional(),
+  failureReason: z.enum([
+    "viewport_mismatch",
+    "device_pixel_ratio_mismatch",
+    "page_scale_mismatch",
+    "touch_mismatch",
+    "pointer_media_mismatch",
+    "identity_unavailable",
+    "identity_mismatch",
+    "proof_unavailable",
+    "consent_suppression_disabled",
+  ]).optional(),
 });
 
 /** What a content script needs to know about the page it just loaded, before any
@@ -155,6 +169,25 @@ const PageContextResponseSchema = PageContextResolutionSchema.extend({
     revision: 0,
   }),
 });
+
+const PageWorldCommandResultSchema = z.object({
+  ok: z.boolean(),
+  nonce: z.string(),
+  command: z.string(),
+  payload: z.record(z.string(), z.unknown()).nullable(),
+  failure: z.object({
+    code: z.string().min(1),
+    message: z.string().min(1),
+  }).optional(),
+});
+
+const PageWorldOutcomeSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("ok"), result: PageWorldCommandResultSchema }),
+  z.object({
+    status: z.enum(["stale", "unavailable"]),
+    reason: z.string().min(1),
+  }),
+]);
 
 const StaticHtmlFetchResponseSchema = z.discriminatedUnion("ok", [
   z.object({
@@ -353,8 +386,10 @@ export const applicationContract = defineContract({
     "settings.load": {
       request: z.object({}),
       response: z.object({
+        status: z.enum(["ok", "invalid"]).optional(),
         settings: ConnectionSettingsSchema,
         hasToken: z.boolean(),
+        reason: z.string().optional(),
       }),
     },
     "settings.save": {
@@ -429,6 +464,20 @@ export const applicationContract = defineContract({
     "page.context": {
       request: PageContextRequestSchema,
       response: PageContextResponseSchema,
+    },
+    "pageWorld.acquire": {
+      request: z.object({ pageUrl: z.string().url() }),
+      response: PageWorldOutcomeSchema,
+    },
+    "pageWorld.command": {
+      request: z.object({
+        pageUrl: z.string().url(),
+        nonce: z.string().min(1).max(256),
+        sessionNonce: z.string().min(1).max(256).optional(),
+        command: PageCommandNameSchema,
+        payload: z.record(z.string(), z.unknown()),
+      }),
+      response: PageWorldOutcomeSchema,
     },
     "shield.posture.current": {
       request: ShieldPostureCurrentRequestSchema,
@@ -517,6 +566,11 @@ export const applicationContract = defineContract({
     }),
     "signals.available": z.object({
       tabId: z.number().int().positive(),
+    }),
+    "page.urlChanged": z.object({
+      tabId: z.number().int().positive(),
+      documentId: z.string().min(1),
+      pageUrl: z.string().url(),
     }),
   },
 });
