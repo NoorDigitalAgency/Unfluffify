@@ -415,7 +415,10 @@ function hasProjectedExceptionAncestor(
 }
 
 export function createOverlayRenderer(options: OverlayRendererOptions) {
-  const releaseStyles = retainOverlayStyles(options.document);
+  // Construction is deliberately page-inert. A parked/prewarmed marking engine
+  // may exist before a property has presentation authority; it must not leave a
+  // root or stylesheet in the host document until a real presentation attaches.
+  let releaseStyles: (() => void) | null = null;
   const root = options.root ?? options.document.createElement("div");
   const classificationByXpath = new Map<string, Classification>();
   const classificationBoxes = new Map<string, ClassificationBox>();
@@ -699,11 +702,13 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   };
   updateClientArea();
   const attach = (): void => {
+    if (!releaseStyles) {
+      releaseStyles = retainOverlayStyles(options.document);
+    }
     if (!root.parentElement) {
       options.document.documentElement.appendChild(root);
     }
   };
-  attach();
 
   const layers = new Map<LayerKey, HTMLElement>();
   for (const key of LAYER_KEYS) {
@@ -1061,6 +1066,8 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     attach,
     detach(): void {
       root.remove();
+      releaseStyles?.();
+      releaseStyles = null;
     },
     retainedViewportXpaths(): ReadonlySet<string> {
       const xpaths = new Set<string>();
@@ -1180,6 +1187,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       byXpath: ReadonlyMap<string, OverlayRenderTarget>,
       generation = renderGeneration + 1,
     ): void {
+      attach();
       descendantGeometryAnchorByElement = new WeakMap<Element, Element>();
       beginRetainedGeometryBatch();
       adoptTargets(byXpath, true);
@@ -1204,6 +1212,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       generation = renderGeneration,
       affectedXpaths: ReadonlySet<string> = new Set(byXpath.keys()),
     ): void {
+      attach();
       for (const target of byXpath.values()) {
         descendantGeometryAnchorByElement.delete(target.element);
       }
@@ -1386,6 +1395,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         excludedXpaths?: readonly string[];
       }> = {},
     ): void {
+      attach();
       adoptTargets(byXpath, true);
       silentPresentationByXpath.clear();
       for (const xpath of categories.immutableXpaths ?? []) {
@@ -1529,7 +1539,8 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       clearBoxes();
       latestTargetByXpath.clear();
       root.remove();
-      releaseStyles();
+      releaseStyles?.();
+      releaseStyles = null;
     },
   };
 }

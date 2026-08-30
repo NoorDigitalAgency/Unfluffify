@@ -1010,6 +1010,33 @@ describe("P6 DOM bridge", () => {
     expect(renderer.root.children.every((layer) => layer.children.length === 0)).toBe(true);
   });
 
+  it("keeps a prewarmed renderer page-inert until an authorized presentation attaches", () => {
+    const doc = new FakeDocument();
+    const renderer = createOverlayRenderer({ document: doc as unknown as Document });
+    const hasOverlayStyle = (): boolean => doc.documentElement.children.some((element) =>
+      element.id === MARKING_OVERLAY_STYLE_ID
+    );
+
+    expect(renderer.root.parentElement).toBeNull();
+    expect(hasOverlayStyle()).toBe(false);
+
+    renderer.attach();
+    expect(renderer.root.parentElement).toBe(doc.documentElement);
+    expect(hasOverlayStyle()).toBe(true);
+
+    renderer.detach();
+    expect(renderer.root.parentElement).toBeNull();
+    expect(hasOverlayStyle()).toBe(false);
+
+    renderer.renderSilentHighlights([], new Map());
+    expect(renderer.root.parentElement).toBe(doc.documentElement);
+    expect(hasOverlayStyle()).toBe(true);
+
+    renderer.dispose();
+    expect(renderer.root.parentElement).toBeNull();
+    expect(hasOverlayStyle()).toBe(false);
+  });
+
   it("prewarms and reuses hover rectangles across target changes", () => {
     const doc = new FakeDocument();
     const first = new FakeElement("P", rect(10, 20, 140, 24), "First");
