@@ -1057,32 +1057,81 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       if (scrolling) {
         return null;
       }
-      let winner: SilentBox | null = null;
-      let winnerRank = -1;
-      // Silent boxes are keyed and identity-stable. Their retained geometry is
-      // therefore stronger page-to-row authority than a page Element identity:
-      // reactive sites can replace a visible node after projection without
-      // changing the row or the rectangle the operator actually clicked.
-      for (const record of silentBoxes.values()) {
+      let winnerXpath: string | null = null;
+      let winnerArea = Number.POSITIVE_INFINITY;
+      let winnerDepth = -1;
+      let winnerLayer = -1;
+      let winnerOrder = -1;
+      let visitOrder = 0;
+      const consider = (
+        xpath: string,
+        rect: RectLike,
+        layer: LayerKey,
+        visible: boolean,
+        paintOrder: number,
+      ): void => {
+        visitOrder += 1;
+        if (!visible || !pointInRect(rect, x, y)) {
+          return;
+        }
+        const area = rect.width * rect.height;
+        const depth = xpath.split("/").length;
+        const layerRank = LAYER_KEYS.indexOf(layer);
+        const order = paintOrder || visitOrder;
+        // The shield hides Element identity from a replaced page node. In that
+        // case the closest painted rectangle is the best proxy for the exact
+        // underlay a user clicked: a logo/image leaf must win over a containing
+        // header or exclusion shell even when the shell paints in a later
+        // presentation layer. Depth, layer, and sibling paint order settle the
+        // uncommon equal-geometry case deterministically.
         if (
-          record.overlay.style.visibility === "hidden"
-          || !pointInRect(record.rect, x, y)
+          area < winnerArea
+          || (area === winnerArea && depth > winnerDepth)
+          || (area === winnerArea && depth === winnerDepth && layerRank > winnerLayer)
+          || (
+            area === winnerArea
+            && depth === winnerDepth
+            && layerRank === winnerLayer
+            && order >= winnerOrder
+          )
         ) {
-          continue;
+          winnerXpath = xpath;
+          winnerArea = area;
+          winnerDepth = depth;
+          winnerLayer = layerRank;
+          winnerOrder = order;
         }
-        const rank = record.presentation.includes("uf-silent-excluded")
-          ? 2
-          : record.presentation.includes("uf-silent-content")
-            ? 1
-            : 0;
-        // Later siblings paint above earlier siblings inside one layer; the
-        // excluded/content/immutable ranks mirror their layer order.
-        if (rank >= winnerRank) {
-          winner = record;
-          winnerRank = rank;
-        }
+      };
+      // Classification boxes remain keyed to their canonical XPath even when
+      // a reactive site replaces the live Element after projection. Content
+      // List is opened from marking mode, where these can be the only painted
+      // rectangles available beneath the independent interaction shield.
+      for (const record of classificationBoxes.values()) {
+        consider(
+          record.xpath,
+          record.rect,
+          LAYER_BY_CLASSIFICATION[record.classification],
+          record.overlay.style.visibility !== "hidden",
+          record.paintOrder,
+        );
       }
-      return winner?.xpath ?? null;
+      // Silent boxes provide the same retained-geometry authority in silent
+      // preview mode. Later siblings paint above earlier siblings per layer.
+      for (const record of silentBoxes.values()) {
+        const layer = record.presentation.includes("uf-silent-excluded")
+          ? "silent-excluded"
+          : record.presentation.includes("uf-silent-content")
+            ? "silent-content"
+            : "silent-immutable";
+        consider(
+          record.xpath,
+          record.rect,
+          layer,
+          record.overlay.style.visibility !== "hidden",
+          visitOrder + 1,
+        );
+      }
+      return winnerXpath;
     },
     render(
       evaluation: EvaluationResult,

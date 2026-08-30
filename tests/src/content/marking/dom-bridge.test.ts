@@ -1049,6 +1049,36 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
+  it("routes preview clicks through the smallest retained classification rectangle", () => {
+    const doc = new FakeDocument();
+    const header = new FakeElement("HEADER", rect(0, 0, 300, 100), "Header navigation");
+    const logo = new FakeElement("IMG", rect(16, 50, 139, 25));
+    header.ownerDocument = doc;
+    logo.ownerDocument = doc;
+    header.appendChild(logo);
+    doc.pointHits = () => [logo, header];
+    const renderer = createOverlayRenderer({ document: doc as unknown as Document });
+    const headerXpath = "/header[1]";
+    const logoXpath = "/header[1]/img[1]";
+
+    renderer.render({
+      rows: [
+        { xpath: headerXpath, excluded: true, explicit: true },
+        { xpath: logoXpath, excluded: true, explicit: true },
+      ],
+      overlay: new Map([
+        [headerXpath, "exception"],
+        [logoXpath, "immutable"],
+      ]),
+    }, new Map([
+      [headerXpath, { element: header as unknown as Element, visible: true }],
+      [logoXpath, { element: logo as unknown as Element, visible: true }],
+    ]));
+
+    expect(renderer.previewXpathAtPoint(85.5, 66)).toBe(logoXpath);
+    renderer.dispose();
+  });
+
   it("scrolls before focus paint and refreshes that exact Preview target on captured frames", () => {
     const doc = new FakeDocument();
     const animationFrames: Array<() => void> = [];
