@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { XPathNodeView } from "../../../src/domain/xpath";
-import { getXPath, isDocumentRootRowXPath } from "../../../src/domain/xpath";
+import {
+  compareXpathsInDocumentOrder,
+  getXPath,
+  isDocumentRootRowXPath,
+} from "../../../src/domain/xpath";
 
 function attach(parent: XPathNodeView, children: XPathNodeView[]): void {
   (parent as XPathNodeView & { children: XPathNodeView[] }).children = children;
@@ -48,5 +52,28 @@ describe("P0 XPath builder (INV-5.3, INV-5.4, INV-5.9..INV-5.12)", () => {
     const second: XPathNodeView = { key: "second", tagName: "DIV", parent };
     attach(parent, [first, second]);
     expect(getXPath(second)).toBe("/body[1]/div[2]");
+  });
+
+  it("sorts cached positional segments numerically without changing ancestor or tag order", () => {
+    const xpaths = [
+      "/html[1]/body[1]/section[10]",
+      "/html[1]/body[1]/section[2]/p[1]",
+      "/html[1]/body[1]/article[1]",
+      "/html[1]/body[1]/section[2]",
+    ];
+    expect([...xpaths].sort(compareXpathsInDocumentOrder)).toEqual([
+      "/html[1]/body[1]/article[1]",
+      "/html[1]/body[1]/section[2]",
+      "/html[1]/body[1]/section[2]/p[1]",
+      "/html[1]/body[1]/section[10]",
+    ]);
+    // Repeating the sort exercises the retained token cache rather than a
+    // special first-call path.
+    expect([...xpaths].sort(compareXpathsInDocumentOrder)).toEqual([
+      "/html[1]/body[1]/article[1]",
+      "/html[1]/body[1]/section[2]",
+      "/html[1]/body[1]/section[2]/p[1]",
+      "/html[1]/body[1]/section[10]",
+    ]);
   });
 });

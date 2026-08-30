@@ -226,7 +226,7 @@ function createRendererTestSeam() {
         renderer.render(...args);
       },
       renderBranch(...args: Parameters<typeof renderer.renderBranch>): void {
-        branchRender();
+        branchRender(args[1].size, args[3]?.size ?? args[1].size);
         renderer.renderBranch(...args);
       },
       renderSilentHighlights(...args: Parameters<typeof renderer.renderSilentHighlights>): void {
@@ -2975,7 +2975,10 @@ describe("P6 DOM bridge", () => {
 
       expect(readsPerFrame.filter((count) => count > 0).every((count) => count <= 48)).toBe(true);
       expect(readsPerFrame.filter((count) => count === 0).length).toBeGreaterThanOrEqual(4);
-      expect(renderer.branchRender).toHaveBeenCalledTimes(1);
+      expect(renderer.branchRender.mock.calls.length).toBeGreaterThan(1);
+      expect(renderer.branchRender.mock.calls.every(([targets, affected]) =>
+        Number(targets) <= 4 && Number(affected) <= 256
+      )).toBe(true);
       expect(engine.rows().every((row) => row.excluded)).toBe(true);
       engine.dispose();
     } finally {

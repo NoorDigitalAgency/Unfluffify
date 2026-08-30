@@ -56,7 +56,10 @@ export type DomBridgePresentationRefreshCursor = Readonly<{
 }>;
 
 type DomBridgePass = Readonly<{
+  flattenedChildNodesByElement: WeakMap<Element, Node[]>;
   childrenByElement: WeakMap<Element, Element[]>;
+  flattenedTextByElement: WeakMap<Element, boolean>;
+  nonTextualContentByElement: WeakMap<Element, boolean>;
   geometryByElement: WeakMap<Element, VisibilityGeometry>;
   landmarkCountByElement: WeakMap<Element, number>;
   styleByElement: WeakMap<Element, CSSStyleDeclaration>;
@@ -68,7 +71,10 @@ type DomBridgePass = Readonly<{
 
 function createDomBridgePass(): DomBridgePass {
   return {
+    flattenedChildNodesByElement: new WeakMap(),
     childrenByElement: new WeakMap(),
+    flattenedTextByElement: new WeakMap(),
+    nonTextualContentByElement: new WeakMap(),
     geometryByElement: new WeakMap(),
     landmarkCountByElement: new WeakMap(),
     styleByElement: new WeakMap(),
@@ -79,8 +85,8 @@ function createDomBridgePass(): DomBridgePass {
   };
 }
 
-function ownsDirectText(element: Element): boolean {
-  return flattenedChildNodes(element).some((node) =>
+function ownsDirectText(element: Element, pass?: DomBridgePass): boolean {
+  return flattenedChildNodes(element, pass).some((node) =>
     node.nodeType === 3 && (node.textContent ?? "").trim().length > 0
   );
 }
@@ -101,34 +107,41 @@ const NON_TEXTUAL_CONTENT_TAGS = new Set([
   "BUTTON",
 ]);
 
-function normalizedFlattenedText(element: Element): string {
-  const fragments: string[] = [];
-  const visit = (node: Node): void => {
-    if (node.nodeType === 3) {
-      fragments.push(node.textContent ?? "");
-      return;
+function hasFlattenedText(element: Element, pass: DomBridgePass): boolean {
+  const cached = pass.flattenedTextByElement.get(element);
+  if (cached !== undefined) {
+    return cached;
+  }
+  for (const child of flattenedChildNodes(element, pass)) {
+    if (child.nodeType === 3 && /\S/u.test(child.textContent ?? "")) {
+      pass.flattenedTextByElement.set(element, true);
+      return true;
     }
-    if (node.nodeType === 1) {
-      for (const child of flattenedChildNodes(node as Element)) {
-        visit(child);
-      }
+    if (child.nodeType === 1 && hasFlattenedText(child as Element, pass)) {
+      pass.flattenedTextByElement.set(element, true);
+      return true;
     }
-  };
-  visit(element);
-  return fragments.join(" ").replace(/\s+/g, " ").trim();
+  }
+  pass.flattenedTextByElement.set(element, false);
+  return false;
 }
 
-function hasNonTextualContent(element: Element): boolean {
-  if (NON_TEXTUAL_CONTENT_TAGS.has(element.tagName.toUpperCase())) {
-    return true;
+function hasNonTextualContent(element: Element, pass: DomBridgePass): boolean {
+  const cached = pass.nonTextualContentByElement.get(element);
+  if (cached !== undefined) {
+    return cached;
   }
-  return elementChildren(element).some((child) => hasNonTextualContent(child));
+  const result = NON_TEXTUAL_CONTENT_TAGS.has(element.tagName.toUpperCase())
+    || elementChildren(element, pass).some((child) => hasNonTextualContent(child, pass));
+  pass.nonTextualContentByElement.set(element, result);
+  return result;
 }
 
 function isSilentWhitespaceExclusion(
   element: Element,
   visible: boolean,
   style: CSSStyleDeclaration | undefined,
+  pass: DomBridgePass,
 ): boolean {
   const document = element.ownerDocument;
   if (
@@ -147,10 +160,14 @@ function isSilentWhitespaceExclusion(
   ) {
     return false;
   }
-  return normalizedFlattenedText(element) === "" && !hasNonTextualContent(element);
+  return !hasFlattenedText(element, pass) && !hasNonTextualContent(element, pass);
 }
 
-function flattenedChildNodes(element: Element): Node[] {
+function flattenedChildNodes(element: Element, pass?: DomBridgePass): Node[] {
+  const cached = pass?.flattenedChildNodesByElement.get(element);
+  if (cached) {
+    return cached;
+  }
   const isSlot = (node: Node): node is HTMLSlotElement =>
     node.nodeType === 1 && (node as Element).tagName.toUpperCase() === "SLOT";
   const slotReplacements = (slot: HTMLSlotElement, assigned?: Set<Node>): Node[] => {
@@ -178,7 +195,9 @@ function flattenedChildNodes(element: Element): Node[] {
     // A slot may sit under an arbitrary wrapper inside a shadow root. Expanding
     // direct slot children at every level preserves that wrapper while replacing
     // the slot itself with the actual composed children.
-    return Array.from(element.childNodes).flatMap((node) => expandDirectSlot(node));
+    const children = Array.from(element.childNodes).flatMap((node) => expandDirectSlot(node));
+    pass?.flattenedChildNodesByElement.set(element, children);
+    return children;
   }
   const assigned = new Set<Node>();
   const collectAssigned = (node: Node): void => {
@@ -198,7 +217,9 @@ function flattenedChildNodes(element: Element): Node[] {
   const shadowNodes = Array.from(shadowRoot.childNodes)
     .flatMap((node) => expandDirectSlot(node, assigned));
   const remainingLightNodes = Array.from(element.childNodes).filter((node) => !assigned.has(node));
-  return [...shadowNodes, ...remainingLightNodes];
+  const children = [...shadowNodes, ...remainingLightNodes];
+  pass?.flattenedChildNodesByElement.set(element, children);
+  return children;
 }
 
 function depthFromBody(xpath: string): number {
@@ -478,7 +499,7 @@ function buildNode(
     tagName,
     xpath,
     visible,
-    ownsDirectText: ownsDirectText(element),
+    ownsDirectText: ownsDirectText(element, pass),
     structuralBoundary: isStructuralBoundary(element, xpath, landmarks, structuralRole),
     structuralRole,
     pageShell: tagName === "HTML" || tagName === "BODY" || tagName === "MAIN" || landmarks >= 2,
@@ -494,6 +515,7 @@ function buildNode(
       element,
       visible,
       styleFor(element, pass),
+      pass,
     ),
     children: childEvaluations,
   };
@@ -666,6 +688,7 @@ export function createDomBridgePresentationRefreshCursor(
             entry.element,
             visible,
             styleFor(entry.element, pass),
+            pass,
           ),
         });
         processedNodes += 1;
