@@ -692,6 +692,12 @@ const PROGRESSIVE_PREVIEW_METADATA_CHUNK_SIZE = 512;
 const SILENT_VIEWPORT_GEOMETRY_QUIET_MS = 120;
 const MARKING_VIEWPORT_SCROLL_QUIET_MS = 230;
 const MARKING_VIEWPORT_RESIZE_QUIET_MS = 50;
+// Content List activation uses the page's native smooth scroll. A long route
+// can run for hundreds of milliseconds and the marking layer deliberately
+// remains faded for MARKING_VIEWPORT_SCROLL_QUIET_MS after its final event.
+// Keep the single target focus proof alive through that bounded settle window.
+const PREVIEW_FOCUS_SCROLL_MAX_FRAMES = 90;
+const PREVIEW_FOCUS_SCROLL_STABLE_FRAMES = 16;
 const PRESENTATION_MUTATION_ATTRIBUTES = new Set([
   "class",
   "style",
@@ -1270,40 +1276,80 @@ export function createMarkingEngine(
   ): void => {
     cancelPreviewFocusRefresh();
     const cycle = previewFocusRefreshCycle;
-    const generation = bridgeGeneration;
     const repairIgnoredNativeScroll = scrollPreviewTargetIntoView(element);
-    let focusCommitted = false;
-    let remainingFrames = 2;
+    let repairPending = true;
+    let focusedElement: Element | null = null;
+    let focusedXpath = "";
+    let remainingFrames = PREVIEW_FOCUS_SCROLL_MAX_FRAMES;
+    let stableFrames = 0;
+    let lastGeometrySignature = "";
     const refresh = (): void => {
       previewFocusRefreshHandle = null;
-      const exactTargetStillCurrent =
-        !disposed &&
-        cycle === previewFocusRefreshCycle &&
-        generation === bridgeGeneration &&
-        bridge.byXpath.get(xpath)?.element === element &&
-        (element as Element & { isConnected?: boolean }).isConnected !== false;
-      const exactRowStillCurrent = !rowFence || (
-        previewEmphasizedRowId === rowFence.rowId &&
-        currentPreviewProjection?.projectionId === rowFence.projectionId &&
-        currentPreviewProjection.rows.some((row) => row.id === rowFence.rowId)
-      );
-      if (!exactTargetStillCurrent || !exactRowStillCurrent) {
+      if (disposed || cycle !== previewFocusRefreshCycle) {
         return;
       }
-      if (!focusCommitted) {
+      // Scroll-responsive pages can update classes, lazy content, or sticky
+      // headers while the target moves. Those changes legitimately advance the
+      // bridge/projection generation. Rebind through the stable row identity
+      // instead of abandoning focus merely because the immutable snapshot was
+      // refreshed during the route.
+      const currentTarget = rowFence
+        ? previewEmphasizedRowId === rowFence.rowId &&
+            currentPreviewProjection?.rows.some((row) => row.id === rowFence.rowId)
+          ? bridge.byKey.get(rowFence.rowId)
+          : undefined
+        : bridge.byXpath.get(xpath);
+      if (
+        !currentTarget ||
+        (currentTarget.element as Element & { isConnected?: boolean }).isConnected === false
+      ) {
+        return;
+      }
+      if (repairPending) {
         // Give native smooth scrolling one captured frame to begin. Only then
         // repair storefronts that ignored scrollIntoView, and paint focus from
         // the resulting geometry rather than the stale pre-scroll box.
         repairIgnoredNativeScroll();
-        renderer.setFocus(element, xpath);
-        focusCommitted = true;
+        repairPending = false;
+      }
+      const currentElement = currentTarget.element;
+      const currentXpath = currentTarget.evaluationNode.xpath;
+      if (focusedElement !== currentElement || focusedXpath !== currentXpath) {
+        renderer.setFocus(currentElement, currentXpath);
+        focusedElement = currentElement;
+        focusedXpath = currentXpath;
       }
       // A row can already own focus because pointer hover precedes click. Force
-      // a fresh measurement after the scroll even when setFocus therefore
-      // no-ops.
+      // fresh measurements throughout the smooth scroll and once the marking
+      // layer's trailing fade window has elapsed.
       renderer.refreshFocus();
+      const ownerDocument = currentElement.ownerDocument;
+      const view = ownerDocument.defaultView;
+      const scrollingElement = ownerDocument.scrollingElement ?? ownerDocument.documentElement;
+      const rect = currentElement.getBoundingClientRect();
+      const viewportWidth = view?.visualViewport?.width ?? view?.innerWidth ??
+        ownerDocument.documentElement?.clientWidth ?? 0;
+      const viewportHeight = view?.visualViewport?.height ?? view?.innerHeight ??
+        ownerDocument.documentElement?.clientHeight ?? 0;
+      const intersectsViewport = rect.width > 0 && rect.height > 0 &&
+        rect.right > 0 && rect.bottom > 0 &&
+        (viewportWidth <= 0 || rect.left < viewportWidth) &&
+        (viewportHeight <= 0 || rect.top < viewportHeight);
+      const geometrySignature = [
+        Math.round(rect.left * 2),
+        Math.round(rect.top * 2),
+        Math.round(rect.right * 2),
+        Math.round(rect.bottom * 2),
+        Math.round(Number(scrollingElement?.scrollLeft ?? view?.scrollX ?? 0) * 2),
+        Math.round(Number(scrollingElement?.scrollTop ?? view?.scrollY ?? 0) * 2),
+      ].join(":");
+      stableFrames = geometrySignature === lastGeometrySignature ? stableFrames + 1 : 0;
+      lastGeometrySignature = geometrySignature;
       remainingFrames -= 1;
-      if (remainingFrames > 0) {
+      if (
+        remainingFrames > 0 &&
+        (!intersectsViewport || stableFrames < PREVIEW_FOCUS_SCROLL_STABLE_FRAMES)
+      ) {
         const handle = presentationClock.requestFrame(refresh);
         previewFocusRefreshHandle = handle || null;
       }

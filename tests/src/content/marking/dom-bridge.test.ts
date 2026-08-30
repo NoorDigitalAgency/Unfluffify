@@ -1191,6 +1191,47 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
+  it("keeps Preview focus tracking across a scroll-driven bridge generation", () => {
+    const doc = new FakeDocument();
+    const animationFrames: Array<() => void> = [];
+    Object.assign(doc.defaultView, {
+      requestAnimationFrame(callback: () => void) {
+        animationFrames.push(callback);
+        return animationFrames.length;
+      },
+      cancelAnimationFrame() {},
+    });
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 900));
+    const target = new FakeElement("P", rect(0, 640, 120, 20), "Stable Preview target");
+    Object.assign(target, { scrollIntoView: vi.fn() });
+    for (const element of [root, target]) element.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(target);
+    doc.hits = [target, root];
+    const renderer = createRendererTestSeam();
+    const engine = createMarkingEngine(root as unknown as Element, {
+      instrumentation: { createRenderer: renderer.createRenderer },
+    });
+    const projection = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: ["p"],
+      exclusionSelectors: [],
+    });
+    const row = projection.rows.find((candidate) => candidate.text === "Stable Preview target");
+
+    expect(engine.emphasizePreviewRow(projection.projectionId, row!.id, true)).toBe(true);
+    expect(engine.activatePreviewRow(projection.projectionId, row!.id)).toBe(true);
+    animationFrames.shift()?.();
+    expect(renderer.focusRefresh).toHaveBeenCalledTimes(1);
+
+    // Sticky-header/lazy-content mutations during native smooth scrolling can
+    // refresh the immutable bridge without replacing this row's Element key.
+    engine.refresh();
+    animationFrames.shift()?.();
+    expect(renderer.focusRefresh).toHaveBeenCalledTimes(2);
+    engine.dispose();
+  });
+
   it("keeps clipped and overflow-clipped technical rows but never advertises a visible route", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
