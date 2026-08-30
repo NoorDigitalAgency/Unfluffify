@@ -49,6 +49,7 @@ class FakeElement {
   clientRectReadCount = 0;
   rectReadCount = 0;
   roleReadCount = 0;
+  readonly attributeReadCount = new Map<string, number>();
   scrollTop = 0;
 
   constructor(readonly tagName: string, readonly rect: Rect, text = "") {
@@ -106,6 +107,7 @@ class FakeElement {
   }
 
   getAttribute(name: string): string | null {
+    this.attributeReadCount.set(name, (this.attributeReadCount.get(name) ?? 0) + 1);
     if (name === "role") {
       this.roleReadCount += 1;
     }
@@ -1072,6 +1074,29 @@ describe("P6 DOM bridge", () => {
     });
     expect(engine.emphasizeXpath("/main[1]/missing[1]")).toBe(false);
     expect(engine.scrollXpathIntoView("/main[1]/missing[1]")).toBe(false);
+    engine.dispose();
+  });
+
+  it("defers full-document preview text work until the first projection", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const control = new FakeElement("DIV", rect(0, 0, 120, 20));
+    control.setAttribute("placeholder", "Search jobs");
+    root.ownerDocument = doc;
+    control.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(control);
+
+    const engine = createMarkingEngine(root as unknown as Element);
+
+    expect(control.attributeReadCount.get("placeholder") ?? 0).toBe(0);
+    const projection = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: ["div"],
+      exclusionSelectors: [],
+    });
+    expect(control.attributeReadCount.get("placeholder") ?? 0).toBeGreaterThan(0);
+    expect(projection.rows.find((row) => row.xpath === "/main[1]/div[1]")?.text).toBe("Search jobs");
     engine.dispose();
   });
 

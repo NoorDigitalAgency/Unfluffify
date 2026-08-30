@@ -1031,6 +1031,7 @@ export function createMarkingEngine(
   const intersectionDirtyXpaths = new Set<string>();
   let previewRevision = 0;
   let previewTextMetadata = new WeakMap<Element, PreviewTextMetadata>();
+  let previewTextMetadataCurrent = false;
   let toggleInProgress = false;
   let previewEmphasizedRowId: string | null = null;
   let previewFocusRefreshHandle: number | null = null;
@@ -1124,8 +1125,19 @@ export function createMarkingEngine(
     bridgeGeneration += 1;
     if (indexOptions.previewTextMetadata) {
       previewTextMetadata = indexOptions.previewTextMetadata;
+      previewTextMetadataCurrent = true;
     } else if (indexOptions.refreshPreviewTextMetadata !== false) {
-      previewTextMetadata = buildPreviewTextMetadata(rootElement);
+      // Readable Content List labels are independent of marking activation.
+      // Do not make every page pay a complete composed-tree text traversal
+      // before a projection exists. An active projection still receives fresh
+      // metadata during the same structural transaction; the first projection
+      // after activation builds the cache exactly once below.
+      previewTextMetadata = new WeakMap<Element, PreviewTextMetadata>();
+      previewTextMetadataCurrent = false;
+      if (lastPreviewRequest) {
+        previewTextMetadata = buildPreviewTextMetadata(rootElement);
+        previewTextMetadataCurrent = true;
+      }
     }
     overlayTargets = new Map([...bridge.byXpath].map(([xpath, value]) => [xpath, {
       element: value.element,
@@ -1217,6 +1229,10 @@ export function createMarkingEngine(
     if (!activePreviewProjectionId) {
       previewOccurrence += 1;
       activePreviewProjectionId = `${previewIdentityNamespace}-occurrence-${previewOccurrence}`;
+    }
+    if (!previewTextMetadataCurrent) {
+      previewTextMetadata = buildPreviewTextMetadata(rootElement);
+      previewTextMetadataCurrent = true;
     }
     const seed = selectorSeedForBridge(bridge, selectors);
     const defaults = mergeDefaultExclusions(bridge.root, { rows: [] });
