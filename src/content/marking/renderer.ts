@@ -94,16 +94,24 @@ const LIVE_VISIBILITY_EXCLUSION_CLASSIFICATIONS: ReadonlySet<Classification> = n
 
 const styleLeases = new WeakMap<Document, { element: HTMLStyleElement; count: number }>();
 
-function retainOverlayStyles(document: Document): () => void {
+function createOverlayStyleElement(document: Document): HTMLStyleElement {
+  const element = document.createElement("style");
+  element.id = MARKING_OVERLAY_STYLE_ID;
+  element.setAttribute("data-uf-extension-ui", "true");
+  element.textContent = MARKING_OVERLAY_STYLES;
+  return element;
+}
+
+function retainOverlayStyles(
+  document: Document,
+  preparedElement?: HTMLStyleElement,
+): () => void {
   const retained = styleLeases.get(document);
   if (retained) {
     retained.count += 1;
     return () => releaseOverlayStyles(document);
   }
-  const element = document.createElement("style");
-  element.id = MARKING_OVERLAY_STYLE_ID;
-  element.setAttribute("data-uf-extension-ui", "true");
-  element.textContent = MARKING_OVERLAY_STYLES;
+  const element = preparedElement ?? createOverlayStyleElement(document);
   document.documentElement.appendChild(element);
   styleLeases.set(document, { element, count: 1 });
   return () => releaseOverlayStyles(document);
@@ -419,6 +427,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   // may exist before a property has presentation authority; it must not leave a
   // root or stylesheet in the host document until a real presentation attaches.
   let releaseStyles: (() => void) | null = null;
+  const preparedStyleElement = createOverlayStyleElement(options.document);
   const root = options.root ?? options.document.createElement("div");
   const classificationByXpath = new Map<string, Classification>();
   const classificationBoxes = new Map<string, ClassificationBox>();
@@ -703,7 +712,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   updateClientArea();
   const attach = (): void => {
     if (!releaseStyles) {
-      releaseStyles = retainOverlayStyles(options.document);
+      releaseStyles = retainOverlayStyles(options.document, preparedStyleElement);
     }
     if (!root.parentElement) {
       options.document.documentElement.appendChild(root);
@@ -1309,6 +1318,9 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       if (hoverElement === element && hoverXpath === nextXpath) {
         return;
       }
+      if (element) {
+        attach();
+      }
       hoverElement = element;
       hoverXpath = nextXpath;
       beginGeometryBatch();
@@ -1322,6 +1334,9 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       const nextXpath = element ? xpath : "";
       if (focusElement === element && focusXpath === nextXpath) {
         return;
+      }
+      if (element) {
+        attach();
       }
       focusElement = element;
       focusXpath = nextXpath;
@@ -1455,6 +1470,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       silentBoxes.clear();
     },
     acknowledge(element: Element, xpath: string, mode: "include" | "exclude"): void {
+      attach();
       clearAcknowledgement();
       const layer = layers.get("interaction");
       if (!layer) {
@@ -1482,6 +1498,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       }
     },
     rejectAtPoint(x: number, y: number): void {
+      attach();
       clearAcknowledgement();
       const layer = layers.get("interaction");
       if (!layer) {

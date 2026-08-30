@@ -1028,6 +1028,18 @@ describe("P6 DOM bridge", () => {
     expect(renderer.root.parentElement).toBeNull();
     expect(hasOverlayStyle()).toBe(false);
 
+    const previewTarget = new FakeElement("P", rect(10, 20, 120, 24), "Preview target");
+    previewTarget.ownerDocument = doc;
+    doc.hits = [previewTarget];
+    renderer.setHover(previewTarget as unknown as Element, "/p[1]");
+    expect(renderer.root.parentElement).toBe(doc.documentElement);
+    expect(hasOverlayStyle()).toBe(true);
+
+    renderer.detach();
+    renderer.setHover(null);
+    expect(renderer.root.parentElement).toBeNull();
+    expect(hasOverlayStyle()).toBe(false);
+
     renderer.renderSilentHighlights([], new Map());
     expect(renderer.root.parentElement).toBe(doc.documentElement);
     expect(hasOverlayStyle()).toBe(true);
