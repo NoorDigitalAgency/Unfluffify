@@ -3405,6 +3405,84 @@ describe("P6 DOM bridge", () => {
     expect(visualViewport.removeEventListener).toHaveBeenCalledWith("resize", expect.any(Function));
   });
 
+  it("does not restart root-scroll quiet time for the matching visual viewport signal", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const animationFrames: Array<() => void> = [];
+      const listeners = new Map<string, EventListener>();
+      const viewportListeners = new Map<string, EventListener>();
+      const visualViewport = {
+        offsetLeft: 0,
+        offsetTop: 0,
+        pageLeft: 0,
+        pageTop: 0,
+        scale: 1,
+        addEventListener(type: string, listener: EventListener) {
+          viewportListeners.set(type, listener);
+        },
+        removeEventListener(type: string) {
+          viewportListeners.delete(type);
+        },
+      };
+      Object.assign(doc.defaultView, {
+        scrollX: 0,
+        scrollY: 0,
+        visualViewport,
+        requestAnimationFrame(callback: () => void) {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+        addEventListener(type: string, listener: EventListener) {
+          listeners.set(type, listener);
+        },
+        removeEventListener(type: string) {
+          listeners.delete(type);
+        },
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+      const paragraph = new FakeElement("P", rect(0, 0, 120, 20), "First");
+      root.ownerDocument = doc;
+      paragraph.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      root.appendChild(paragraph);
+      doc.hits = [paragraph, root];
+      const renderer = createRendererTestSeam();
+      const engine = createMarkingEngine(root as unknown as Element, {
+        instrumentation: { createRenderer: renderer.createRenderer },
+      });
+      engine.renderSilentHighlights();
+      renderer.geometryRender.mockClear();
+
+      Object.assign(doc.defaultView, { scrollY: 240 });
+      Object.assign(visualViewport, { pageTop: 240 });
+      listeners.get("scroll")?.({ target: doc } as unknown as Event);
+      vi.advanceTimersByTime(100);
+      viewportListeners.get("scroll")?.({ target: visualViewport } as unknown as Event);
+      vi.advanceTimersByTime(19);
+      expect(animationFrames).toHaveLength(0);
+      vi.advanceTimersByTime(1);
+      expect(animationFrames).toHaveLength(1);
+      animationFrames.shift()?.();
+      expect(renderer.geometryRender).toHaveBeenCalledTimes(1);
+
+      // A genuine visual-viewport pan has a new signature and owns a fresh
+      // trailing transaction even when the layout viewport does not move.
+      Object.assign(visualViewport, { offsetTop: 12, pageTop: 252 });
+      viewportListeners.get("scroll")?.({ target: visualViewport } as unknown as Event);
+      vi.advanceTimersByTime(119);
+      expect(animationFrames).toHaveLength(0);
+      vi.advanceTimersByTime(1);
+      expect(animationFrames).toHaveLength(1);
+      animationFrames.shift()?.();
+      expect(renderer.geometryRender).toHaveBeenCalledTimes(2);
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("coalesces window, visual viewport, and root resize into one silent geometry commit", () => {
     vi.useFakeTimers();
     try {
@@ -3687,7 +3765,10 @@ describe("P6 DOM bridge", () => {
       expect(animationFrames).toHaveLength(1);
       animationFrames.shift()?.();
 
-      expect(renderer.geometryBranchRender).toHaveBeenCalledTimes(1);
+      // Cheap two-target chunks may share a frame, but the deterministic
+      // count cap still fences expensive geometry even when a test clock does
+      // not advance inside the renderer seam.
+      expect(renderer.geometryBranchRender).toHaveBeenCalledTimes(4);
       expect(renderer.geometryBranchRender).toHaveBeenLastCalledWith(2, false);
       expect(engine.overlayRoot().className).toContain("uf-scrolling");
       expect(animationFrames).toHaveLength(1);

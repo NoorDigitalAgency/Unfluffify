@@ -23,6 +23,8 @@ export const INTERACTION_SHIELD_INPUT_BOUNDARY_ATTRIBUTE = "data-uf-shield-input
 export const OPEN_SHADOW_ATTACHED_EVENT = "uf:open-shadow-attached";
 export const MAXIMUM_DOCUMENT_Z_INDEX = "2147483647";
 const MUTATION_OWNER_SCAN_LIMIT = 64;
+const DOCUMENT_NATIVE_TOUCH_ACTION = "pan-x pan-y pinch-zoom";
+const NESTED_OWNER_TOUCH_ACTION = "pinch-zoom";
 
 type MutationObserverLike = Pick<MutationObserver, "disconnect" | "observe">;
 
@@ -109,7 +111,7 @@ const SHIELD_STYLE = Object.freeze({
   transition: "none",
   "mix-blend-mode": "normal",
   "pointer-events": "auto",
-  "touch-action": "pan-x pan-y pinch-zoom",
+  "touch-action": DOCUMENT_NATIVE_TOUCH_ACTION,
   "user-select": "none",
   "-webkit-user-select": "none",
   "z-index": MAXIMUM_DOCUMENT_Z_INDEX,
@@ -160,6 +162,7 @@ export function createInteractionShield(
   let disposed = false;
   let syncScheduled = false;
   let fallbackScrollOwner: ViewportScrollOwner | null = null;
+  let shieldTouchAction = DOCUMENT_NATIVE_TOUCH_ACTION;
   let fallbackScrollOwnerProofHandle: number | null = null;
   let scheduleFallbackScrollOwnerProof = (): void => undefined;
   let wheelFallbackOccurrence = 0;
@@ -178,9 +181,17 @@ export function createInteractionShield(
     touchIdentifier: number | null;
     pointerCancelled: boolean;
     shield: HTMLElement;
+    owner: ViewportScrollOwner;
     lastX: number;
     lastY: number;
   } | null = null;
+  let nestedTouchDocumentGuard: {
+    occurrence: number;
+    root: Element;
+    beforeLeft: number;
+    beforeTop: number;
+  } | null = null;
+  let nestedTouchDocumentGuardOccurrence = 0;
   let pendingTouchFallback: {
     occurrence: number;
     shield: HTMLElement;
@@ -648,7 +659,11 @@ export function createInteractionShield(
     shield.removeAttribute("role");
     shield.removeAttribute("tabindex");
     for (const [property, value] of Object.entries(SHIELD_STYLE)) {
-      setImportantStyle(shield.style, property, value);
+      setImportantStyle(
+        shield.style,
+        property,
+        property === "touch-action" ? shieldTouchAction : value,
+      );
     }
   };
 
@@ -951,6 +966,16 @@ export function createInteractionShield(
     return { dirty, cancelPending: false };
   };
 
+  const syncShieldTouchAction = (owner: ViewportScrollOwner): void => {
+    const next = owner.kind === "element"
+      ? NESTED_OWNER_TOUCH_ACTION
+      : DOCUMENT_NATIVE_TOUCH_ACTION;
+    shieldTouchAction = next;
+    if (shield) {
+      setImportantStyle(shield.style, "touch-action", next);
+    }
+  };
+
   const resolveFallbackScrollOwner = (): ViewportScrollOwner => {
     // A physical packet that races the background proof remains correct, but
     // it also owns the proof now; do not leave a duplicate task queued.
@@ -965,7 +990,25 @@ export function createInteractionShield(
       // ancestors without installing a second high-frequency observer.
       observeLayering();
     }
+    // Chromium snapshots touch-action before dispatching the first pointer
+    // packet. Native document panning is the zero-cost path when the document
+    // owns the viewport; a nested viewport must instead reserve touch movement
+    // for the shield's exact-owner fallback so the document compositor cannot
+    // select the shield's unrelated DOM ancestor.
+    syncShieldTouchAction(fallbackScrollOwner);
     return fallbackScrollOwner;
+  };
+
+  const resolveGestureScrollOwner = (): ViewportScrollOwner => {
+    // A viewport shell can mount in the same task immediately before physical
+    // touch input. MutationObserver repair is intentionally asynchronous, but
+    // Chromium chooses the native pan owner at pointerdown; refresh this one
+    // gesture boundary synchronously so a cached document proof cannot win the
+    // race and then move underneath a newly proven nested owner.
+    cancelScheduledFallbackScrollOwnerProof();
+    invalidateViewportScrollOwnerProofs();
+    fallbackScrollOwner = null;
+    return resolveFallbackScrollOwner();
   };
 
   scheduleFallbackScrollOwnerProof = (): void => {
@@ -1081,6 +1124,54 @@ export function createInteractionShield(
     return points;
   };
 
+  const restoreNestedTouchDocumentScroll = (): void => {
+    const guard = nestedTouchDocumentGuard;
+    if (!guard || guard.root.isConnected === false) return;
+    const root = guard.root as Element & { scrollLeft: number; scrollTop: number };
+    if (root.scrollLeft !== guard.beforeLeft) root.scrollLeft = guard.beforeLeft;
+    if (root.scrollTop !== guard.beforeTop) root.scrollTop = guard.beforeTop;
+  };
+
+  const beginNestedTouchDocumentGuard = (owner: ViewportScrollOwner): void => {
+    if (owner.kind !== "element") {
+      nestedTouchDocumentGuard = null;
+      return;
+    }
+    const root = document.scrollingElement ?? document.documentElement ?? document.body;
+    if (!root) return;
+    nestedTouchDocumentGuard = {
+      occurrence: ++nestedTouchDocumentGuardOccurrence,
+      root,
+      beforeLeft: Number.isFinite(root.scrollLeft) ? root.scrollLeft : 0,
+      beforeTop: Number.isFinite(root.scrollTop) ? root.scrollTop : 0,
+    };
+  };
+
+  const releaseNestedTouchDocumentGuard = (restoreFinal: boolean): void => {
+    const guard = nestedTouchDocumentGuard;
+    if (!guard) return;
+    if (!restoreFinal) {
+      nestedTouchDocumentGuardOccurrence += 1;
+      nestedTouchDocumentGuard = null;
+      return;
+    }
+    restoreNestedTouchDocumentScroll();
+    const scheduleTask = view?.setTimeout?.bind(view) ?? setTimeout;
+    scheduleTask(() => {
+      if (nestedTouchDocumentGuard?.occurrence !== guard.occurrence) return;
+      restoreNestedTouchDocumentScroll();
+      nestedTouchDocumentGuard = null;
+    }, 0);
+  };
+
+  const handleNestedTouchDocumentScroll = (): void => {
+    // Raw touch input can advance the document compositor even after a
+    // cancelable main-thread packet was prevented (notably through CDP and a
+    // few embedded Chromium shells). Restore inside the scroll dispatch, ahead
+    // of the next paint, while the manual fallback advances the proven owner.
+    restoreNestedTouchDocumentScroll();
+  };
+
   const queueTouchFallbackMovement = (currentX: number, currentY: number): boolean => {
     if (!view || !shield || !activeTouchPointer || activeTouchPointer.shield !== shield) return false;
     const deltaX = activeTouchPointer.lastX - currentX;
@@ -1098,7 +1189,15 @@ export function createInteractionShield(
       pendingTouchFallback.deltaY += deltaY;
       return pendingTouchFallback.owner.kind === "element";
     }
-    const owner = resolveFallbackScrollOwner();
+    let owner = activeTouchPointer.owner;
+    if (
+      owner.element.isConnected === false ||
+      (owner.kind === "element" && owner.maximumOffset() <= 2)
+    ) {
+      owner = resolveGestureScrollOwner();
+      activeTouchPointer.owner = owner;
+      beginNestedTouchDocumentGuard(owner);
+    }
     const occurrence = ++touchFallbackOccurrence;
     pendingTouchFallback = {
       occurrence,
@@ -1123,6 +1222,7 @@ export function createInteractionShield(
         return;
       }
       pendingTouchFallback = null;
+      restoreNestedTouchDocumentScroll();
       if (
         pending.owner.currentInlineOffset() !== pending.beforeLeft ||
         pending.owner.currentOffset() !== pending.beforeTop
@@ -1134,6 +1234,7 @@ export function createInteractionShield(
         "auto",
         pending.beforeLeft + pending.deltaX,
       );
+      restoreNestedTouchDocumentScroll();
     }, 0);
     return owner.kind === "element";
   };
@@ -1147,20 +1248,28 @@ export function createInteractionShield(
       const currentX = Number.isFinite(pointer.clientX) ? pointer.clientX : 0;
       const currentY = Number.isFinite(pointer.clientY) ? pointer.clientY : 0;
       if (event.type === "pointerdown") {
+        const owner = resolveGestureScrollOwner();
+        beginNestedTouchDocumentGuard(owner);
         if (activeTouchPointer?.shield === shield && activeTouchPointer.pointerId === null) {
           activeTouchPointer.pointerId = pointerId;
           activeTouchPointer.pointerCancelled = false;
+          activeTouchPointer.owner = owner;
         } else {
           activeTouchPointer = {
             pointerId,
             touchIdentifier: null,
             pointerCancelled: false,
             shield,
+            owner,
             lastX: currentX,
             lastY: currentY,
           };
         }
-        return false;
+        // Chromium chooses the native pan owner at gesture start. If the
+        // practical viewport is a nested shell behind the shield, cancel that
+        // default before the compositor can move the document; subsequent
+        // pointer/touch packets are routed to the proven owner below.
+        return owner.kind === "element";
       }
       if (!activeTouchPointer || activeTouchPointer.shield !== shield) return false;
       if (event.type === "pointercancel" && activeTouchPointer.pointerId === pointerId) {
@@ -1174,6 +1283,7 @@ export function createInteractionShield(
       }
       if (event.type === "pointerup" && activeTouchPointer.pointerId === pointerId) {
         activeTouchPointer = null;
+        releaseNestedTouchDocumentGuard(true);
         return false;
       }
       if (event.type === "pointermove" && activeTouchPointer.pointerId === pointerId) {
@@ -1192,22 +1302,26 @@ export function createInteractionShield(
         activeTouchPointer = null;
         touchFallbackOccurrence += 1;
         pendingTouchFallback = null;
+        releaseNestedTouchDocumentGuard(false);
         return false;
       }
       const point = touches[0]!;
       if (activeTouchPointer?.shield === shield) {
         activeTouchPointer.touchIdentifier = point.identifier;
       } else {
+        const owner = resolveGestureScrollOwner();
+        beginNestedTouchDocumentGuard(owner);
         activeTouchPointer = {
           pointerId: null,
           touchIdentifier: point.identifier,
           pointerCancelled: false,
           shield,
+          owner,
           lastX: point.clientX,
           lastY: point.clientY,
         };
       }
-      return false;
+      return activeTouchPointer.owner.kind === "element";
     }
     if (!activeTouchPointer || activeTouchPointer.shield !== shield) return false;
     const identifier = activeTouchPointer.touchIdentifier;
@@ -1216,6 +1330,7 @@ export function createInteractionShield(
         activeTouchPointer = null;
         touchFallbackOccurrence += 1;
         pendingTouchFallback = null;
+        releaseNestedTouchDocumentGuard(false);
         return false;
       }
       const point = touches.find((candidate) =>
@@ -1227,7 +1342,10 @@ export function createInteractionShield(
       const ended = changedTouches.some((candidate) =>
         identifier === null || candidate.identifier === identifier
       );
-      if (ended || touches.length === 0) activeTouchPointer = null;
+      if (ended || touches.length === 0) {
+        activeTouchPointer = null;
+        releaseNestedTouchDocumentGuard(true);
+      }
     }
     return false;
   };
@@ -1236,6 +1354,8 @@ export function createInteractionShield(
     activeTouchPointer = null;
     touchFallbackOccurrence += 1;
     pendingTouchFallback = null;
+    nestedTouchDocumentGuardOccurrence += 1;
+    nestedTouchDocumentGuard = null;
   };
 
   const filterInput = (event: Event): void => {
@@ -1264,7 +1384,7 @@ export function createInteractionShield(
     }
     const disposition = filterContentInput(event, target);
     const preventWrongNativeOwner = nestedOwnerFallback && (
-      event.type === "wheel" || event.type.startsWith("touch")
+      event.type === "wheel" || event.type.startsWith("touch") || event.type.startsWith("pointer")
     );
     if (
       (blockNativeScroll || preventWrongNativeOwner) &&
@@ -1326,6 +1446,7 @@ export function createInteractionShield(
   };
 
   const addViewportListeners = (): void => {
+    view?.addEventListener("scroll", handleNestedTouchDocumentScroll, true);
     view?.addEventListener("resize", handleViewportChange);
     view?.addEventListener("orientationchange", handleViewportChange);
     view?.visualViewport?.addEventListener("resize", handleViewportChange);
@@ -1333,6 +1454,7 @@ export function createInteractionShield(
   };
 
   const removeViewportListeners = (): void => {
+    view?.removeEventListener("scroll", handleNestedTouchDocumentScroll, true);
     view?.removeEventListener("resize", handleViewportChange);
     view?.removeEventListener("orientationchange", handleViewportChange);
     view?.visualViewport?.removeEventListener("resize", handleViewportChange);
@@ -1383,6 +1505,7 @@ export function createInteractionShield(
     syncScheduled = false;
     cancelScheduledFallbackScrollOwnerProof();
     fallbackScrollOwner = null;
+    shieldTouchAction = DOCUMENT_NATIVE_TOUCH_ACTION;
     wheelFallbackOccurrence += 1;
     pendingWheelFallback = null;
     clearTouchFallback();

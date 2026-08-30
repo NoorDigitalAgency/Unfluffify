@@ -1530,6 +1530,31 @@ preserves the stronger architecture.
     made. The eligible denominator is complete, external/N/A candidates are
     explicit, both implementations record zero final publication attempts, and
     the rewrite's own result is 117/117 PASS.
+165. **Closed rewrite P0 — progressive geometry paid a whole presentation frame
+    for every tiny two-target chunk.** The clean post-matrix P25 composite found
+    small and large marking-scroll p95 above the strict `1.05x` legacy ratio and
+    P23 silent-scroll latency near 205 ms. Runtime instrumentation proved that
+    the 120 ms quiet window was followed by four separate fallback frames even
+    though each chunk consumed only about 0.2–0.6 ms. The renderer now retains
+    the two-target correctness fence but consumes at most four cheap chunks and
+    8 ms per frame. Matching Window and VisualViewport signals share one
+    normalized scroll transaction only when their terminal geometry is exact;
+    a real visual-viewport pan still starts a new transaction. Focused P14 now
+    measures small marking-scroll p95 at about 283 ms versus 318 ms legacy and
+    large at about 290 ms versus 350 ms; P23 passes 25/25.
+166. **Closed rewrite P0 — a nested touch gesture could advance two viewport
+    owners.** P15 proved that the practical fixed scroll shell advanced 290 px
+    while Chromium also moved the locked document from 900 px to its 1,520 px
+    maximum. Cached owner identity was first refreshed synchronously at gesture
+    start and carried across pointer-cancel into the TouchEvent stream. The
+    shield now also projects the proven owner into its pre-gesture
+    `touch-action`: document ownership retains native pan/pinch, while nested
+    ownership reserves single-touch movement for the exact-owner fallback and
+    retains pinch. Because raw Chromium/CDP input can still move the document
+    compositor despite cancelable packets, a generation-fenced guard restores
+    the document scrolling element inside the scroll dispatch and after the
+    terminal packet. P15's physical gate now passes 36/36 with the nested owner
+    moving and the document remaining at its exact starting offset.
 
 ## Confirmed parity or stronger rewrite behavior
 

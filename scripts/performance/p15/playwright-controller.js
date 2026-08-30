@@ -421,12 +421,16 @@ async (page) => {
     });
     await page.waitForFunction(() =>
       document.querySelector("#touch-nested-viewport-owner") &&
-      document.elementFromPoint(640, 520)?.getAttribute("data-uf-interaction-shield") === "true"
+      document.elementFromPoint(640, 520)?.getAttribute("data-uf-interaction-shield") === "true" &&
+      getComputedStyle(document.querySelector('[data-uf-interaction-shield="true"]')).touchAction === "pinch-zoom"
     );
     const beforeTouch = await page.evaluate(() => ({
       fixture: window.__p15Runtime.fixtureSnapshot(),
       nestedScrollTop: document.querySelector("#touch-nested-viewport-owner")?.scrollTop ?? -1,
       documentScrollTop: scrollY,
+      shieldTouchAction: getComputedStyle(
+        document.querySelector('[data-uf-interaction-shield="true"]'),
+      ).touchAction,
     }));
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
@@ -454,6 +458,7 @@ async (page) => {
       }));
       assertion(afterTouch.nestedScrollTop > beforeTouch.nestedScrollTop + 30, "Real touch gesture did not scroll the nested viewport owner", { beforeTouch, afterTouch });
       assertion(afterTouch.documentScrollTop === beforeTouch.documentScrollTop, "Locked document scroller moved instead of the nested owner", { beforeTouch, afterTouch });
+      assertion(beforeTouch.shieldTouchAction === "pinch-zoom", "Shield did not reserve single-touch panning for the nested owner before gesture start", beforeTouch);
       assertion(
         afterTouch.fixture.windowCapturePointerCancels > beforeTouch.fixture.windowCapturePointerCancels ||
           afterTouch.fixture.windowCaptureTouchEvents > beforeTouch.fixture.windowCaptureTouchEvents,

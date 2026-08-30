@@ -661,11 +661,14 @@ const DEFERRED_BRANCH_RENDER_TARGET_CHUNK_SIZE = 4;
 // one atomic reveal. This is deliberately target-count bounded rather than
 // timing based so production and deterministic test clocks follow one path.
 // Native paint reachability (`elementsFromPoint`) and layout can dominate the
-// JavaScript around a geometry pass. Keep both the single-frame fast path and
-// every progressive chunk below the measured 50 ms input-frame budget even on
-// a layout-heavy responsive page.
+// JavaScript around a geometry pass. Keep individual chunks tiny, but consume
+// several cheap chunks in one frame behind both a time and count fence. This
+// avoids paying one whole frame per sub-millisecond chunk without allowing a
+// layout-heavy responsive page to monopolize the presentation task.
 const PROGRESSIVE_GEOMETRY_TARGET_THRESHOLD = 6;
 const PROGRESSIVE_GEOMETRY_CHUNK_SIZE = 2;
+const PROGRESSIVE_GEOMETRY_MAX_CHUNKS_PER_FRAME = 4;
+const PROGRESSIVE_GEOMETRY_FRAME_BUDGET_MS = 8;
 // Newly inserted or removed content needs to become markable on roughly the
 // same cadence as the legacy renderer. Presentation attributes are noisier
 // (carousels commonly emit them in short trains), so retain the longer quiet
@@ -1940,38 +1943,50 @@ type DeferredBranchRenderChunk = Readonly<{
         }
         return;
       }
-      const end = Math.min(offset + PROGRESSIVE_GEOMETRY_CHUNK_SIZE, entries.length);
-      const chunk = new Map(entries.slice(offset, end));
-      offset = end;
-      const final = offset >= entries.length;
-      renderer.repositionBranch(chunk, {
-        completeXpaths: final ? completeXpaths : undefined,
-        final,
-        includeSilent,
-        generation,
-      });
-      if (
-        revealMarkingAfterRender
-        && canRevealAfterRetained
-        && offset >= retainedEntries.length
-      ) {
-        // Every box that could have stale viewport coordinates is now current.
-        // Entrants have no old paint to leak, so finish them progressively with
-        // the correct retained presentation already visible.
-        revealMarkingAfterRender = false;
-        renderer.setScrolling(false);
-      }
-      if (final) {
-        progressiveGeometryActive = false;
-        const followup = progressiveGeometryFollowup;
-        progressiveGeometryFollowup = null;
-        if (followup) {
-          scheduleRender(followup);
+      const frameStartedAt = globalThis.performance?.now?.() ?? Date.now();
+      let chunksRendered = 0;
+      while (offset < entries.length) {
+        const end = Math.min(offset + PROGRESSIVE_GEOMETRY_CHUNK_SIZE, entries.length);
+        const chunk = new Map(entries.slice(offset, end));
+        offset = end;
+        chunksRendered += 1;
+        const final = offset >= entries.length;
+        renderer.repositionBranch(chunk, {
+          completeXpaths: final ? completeXpaths : undefined,
+          final,
+          includeSilent,
+          generation,
+        });
+        if (
+          revealMarkingAfterRender
+          && canRevealAfterRetained
+          && offset >= retainedEntries.length
+        ) {
+          // Every box that could have stale viewport coordinates is now current.
+          // Entrants have no old paint to leak, so finish them progressively with
+          // the correct retained presentation already visible.
+          revealMarkingAfterRender = false;
+          renderer.setScrolling(false);
+        }
+        if (final) {
+          progressiveGeometryActive = false;
+          const followup = progressiveGeometryFollowup;
+          progressiveGeometryFollowup = null;
+          if (followup) {
+            scheduleRender(followup);
+            return;
+          }
+          revealMarkingAfterRender = false;
+          renderer.setScrolling(false);
           return;
         }
-        revealMarkingAfterRender = false;
-        renderer.setScrolling(false);
-        return;
+        const elapsed = (globalThis.performance?.now?.() ?? Date.now()) - frameStartedAt;
+        if (
+          chunksRendered >= PROGRESSIVE_GEOMETRY_MAX_CHUNKS_PER_FRAME
+          || elapsed >= PROGRESSIVE_GEOMETRY_FRAME_BUDGET_MS
+        ) {
+          break;
+        }
       }
       const handle = presentationClock.requestFrame(renderNextChunk);
       progressiveGeometryRenderHandle = handle || null;
@@ -2527,6 +2542,7 @@ type DeferredBranchRenderChunk = Readonly<{
     type ResizeGeometrySource = "viewport" | "root";
     let viewportGeometryHandle: ReturnType<typeof setTimeout> | null = null;
     let viewportGeometryKind: ViewportGeometryKind | null = null;
+    let pendingScrollSignature = "";
     let pendingResizeSource: ResizeGeometrySource | null = null;
     let pendingResizeSignature = "";
     const committedResizeSignatures: Record<ResizeGeometrySource, string> = {
@@ -2545,12 +2561,22 @@ type DeferredBranchRenderChunk = Readonly<{
         documentElement.clientHeight,
       ].join(":");
     };
+    const currentViewportScrollSignature = (): string => [
+      view?.scrollX ?? "",
+      view?.scrollY ?? "",
+      visualViewport?.offsetLeft ?? "",
+      visualViewport?.offsetTop ?? "",
+      visualViewport?.pageLeft ?? "",
+      visualViewport?.pageTop ?? "",
+      visualViewport?.scale ?? "",
+    ].join(":");
     const finishViewportGeometry = (): void => {
       if (viewportGeometryKind === "resize" && pendingResizeSource) {
         committedResizeSignatures[pendingResizeSource] = pendingResizeSignature;
       }
       viewportGeometryHandle = null;
       viewportGeometryKind = null;
+      pendingScrollSignature = "";
       pendingResizeSource = null;
       pendingResizeSignature = "";
       // The event train has already been quiet for the mode-specific debounce.
@@ -2564,6 +2590,7 @@ type DeferredBranchRenderChunk = Readonly<{
       quietMs: number,
       hideStaleGeometry: boolean,
       resize: Readonly<{ source: ResizeGeometrySource; signature: string }> | null = null,
+      scrollSignature = "",
     ): void => {
       if (
         kind === "scroll"
@@ -2573,6 +2600,21 @@ type DeferredBranchRenderChunk = Readonly<{
         // Chromium can adjust scrollY while applying device metrics. That
         // induced scroll belongs to the already-owned resize transaction and
         // must not upgrade its 50 ms deadline to the 250 ms marking-scroll one.
+        return;
+      }
+      if (
+        kind === "scroll"
+        && scrollSignature
+        && (
+          viewportGeometryHandle !== null
+          && viewportGeometryKind === "scroll"
+          && pendingScrollSignature === scrollSignature
+        )
+      ) {
+        // Window and VisualViewport commonly report the same physical root
+        // movement in separate tasks. Their normalized terminal geometry is
+        // one transaction; the later duplicate must not restart the quiet
+        // window and make retained paint feel one debounce slower.
         return;
       }
       if (
@@ -2607,6 +2649,7 @@ type DeferredBranchRenderChunk = Readonly<{
         clearTimeout(viewportGeometryHandle);
       }
       viewportGeometryKind = kind;
+      pendingScrollSignature = kind === "scroll" ? scrollSignature : "";
       pendingResizeSource = resize?.source ?? null;
       pendingResizeSignature = resize?.signature ?? "";
       viewportGeometryHandle = setTimeout(finishViewportGeometry, quietMs);
@@ -2626,6 +2669,8 @@ type DeferredBranchRenderChunk = Readonly<{
             ? MARKING_VIEWPORT_SCROLL_QUIET_MS
             : SILENT_VIEWPORT_GEOMETRY_QUIET_MS,
           true,
+          null,
+          currentViewportScrollSignature(),
         );
         return;
       }
@@ -2640,6 +2685,15 @@ type DeferredBranchRenderChunk = Readonly<{
         false,
       );
     };
+    const scheduleVisualViewportScrollRender = (): void => scheduleTrailingGeometry(
+      "scroll",
+      interactiveMarkingRendered
+        ? MARKING_VIEWPORT_SCROLL_QUIET_MS
+        : SILENT_VIEWPORT_GEOMETRY_QUIET_MS,
+      true,
+      null,
+      currentViewportScrollSignature(),
+    );
     const scheduleViewportResizeRender = (): void => scheduleTrailingGeometry(
       "resize",
       interactiveMarkingRendered
@@ -2667,7 +2721,7 @@ type DeferredBranchRenderChunk = Readonly<{
     }
     view?.addEventListener?.("scroll", scheduleGeometryRender, true);
     view?.addEventListener?.("resize", scheduleViewportResizeRender);
-    visualViewport?.addEventListener?.("scroll", scheduleViewportResizeRender);
+    visualViewport?.addEventListener?.("scroll", scheduleVisualViewportScrollRender);
     visualViewport?.addEventListener?.("resize", scheduleViewportResizeRender);
     cleanups.push(() => {
       progressivePresentationCycle += 1;
@@ -2686,6 +2740,7 @@ type DeferredBranchRenderChunk = Readonly<{
         viewportGeometryHandle = null;
       }
       viewportGeometryKind = null;
+      pendingScrollSignature = "";
       pendingResizeSource = null;
       pendingResizeSignature = "";
       committedResizeSignatures.viewport = "";
@@ -2694,7 +2749,7 @@ type DeferredBranchRenderChunk = Readonly<{
       revealMarkingAfterRender = false;
       view?.removeEventListener?.("scroll", scheduleGeometryRender, true);
       view?.removeEventListener?.("resize", scheduleViewportResizeRender);
-      visualViewport?.removeEventListener?.("scroll", scheduleViewportResizeRender);
+      visualViewport?.removeEventListener?.("scroll", scheduleVisualViewportScrollRender);
       visualViewport?.removeEventListener?.("resize", scheduleViewportResizeRender);
     });
     return () => cleanups.forEach((cleanup) => cleanup());

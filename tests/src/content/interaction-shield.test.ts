@@ -1269,6 +1269,7 @@ describe("interaction shield controller", () => {
     context.window.flushTasks();
     const ownerDiscoveryStyleReads = computedStyle.mock.calls.length;
     expect(ownerDiscoveryStyleReads).toBeGreaterThan(0);
+    expect(styleOf(shield, "touch-action")).toEqual(["pinch-zoom", "important"]);
 
     for (const [deltaX, deltaY] of [[20, 100], [25, 140]] as const) {
       context.window.dispatch("wheel", inputEvent(
@@ -1291,17 +1292,22 @@ describe("interaction shield controller", () => {
     context.window.flushTasks();
     expect(scrollShell.scrollTop).toBe(300);
 
-    context.window.dispatch("pointerdown", inputEvent(
+    const pointerDown = inputEvent(
       "pointerdown",
       [shield, context.document.documentElement, context.window],
       { pointerType: "touch", pointerId: 9, clientX: 500, clientY: 600 },
-    ) as unknown as Event);
+    );
+    context.window.dispatch("pointerdown", pointerDown as unknown as Event);
+    expect(pointerDown.preventDefault).toHaveBeenCalledOnce();
+    expect(styleOf(shield, "touch-action")).toEqual(["pinch-zoom", "important"]);
+    const gestureOwnerStyleReads = computedStyle.mock.calls.length;
+    expect(gestureOwnerStyleReads).toBeGreaterThan(ownerDiscoveryStyleReads);
     context.window.dispatch("pointermove", inputEvent(
       "pointermove",
       [shield, context.document.documentElement, context.window],
       { pointerType: "touch", pointerId: 9, clientX: 450, clientY: 400 },
     ) as unknown as Event);
-    expect(computedStyle).toHaveBeenCalledTimes(ownerDiscoveryStyleReads);
+    expect(computedStyle).toHaveBeenCalledTimes(gestureOwnerStyleReads);
     context.window.flushTasks();
     expect(scrollShell.scrollTop).toBe(500);
     expect(scrollShell.scrollLeft).toBe(95);
@@ -1399,13 +1405,6 @@ describe("interaction shield controller", () => {
     const context = harness();
     context.document.documentElement.clientHeight = 768;
     context.document.documentElement.scrollHeight = 768;
-    const scrollShell = context.createElement("main");
-    scrollShell.clientWidth = 1_024;
-    scrollShell.clientHeight = 768;
-    scrollShell.scrollHeight = 3_000;
-    scrollShell.setAttribute("data-fake-overflow-y", "auto");
-    context.document.documentElement.appendChild(scrollShell);
-    context.document.hitTestElements = [scrollShell];
     const controller = createInteractionShield({
       document: asDocument(context.document),
       window: asWindow(context.window),
@@ -1413,17 +1412,35 @@ describe("interaction shield controller", () => {
     controller.activate("silent-highlighting");
     const shield = controller.element() as unknown as FakeElement;
     const path = [shield, context.document.documentElement, context.window];
+    // Prime the initial document proof, then mount the practical viewport in
+    // the same turn as input without delivering a MutationObserver callback.
+    // Gesture start must refresh that stale proof before Chromium owns panning.
+    context.window.flushTasks();
+    const scrollShell = context.createElement("main");
+    scrollShell.clientWidth = 1_024;
+    scrollShell.clientHeight = 768;
+    scrollShell.scrollHeight = 3_000;
+    scrollShell.setAttribute("data-fake-overflow-y", "auto");
+    context.document.documentElement.appendChild(scrollShell);
+    context.document.hitTestElements = [scrollShell];
 
-    context.window.dispatch("pointerdown", inputEvent(
+    const pointerDown = inputEvent(
       "pointerdown",
       path,
       { pointerType: "touch", pointerId: 17, clientX: 500, clientY: 600 },
-    ) as unknown as Event);
-    context.window.dispatch("touchstart", inputEvent(
+    );
+    context.window.dispatch("pointerdown", pointerDown as unknown as Event);
+    expect(pointerDown.preventDefault).toHaveBeenCalledOnce();
+    context.document.scrollingElement.scrollTop = 300;
+    context.window.dispatch("scroll", { type: "scroll" } as Event);
+    expect(context.document.scrollingElement.scrollTop).toBe(0);
+    const touchStart = inputEvent(
       "touchstart",
       path,
       { touches: [{ identifier: 91, clientX: 500, clientY: 600 }] },
-    ) as unknown as Event);
+    );
+    context.window.dispatch("touchstart", touchStart as unknown as Event);
+    expect(touchStart.preventDefault).toHaveBeenCalledOnce();
     const cancelled = inputEvent(
       "pointercancel",
       path,
@@ -1575,6 +1592,8 @@ describe("interaction shield controller", () => {
       path,
       { pointerType: "touch", pointerId: 7, clientX: 500, clientY: 600 },
     ) as unknown as Event);
+    const gestureDiscoveryReads = styleReads.mock.calls.length;
+    expect(gestureDiscoveryReads).toBeGreaterThan(discoveryReads);
     context.window.dispatch("pointermove", inputEvent(
       "pointermove",
       path,
@@ -1594,7 +1613,7 @@ describe("interaction shield controller", () => {
     expect(owner.scrollTop).toBe(300);
 
     context.window.dispatch("wheel", inputEvent("wheel", path, { deltaY: 50 }) as unknown as Event);
-    expect(styleReads).toHaveBeenCalledTimes(discoveryReads);
+    expect(styleReads).toHaveBeenCalledTimes(gestureDiscoveryReads);
     context.window.flushTasks();
     expect(owner.scrollTop).toBe(350);
   });

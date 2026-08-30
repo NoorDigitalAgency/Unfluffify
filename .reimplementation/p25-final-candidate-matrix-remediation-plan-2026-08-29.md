@@ -190,6 +190,25 @@ exclusion creation, Alt inclusion, semantic keyboard rows, 412×960 marking,
 1920×1080 silent posture, one-page Save, and the final-publication fence are all
 retained.
 
+### Post-matrix acceptance hardening
+
+A later clean P25 composite exposed three shared-gate regressions that the
+headed candidate matrix did not isolate: progressive geometry paid one browser
+frame for every two-target sub-millisecond chunk, duplicate Window and
+VisualViewport scroll signals could restart the same quiet transaction, and a
+real nested touch gesture could move the document compositor while the manual
+fallback also moved the correctly resolved nested owner.
+
+The run-plan now consumes up to four cheap geometry chunks behind an 8 ms frame
+budget, coalesces only identical normalized root/visual scroll signatures, and
+binds each touch gesture to a freshly proven owner. When that owner is nested,
+the shield reserves single-touch panning before input and restores the document
+scrolling element inside the browser scroll dispatch while advancing the nested
+owner. Document-owned wheel/touch stays native and multi-touch pinch remains
+available. Focused P14, P15, and P23 smoke gates are green; the final clean P25
+composite and exact pushed-head candidate rerun remain the terminal evidence
+steps.
+
 ## Release constraints retained
 
 - Plain click remains unmark-only; Shift alone creates widened exclusions; Alt
