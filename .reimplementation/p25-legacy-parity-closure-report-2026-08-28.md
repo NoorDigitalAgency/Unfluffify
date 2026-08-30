@@ -3,7 +3,7 @@
 ## Overall result
 
 **REWRITE SANITY PASS; STRICT LEGACY PARITY FAIL.** The P25 audit now records
-166 distinct legacy/rewrite, architecture, lifecycle, UX, performance, and
+167 distinct legacy/rewrite, architecture, lifecycle, UX, performance, and
 evidence-authority findings. The clean rewrite product source passes every
 headed stage on every valid candidate: 9 properties × 13 stages = 117/117. The
 strict pair matrix remains red because pinned legacy cannot terminalize Render

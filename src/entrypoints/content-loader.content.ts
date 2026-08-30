@@ -3216,6 +3216,7 @@ function ensureMarkingListeners(): void {
     altKey: boolean;
     shiftKey: boolean;
     overlayXpath: string;
+    eventTarget: EventTarget | null;
   }> | null = null;
   let hoverFrame = 0;
   let shiftHeld = false;
@@ -3389,34 +3390,47 @@ function ensureMarkingListeners(): void {
     markingMutationActive = true;
     scheduleMutation(mutation);
   };
-  const scheduleHover = (): void => {
-    if (hoverFrame || !lastPointer || typeof window === "undefined") {
+  const runHover = (): void => {
+    hoverFrame = 0;
+    const pointer = lastPointer;
+    if (!markingActive || !markingEngine || !pointer) {
       return;
     }
-    const run = (): void => {
-      hoverFrame = 0;
-      const pointer = lastPointer;
-      if (!markingActive || !markingEngine || !pointer) {
-        return;
+    const mode = spacePassthroughActive
+      ? "passthrough"
+      : pointer.altKey
+        ? "include"
+        : "exclude";
+    if (pointer.overlayXpath) {
+      markingEngine.hoverAtPoint(
+        pointer.x,
+        pointer.y,
+        mode,
+        pointer.shiftKey,
+        { overlayXpath: pointer.overlayXpath },
+      );
+    } else {
+      markingEngine.hoverAtPoint(pointer.x, pointer.y, mode, pointer.shiftKey);
+    }
+  };
+  const scheduleHover = (leading = false): void => {
+    if (!lastPointer || typeof window === "undefined") {
+      return;
+    }
+    if (leading) {
+      if (hoverFrame) {
+        contentPresentationClock.cancelFrame(hoverFrame);
+        hoverFrame = 0;
       }
-      const mode = spacePassthroughActive
-        ? "passthrough"
-        : pointer.altKey
-          ? "include"
-          : "exclude";
-      if (pointer.overlayXpath) {
-        markingEngine.hoverAtPoint(
-          pointer.x,
-          pointer.y,
-          mode,
-          pointer.shiftKey,
-          { overlayXpath: pointer.overlayXpath },
-        );
-      } else {
-        markingEngine.hoverAtPoint(pointer.x, pointer.y, mode, pointer.shiftKey);
-      }
-    };
-    hoverFrame = contentPresentationClock.requestFrame(run);
+      // Paint a newly entered target or modifier mode in the physical input
+      // task. Subsequent movement inside the same semantic boundary remains
+      // frame-coalesced, retaining bounded work without a one-frame first-use
+      // penalty.
+      runHover();
+      return;
+    }
+    if (hoverFrame) return;
+    hoverFrame = contentPresentationClock.requestFrame(runHover);
   };
   const handleClick = (event: MouseEvent): void => {
     if (!isTrustedMarkingInput(event)) {
@@ -3596,14 +3610,22 @@ function ensureMarkingListeners(): void {
       syncMarkingCursor();
     }
     shiftHeld = event.shiftKey;
+    const overlayXpath = overlayXpathFromTarget(event.target);
+    const eventTarget = event.target ?? null;
+    const leading = !lastPointer ||
+      lastPointer.eventTarget !== eventTarget ||
+      lastPointer.overlayXpath !== overlayXpath ||
+      lastPointer.altKey !== event.altKey ||
+      lastPointer.shiftKey !== event.shiftKey;
     lastPointer = {
       x: event.clientX,
       y: event.clientY,
       altKey: event.altKey,
       shiftKey: event.shiftKey,
-      overlayXpath: overlayXpathFromTarget(event.target),
+      overlayXpath,
+      eventTarget,
     };
-    scheduleHover();
+    scheduleHover(leading);
   };
   const handleMouseLeave = (event: MouseEvent): void => {
     if (!isTrustedMarkingInput(event)) {
@@ -3622,8 +3644,10 @@ function ensureMarkingListeners(): void {
       shiftHeld = true;
     }
     if (lastPointer) {
+      const leading = lastPointer.altKey !== altIncludeActive ||
+        lastPointer.shiftKey !== shiftHeld;
       lastPointer = { ...lastPointer, altKey: altIncludeActive, shiftKey: shiftHeld };
-      scheduleHover();
+      scheduleHover(leading);
     }
   };
   const handleKeyUp = (event: KeyboardEvent): void => {
@@ -3636,8 +3660,10 @@ function ensureMarkingListeners(): void {
       shiftHeld = false;
     }
     if (lastPointer) {
+      const leading = lastPointer.altKey !== altIncludeActive ||
+        lastPointer.shiftKey !== shiftHeld;
       lastPointer = { ...lastPointer, altKey: altIncludeActive, shiftKey: shiftHeld };
-      scheduleHover();
+      scheduleHover(leading);
     }
   };
   const resetModifiers = (event?: Event): void => {

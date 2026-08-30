@@ -2751,6 +2751,7 @@ describe("C4 rewrite content entrypoints", () => {
       shiftKey: false,
       isTrusted: true,
     } as unknown as Event);
+    expect(engine.hoverAtPoint).toHaveBeenLastCalledWith(25, 35, "exclude", false);
     documentListeners.get("mousemove")?.({
       clientX: 45,
       clientY: 55,
@@ -2758,9 +2759,6 @@ describe("C4 rewrite content entrypoints", () => {
       shiftKey: false,
       target: classificationOverlayTarget,
     } as unknown as Event);
-    await vi.advanceTimersByTimeAsync(19);
-    expect(engine.hoverAtPoint).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1);
     expect(engine.hoverAtPoint).toHaveBeenLastCalledWith(
       45,
       55,
@@ -2768,15 +2766,34 @@ describe("C4 rewrite content entrypoints", () => {
       false,
       { overlayXpath: "/html[1]/body[1]/p[1]" },
     );
+    await vi.advanceTimersByTimeAsync(19);
+    expect(engine.hoverAtPoint).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(engine.hoverAtPoint).toHaveBeenCalledTimes(2);
     documentListeners.get("mousemove")?.({
       clientX: 65,
       clientY: 75,
       altKey: false,
       shiftKey: true,
     } as unknown as Event);
-    await vi.advanceTimersByTimeAsync(20);
     expect(engine.hoverAtPoint).toHaveBeenLastCalledWith(65, 75, "exclude", true);
-    expect(engine.hoverAtPoint).toHaveBeenCalledTimes(2);
+    documentListeners.get("mousemove")?.({
+      clientX: 75,
+      clientY: 85,
+      altKey: false,
+      shiftKey: true,
+    } as unknown as Event);
+    documentListeners.get("mousemove")?.({
+      clientX: 85,
+      clientY: 95,
+      altKey: false,
+      shiftKey: true,
+    } as unknown as Event);
+    await vi.advanceTimersByTimeAsync(19);
+    expect(engine.hoverAtPoint).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(engine.hoverAtPoint).toHaveBeenLastCalledWith(85, 95, "exclude", true);
+    expect(engine.hoverAtPoint).toHaveBeenCalledTimes(4);
     vi.useRealTimers();
     await dispatchContentCommand(listener, "pauseContentMainInteractions");
     expect(engine.setSuspended).toHaveBeenCalledWith(true);

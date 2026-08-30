@@ -209,6 +209,13 @@ available. Focused P14, P15, and P23 smoke gates are green; the final clean P25
 composite and exact pushed-head candidate rerun remain the terminal evidence
 steps.
 
+The first clean composite then isolated one final strict-ratio miss: small
+Shift-hover p95 was 36.7 ms against a 35.175 ms limit because a new semantic
+target still waited for the same frame throttle used by within-target pointer
+motion. Hover now paints the leading target/modifier boundary in the trusted
+input task and keeps only trailing movement frame-coalesced. P14 smoke measures
+rewrite hover at about 33.4 ms p95 versus 33.3 ms legacy on both corpus sizes.
+
 ## Release constraints retained
 
 - Plain click remains unmark-only; Shift alone creates widened exclusions; Alt

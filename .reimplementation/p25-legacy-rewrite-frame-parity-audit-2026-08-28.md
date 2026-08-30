@@ -1555,6 +1555,16 @@ preserves the stronger architecture.
     the document scrolling element inside the scroll dispatch and after the
     terminal packet. P15's physical gate now passes 36/36 with the nested owner
     moving and the document remaining at its exact starting offset.
+167. **Closed rewrite P1 — first hover shared the trailing-motion frame
+    throttle.** After findings 165–166, the clean composite passed every P14
+    operation except small Shift hover: rewrite p95 was 36.7 ms versus a
+    35.175 ms strict limit, while its broad P14 gate and Long Task budget were
+    green. The entrypoint now paints a newly entered DOM target, overlay owner,
+    or modifier mode on the trusted leading input edge. Repeated movement inside
+    that same semantic boundary remains one trailing presentation-frame update,
+    so high-frequency motion stays coalesced and exact hit/canonical resolution
+    is unchanged. Focused P14 measures rewrite hover at about 33.4 ms p95 versus
+    33.3 ms legacy on both small and large fixtures.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1627,7 +1637,7 @@ preserves the stronger architecture.
 ## Acceptance headline
 
 Implementation remediation and evidence disposition are complete through
-finding 164. The rewrite's observer-free headed result is 117/117 across every
+finding 167. The rewrite's observer-free headed result is 117/117 across every
 valid candidate, with zero invalid overlay paint, clean payloads, complete
 workflow transitions, and zero publication attempts. Strict legacy parity
 remains failed—not pending—because the pinned baseline cannot terminalize render
