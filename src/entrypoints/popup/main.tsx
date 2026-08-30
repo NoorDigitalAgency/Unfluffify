@@ -1720,9 +1720,9 @@ async function pollCurrentTabSignals(): Promise<void> {
 }
 
 /** A side panel is disposable UI. The background owns the long-running job and
- * its result; a newly opened panel only projects the durable terminal record
- * back into the already-running brain session. Selector preview remains an
- * explicit operator action. */
+ * its result; a newly opened panel projects the durable terminal record back
+ * into the already-running brain session, then auto-opens the fresh Content
+ * List after the terminal brain projection is actually observed. */
 async function maybeResumeAiRun(
   context: TargetTabContext,
   requestKey = boundTabKey,
@@ -1803,13 +1803,21 @@ async function maybeResumeAiRun(
         `${response.data.selectors.inclusionSelectors.length} include · ${response.data.selectors.exclusionSelectors.length} exclude`,
         "success",
       );
-      await reportPopupFactAndPull(context, "ai-run-restored", {
+      const terminalProjectionObserved = await reportPopupFactAndPull(context, "ai-run-restored", {
         runPhase: "completed",
         runSessionId: response.data.clientRunId,
         runAiSessionId: response.data.sessionId,
         runSelectors: response.data.selectors,
-      }, requestKey);
-      if (adoptIf() && !dirtyDuringRun && store.getState().name === "post_ai_clean") {
+      }, requestKey, () => {
+        const stateName = store.getState().name;
+        return stateName === "post_ai_clean" || stateName === "pre_ai_dirty";
+      });
+      if (
+        adoptIf() &&
+        terminalProjectionObserved &&
+        !dirtyDuringRun &&
+        store.getState().name === "post_ai_clean"
+      ) {
         await showPreview();
       }
       return;
@@ -4064,27 +4072,52 @@ async function runAiOperation(action: OperatorActionOccurrence): Promise<void> {
       return;
     }
     contentDirty = false;
-    notifyBoundEvent(
-      binding,
-      "Run AI completed",
-      `${response.data.selectors.inclusionSelectors.length} include · ${response.data.selectors.exclusionSelectors.length} exclude`,
-      "success",
-    );
-    await reportPopupFactAndPull(context, "ai-run-completed", {
+    const terminalProjectionObserved = await reportPopupFactAndPull(context, "ai-run-completed", {
       runPhase: "completed",
       runSessionId: localRunId,
       runAiSessionId: response.data.sessionId ?? "",
       runSelectors: response.data.selectors,
-    }, requestKey);
+    }, requestKey, () => {
+      const stateName = store.getState().name;
+      return stateName === "post_ai_clean" || stateName === "pre_ai_dirty";
+    });
     await syncContentRunGeneration(
       context,
       brainSignals.consumedThrough(),
       localRunId,
       "terminal",
     );
-    if (bindingOccurrenceIsCurrent(binding) && store.getState().name === "post_ai_clean") {
+    const terminalStateName = store.getState().name;
+    if (bindingOccurrenceIsCurrent(binding) && !terminalProjectionObserved) {
+      contentDirty = true;
+      lastSubmissionSnapshot = null;
+      lastSubmissionKey = null;
+      notifyAiFailure(binding, {
+        stage: "result",
+        reason: "completion_projection_timed_out",
+        status: "projection_timeout",
+        localRunId,
+        backendRunId: response.data.sessionId,
+      });
+    } else if (bindingOccurrenceIsCurrent(binding) && terminalStateName === "post_ai_clean") {
+      notifyBoundEvent(
+        binding,
+        "Run AI completed",
+        `${response.data.selectors.inclusionSelectors.length} include · ${response.data.selectors.exclusionSelectors.length} exclude`,
+        "success",
+      );
       advanceOperatorAction(action, "preview");
       await showPreview(action);
+    } else if (bindingOccurrenceIsCurrent(binding) && terminalStateName === "pre_ai_dirty") {
+      contentDirty = true;
+      lastSubmissionSnapshot = null;
+      lastSubmissionKey = null;
+      notifyBoundEvent(
+        binding,
+        "Run AI needs another run",
+        "the page changed while selectors were being computed",
+        "warn",
+      );
     }
   } else {
     notifyAiFailure(binding, {

@@ -2671,7 +2671,12 @@ describe("rewrite popup entrypoint", () => {
         return replyFrame(message, { status: "ok", config: backendConfig() });
       }
       return replyFrame(message, []);
-    }, "static");
+    }, "static", {
+      // Production can deliver the typed signal-availability edge after the
+      // fact-report request returns. Auto-open must wait for that terminal
+      // projection instead of sampling the still-running store once.
+      deferFactAvailabilityReasons: ["ai-run-completed"],
+    });
     globalThis.chrome = {
       runtime: {
         ...runtime,
