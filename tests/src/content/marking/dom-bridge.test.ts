@@ -3438,6 +3438,102 @@ describe("P6 DOM bridge", () => {
     }
   });
 
+  it("reveals reconciled retained boxes before progressive viewport entrants finish", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const animationFrames: Array<() => void> = [];
+      const listeners = new Map<string, (event?: Event) => void>();
+      const observed: Element[] = [];
+      let intersectionCallback: IntersectionObserverCallback | null = null;
+      class FakeIntersectionObserver {
+        constructor(callback: IntersectionObserverCallback) {
+          intersectionCallback = callback;
+        }
+        observe(target: Element): void {
+          observed.push(target);
+        }
+        disconnect(): void {
+          observed.splice(0);
+        }
+      }
+      Object.assign(doc.defaultView, {
+        IntersectionObserver: FakeIntersectionObserver,
+        innerHeight: 200,
+        requestAnimationFrame(callback: () => void) {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+        addEventListener(type: string, listener: (event?: Event) => void) {
+          listeners.set(type, listener);
+        },
+        removeEventListener(type: string) {
+          listeners.delete(type);
+        },
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 3_000));
+      root.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      const paragraphs = Array.from({ length: 10 }, (_, index) => {
+        const top = index < 2 ? index * 30 : 1_000 + index * 30;
+        const paragraph = new FakeElement("P", rect(0, top, 120, 20), `Row ${index}`);
+        paragraph.ownerDocument = doc;
+        root.appendChild(paragraph);
+        return paragraph;
+      });
+      doc.pointHits = (_x, y) => {
+        const paragraph = paragraphs.find((candidate) =>
+          y >= candidate.rect.top && y <= candidate.rect.bottom
+        );
+        return paragraph ? [paragraph, root] : [root];
+      };
+      const renderer = createRendererTestSeam();
+      const engine = createMarkingEngine(root as unknown as Element, {
+        render: true,
+        instrumentation: { createRenderer: renderer.createRenderer },
+      });
+      const retainedXpaths = new Set(["/main[1]/p[1]", "/main[1]/p[2]"]);
+      const presentationXpaths = new Set(paragraphs.map((_paragraph, index) =>
+        `/main[1]/p[${index + 1}]`
+      ));
+      const rendererInstance = renderer.createRenderer.mock.results[0]?.value;
+      Object.assign(rendererInstance!, {
+        retainedViewportXpaths: () => retainedXpaths,
+        viewportPresentationXpaths: () => presentationXpaths,
+      });
+
+      intersectionCallback?.(observed.map((target) => ({
+        target,
+        isIntersecting: false,
+        intersectionRatio: 0,
+      } as IntersectionObserverEntry)), {} as IntersectionObserver);
+      listeners.get("scroll")?.({ target: doc } as unknown as Event);
+      expect(engine.overlayRoot().className).toContain("uf-scrolling");
+      const entrants = new Set<Element>(paragraphs.slice(2) as unknown as Element[]);
+      intersectionCallback?.(observed
+        .filter((target) => entrants.has(target))
+        .map((target) => ({
+          target,
+          isIntersecting: true,
+          intersectionRatio: 1,
+        } as IntersectionObserverEntry)), {} as IntersectionObserver);
+      renderer.geometryBranchRender.mockClear();
+
+      vi.advanceTimersByTime(230);
+      animationFrames.shift()?.();
+
+      expect(renderer.geometryBranchRender).toHaveBeenLastCalledWith(2, false);
+      expect(animationFrames.length).toBeGreaterThan(0);
+      expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
+      while (animationFrames.length > 0) animationFrames.shift()?.();
+      expect(renderer.geometryBranchRender).toHaveBeenLastCalledWith(expect.any(Number), true);
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("bounds settled viewport geometry to retained paint instead of stable intersections", () => {
     vi.useFakeTimers();
     try {

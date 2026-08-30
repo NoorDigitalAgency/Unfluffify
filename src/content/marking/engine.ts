@@ -1498,11 +1498,27 @@ export function createMarkingEngine(
     cancelProgressiveGeometryRender();
     const cycle = progressiveGeometryCycle;
     const generation = bridgeGeneration;
-    const entries = [...byXpath];
+    // Reconcile already-painted boxes before newly intersecting entrants. Only
+    // the retained corpus can display stale fixed coordinates after viewport
+    // movement; keeping the entire layer hidden while an unrelated entrant
+    // backlog is measured made dense pages stay blank for well over a second.
+    const retainedAtStart = renderer.retainedViewportXpaths();
+    const retainedEntries: Array<readonly [string, OverlayRenderTarget]> = [];
+    const enteringEntries: Array<readonly [string, OverlayRenderTarget]> = [];
+    for (const entry of byXpath) {
+      (retainedAtStart.has(entry[0]) ? retainedEntries : enteringEntries).push(entry);
+    }
+    const entries = [...retainedEntries, ...enteringEntries];
+    const canRevealAfterRetained = [...retainedAtStart].every((xpath) => byXpath.has(xpath));
     const completeXpaths = new Set(byXpath.keys());
     let offset = 0;
     progressiveGeometryActive = true;
-    renderer.setScrolling(true);
+    // Intersection-only follow-ups add or retire presentation after an already
+    // settled viewport transaction. They must never fade the correct retained
+    // layer a second time.
+    if (revealMarkingAfterRender) {
+      renderer.setScrolling(true);
+    }
 
     const renderNextChunk = (): void => {
       progressiveGeometryRenderHandle = null;
@@ -1526,6 +1542,17 @@ export function createMarkingEngine(
         includeSilent,
         generation,
       });
+      if (
+        revealMarkingAfterRender
+        && canRevealAfterRetained
+        && offset >= retainedEntries.length
+      ) {
+        // Every box that could have stale viewport coordinates is now current.
+        // Entrants have no old paint to leak, so finish them progressively with
+        // the correct retained presentation already visible.
+        revealMarkingAfterRender = false;
+        renderer.setScrolling(false);
+      }
       if (final) {
         progressiveGeometryActive = false;
         const followup = progressiveGeometryFollowup;
