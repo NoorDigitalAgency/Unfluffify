@@ -578,24 +578,6 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     );
   };
 
-  const silentPresentationIsPaintable = (xpath: string, presentation: string): boolean => {
-    // Silent content ghosts represent the retained explicit-inclusion contract;
-    // like their marking equivalent, a transient cover must not delete them.
-    if (presentation.includes("uf-silent-content-ghost")) {
-      return true;
-    }
-    const target = latestTargetByXpath.get(xpath);
-    const exclusion = presentation.includes("uf-silent-immutable") ||
-      presentation.includes("uf-silent-excluded");
-    return Boolean(
-      target &&
-      measuredVisibilityFor(target.element) &&
-      (exclusion
-        ? measuredOwnPaintRectsFor(target.element)
-        : measuredClientRectsFor(target.element)).length > 0,
-    );
-  };
-
   const pruneInvisibleExclusions = (): number => {
     beginGeometryBatch();
     let removed = 0;
@@ -610,16 +592,6 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       paintableByPresentation.set(key, next);
       return next;
     };
-    const silentPaintable = (xpath: string, presentation: string): boolean => {
-      const key = `${presentation}:${xpath}`;
-      const retained = paintableByPresentation.get(key);
-      if (retained !== undefined) {
-        return retained;
-      }
-      const next = silentPresentationIsPaintable(xpath, presentation);
-      paintableByPresentation.set(key, next);
-      return next;
-    };
     try {
       for (const [key, record] of classificationBoxes) {
         if (
@@ -631,11 +603,19 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
           removed += 1;
         }
       }
-      for (const [key, record] of silentBoxes) {
-        if (!silentPaintable(record.xpath, record.presentation)) {
-          record.overlay.remove();
-          silentBoxes.delete(key);
-          removed += 1;
+      // A viewport transaction owns silent node identity from fade through the
+      // authoritative trailing geometry pass. Mutation observers commonly fire
+      // for sticky-header class changes inside that transaction; deleting boxes
+      // here makes the moved frame look unfaded and prevents smooth restoration.
+      if (!scrolling) {
+        for (const [key, record] of silentBoxes) {
+          const exclusion = record.presentation.includes("uf-silent-immutable") ||
+            record.presentation.includes("uf-silent-excluded");
+          if (exclusion && !classificationPaintable(record.xpath, "exception")) {
+            record.overlay.remove();
+            silentBoxes.delete(key);
+            removed += 1;
+          }
         }
       }
     } finally {

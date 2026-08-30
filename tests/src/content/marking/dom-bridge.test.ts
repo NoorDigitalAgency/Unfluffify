@@ -4131,6 +4131,65 @@ describe("P6 DOM bridge", () => {
     }
   });
 
+  it("does not prune silent exclusions during a viewport fade transaction", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const listeners = new Map<string, (event?: Event) => void>();
+      const mutationCallbacks: Array<(records: MutationRecord[]) => void> = [];
+      Object.assign(doc.defaultView, {
+        addEventListener(type: string, listener: (event?: Event) => void) {
+          listeners.set(type, listener);
+        },
+        removeEventListener(type: string) {
+          listeners.delete(type);
+        },
+        MutationObserver: class {
+          constructor(callback: (records: MutationRecord[]) => void) {
+            mutationCallbacks.push(callback);
+          }
+          observe() {}
+          disconnect() {}
+        },
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+      const paragraph = new FakeElement("P", rect(0, 0, 120, 20), "Excluded copy");
+      root.ownerDocument = doc;
+      paragraph.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      root.appendChild(paragraph);
+      doc.hits = [paragraph, root];
+      const engine = createMarkingEngine(root as unknown as Element);
+      const exclusion = engine.resolveAtPoint(10, 10, "exclude", true);
+      expect(exclusion).not.toBeNull();
+      engine.toggle(exclusion!, "exclude");
+      engine.renderSilentHighlights();
+      const silentBoxes = (): FakeElement[] => engine.overlayRoot().children
+        .flatMap((layer) => layer.children)
+        .filter((overlay) => overlay.getAttribute("data-uf-silent-highlight") !== null);
+      const retainedBoxes = silentBoxes();
+      expect(retainedBoxes).not.toHaveLength(0);
+
+      paragraph.clientRects = [rect(500, 0, 120, 20)];
+      doc.hits = [root];
+      listeners.get("scroll")?.({ target: doc } as unknown as Event);
+      expect(engine.overlayRoot().className).toContain("uf-scrolling");
+      paragraph.setAttribute("class", "page-scrolled");
+      mutationCallbacks[0]?.([{
+        type: "attributes",
+        target: paragraph,
+        attributeName: "class",
+        oldValue: null,
+      } as unknown as MutationRecord]);
+
+      expect(silentBoxes()).toEqual(retainedBoxes);
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("bounds silent viewport geometry while retaining offscreen node identity", () => {
     vi.useFakeTimers();
     try {
