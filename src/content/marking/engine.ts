@@ -4,6 +4,7 @@ import type { SelectorSet } from "../../storage/config";
 import type { CanonicalMarkSet, Classification, MarkMode, MarkRow } from "../../domain/schema/marking";
 import {
   evaluatePreview,
+  type EvaluationResult,
   type EvaluationNode,
   type PreviewSelectorMatchContext,
 } from "../../domain/evaluate";
@@ -698,6 +699,15 @@ const MARKING_VIEWPORT_RESIZE_QUIET_MS = 50;
 // Keep the single target focus proof alive through that bounded settle window.
 const PREVIEW_FOCUS_SCROLL_MAX_FRAMES = 90;
 const PREVIEW_FOCUS_SCROLL_STABLE_FRAMES = 16;
+type SilentEvaluationIndex = Readonly<{
+  evaluation: EvaluationResult;
+  rowsByXpath: ReadonlyMap<string, MarkRow>;
+  rowOrder: ReadonlyMap<string, number>;
+  immutableXpaths: readonly string[];
+  excludedXpaths: readonly string[];
+  immutableOrder: ReadonlyMap<string, number>;
+  excludedOrder: ReadonlyMap<string, number>;
+}>;
 const PRESENTATION_MUTATION_ATTRIBUTES = new Set([
   "class",
   "style",
@@ -1024,6 +1034,7 @@ export function createMarkingEngine(
   let previewFocusRefreshCycle = 0;
   let lastPreviewRequest: Readonly<{ pageUrl: string; selectors: SelectorSet }> | null = null;
   let currentPreviewProjection: PreviewProjection | null = null;
+  let silentEvaluationIndex: SilentEvaluationIndex | null = null;
   const generationByNode = new WeakMap<EvaluationNode, number>();
   const fingerprintByNode = new WeakMap<EvaluationNode, string>();
   const elementByNode = new WeakMap<EvaluationNode, Element>();
@@ -1441,9 +1452,42 @@ export function createMarkingEngine(
     collect(branchRoot);
     return { affectedXpaths, targets: elements };
   };
+  const silentEvaluationIndexFor = (evaluation: EvaluationResult): SilentEvaluationIndex => {
+    if (silentEvaluationIndex?.evaluation === evaluation) {
+      return silentEvaluationIndex;
+    }
+    const rowsByXpath = new Map<string, MarkRow>();
+    const rowOrder = new Map<string, number>();
+    evaluation.rows.forEach((row, index) => {
+      rowsByXpath.set(row.xpath, row);
+      rowOrder.set(row.xpath, index);
+    });
+    const immutableCandidates: string[] = [];
+    const excludedCandidates: string[] = [];
+    for (const [xpath, classification] of evaluation.overlay) {
+      if (classification === "immutable" || classification === "closed-shadow") {
+        immutableCandidates.push(xpath);
+      } else if (classification === "exception") {
+        excludedCandidates.push(xpath);
+      }
+    }
+    const immutableXpaths = shallowXpathBoundaries(immutableCandidates);
+    const excludedXpaths = shallowXpathBoundaries(excludedCandidates);
+    silentEvaluationIndex = {
+      evaluation,
+      rowsByXpath,
+      rowOrder,
+      immutableXpaths,
+      excludedXpaths,
+      immutableOrder: new Map(immutableXpaths.map((xpath, index) => [xpath, index])),
+      excludedOrder: new Map(excludedXpaths.map((xpath, index) => [xpath, index])),
+    };
+    return silentEvaluationIndex;
+  };
   const renderSilent = (): readonly string[] => {
     const byXpath = byXpathElements();
     const evaluation = store.currentEvaluation();
+    const index = silentEvaluationIndexFor(evaluation);
     const geometryCache = new Map<string, VisibilityGeometry>();
     const geometryByXpath = {
       get(xpath: string): VisibilityGeometry | undefined {
@@ -1461,18 +1505,10 @@ export function createMarkingEngine(
       },
     };
     const xpaths = buildSilentHighlights(evaluation, geometryByXpath);
-    const immutableCandidates: string[] = [];
-    const excludedCandidates: string[] = [];
-    for (const [xpath, classification] of evaluation.overlay) {
-      if (classification === "immutable" || classification === "closed-shadow") {
-        immutableCandidates.push(xpath);
-      } else if (classification === "exception") {
-        excludedCandidates.push(xpath);
-      }
-    }
-    const immutableXpaths = shallowXpathBoundaries(immutableCandidates);
-    const excludedXpaths = shallowXpathBoundaries(excludedCandidates);
-    renderer.renderSilentHighlights(xpaths, byXpath, { immutableXpaths, excludedXpaths });
+    renderer.renderSilentHighlights(xpaths, byXpath, {
+      immutableXpaths: index.immutableXpaths,
+      excludedXpaths: index.excludedXpaths,
+    });
     reportWorkStage("silent-render");
     return xpaths;
   };
@@ -1480,8 +1516,22 @@ export function createMarkingEngine(
     evaluation: ReturnType<typeof store.currentEvaluation>,
     byXpath: ReadonlyMap<string, OverlayRenderTarget>,
   ): readonly string[] => {
-    const affectedXpaths = new Set(byXpath.keys());
-    const branchRows = evaluation.rows.filter((row) => affectedXpaths.has(row.xpath));
+    const index = silentEvaluationIndexFor(evaluation);
+    const branchRows: MarkRow[] = [];
+    const immutableXpaths: string[] = [];
+    const excludedXpaths: string[] = [];
+    for (const xpath of byXpath.keys()) {
+      const row = index.rowsByXpath.get(xpath);
+      if (row) branchRows.push(row);
+      if (index.immutableOrder.has(xpath)) immutableXpaths.push(xpath);
+      if (index.excludedOrder.has(xpath)) excludedXpaths.push(xpath);
+    }
+    branchRows.sort((left, right) =>
+      (index.rowOrder.get(left.xpath) ?? 0) - (index.rowOrder.get(right.xpath) ?? 0));
+    immutableXpaths.sort((left, right) =>
+      (index.immutableOrder.get(left) ?? 0) - (index.immutableOrder.get(right) ?? 0));
+    excludedXpaths.sort((left, right) =>
+      (index.excludedOrder.get(left) ?? 0) - (index.excludedOrder.get(right) ?? 0));
     const geometryCache = new Map<string, VisibilityGeometry>();
     const geometryByXpath = {
       get(xpath: string): VisibilityGeometry | undefined {
@@ -1502,19 +1552,6 @@ export function createMarkingEngine(
       rows: branchRows,
       overlay: evaluation.overlay,
     }, geometryByXpath);
-    const immutableCandidates: string[] = [];
-    const excludedCandidates: string[] = [];
-    for (const [xpath, classification] of evaluation.overlay) {
-      if (classification === "immutable" || classification === "closed-shadow") {
-        immutableCandidates.push(xpath);
-      } else if (classification === "exception") {
-        excludedCandidates.push(xpath);
-      }
-    }
-    const immutableXpaths = shallowXpathBoundaries(immutableCandidates)
-      .filter((xpath) => affectedXpaths.has(xpath));
-    const excludedXpaths = shallowXpathBoundaries(excludedCandidates)
-      .filter((xpath) => affectedXpaths.has(xpath));
     renderer.renderSilentHighlightsBranch(xpaths, byXpath, { immutableXpaths, excludedXpaths });
     reportWorkStage("silent-render");
     return xpaths;
@@ -1526,7 +1563,7 @@ export function createMarkingEngine(
       renderSilent();
     }
   };
-  type DeferredBranchRenderChunk = Readonly<{
+type DeferredBranchRenderChunk = Readonly<{
     affectedXpaths: ReadonlySet<string>;
     targets: ReadonlyMap<string, OverlayRenderTarget>;
   }>;
