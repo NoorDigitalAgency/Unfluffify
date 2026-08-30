@@ -2780,19 +2780,24 @@ export function createMarkingEngine(
       if (!projection) {
         return null;
       }
-      const projectedIds = new Set(projection.rows.map((row) => row.id));
-      for (const element of getComposedHitElements(rootElement.ownerDocument, x, y)) {
-        const rowId = bridge.byElement.get(element)?.evaluationNode.key;
-        if (rowId && projectedIds.has(rowId)) {
-          return { projectionId: projection.projectionId, rowId };
-        }
-      }
+      // Preview clicks target the painted rectangle, not an arbitrary surviving
+      // DOM ancestor underneath the shield. Reactive sites can replace the
+      // painted leaf while retaining its broad footer/header owner; consult the
+      // renderer's canonical retained XPath before that ancestor can steal the
+      // route through the live Element bridge.
       const paintedXpath = renderer.previewXpathAtPoint(x, y);
       const paintedRow = paintedXpath
         ? projection.rows.find((row) => row.xpath === paintedXpath)
         : undefined;
       if (paintedRow) {
         return { projectionId: projection.projectionId, rowId: paintedRow.id };
+      }
+      const projectedIds = new Set(projection.rows.map((row) => row.id));
+      for (const element of getComposedHitElements(rootElement.ownerDocument, x, y)) {
+        const rowId = bridge.byElement.get(element)?.evaluationNode.key;
+        if (rowId && projectedIds.has(rowId)) {
+          return { projectionId: projection.projectionId, rowId };
+        }
       }
       return null;
     },

@@ -1049,6 +1049,45 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
+  it("routes a replaced painted leaf before its surviving broad owner", () => {
+    const doc = new FakeDocument();
+    const footer = new FakeElement("FOOTER", rect(0, 0, 300, 200), "Contact footer");
+    const original = new FakeElement("IMG", rect(20, 40, 80, 30));
+    original.setAttribute("alt", "Kontakta oss");
+    footer.ownerDocument = doc;
+    original.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(footer);
+    footer.appendChild(original);
+    doc.pointHits = () => [original, footer];
+
+    const selectors = {
+      inclusionSelectors: [],
+      exclusionSelectors: ["footer", "img"],
+    };
+    const engine = createMarkingEngine(footer as unknown as Element, { selectors, render: true });
+    const projection = engine.projectPreview("https://example.com/page", selectors);
+    const imageXpath = "/footer[1]/img[1]";
+    const imageRow = projection.rows.find((candidate) => candidate.xpath === imageXpath);
+    expect(imageRow).toBeDefined();
+    expect(engine.overlayRoot().children.flatMap((layer) => layer.children).map((overlay) =>
+      overlay.getAttribute("data-uf-overlay-xpath")
+    )).toContain(imageXpath);
+
+    const replacement = new FakeElement("IMG", rect(20, 40, 80, 30));
+    replacement.setAttribute("alt", "Kontakta oss");
+    replacement.ownerDocument = doc;
+    original.remove();
+    footer.appendChild(replacement);
+    doc.pointHits = () => [replacement, footer];
+
+    expect(engine.previewRowAtPoint(60, 55)).toEqual({
+      projectionId: projection.projectionId,
+      rowId: imageRow?.id,
+    });
+    engine.dispose();
+  });
+
   it("routes preview clicks through the smallest retained classification rectangle", () => {
     const doc = new FakeDocument();
     const header = new FakeElement("HEADER", rect(0, 0, 300, 100), "Header navigation");
