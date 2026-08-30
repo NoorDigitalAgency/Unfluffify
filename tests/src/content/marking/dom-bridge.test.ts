@@ -1911,6 +1911,32 @@ describe("P6 DOM bridge", () => {
     renderer.dispose();
   });
 
+  it("does not paint silent geometry behind forced scrollbar gutters", () => {
+    const doc = new FakeDocument();
+    Object.assign(doc.defaultView, { innerWidth: 1_000, innerHeight: 800 });
+    Object.assign(doc.documentElement, { clientWidth: 980, clientHeight: 780 });
+    const behindHorizontalScrollbar = new FakeElement(
+      "H2",
+      rect(20, 785, 240, 30),
+      "Hidden behind the scrollbar",
+    );
+    behindHorizontalScrollbar.ownerDocument = doc;
+    doc.pointHits = () => [behindHorizontalScrollbar];
+    const renderer = createOverlayRenderer({ document: doc as unknown as Document });
+
+    renderer.renderSilentHighlights(["/h2[1]"], new Map([
+      ["/h2[1]", {
+        element: behindHorizontalScrollbar as unknown as Element,
+        visible: true,
+      }],
+    ]));
+
+    expect(renderer.root.children.flatMap((layer) => layer.children).some((box) =>
+      box.getAttribute("data-uf-silent-highlight") === "/h2[1]"
+    )).toBe(false);
+    renderer.dispose();
+  });
+
   it("initializes and refreshes defaults in one bridge, evaluation, candidate-index, and render transaction", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 200));

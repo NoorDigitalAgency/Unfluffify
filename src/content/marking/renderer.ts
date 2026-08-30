@@ -122,8 +122,16 @@ function releaseOverlayStyles(document: Document): void {
 }
 
 function rectInViewport(rect: RectLike, document: Document): boolean {
-  const viewportWidth = document.defaultView?.innerWidth ?? Number.POSITIVE_INFINITY;
-  const viewportHeight = document.defaultView?.innerHeight ?? Number.POSITIVE_INFINITY;
+  // `innerWidth`/`innerHeight` include classic scrollbar gutters. Those pixels
+  // are not page paint and elements underneath them cannot be hit-tested. Use
+  // the document client area first so we never create a conspicuous overlay
+  // for a source that is physically hidden behind a forced scrollbar.
+  const viewportWidth = document.documentElement?.clientWidth
+    || document.defaultView?.innerWidth
+    || Number.POSITIVE_INFINITY;
+  const viewportHeight = document.documentElement?.clientHeight
+    || document.defaultView?.innerHeight
+    || Number.POSITIVE_INFINITY;
   return rect.width > 0
     && rect.height > 0
     && rect.left + rect.width > 0
@@ -133,12 +141,12 @@ function rectInViewport(rect: RectLike, document: Document): boolean {
 }
 
 function rectIsPaintReachable(element: Element, rect: RectLike, document: Document): boolean {
-  const viewportWidth = document.defaultView?.innerWidth
-    ?? document.documentElement?.clientWidth
-    ?? Number.POSITIVE_INFINITY;
-  const viewportHeight = document.defaultView?.innerHeight
-    ?? document.documentElement?.clientHeight
-    ?? Number.POSITIVE_INFINITY;
+  const viewportWidth = document.documentElement?.clientWidth
+    || document.defaultView?.innerWidth
+    || Number.POSITIVE_INFINITY;
+  const viewportHeight = document.documentElement?.clientHeight
+    || document.defaultView?.innerHeight
+    || Number.POSITIVE_INFINITY;
   const left = Math.max(0, rect.left);
   const top = Math.max(0, rect.top);
   const right = Math.min(viewportWidth, rect.left + rect.width);
