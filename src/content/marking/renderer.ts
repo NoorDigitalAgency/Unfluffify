@@ -421,7 +421,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   const classificationBoxes = new Map<string, ClassificationBox>();
   const silentPresentationByXpath = new Map<string, string>();
   const silentBoxes = new Map<string, SilentBox>();
-  const hoverBoxes = new Map<string, HTMLElement>();
+  const hoverBoxes: HTMLElement[] = [];
   const focusBoxes = new Map<string, HTMLElement>();
   const latestTargetByXpath = new Map<string, OverlayRenderTarget>();
   let hoverElement: Element | null = null;
@@ -943,32 +943,38 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     }
   };
 
+  const acquireHoverBox = (layer: HTMLElement, index: number): HTMLElement => {
+    const retained = hoverBoxes[index];
+    if (retained) return retained;
+    const overlay = options.document.createElement("div");
+    overlay.setAttribute("data-uf-extension-ui", "true");
+    overlay.setAttribute("data-uf-overlay-rect", String(index));
+    overlay.className = "uf-rect uf-hover";
+    overlay.style.display = "none";
+    hoverBoxes[index] = overlay;
+    layer.appendChild(overlay);
+    return overlay;
+  };
+
   const drawHover = (): void => {
-    const used = new Set<string>();
     const layer = layers.get("hover");
-    if (layer && hoverElement) {
-      const rects = measuredClientRectsFor(hoverElement);
-      for (let index = 0; index < rects.length; index += 1) {
-        const key = `${hoverXpath}\u0000${index}`;
-        let overlay = hoverBoxes.get(key);
-        if (!overlay) {
-          overlay = options.document.createElement("div");
-          overlay.setAttribute("data-uf-extension-ui", "true");
-          overlay.setAttribute("data-uf-overlay-hover", hoverXpath);
-          overlay.setAttribute("data-uf-overlay-rect", String(index));
-          overlay.className = "uf-rect uf-hover";
-          hoverBoxes.set(key, overlay);
-          layer.appendChild(overlay);
-        }
-        placeOverlay(overlay, rects[index]!);
-        used.add(key);
-      }
+    const rects = layer && hoverElement ? measuredClientRectsFor(hoverElement) : [];
+    for (let index = 0; index < rects.length; index += 1) {
+      const overlay = acquireHoverBox(layer!, index);
+      overlay.setAttribute("data-uf-overlay-hover", hoverXpath);
+      overlay.style.display = "";
+      placeOverlay(overlay, rects[index]!);
     }
-    for (const [key, overlay] of hoverBoxes) {
-      if (!used.has(key)) {
-        overlay.remove();
-        hoverBoxes.delete(key);
+    for (let index = rects.length; index < hoverBoxes.length; index += 1) {
+      const overlay = hoverBoxes[index]!;
+      if (typeof overlay.removeAttribute === "function") {
+        overlay.removeAttribute("data-uf-overlay-hover");
+      } else {
+        // Minimal DOM test seams do not implement removeAttribute; the empty
+        // value retains the same non-authoritative owner semantics there.
+        overlay.setAttribute("data-uf-overlay-hover", "");
       }
+      overlay.style.display = "none";
     }
   };
 
@@ -1032,7 +1038,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     classificationBoxes.clear();
     silentPresentationByXpath.clear();
     silentBoxes.clear();
-    hoverBoxes.clear();
+    hoverBoxes.length = 0;
     focusBoxes.clear();
     hoverElement = null;
     hoverXpath = "";
@@ -1043,6 +1049,13 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   };
 
   mountLayers();
+  const hoverLayer = layers.get("hover");
+  if (hoverLayer) {
+    // Pinned legacy retains and reuses hover rectangles. Prewarm the common
+    // single-rect case during activation so physical pointer input performs no
+    // DOM allocation; multi-rect targets extend the same retained pool.
+    acquireHoverBox(hoverLayer, 0);
+  }
   return {
     root,
     attach,

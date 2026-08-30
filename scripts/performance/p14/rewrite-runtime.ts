@@ -2,6 +2,7 @@ import { createMarkingEngine } from "../../../src/content/marking/engine";
 import { createDomBridgeView, type DomBridgeView } from "../../../src/content/marking/dom-view";
 import { createOverlayRenderer } from "../../../src/content/marking/renderer";
 import { createPhysicalActionDeduper } from "../../../src/content/marking/interaction";
+import { markingHoverNeedsLeadingPaint } from "../../../src/content/marking/hover-scheduling";
 import { presentationClockFor } from "../../../src/content/presentation-clock";
 import { evaluate, type EvaluationResult } from "../../../src/domain/evaluate";
 import type { SelectorSet } from "../../../src/storage/config";
@@ -33,6 +34,7 @@ let capturedBridge: DomBridgeView | null = null;
 let latestEvaluation: EvaluationResult | null = null;
 let userToggleCount = 0;
 let reportPayloadCount = 0;
+let hoverPaintProof: Promise<void> | null = null;
 let stopMutationPressure: ReturnType<typeof startStorefrontMutationPressure> | null = null;
 let pressureWorkSampleStart = 0;
 const workSamples: Array<Readonly<{ stage: string; durationMs: number; nodeCount: number }>> = [];
@@ -68,7 +70,14 @@ function rowForXpath(xpath: string) {
 }
 
 function installMarkingInputs(): () => void {
-  let lastPointer: Readonly<{ x: number; y: number; altKey: boolean; shiftKey: boolean }> | null = null;
+  let lastPointer: Readonly<{
+    x: number;
+    y: number;
+    altKey: boolean;
+    shiftKey: boolean;
+    overlayXpath: string;
+    eventTarget: EventTarget | null;
+  }> | null = null;
   let hoverFrame = 0;
   let physicalSequence = 0;
   let lastPointerDown: Readonly<{
@@ -114,27 +123,42 @@ function installMarkingInputs(): () => void {
     };
     reportPayloadCount += payload.sensation.facts.markingToggleSeq > 0 ? 1 : 0;
   };
+  const runHover = (): void => {
+    hoverFrame = 0;
+    if (lastPointer) {
+      engine?.hoverAtPoint(
+        lastPointer.x,
+        lastPointer.y,
+        lastPointer.altKey ? "include" : "exclude",
+        lastPointer.shiftKey,
+      );
+      // Begin the unchanged two-frame proof at the actual paint mutation. If
+      // completion starts it only after the browser-control round trip, that
+      // transport jitter is incorrectly charged to product input latency.
+      hoverPaintProof = doubleAnimationFrame();
+    }
+  };
   const mousemove = (event: MouseEvent): void => {
-    lastPointer = {
+    const nextPointer = {
       x: event.clientX,
       y: event.clientY,
       altKey: event.altKey,
       shiftKey: event.shiftKey,
+      overlayXpath: "",
+      eventTarget: event.target,
     };
-    if (hoverFrame) {
+    const leading = markingHoverNeedsLeadingPaint(lastPointer, nextPointer);
+    lastPointer = nextPointer;
+    if (leading) {
+      if (hoverFrame) {
+        presentationClock.cancelFrame(hoverFrame);
+        hoverFrame = 0;
+      }
+      runHover();
       return;
     }
-    hoverFrame = presentationClock.requestFrame(() => {
-      hoverFrame = 0;
-      if (lastPointer) {
-        engine?.hoverAtPoint(
-          lastPointer.x,
-          lastPointer.y,
-          lastPointer.altKey ? "include" : "exclude",
-          lastPointer.shiftKey,
-        );
-      }
-    });
+    if (hoverFrame) return;
+    hoverFrame = presentationClock.requestFrame(runHover);
   };
   const pointerdown = (event: PointerEvent): void => {
     physicalSequence += 1;
@@ -300,6 +324,7 @@ const runtime = {
     return { rows, classes: projected.classes, classificationCoverage: projected.coverage };
   },
   armHover(): void {
+    hoverPaintProof = null;
     clock.arm("mousemove");
   },
   async finishHover(): Promise<number> {
@@ -309,7 +334,7 @@ const runtime = {
       () => Boolean(document.querySelector("[data-uf-overlay-hover]")),
       "rewrite hover paint",
     );
-    await doubleAnimationFrame();
+    await (hoverPaintProof ?? doubleAnimationFrame());
     return clock.elapsed();
   },
   armClick(): void {
@@ -393,6 +418,7 @@ const runtime = {
     latestEvaluation = null;
     userToggleCount = 0;
     reportPayloadCount = 0;
+    hoverPaintProof = null;
     clock.dispose();
   },
 };

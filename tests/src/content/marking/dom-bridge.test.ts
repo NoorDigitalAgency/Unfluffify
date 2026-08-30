@@ -1008,6 +1008,36 @@ describe("P6 DOM bridge", () => {
     expect(renderer.root.children.every((layer) => layer.children.length === 0)).toBe(true);
   });
 
+  it("prewarms and reuses hover rectangles across target changes", () => {
+    const doc = new FakeDocument();
+    const first = new FakeElement("P", rect(10, 20, 140, 24), "First");
+    const second = new FakeElement("P", rect(30, 60, 180, 28), "Second");
+    first.ownerDocument = doc;
+    second.ownerDocument = doc;
+    doc.pointHits = (_x, y) => y < 50 ? [first] : [second];
+    const renderer = createOverlayRenderer({ document: doc as unknown as Document });
+    const hoverLayer = renderer.root.children.find((layer) =>
+      layer.getAttribute("data-layer") === "hover"
+    )!;
+    const retained = hoverLayer.children[0]!;
+    const createdAfterPrewarm = doc.createElementCount;
+
+    expect(retained.style.display).toBe("none");
+    expect(retained.getAttribute("data-uf-overlay-hover")).toBeNull();
+    renderer.setHover(first as unknown as Element, "/p[1]");
+    expect(hoverLayer.children).toEqual([retained]);
+    expect(retained.getAttribute("data-uf-overlay-hover")).toBe("/p[1]");
+    expect(retained.style.display).toBe("");
+    renderer.setHover(second as unknown as Element, "/p[2]");
+    expect(hoverLayer.children).toEqual([retained]);
+    expect(retained.getAttribute("data-uf-overlay-hover")).toBe("/p[2]");
+    expect(retained.style.left).toBe("30px");
+    expect(doc.createElementCount).toBe(createdAfterPrewarm);
+    renderer.setHover(null);
+    expect(retained.style.display).toBe("none");
+    renderer.dispose();
+  });
+
   it("links preview rows back to the exact composed element without rebuilding the model", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
@@ -2033,7 +2063,9 @@ describe("P6 DOM bridge", () => {
     expect(classes).toContain("uf-silent-rect uf-silent-immutable");
     expect(classes).toContain("uf-silent-rect uf-silent-excluded");
     renderer.setSilentDebugAnnotations(true);
-    const debugBoxes = renderer.root.children.flatMap((layer) => layer.children);
+    const debugBoxes = renderer.root.children.flatMap((layer) => layer.children).filter((box) =>
+      box.getAttribute("data-uf-silent-highlight") !== null
+    );
     expect(debugBoxes.every((box) => box.getAttribute("data-uf-silent-copy") === "true")).toBe(true);
     expect(debugBoxes.map((box) => box.getAttribute("title"))).toContain("XPath: /p[1]");
     renderer.dispose();

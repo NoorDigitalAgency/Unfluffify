@@ -32,6 +32,7 @@ import {
 import {
   createMarkingEngine,
 } from "../content/marking";
+import { markingHoverNeedsLeadingPaint } from "../content/marking/hover-scheduling";
 import { retireSupersededMarkingRoots } from "../content/marking/root-authority";
 import { createPhysicalActionDeduper, openMarkingContextMenu } from "../content/marking/interaction";
 import { presentationClockFor } from "../content/presentation-clock";
@@ -3612,12 +3613,7 @@ function ensureMarkingListeners(): void {
     shiftHeld = event.shiftKey;
     const overlayXpath = overlayXpathFromTarget(event.target);
     const eventTarget = event.target ?? null;
-    const leading = !lastPointer ||
-      lastPointer.eventTarget !== eventTarget ||
-      lastPointer.overlayXpath !== overlayXpath ||
-      lastPointer.altKey !== event.altKey ||
-      lastPointer.shiftKey !== event.shiftKey;
-    lastPointer = {
+    const nextPointer = {
       x: event.clientX,
       y: event.clientY,
       altKey: event.altKey,
@@ -3625,6 +3621,8 @@ function ensureMarkingListeners(): void {
       overlayXpath,
       eventTarget,
     };
+    const leading = markingHoverNeedsLeadingPaint(lastPointer, nextPointer);
+    lastPointer = nextPointer;
     scheduleHover(leading);
   };
   const handleMouseLeave = (event: MouseEvent): void => {

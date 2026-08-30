@@ -213,8 +213,20 @@ The first clean composite then isolated one final strict-ratio miss: small
 Shift-hover p95 was 36.7 ms against a 35.175 ms limit because a new semantic
 target still waited for the same frame throttle used by within-target pointer
 motion. Hover now paints the leading target/modifier boundary in the trusted
-input task and keeps only trailing movement frame-coalesced. P14 smoke measures
-rewrite hover at about 33.4 ms p95 versus 33.3 ms legacy on both corpus sizes.
+input task and keeps only trailing movement frame-coalesced.
+
+The next full sample separated three remaining mechanisms rather than accepting
+the initial smoke result: P14's rewrite harness still modeled the old trailing
+scheduler, rewrite hover nodes were created/deleted instead of using legacy's
+retained rectangle pool, and the two-frame proof began after the automation
+round trip rather than at the actual paint. One shared scheduling helper now
+drives product and harness; the renderer prewarms and reuses hover boxes; and
+the same two-frame proof is anchored in the trusted paint task. A repeated P15
+physical run also found eventless terminal compositor motion, so the nested
+document guard now survives a 160 ms quiet window with a gesture-scoped frame
+watchdog. Focused tests, TypeScript checks, P14 smoke, and P15 36/36 are green;
+full clean verification, P25, and the exact pushed-head live matrix remain the
+terminal evidence steps.
 
 ## Release constraints retained
 

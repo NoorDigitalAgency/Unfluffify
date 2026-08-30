@@ -25,6 +25,7 @@ export const MAXIMUM_DOCUMENT_Z_INDEX = "2147483647";
 const MUTATION_OWNER_SCAN_LIMIT = 64;
 const DOCUMENT_NATIVE_TOUCH_ACTION = "pan-x pan-y pinch-zoom";
 const NESTED_OWNER_TOUCH_ACTION = "pinch-zoom";
+const NESTED_TOUCH_DOCUMENT_RELEASE_QUIET_MS = 160;
 
 type MutationObserverLike = Pick<MutationObserver, "disconnect" | "observe">;
 
@@ -190,8 +191,11 @@ export function createInteractionShield(
     root: Element;
     beforeLeft: number;
     beforeTop: number;
+    releaseRequested: boolean;
   } | null = null;
   let nestedTouchDocumentGuardOccurrence = 0;
+  let nestedTouchDocumentReleaseHandle: number | null = null;
+  let nestedTouchDocumentGuardFrameHandle: number | null = null;
   let pendingTouchFallback: {
     occurrence: number;
     shield: HTMLElement;
@@ -1124,15 +1128,72 @@ export function createInteractionShield(
     return points;
   };
 
-  const restoreNestedTouchDocumentScroll = (): void => {
+  const restoreNestedTouchDocumentScroll = (): boolean => {
     const guard = nestedTouchDocumentGuard;
-    if (!guard || guard.root.isConnected === false) return;
+    if (!guard || guard.root.isConnected === false) return false;
     const root = guard.root as Element & { scrollLeft: number; scrollTop: number };
+    const moved = root.scrollLeft !== guard.beforeLeft || root.scrollTop !== guard.beforeTop;
     if (root.scrollLeft !== guard.beforeLeft) root.scrollLeft = guard.beforeLeft;
     if (root.scrollTop !== guard.beforeTop) root.scrollTop = guard.beforeTop;
+    return moved;
+  };
+
+  const cancelNestedTouchDocumentGuardFrame = (): void => {
+    if (nestedTouchDocumentGuardFrameHandle === null) return;
+    view?.cancelAnimationFrame?.(nestedTouchDocumentGuardFrameHandle);
+    nestedTouchDocumentGuardFrameHandle = null;
+  };
+
+  const cancelNestedTouchDocumentRelease = (): void => {
+    if (nestedTouchDocumentReleaseHandle === null) return;
+    if (view) {
+      view.clearTimeout?.(nestedTouchDocumentReleaseHandle);
+    } else {
+      clearTimeout(nestedTouchDocumentReleaseHandle);
+    }
+    nestedTouchDocumentReleaseHandle = null;
+  };
+
+  const scheduleNestedTouchDocumentRelease = (
+    guard: NonNullable<typeof nestedTouchDocumentGuard>,
+  ): void => {
+    cancelNestedTouchDocumentRelease();
+    const scheduleTask = view?.setTimeout?.bind(view) ?? setTimeout;
+    const handle = scheduleTask(() => {
+      if (
+        nestedTouchDocumentReleaseHandle !== handle ||
+        nestedTouchDocumentGuard?.occurrence !== guard.occurrence
+      ) {
+        return;
+      }
+      restoreNestedTouchDocumentScroll();
+      nestedTouchDocumentReleaseHandle = null;
+      cancelNestedTouchDocumentGuardFrame();
+      nestedTouchDocumentGuard = null;
+    }, NESTED_TOUCH_DOCUMENT_RELEASE_QUIET_MS);
+    nestedTouchDocumentReleaseHandle = handle;
+  };
+
+  const scheduleNestedTouchDocumentGuardFrame = (): void => {
+    if (!view || nestedTouchDocumentGuardFrameHandle !== null || !nestedTouchDocumentGuard) {
+      return;
+    }
+    const occurrence = nestedTouchDocumentGuard.occurrence;
+    nestedTouchDocumentGuardFrameHandle = view.requestAnimationFrame(() => {
+      nestedTouchDocumentGuardFrameHandle = null;
+      const guard = nestedTouchDocumentGuard;
+      if (!guard || guard.occurrence !== occurrence) return;
+      const moved = restoreNestedTouchDocumentScroll();
+      if (moved && guard.releaseRequested) {
+        scheduleNestedTouchDocumentRelease(guard);
+      }
+      scheduleNestedTouchDocumentGuardFrame();
+    });
   };
 
   const beginNestedTouchDocumentGuard = (owner: ViewportScrollOwner): void => {
+    cancelNestedTouchDocumentRelease();
+    cancelNestedTouchDocumentGuardFrame();
     if (owner.kind !== "element") {
       nestedTouchDocumentGuard = null;
       return;
@@ -1144,7 +1205,9 @@ export function createInteractionShield(
       root,
       beforeLeft: Number.isFinite(root.scrollLeft) ? root.scrollLeft : 0,
       beforeTop: Number.isFinite(root.scrollTop) ? root.scrollTop : 0,
+      releaseRequested: false,
     };
+    scheduleNestedTouchDocumentGuardFrame();
   };
 
   const releaseNestedTouchDocumentGuard = (restoreFinal: boolean): void => {
@@ -1152,16 +1215,14 @@ export function createInteractionShield(
     if (!guard) return;
     if (!restoreFinal) {
       nestedTouchDocumentGuardOccurrence += 1;
+      cancelNestedTouchDocumentRelease();
+      cancelNestedTouchDocumentGuardFrame();
       nestedTouchDocumentGuard = null;
       return;
     }
     restoreNestedTouchDocumentScroll();
-    const scheduleTask = view?.setTimeout?.bind(view) ?? setTimeout;
-    scheduleTask(() => {
-      if (nestedTouchDocumentGuard?.occurrence !== guard.occurrence) return;
-      restoreNestedTouchDocumentScroll();
-      nestedTouchDocumentGuard = null;
-    }, 0);
+    guard.releaseRequested = true;
+    scheduleNestedTouchDocumentRelease(guard);
   };
 
   const handleNestedTouchDocumentScroll = (): void => {
@@ -1170,6 +1231,13 @@ export function createInteractionShield(
     // few embedded Chromium shells). Restore inside the scroll dispatch, ahead
     // of the next paint, while the manual fallback advances the proven owner.
     restoreNestedTouchDocumentScroll();
+    const guard = nestedTouchDocumentGuard;
+    if (guard?.releaseRequested) {
+      // Gesture-end is not the end of compositor delivery. Every terminal
+      // scroll restarts the release quiet window so a late document packet can
+      // never escape between pointer/touch release and the next paint.
+      scheduleNestedTouchDocumentRelease(guard);
+    }
   };
 
   const queueTouchFallbackMovement = (currentX: number, currentY: number): boolean => {
@@ -1355,6 +1423,8 @@ export function createInteractionShield(
     touchFallbackOccurrence += 1;
     pendingTouchFallback = null;
     nestedTouchDocumentGuardOccurrence += 1;
+    cancelNestedTouchDocumentRelease();
+    cancelNestedTouchDocumentGuardFrame();
     nestedTouchDocumentGuard = null;
   };
 

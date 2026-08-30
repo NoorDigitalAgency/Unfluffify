@@ -1563,8 +1563,44 @@ preserves the stronger architecture.
     or modifier mode on the trusted leading input edge. Repeated movement inside
     that same semantic boundary remains one trailing presentation-frame update,
     so high-frequency motion stays coalesced and exact hit/canonical resolution
-    is unchanged. Focused P14 measures rewrite hover at about 33.4 ms p95 versus
-    33.3 ms legacy on both small and large fixtures.
+    is unchanged. This removed the fixed first-frame delay, but the next full
+    sample correctly exposed separate harness and allocation tails captured by
+    findings 169–171 instead of treating the initial smoke result as closure.
+168. **Closed rewrite P0 — terminal nested-touch compositor motion could arrive
+    without a timely scroll event.** Finding 166 restored the document from
+    Window scroll dispatch, but a repeated full P15 run proved Chromium could
+    update `scrollY` after touch end without delivering that event before the
+    100 ms assertion. The generation-fenced guard now survives until a 160 ms
+    terminal quiet window and polls the exact document scrolling element on
+    animation frames for the lifetime of the nested gesture. Every observed
+    late move restores before paint and restarts quiet; document-owned and pinch
+    gestures still bypass the guard. The headed physical gate passes 36/36.
+169. **Closed evidence P1 — the rewrite P14 runtime still modeled the obsolete
+    all-trailing hover scheduler.** Production used finding 167's leading edge,
+    but the measurement runtime independently queued every hover on a frame.
+    One shared pure target/overlay/modifier identity helper now drives both the
+    shipped listener and P14 runtime. Target or modifier transitions paint
+    immediately; within-boundary motion stays frame-coalesced, and focused
+    regressions lock both branches.
+170. **Closed rewrite P1 — hover rectangles churned DOM identity instead of
+    using pinned legacy's retained pool.** Exact legacy source uses
+    `drawMultiRectReuse`; the rewrite created a new element, key, and `Set` for
+    each target and removed the prior box. The renderer now prewarms the common
+    single rectangle during activation, retains boxes by rect ordinal, updates
+    XPath and geometry in place, hides unused boxes without leaving an
+    authoritative hover attribute, and extends the same pool for multi-rect
+    targets. A regression proves zero input-path element creation across target
+    changes.
+171. **Closed evidence P1 — hover paint proof began after the browser-control
+    round trip instead of at paint.** Temporary diagnostic timing showed exact
+    rewrite resolve plus DOM paint at only 0.3–0.5 ms while reported small-page
+    samples still reached 37.3 ms. `finishHover` was starting its two frames only
+    after Playwright returned from the physical move, charging transport jitter
+    to product latency. The runtime now starts the unchanged two-animation-frame
+    promise in the trusted input task immediately after `setHover`, and terminal
+    completion awaits that exact promise plus the persistent hover-node
+    condition. Smoke p95 is 17.7 ms small and 16.8 ms large versus legacy at
+    about 33.5 ms, with no semantic, budget, or Long Task failure.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1637,7 +1673,7 @@ preserves the stronger architecture.
 ## Acceptance headline
 
 Implementation remediation and evidence disposition are complete through
-finding 167. The rewrite's observer-free headed result is 117/117 across every
+finding 171. The rewrite's observer-free headed result is 117/117 across every
 valid candidate, with zero invalid overlay paint, clean payloads, complete
 workflow transitions, and zero publication attempts. Strict legacy parity
 remains failed—not pending—because the pinned baseline cannot terminalize render

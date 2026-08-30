@@ -1471,6 +1471,13 @@ describe("interaction shield controller", () => {
         changedTouches: [{ identifier: 91, clientX: 450, clientY: 400 }],
       },
     ) as unknown as Event);
+    // Chromium may deliver a final compositor-owned document scroll after the
+    // physical contact ended. The guard remains authoritative until the
+    // terminal scroll stream has been quiet for its release window, even when
+    // no scroll event arrives before the next paint.
+    context.document.scrollingElement.scrollTop = 520;
+    context.window.flushAnimationFrames();
+    expect(context.document.scrollingElement.scrollTop).toBe(0);
     context.window.dispatch("touchmove", inputEvent(
       "touchmove",
       path,
@@ -1478,6 +1485,9 @@ describe("interaction shield controller", () => {
     ) as unknown as Event);
     context.window.flushTasks();
     expect(scrollShell.scrollTop).toBe(200);
+    context.document.scrollingElement.scrollTop = 640;
+    context.window.dispatch("scroll", { type: "scroll" } as Event);
+    expect(context.document.scrollingElement.scrollTop).toBe(640);
   });
 
   it("re-resolves a replacement SPA viewport owner while the old owner remains connected", async () => {

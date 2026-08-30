@@ -3,7 +3,7 @@
 ## Overall result
 
 **REWRITE SANITY PASS; STRICT LEGACY PARITY FAIL.** The P25 audit now records
-167 distinct legacy/rewrite, architecture, lifecycle, UX, performance, and
+171 distinct legacy/rewrite, architecture, lifecycle, UX, performance, and
 evidence-authority findings. The clean rewrite product source passes every
 headed stage on every valid candidate: 9 properties × 13 stages = 117/117. The
 strict pair matrix remains red because pinned legacy cannot terminalize Render
@@ -92,7 +92,7 @@ the real paint-acknowledged async toggle instead of sleeping for 25 ms.
 | ESLint | PASS |
 | Generated page-world parity | PASS |
 | WXT prepare + all TypeScript projects | PASS |
-| Vitest | PASS — 142 files, 1,504 tests after acceptance hardening |
+| Vitest | PASS — 143 files, 1,508 tests after terminal input-tail hardening |
 | Production WXT build | PASS |
 | Generated manifest permissions | PASS — 7 checks |
 | Debug WXT build | PASS |
