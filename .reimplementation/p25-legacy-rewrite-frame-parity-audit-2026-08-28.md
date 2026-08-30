@@ -1612,6 +1612,17 @@ preserves the stronger architecture.
     raw touch packets. The isolated headed rerun passes 36/36: the nested owner
     moves 290 px while the document remains 900 px, with the prior wheel and
     locked-baseline states retained in the artifact.
+173. **Open evidence P0 — resize Long Tasks were attributed through the entire
+    settled frame-collector tail instead of the timed resize action.** The final
+    Teknikhallen rewrite sample recorded a 55 ms task 1,020 ms after collection
+    began, although the complete resize/apply/snapshot/restore action ended after
+    262 ms. The task therefore began roughly 758 ms after the measured action and
+    is not resize-input work. The collector now records page-clock action start
+    and end, gives an explicit physical-gesture window precedence, and otherwise
+    filters Long Tasks to the exact `during` action. The 50 ms budget is unchanged:
+    DPJ's independent 98 ms task began 164 ms into its 382 ms resize action and
+    remains blocking until observer-free headed stress either reproduces and
+    attributes a product cause or proves the sample transient.
 
 ## Confirmed parity or stronger rewrite behavior
 

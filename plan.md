@@ -1138,6 +1138,13 @@ two evidence-driver corrections. Consent suppression remains intentional.
   fingerprints. Its denominator is complete, all nine rewrite children are
   green, all nine legacy children are red, Acapedia/3D Prima/Bigbag retain their
   external/N/A dispositions, and the total publish-attempt count is zero.
+- The final observer-free matrix exposed one evidence-boundary defect and one
+  still-open sample. Teknikhallen's 55 ms task began about 758 ms after its
+  resize action ended but was counted because resize inherited the full 1.6 s
+  collector window. Page-clock action start/end now bound ordinary timed probes,
+  while explicit physical-gesture bounds remain authoritative and the strict
+  50 ms threshold is unchanged. DPJ's 98 ms task began inside its action and
+  must be stress-reproduced and source-attributed before the exact final matrix.
 
 - Write `.reimplementation/p25-legacy-parity-closure-report-2026-08-28.md` with
   the new overall result, contract matrix, per-property results, performance,

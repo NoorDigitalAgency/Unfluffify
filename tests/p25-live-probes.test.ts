@@ -575,12 +575,38 @@ describe("P25 frame collector Long Task evidence", () => {
   it("uses explicit operator-action bounds instead of harness preparation bounds", () => {
     expect(resolveCollectorPerformanceWindow({
       performanceWindow: { startedAt: 300, endedAt: 700 },
-    }, 100, 900)).toEqual({ startedAt: 300, endedAt: 700, source: "action" });
+    }, 100, 900, { startedAt: 200, endedAt: 800 })).toEqual({
+      startedAt: 300,
+      endedAt: 700,
+      source: "action",
+    });
+    expect(resolveCollectorPerformanceWindow({}, 100, 900, {
+      startedAt: 200,
+      endedAt: 500,
+    })).toEqual({
+      startedAt: 200,
+      endedAt: 500,
+      source: "during",
+    });
     expect(resolveCollectorPerformanceWindow({}, 100, 900)).toEqual({
       startedAt: 100,
       endedAt: 900,
       source: "collector",
     });
+  });
+
+  it("keeps in-action Long Tasks but excludes unrelated collector-tail work", () => {
+    const window = resolveCollectorPerformanceWindow({}, 100, 1_700, {
+      startedAt: 200,
+      endedAt: 600,
+    });
+    expect(filterLongTasksToCollectorWindow([
+      { startTime: 180, duration: 90 },
+      { startTime: 364, duration: 98 },
+      { startTime: 1_220, duration: 55 },
+    ], window.startedAt, window.endedAt)).toEqual([
+      { startTime: 364, duration: 98 },
+    ]);
   });
 });
 

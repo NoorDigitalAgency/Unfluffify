@@ -925,13 +925,19 @@ export function collectorWindowShouldContinue({
   return (minimumWindowOpen || actionTailOpen) && frameCount < maximumFrames;
 }
 
-export function resolveCollectorPerformanceWindow(action, startedAt, endedAt) {
+export function resolveCollectorPerformanceWindow(action, startedAt, endedAt, actionWindow = null) {
   const requestedStart = action?.performanceWindow?.startedAt;
   const requestedEnd = action?.performanceWindow?.endedAt;
+  const actionStart = actionWindow?.startedAt;
+  const actionEnd = actionWindow?.endedAt;
+  const hasRequestedWindow = Number.isFinite(requestedStart) && Number.isFinite(requestedEnd);
+  const hasActionWindow = Number.isFinite(actionStart) && Number.isFinite(actionEnd);
+  const selectedStart = hasRequestedWindow ? requestedStart : hasActionWindow ? actionStart : startedAt;
+  const selectedEnd = hasRequestedWindow ? requestedEnd : hasActionWindow ? actionEnd : endedAt;
   return {
-    startedAt: Number.isFinite(requestedStart) ? Math.max(startedAt ?? requestedStart, requestedStart) : startedAt,
-    endedAt: Number.isFinite(requestedEnd) ? Math.min(endedAt ?? requestedEnd, requestedEnd) : endedAt,
-    source: Number.isFinite(requestedStart) && Number.isFinite(requestedEnd) ? "action" : "collector",
+    startedAt: Number.isFinite(selectedStart) ? Math.max(startedAt ?? selectedStart, selectedStart) : startedAt,
+    endedAt: Number.isFinite(selectedEnd) ? Math.min(endedAt ?? selectedEnd, selectedEnd) : endedAt,
+    source: hasRequestedWindow ? "action" : hasActionWindow ? "during" : "collector",
   };
 }
 
@@ -988,6 +994,7 @@ function frameCollectorExpression(collectorKey, ownerXPath, durationMs) {
       longTasks: [],
       longTaskObserverSupported: typeof PerformanceObserver === 'function',
       longTaskObserverInstalled: false,
+      actionStartedAt: null,
       actionFinishedAt: null,
       finished: false,
     };
@@ -1115,6 +1122,12 @@ export async function captureCompactFrames(session, { artifactDirectory, name, d
   let action;
   let actionDurationMs;
   try {
+    if (during) {
+      await session.evaluate(`(() => {
+        const state = window[${JSON.stringify(collectorKey)}];
+        if (state) state.actionStartedAt = performance.now();
+      })()`, { contextId });
+    }
     action = during ? await during() : null;
     actionDurationMs = performance.now() - actionStarted;
     await session.evaluate(`(() => {
@@ -1155,7 +1168,10 @@ export async function captureCompactFrames(session, { artifactDirectory, name, d
   }
   const framePath = join(artifactDirectory, `${name}-frames.json`);
   const rAFFrames = raf?.frames ?? [];
-  const performanceWindow = resolveCollectorPerformanceWindow(action, raf?.startedAt, raf?.endedAt);
+  const performanceWindow = resolveCollectorPerformanceWindow(action, raf?.startedAt, raf?.endedAt, {
+    startedAt: raf?.actionStartedAt,
+    endedAt: raf?.actionFinishedAt,
+  });
   const longTasks = filterLongTasksToCollectorWindow(
     raf?.longTasks,
     performanceWindow.startedAt,
