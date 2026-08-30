@@ -1462,6 +1462,75 @@ preserves the stronger architecture.
     This closes the single-property canary; matrix-wide live parity remains the
     final acceptance scope.
 
+156. **Closed rewrite P0 — an ordinary retained marking could outlive its own
+    paint reachability.** Ledigajobb's sticky navigation covered a previously
+    valid default-content source after a local mutation. The draw path rejected
+    it, but mutation pruning considered exclusion classifications only, leaving
+    one stale visible box. Ordinary marking classifications now share the live
+    visibility/reachability prune; explicit inclusion alone retains its required
+    transient-cover acknowledgement. The exact rerun passes all thirteen cells.
+157. **Closed rewrite P0 — broad silent pruning could delete layer identity
+    during the opacity transaction.** Teknikhallen began a correct scroll fade,
+    but mutation delivery removed all forty silent nodes before the first moved
+    frame, so the oracle saw no faded layer to track. Silent sources are retained
+    while the viewport transaction owns their coordinates and are pruned only
+    after settlement. The rerun preserves node identity through fade,
+    reposition, and restore and passes all thirteen cells.
+158. **Closed rewrite acceptance — one clean pushed product source passes the
+    complete valid-candidate matrix.** On `af59ce9d`, the nine valid candidates
+    Ledigajobb, DPJ, Aleris, Acne Specialisten, Assist24, Arno, ArkivIT,
+    Teknikhallen, and Humanova each pass thirteen of thirteen headed stages:
+    117/117 total. Every marking visual has zero invisible, covered, unresolved,
+    suppressed, or extension-owned source paint; every measured AI/Save payload
+    passes sanitation; every publication guard records zero attempts. Acapedia,
+    3D Prima SE, and Bigbag remain external/N/A outside that denominator.
+159. **Confirmed legacy startup divergence P0 — the pinned service worker omits
+    the current authority environment on `/load`, and an early successful shim
+    response does not always clear its curtain.** Raw legacy sends only
+    `siteId`, which authority rejects. The run-lifetime guard adds the configured
+    environment before activation and records the patch without exposing bodies.
+    A fresh profile may still require the legacy retry lifecycle before the 200
+    response is adopted. This compatibility sequence is retained as legacy
+    latency/evidence; no rewrite request schema is changed.
+160. **Confirmed legacy render divergence P0 — the baseline cannot provide a
+    passing current render comparison.** A real JavaScript-disabled inspection
+    was already proven non-terminal for the full 180-second budget. The fresh
+    nine-property batch therefore uses explicit observe-only cells in unpoisoned
+    sessions: both render cells remain failed, no control dispatch is fabricated,
+    and downstream stages remain independently measurable.
+161. **Confirmed legacy paint divergence P0 — invisible or covered sources are
+    visibly marked on five of nine valid candidates.** The initial legacy visual
+    stage paints 3 invalid sources on Ledigajobb, 7 on Acne Specialisten, 2 on
+    ArkivIT, 5 on Teknikhallen, and 1 on Humanova. DPJ, Aleris, Assist24, and
+    Arno have zero at that initial sample. The rewrite has zero across all nine
+    and preserves hidden canonical extraction decisions without painting them.
+162. **Confirmed legacy workflow divergence P0 — no valid candidate completes
+    the shared target/AI/Content List/silent flow.** All nine reach real marking
+    activation, but none completes the common target-keyed gesture stage. Each
+    AI request returns, yet the popup remains in or falls out of its working
+    posture without opening a usable Content List; feedback takes 177–462 ms,
+    and all nine captured request envelopes contain executable source. Fresh AI,
+    two-way Content List routing, current-page Save, Discard, and silent posture
+    consequently remain unproved. The rewrite completes all of them on all nine
+    candidates with 15–27 ms initial feedback and clean payloads.
+163. **Confirmed performance divergence P0 — pinned legacy is not the smoother
+    implementation on the measured live pages.** Worst sampled legacy input/
+    viewport Long Tasks are 551 ms Ledigajobb, 294 ms DPJ, 69 ms Aleris, 123 ms
+    Acne Specialisten, 0 ms Assist24, 77 ms Arno, 64 ms ArkivIT, 570 ms
+    Teknikhallen, and 115 ms Humanova. The corresponding clean rewrite batch is
+    50, 63, 0, 0, 0, 0, 0, 0, and 0 ms; the isolated DPJ 63 ms sample is retained
+    rather than hidden, while its stage acceptance remains green under the
+    attribution contract. Rewrite activation is deliberately longer because it
+    completes the growth-aware reveal/freeze/restore ritual that legacy does not
+    prove; immediate UI acknowledgement remains within 15–27 ms.
+164. **Evidence disposition — the strict production pair matrix remains red for
+    the reference, not for rewrite sanity.** All nine pairs fail because the
+    legacy aggregate is red and the dynamic document fingerprints are not exact
+    equivalents; therefore no strict cardinality or AI latency parity claim is
+    made. The eligible denominator is complete, external/N/A candidates are
+    explicit, both implementations record zero final publication attempts, and
+    the rewrite's own result is 117/117 PASS.
+
 ## Confirmed parity or stronger rewrite behavior
 
 - Static border dimensions and primary colors are aligned: 2 px amber hover,
@@ -1532,19 +1601,16 @@ preserves the stronger architecture.
 
 ## Acceptance headline
 
-Implementation remediation is code-complete through finding 134; findings
-135–155 bind the resulting evidence and rerun authority. Immutable
-pushed-source DPJ runs close findings 108 and 110–124; finding 109 remains a
-recurrence watch, finding 125 awaits an exact clean pushed headed rerun,
-findings 126–128 are closed by the clean aggregate, finding 129 is closed by its
-exact clean headed rerun, finding 130 closes the legacy evidence-collection
-gap, and finding 131 retains the resulting legacy render stall without
-poisoning independent downstream measurements. P25 remains open until the exact
-clean pushed commit completes every valid candidate's observer-free headed
-rewrite flow. Rewrite marking
-and silent p95 must be no slower than 1.05× pinned legacy on equivalent pages,
-with no input long task over 50 ms; true bottom must reach at least 99.5% of the
-resolved viewport range and restore within 2 px; post-edit projection must be
-under one second; every accepted slow action must paint feedback within 100 ms;
-and no invisible/suppressed/extension/freeze-authored artifact may enter visible
-overlays or payloads.
+Implementation remediation and evidence disposition are complete through
+finding 164. The rewrite's observer-free headed result is 117/117 across every
+valid candidate, with zero invalid overlay paint, clean payloads, complete
+workflow transitions, and zero publication attempts. Strict legacy parity
+remains failed—not pending—because the pinned baseline cannot terminalize render
+inspection or complete the shared workflow, and the dynamic document pairs are
+not fingerprint-equivalent. P25 may be called a rewrite sanity PASS but not a
+legacy pair PASS. The unchanged acceptance budgets remain: equivalent-page
+marking/silent p95 no slower than 1.05× legacy, no unattributed extension-owned
+input Long Task over 50 ms, true bottom at least 99.5% with restore within 2 px,
+post-edit projection under one second, slow-action feedback under 100 ms, and no
+invisible/suppressed/extension/freeze-authored artifact in visible overlays or
+payloads.

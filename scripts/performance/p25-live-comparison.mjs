@@ -1370,7 +1370,7 @@ async function runContentListWorkflow(popup, siteTarget, aiEvidence) {
         pageActivation,
         beforePageRoute,
         last,
-      })}\n${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+      })}`, { cause: error });
     }
     const correlatedRow = pageFocused.preview.domFocusedRow ?? pageFocused.preview.selectedRow;
     const exitActivation = await physicalActivatePopupControl(

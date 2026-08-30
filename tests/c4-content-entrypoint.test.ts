@@ -2799,7 +2799,7 @@ describe("C4 rewrite content entrypoints", () => {
     expect(engine.resolveAtPoint).toHaveBeenCalledWith(10, 20, "exclude", true);
     expect(engine.acknowledge).not.toHaveBeenCalled();
     expect(engine.toggle).not.toHaveBeenCalled();
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await waitForMockCalls(engine.toggle, 1);
     expect(engine.acknowledge).toHaveBeenCalledWith(
       { xpath: "/html[1]/body[1]/p[1]" },
       "exclude",

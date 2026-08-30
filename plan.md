@@ -1,7 +1,13 @@
 # P25 root-cause legacy parity closure
 
-**Status:** Phases 0–7 are implemented and clean-source automated acceptance is
-green. The approved plan package was committed and pushed first as `6db3433a`;
+**Status:** Run-plan implementation is complete through finding 164. The clean
+rewrite product source passes all nine valid candidates at 117/117 headed
+stages; the strict nine-pair matrix remains red because pinned legacy fails its
+render and downstream contracts and every dynamic document pair is
+non-equivalent. Consent suppression and the zero-publish fence remain PASS. The
+final exact-HEAD automated/restamp/push boundary is in progress. Phases 0–7 are
+implemented and clean-source automated acceptance is green. The approved plan
+package was committed and pushed first as `6db3433a`;
 the product closure landed in `9b162bfb`, and the clean-browser regression repair
 landed in `f5c82960`. Headed-launch and evidence hardening landed through
 `ce8494eb`, the scoped marking-refresh repair landed in `33c390e3`, and AI versus
@@ -1072,36 +1078,66 @@ The remaining red cells reduce to paint truth, Content List routability,
 large-page input attribution, immediate AI feedback, transition readiness, and
 two evidence-driver corrections. Consent suppression remains intentional.
 
-- [ ] Stop painting exclusion geometry borrowed from a different descendant
+- [x] Stop painting exclusion geometry borrowed from a different descendant
   source. A hard/default/explicit/silent exclusion may paint only an own,
   currently visible, paint-reachable fragment of its canonical source. Keep
   canonical hidden decisions and Content List rows; this is a presentation-only
   filter and must not weaken payload extraction.
-- [ ] Make Content List availability and activation share one paintable-route
+- [x] Make Content List availability and activation share one paintable-route
   contract. Scroll first, then focus on a captured stable frame; permanently
   clipped, off-document, covered, or non-paintable targets remain disabled
   technical rows with truthful reasons.
-- [ ] Harden P25 gesture evidence for already-configured pages: search across
+- [x] Harden P25 gesture evidence for already-configured pages: search across
   bounded viewport sweeps, distinguish “no clean target exists” from an input
   failure, and retain exact owner/capability rejection counts. Never manufacture
   a selector or clear durable production marks merely to make the probe pass.
-- [ ] Attribute every >50 ms gesture/scroll/resize task against source profiles
+- [x] Attribute every >50 ms gesture/scroll/resize task against source profiles
   and the same-page pinned-legacy sample. Remove extension-owned document-scale
   structural or geometry work from input windows; report shared site-owned work
   without relabeling or discarding it.
-- [ ] Make Run AI feedback locally immediate and make post-inspection control
+- [x] Make Run AI feedback locally immediate and make post-inspection control
   readiness an explicit terminal acknowledgement. Each headed stage must
   establish its own required posture so failures cannot cascade.
-- [ ] Correct directional scroll evidence by first proving movable owner range,
+- [x] Correct directional scroll evidence by first proving movable owner range,
   choosing a direction that can move, and restoring the original position.
 - [ ] Rerun every parity-eligible rewrite candidate from the same clean pushed
   HEAD, then regenerate pair and production matrices. Acapedia's live 403,
   3D Prima's site-owned 404, and Bigbag's absent Hub candidate remain explicit
   N/A/external dispositions. Debug remains diagnostic-only because pinned
   legacy has no authentic debug artifact.
-- [ ] Keep all failed immutable runs, finalize every new run, and retain the
+- [x] Keep all failed immutable runs, finalize every new run, and retain the
   run-lifetime zero-attempt Lynx publication guard. The checklist may open, but
   final selector publication stays forbidden.
+
+- The remediation matrix on clean pushed product source `af59ce9d` is complete:
+  Ledigajobb, DPJ, Aleris, Acne Specialisten, Assist24, Arno, ArkivIT,
+  Teknikhallen, and Humanova each pass all thirteen headed stages (117/117).
+  Every run proves both render modes, real activation, marking visuals and
+  gestures, scroll/resize, measured AI and Content List routes, dirty/Discard/
+  one-Save workflow, silent visuals and viewport transactions, payload hygiene,
+  consent suppression, and a zero-attempt publication fence.
+- Two final same-page escapes found after that matrix are closed. Ledigajobb no
+  longer retains an ordinary implicit overlay whose source is covered by a
+  sticky header; only explicit inclusion keeps its deliberate transient-cover
+  acknowledgement. Teknikhallen no longer deletes silent overlay identity while
+  a scroll fade transaction is active; pruning resumes after the transaction.
+  Focused marking coverage, lint, TypeScript, and the complete headed reruns are
+  green.
+- A fresh pinned-legacy batch now reaches real activation on all nine valid
+  candidates through the installed pre-activation `/load` compatibility guard.
+  The independently proven JavaScript-disabled Render Inspection stall remains
+  red through explicit observe-only cells so it cannot poison downstream
+  measurement. Legacy then fails the complete shared flow on every candidate:
+  it paints invisible/covered sources on five pages, cannot satisfy the common
+  target-keyed gesture flow on any page, returns from AI without a usable
+  Content List, sends executable source in the AI envelope, has 177–462 ms
+  feedback, and never establishes the rewrite's silent posture. These are
+  retained reference defects, not rewrite requirements.
+- The resulting nine-pair production matrix is correctly red because strict
+  parity requires both implementations to pass and equivalent dynamic document
+  fingerprints. Its denominator is complete, all nine rewrite children are
+  green, all nine legacy children are red, Acapedia/3D Prima/Bigbag retain their
+  external/N/A dispositions, and the total publish-attempt count is zero.
 
 - Write `.reimplementation/p25-legacy-parity-closure-report-2026-08-28.md` with
   the new overall result, contract matrix, per-property results, performance,

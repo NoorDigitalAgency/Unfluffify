@@ -5,6 +5,7 @@ import { execFile, existsSync, fileURLToPath, path, readFile, rm, writeFile } fr
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUTPUT_ROOT = path.join(REPO_ROOT, ".output", "chrome-mv3");
 const MANIFEST_PATH = path.join(OUTPUT_ROOT, "manifest.json");
+const PACKAGE_PATH = path.join(REPO_ROOT, "package.json");
 const BUILD_LOCK_PATH = path.join(REPO_ROOT, ".output", ".vitest-build-lock");
 const BUILD_LOCK_OWNER_PATH = path.join(BUILD_LOCK_PATH, "owner.json");
 const BUILD_LOCK_HEARTBEAT_PATH = path.join(BUILD_LOCK_PATH, "heartbeat");
@@ -21,6 +22,20 @@ async function runBuild(): Promise<void> {
   const result = await execFile("pnpm", ["build"], { cwd: REPO_ROOT });
   if (result.code !== 0) {
     throw new Error(new TextDecoder().decode(result.stderr));
+  }
+}
+
+async function buildOutputIsCurrent(): Promise<boolean> {
+  try {
+    const [manifestRaw, packageRaw] = await Promise.all([
+      readFile(MANIFEST_PATH, "utf8"),
+      readFile(PACKAGE_PATH, "utf8"),
+    ]);
+    const manifest = JSON.parse(manifestRaw) as { version?: unknown };
+    const packageManifest = JSON.parse(packageRaw) as { version?: unknown };
+    return typeof manifest.version === "string" && manifest.version === packageManifest.version;
+  } catch {
+    return false;
   }
 }
 
@@ -72,7 +87,7 @@ async function readBuildLockOwnerPid(): Promise<number | null> {
 export async function ensureBuildOutput(options: { force?: boolean } = {}): Promise<void> {
   const force = options.force === true;
 
-  if (!force && existsSync(MANIFEST_PATH) && !existsSync(BUILD_LOCK_PATH)) {
+  if (!force && !existsSync(BUILD_LOCK_PATH) && await buildOutputIsCurrent()) {
     return;
   }
 
@@ -88,7 +103,7 @@ export async function ensureBuildOutput(options: { force?: boolean } = {}): Prom
         const heartbeatTimer = setInterval(() => {
           void writeFile(BUILD_LOCK_HEARTBEAT_PATH, `${Date.now()}`);
         }, BUILD_LOCK_HEARTBEAT_INTERVAL_MS);
-        if (force || !existsSync(MANIFEST_PATH)) {
+        if (force || !(await buildOutputIsCurrent())) {
           try {
             await runBuild();
           } finally {
@@ -106,13 +121,13 @@ export async function ensureBuildOutput(options: { force?: boolean } = {}): Prom
         const ownerPid = await readBuildLockOwnerPid();
         if (ownerPid === null || !isProcessAlive(ownerPid)) {
           await rm(BUILD_LOCK_PATH, { recursive: true, force: true });
-          if (!force && existsSync(MANIFEST_PATH)) {
+          if (!force && await buildOutputIsCurrent()) {
             return;
           }
           continue;
         }
       }
-      if (!force && existsSync(MANIFEST_PATH) && !existsSync(BUILD_LOCK_PATH)) {
+      if (!force && !existsSync(BUILD_LOCK_PATH) && await buildOutputIsCurrent()) {
         return;
       }
       const errorCode = typeof error === "object" && error !== null && "code" in error

@@ -168,6 +168,28 @@ The exact baseline runs are retained under
   and send the configured completion notification only when the acceptance
   state is truthful.
 
+## Execution result — 2026-08-30
+
+All four implementation slices and their focused regressions are complete. The
+uniform rewrite matrix on pushed product source `af59ce9d` passes all thirteen
+stages for all nine valid candidates (117/117). Two final rerun-only paint
+escapes were then closed: ordinary covered implicit marks are pruned live, and
+silent nodes retain identity while the viewport fade transaction is active.
+
+The fresh pinned-legacy batch reaches real activation on all nine pages but
+cannot produce a passing comparison: Render Inspection is independently
+non-terminal, five pages paint invisible/covered sources, no page completes the
+shared target/AI/Content List/silent flow, and every AI envelope contains
+executable source. The generated production matrix is correctly FAIL with zero
+missing eligible candidates and zero publication attempts. This is a rewrite
+sanity PASS and a strict legacy-pair FAIL; no baseline failure is waived.
+
+Acapedia and 3D Prima remain external blocks, Bigbag remains N/A, and Aleris was
+promoted by substantive live preflight. Consent suppression, Shift-only
+exclusion creation, Alt inclusion, semantic keyboard rows, 412×960 marking,
+1920×1080 silent posture, one-page Save, and the final-publication fence are all
+retained.
+
 ## Release constraints retained
 
 - Plain click remains unmark-only; Shift alone creates widened exclusions; Alt
