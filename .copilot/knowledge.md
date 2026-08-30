@@ -25,6 +25,8 @@
   `make-plan` for precise implementation handoffs,
   `expert-check` for strict, evidence-backed end-to-end product quality audits
   and release-readiness reports without implicit remediation,
+  `expert-loop` for explicitly authorized audit-plan-implement-conformance
+  cycles that repeat until the exact pushed source is production-ready,
   `safe-change` before non-trivial source edits,
   `live-round` for stable pnpm dev + pnpm browser:live rounds with
   launcher/popup control verification and stuck-state recovery,
