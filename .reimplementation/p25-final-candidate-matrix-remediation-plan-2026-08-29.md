@@ -224,9 +224,13 @@ drives product and harness; the renderer prewarms and reuses hover boxes; and
 the same two-frame proof is anchored in the trusted paint task. A repeated P15
 physical run also found eventless terminal compositor motion, so the nested
 document guard now survives a 160 ms quiet window with a gesture-scoped frame
-watchdog. Focused tests, TypeScript checks, P14 smoke, and P15 36/36 are green;
-full clean verification, P25, and the exact pushed-head live matrix remain the
-terminal evidence steps.
+watchdog. The first clean composite then exposed a P15 evidence-boundary race:
+the following touch scenario sampled while the preceding +620 px wheel packet
+was still settling. P15 now proves a 250 ms wheel-quiet window and an exact,
+locked 900 px document baseline before raw touch input; the isolated headed
+rerun is 36/36 with nested movement and zero document movement. Focused tests,
+TypeScript checks, and P14/P15 headed gates are green; a second clean P25 and the
+exact pushed-head live matrix remain the terminal evidence steps.
 
 ## Release constraints retained
 

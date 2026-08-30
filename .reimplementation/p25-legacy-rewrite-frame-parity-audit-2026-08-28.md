@@ -1601,6 +1601,17 @@ preserves the stronger architecture.
     completion awaits that exact promise plus the persistent hover-node
     condition. Smoke p95 is 17.7 ms small and 16.8 ms large versus legacy at
     about 33.5 ms, with no semantic, budget, or Long Task failure.
+172. **Closed evidence P0 — P15 attributed unfinished wheel momentum to the
+    following touch-owner scenario.** The full composite reported document
+    movement from 900 to 1520 while the nested owner correctly moved 290 px;
+    that +620 px was exactly the preceding physical wheel delta. Passing smoke
+    had sampled its touch baseline only after the document had already reached
+    its limit, masking the same cross-scenario race. The controller now requires
+    a 250 ms compositor-quiet wheel window, locks document overflow, and proves
+    the exact 900 px baseline remains quiet for another 160 ms before sending
+    raw touch packets. The isolated headed rerun passes 36/36: the nested owner
+    moves 290 px while the document remains 900 px, with the prior wheel and
+    locked-baseline states retained in the artifact.
 
 ## Confirmed parity or stronger rewrite behavior
 
@@ -1673,7 +1684,7 @@ preserves the stronger architecture.
 ## Acceptance headline
 
 Implementation remediation and evidence disposition are complete through
-finding 171. The rewrite's observer-free headed result is 117/117 across every
+finding 172. The rewrite's observer-free headed result is 117/117 across every
 valid candidate, with zero invalid overlay paint, clean payloads, complete
 workflow transitions, and zero publication attempts. Strict legacy parity
 remains failed—not pending—because the pinned baseline cannot terminalize render

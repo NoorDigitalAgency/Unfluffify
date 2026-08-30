@@ -14,6 +14,29 @@ async (page) => {
   });
 
   const sleep = (milliseconds) => page.waitForTimeout(milliseconds);
+  const waitForDocumentScrollQuiet = (quietMs = 250, timeoutMs = 5_000) => page.evaluate(
+    async ({ requiredQuietMs, maximumWaitMs }) => {
+      const startedAt = performance.now();
+      let quietSince = startedAt;
+      let lastX = scrollX;
+      let lastY = scrollY;
+      while (performance.now() - startedAt < maximumWaitMs) {
+        await new Promise((resolve) => requestAnimationFrame(resolve));
+        const nextX = scrollX;
+        const nextY = scrollY;
+        if (nextX !== lastX || nextY !== lastY) {
+          lastX = nextX;
+          lastY = nextY;
+          quietSince = performance.now();
+        }
+        if (performance.now() - quietSince >= requiredQuietMs) {
+          return { scrollX: nextX, scrollY: nextY, quietMs: performance.now() - quietSince };
+        }
+      }
+      throw new Error(`Document scroll did not become quiet within ${maximumWaitMs} ms`);
+    },
+    { requiredQuietMs: quietMs, maximumWaitMs: timeoutMs },
+  );
   const assertion = (condition, message, evidence) => {
     if (!condition) {
       const suffix = evidence === undefined ? "" : `: ${JSON.stringify(evidence)}`;
@@ -401,10 +424,14 @@ async (page) => {
       return { before: beforeWheel, after: snapshot };
     });
 
+    // A physical wheel packet is compositor-owned and can continue after the
+    // first positive scroll observation. Do not let that prior transaction
+    // contaminate the following touch-owner proof.
+    const wheelQuiet = await waitForDocumentScrollQuiet();
     await page.evaluate(() => {
-      scrollTo(0, 900);
       document.documentElement.style.setProperty("overflow", "hidden");
       document.body.style.setProperty("overflow", "hidden");
+      scrollTo(0, 900);
       const owner = document.createElement("section");
       owner.id = "touch-nested-viewport-owner";
       Object.assign(owner.style, {
@@ -419,19 +446,28 @@ async (page) => {
       owner.appendChild(content);
       document.documentElement.appendChild(owner);
     });
+    await page.waitForFunction(() => scrollY === 900, undefined, { timeout: 5_000 });
+    const lockedDocumentQuiet = await waitForDocumentScrollQuiet(160);
     await page.waitForFunction(() =>
       document.querySelector("#touch-nested-viewport-owner") &&
       document.elementFromPoint(640, 520)?.getAttribute("data-uf-interaction-shield") === "true" &&
       getComputedStyle(document.querySelector('[data-uf-interaction-shield="true"]')).touchAction === "pinch-zoom"
     );
-    const beforeTouch = await page.evaluate(() => ({
+    const beforeTouch = await page.evaluate(({ wheelQuietEvidence, lockedDocumentQuietEvidence }) => ({
       fixture: window.__p15Runtime.fixtureSnapshot(),
       nestedScrollTop: document.querySelector("#touch-nested-viewport-owner")?.scrollTop ?? -1,
       documentScrollTop: scrollY,
       shieldTouchAction: getComputedStyle(
         document.querySelector('[data-uf-interaction-shield="true"]'),
       ).touchAction,
-    }));
+      wheelQuiet: wheelQuietEvidence,
+      lockedDocumentQuiet: lockedDocumentQuietEvidence,
+    }), { wheelQuietEvidence: wheelQuiet, lockedDocumentQuietEvidence: lockedDocumentQuiet });
+    assertion(
+      beforeTouch.documentScrollTop === 900 && lockedDocumentQuiet.scrollY === 900,
+      "Touch scenario did not establish an exact quiet document baseline",
+      beforeTouch,
+    );
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
     await cdp.send("Input.dispatchTouchEvent", {
