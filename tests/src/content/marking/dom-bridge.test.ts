@@ -2612,6 +2612,53 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
+  it("prunes a covered implicit inclusion in the mutation delivery", () => {
+    const doc = new FakeDocument();
+    const callbacks: Array<(records: MutationRecord[]) => void> = [];
+    Object.assign(doc.defaultView, {
+      MutationObserver: class {
+        constructor(callback: (records: MutationRecord[]) => void) {
+          callbacks.push(callback);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    });
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const link = new FakeElement("A", rect(10, 10, 140, 24), "Visible content link");
+    const cover = new FakeElement("NAV", rect(0, 0, 300, 60), "Sticky navigation");
+    for (const element of [root, link, cover]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(link);
+    root.appendChild(cover);
+    doc.hits = [link, root];
+    const engine = createMarkingEngine(root as unknown as Element);
+    engine.renderReadOnly();
+    const painted = (): boolean => engine.overlayRoot().children
+      .flatMap((layer) => layer.children)
+      .some((overlay) =>
+        overlay.getAttribute("data-uf-overlay-xpath") === "/main[1]/a[1]" &&
+        overlay.className === "uf-rect uf-default"
+      );
+    expect(painted()).toBe(true);
+
+    doc.hits = [cover, link, root];
+    cover.setAttribute("class", "sticky");
+    callbacks[0]?.([{
+      type: "attributes",
+      target: cover,
+      attributeName: "class",
+      oldValue: null,
+    } as unknown as MutationRecord]);
+
+    expect(painted()).toBe(false);
+    expect(engine.rows()).toContainEqual({ xpath: "/main[1]/a[1]", excluded: false });
+    engine.dispose();
+  });
+
   it("does not paint visually hidden immutable exclusions in marking or silent mode", () => {
     const doc = new FakeDocument();
     const image = new FakeElement("IMG", rect(10, 10, 120, 80));

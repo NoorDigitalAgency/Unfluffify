@@ -557,33 +557,74 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     }
   };
 
-  const exclusionPresentationIsPaintable = (xpath: string): boolean => {
+  const classificationPresentationIsPaintable = (
+    xpath: string,
+    classification: Classification,
+  ): boolean => {
+    // A retained explicit inclusion deliberately survives a transient physical
+    // cover (and becomes a ghost only when its authored visibility disappears).
+    // Every ordinary classification must continue to satisfy the same live
+    // paint proof used when it was first drawn.
+    if (classification === "explicit-include") {
+      return true;
+    }
     const target = latestTargetByXpath.get(xpath);
     return Boolean(
       target &&
       measuredVisibilityFor(target.element) &&
-      measuredOwnPaintRectsFor(target.element).length > 0,
+      (LIVE_VISIBILITY_EXCLUSION_CLASSIFICATIONS.has(classification)
+        ? measuredOwnPaintRectsFor(target.element)
+        : measuredClientRectsFor(target.element)).length > 0,
+    );
+  };
+
+  const silentPresentationIsPaintable = (xpath: string, presentation: string): boolean => {
+    // Silent content ghosts represent the retained explicit-inclusion contract;
+    // like their marking equivalent, a transient cover must not delete them.
+    if (presentation.includes("uf-silent-content-ghost")) {
+      return true;
+    }
+    const target = latestTargetByXpath.get(xpath);
+    const exclusion = presentation.includes("uf-silent-immutable") ||
+      presentation.includes("uf-silent-excluded");
+    return Boolean(
+      target &&
+      measuredVisibilityFor(target.element) &&
+      (exclusion
+        ? measuredOwnPaintRectsFor(target.element)
+        : measuredClientRectsFor(target.element)).length > 0,
     );
   };
 
   const pruneInvisibleExclusions = (): number => {
     beginGeometryBatch();
     let removed = 0;
-    const paintableByXpath = new Map<string, boolean>();
-    const paintable = (xpath: string): boolean => {
-      const retained = paintableByXpath.get(xpath);
+    const paintableByPresentation = new Map<string, boolean>();
+    const classificationPaintable = (xpath: string, classification: Classification): boolean => {
+      const key = `${classification}:${xpath}`;
+      const retained = paintableByPresentation.get(key);
       if (retained !== undefined) {
         return retained;
       }
-      const next = exclusionPresentationIsPaintable(xpath);
-      paintableByXpath.set(xpath, next);
+      const next = classificationPresentationIsPaintable(xpath, classification);
+      paintableByPresentation.set(key, next);
+      return next;
+    };
+    const silentPaintable = (xpath: string, presentation: string): boolean => {
+      const key = `${presentation}:${xpath}`;
+      const retained = paintableByPresentation.get(key);
+      if (retained !== undefined) {
+        return retained;
+      }
+      const next = silentPresentationIsPaintable(xpath, presentation);
+      paintableByPresentation.set(key, next);
       return next;
     };
     try {
       for (const [key, record] of classificationBoxes) {
         if (
-          LIVE_VISIBILITY_EXCLUSION_CLASSIFICATIONS.has(record.classification) &&
-          !paintable(record.xpath)
+          record.classification !== "explicit-include" &&
+          !classificationPaintable(record.xpath, record.classification)
         ) {
           record.overlay.remove();
           classificationBoxes.delete(key);
@@ -591,9 +632,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         }
       }
       for (const [key, record] of silentBoxes) {
-        const exclusion = record.presentation.includes("uf-silent-immutable") ||
-          record.presentation.includes("uf-silent-excluded");
-        if (exclusion && !paintable(record.xpath)) {
+        if (!silentPaintable(record.xpath, record.presentation)) {
           record.overlay.remove();
           silentBoxes.delete(key);
           removed += 1;

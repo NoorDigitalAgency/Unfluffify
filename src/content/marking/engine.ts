@@ -2424,9 +2424,10 @@ type DeferredBranchRenderChunk = Readonly<{
           )
         )) {
           // Paint truth is latency-sensitive and bounded by the rectangles that
-          // are actually mounted. Prune a newly hidden/covered exclusion in the
-          // observer delivery itself; retain the quiet/idle structural refresh
-          // for topology, selectors, and canonical extraction state.
+          // are actually mounted. Prune newly hidden/covered ordinary markings
+          // in the observer delivery itself; retained explicit inclusions keep
+          // their legacy transient-cover contract. The quiet/idle structural
+          // refresh still owns topology, selectors, and canonical extraction.
           renderer.pruneInvisibleExclusions();
         }
         if (netRecords.some(suppressedMutationTouchesBridge)) {
