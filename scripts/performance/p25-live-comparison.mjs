@@ -921,7 +921,21 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
     const toggleId = implementation === "legacy" ? "config-toggle" : "header-kebab-toggle";
     let opener = before.controls.find((candidate) => candidate.id === openerId);
     if (!opener || opener.visible === false) {
-      const toggle = before.controls.find((candidate) => candidate.id === toggleId);
+      let toggle = before.controls.find((candidate) => candidate.id === toggleId);
+      // The pinned legacy popup mounts its header before the authority-backed
+      // configuration control. A fresh copied profile can therefore complete
+      // preflight while #config-toggle is still absent for several seconds.
+      // Wait for the real visible control instead of misclassifying that mount
+      // window as a missing legacy capability.
+      const toggleDeadline = Date.now() + Math.min(timeoutMs, 10_000);
+      while (
+        (!toggle || toggle.disabled || toggle.visible === false) &&
+        Date.now() < toggleDeadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        before = await capturePopupState(popup);
+        toggle = before.controls.find((candidate) => candidate.id === toggleId);
+      }
       if (!toggle || toggle.disabled || toggle.visible === false) {
         throw new Error(`Render Inspection menu toggle #${toggleId} is unavailable: ${JSON.stringify(toggle)}`);
       }
