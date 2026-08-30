@@ -38,7 +38,7 @@ import { buildSubmissionSnapshot } from "./submit";
 import type { RenderMode } from "../../domain/schema/property";
 import { isToggleableDefaultTag } from "../../domain/taxonomy";
 import type { VisibilityGeometry } from "../../domain/visibility";
-import { isToggleableBoundary } from "../../domain/boundary";
+import { isSelfMarkable, isToggleableBoundary } from "../../domain/boundary";
 import { readElementId } from "./element-identity";
 import { restoreMotionStyleForCapture } from "./capture-hygiene";
 import { presentationClockFor } from "../presentation-clock";
@@ -2803,12 +2803,35 @@ export function createMarkingEngine(
           liveVisibility.set(node.key, visible);
           return visible;
         };
+        // The widening contract can inspect the same descendant subtree from
+        // several overlapping ancestor/group candidates. Resolving every one
+        // recursively made a single Shift hover repeat live visibility and
+        // boundary qualification across large page branches. Keep the proof
+        // live for this exact pointer observation, but calculate each subtree
+        // count at most once for the resolution.
+        const liveTextualCounts = new Map<string, number>();
+        const liveTextualMarkableContentCount = (node: WidenNode): number => {
+          if (node.textualMarkableContentCount !== undefined) {
+            return node.textualMarkableContentCount;
+          }
+          const cached = liveTextualCounts.get(node.key);
+          if (cached !== undefined) {
+            return cached;
+          }
+          const count = (node.children ?? []).reduce((total, child) =>
+            total + (isSelfMarkable(child, { isVisible: visibleNow })
+              ? 1
+              : liveTextualMarkableContentCount(child)), 0);
+          liveTextualCounts.set(node.key, count);
+          return count;
+        };
         const widened = chooseWidenTarget(widenNode, {
           isVisible: visibleNow,
           getChildren: (node) => (node.children ?? []).map((child) => {
             const visible = visibleNow(child);
             return visible === child.visible ? child : { ...child, visible };
           }),
+          getTextualMarkableContentCount: liveTextualMarkableContentCount,
         });
         // Never silently degrade a Shift decision to the exact node when the
         // chosen live owner cannot be rebound to this bridge generation.
