@@ -40,6 +40,7 @@ import { presentationClockFor } from "../content/presentation-clock";
 import { createPreviewController } from "../content/preview-controller";
 import { createSignalScheduler } from "../content/signal-scheduler";
 import {
+  hydrateContentStateForManagedAuthority,
   INITIAL_CONTENT_STATE,
   memoryForContent,
   transitionContentState,
@@ -2249,6 +2250,12 @@ function terminateInteractionShieldAuthority(
 
 function resumeInteractionShieldAuthority(): void {
   interactionShieldAuthorityActive = true;
+  const hydratedState = hydrateContentStateForManagedAuthority(contentState);
+  if (hydratedState !== contentState) {
+    contentState = hydratedState;
+    contentPresentation = memoryForContent(contentState);
+    syncContentTransientPreviewContext();
+  }
 }
 
 function releaseDurablePostureLocally(): void {

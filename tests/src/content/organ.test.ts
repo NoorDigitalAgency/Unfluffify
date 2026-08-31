@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CONTENT_STATE_NAMES,
+  hydrateContentStateForManagedAuthority,
   INITIAL_CONTENT_STATE,
   memoryForContent,
   transitionContentState,
@@ -23,6 +24,31 @@ function signal(seq: number, name: BrainSignalName, payload: Record<string, stri
 }
 
 describe("content signal organ", () => {
+  it("hydrates only a cold managed realm to the silent physical baseline", () => {
+    const boot: ContentState = {
+      ...INITIAL_CONTENT_STATE,
+      lastConsumedSeq: 17,
+      priorState: "running",
+      runSessionId: "stale-boot-data",
+      reconciliationReason: "stale-boot-data",
+    };
+
+    expect(hydrateContentStateForManagedAuthority(boot)).toEqual({
+      name: "silent",
+      lastConsumedSeq: 17,
+      reconciliationReason: "",
+    });
+
+    for (const name of CONTENT_STATE_NAMES.filter((candidate) => candidate !== "boot")) {
+      const established: ContentState = {
+        name,
+        lastConsumedSeq: 23,
+        reconciliationReason: name === "reconciling" ? "saving" : "",
+      };
+      expect(hydrateContentStateForManagedAuthority(established)).toBe(established);
+    }
+  });
+
   it("moves only on fresh sequenced signals and renders the whole local memory", () => {
     let state = transitionContentState(INITIAL_CONTENT_STATE, signal(1, "marking.enabled"));
     state = transitionContentState(state, signal(2, "run.started", { sessionId: "run-1" }));

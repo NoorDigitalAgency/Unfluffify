@@ -33,6 +33,23 @@ export const INITIAL_CONTENT_STATE: ContentState = {
 };
 
 /**
+ * Establishes the physically truthful baseline of a newly-created content
+ * realm after current property authority has been proved. This is hydration,
+ * not a session edge: it neither advances the brain cursor nor reconstructs a
+ * marking/run/Preview occurrence. Same-document navigation fences and every
+ * already-established state therefore remain untouched.
+ */
+export function hydrateContentStateForManagedAuthority(state: ContentState): ContentState {
+  return state.name === "boot"
+    ? {
+      name: "silent",
+      lastConsumedSeq: state.lastConsumedSeq,
+      reconciliationReason: "",
+    }
+    : state;
+}
+
+/**
  * The content organ owns this transition table independently from the popup.
  * Both remain consistent because they consume the same ordered brain signals,
  * not because either realm dictates the other's state or presentation.

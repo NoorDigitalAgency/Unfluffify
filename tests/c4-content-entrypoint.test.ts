@@ -755,28 +755,20 @@ describe("C4 rewrite content entrypoints", () => {
       .mockReturnValueOnce(engine)
       .mockReturnValueOnce(nextEngine);
     let pendingSignals: Array<Record<string, unknown>> = [];
-    const previewSignals: Array<Record<string, unknown>> = [
-      {
-        kind: "uf-signal/1",
-        tabId: 77,
-        seq: 1,
-        name: "marking.disabled",
-        source: "brain",
-        cause: "test",
-        at: 1,
-        payload: {},
-      },
-      {
-        kind: "uf-signal/1",
-        tabId: 77,
-        seq: 2,
-        name: "preview.opened",
-        source: "brain",
-        cause: "test",
-        at: 2,
-        payload: { origin: "silent" },
-      },
-    ];
+    // Production can create a content realm after the brain's last
+    // marking.disabled edge. Deliberately omit both that edge and a navigation
+    // edge: managed page authority must hydrate boot to the truthful silent
+    // baseline before this first Preview occurrence is consumed.
+    const previewSignals: Array<Record<string, unknown>> = [{
+      kind: "uf-signal/1",
+      tabId: 77,
+      seq: 1,
+      name: "preview.opened",
+      source: "brain",
+      cause: "test",
+      at: 1,
+      payload: { origin: "silent" },
+    }];
     const sendMessage = vi.fn(async (message: BusFrame) => {
       if (message.name === "page.context") {
         const requestedPageUrl = (message.payload as { pageUrl?: string }).pageUrl ?? pageUrl;
@@ -821,6 +813,9 @@ describe("C4 rewrite content entrypoints", () => {
     }
     await Promise.resolve();
     await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((await dispatchContentCommand(listener, "getContentMainStatus")).data).toMatchObject({
+      sessionState: { name: "silent", lastConsumedSeq: 0 },
+    });
     pendingSignals = previewSignals;
     await applyLockState(listener);
 
@@ -974,11 +969,11 @@ describe("C4 rewrite content entrypoints", () => {
     pendingSignals = [{
       kind: "uf-signal/1",
       tabId: 77,
-      seq: 3,
+      seq: 2,
       name: "preview.exit.requested",
       source: "brain",
       cause: "test",
-      at: 3,
+      at: 2,
       payload: { restore: true },
     }];
     await applyLockState(listener);
@@ -994,15 +989,24 @@ describe("C4 rewrite content entrypoints", () => {
     expect(engine.retirePreviewProjection).toHaveBeenCalledTimes(1);
     expect(engine.clearHover).toHaveBeenCalledTimes(1);
     const hoverClearedAt = engine.clearHover.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER;
+    const previewExitedFacts = () => sendMessage.mock.calls.filter(([frame]) => (
+      (frame as BusFrame).name === "fact.reported" &&
+      (frame as { payload?: { sensation?: { reason?: unknown } } }).payload?.sensation?.reason === "preview-exited"
+    ));
+    for (let attempt = 0; attempt < 20 && previewExitedFacts().length === 0; attempt += 1) {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(previewExitedFacts()).toHaveLength(1);
 
     pendingSignals = [{
       kind: "uf-signal/1",
       tabId: 77,
-      seq: 4,
+      seq: 3,
       name: "preview.exited",
       source: "brain",
       cause: "test",
-      at: 4,
+      at: 3,
       payload: { restored: true },
     }];
     await applyLockState(listener);
@@ -1022,11 +1026,11 @@ describe("C4 rewrite content entrypoints", () => {
     pendingSignals = [{
       kind: "uf-signal/1",
       tabId: 77,
-      seq: 5,
+      seq: 4,
       name: "preview.opened",
       source: "brain",
       cause: "test",
-      at: 5,
+      at: 4,
       payload: { origin: "silent" },
     }];
     await applyLockState(listener);
@@ -2055,6 +2059,9 @@ describe("C4 rewrite content entrypoints", () => {
       },
     });
     expect(createMarkingEngine).not.toHaveBeenCalled();
+    expect((await dispatchContentCommand(listener, "getContentMainStatus")).data).toMatchObject({
+      sessionState: { name: "boot", lastConsumedSeq: 0 },
+    });
     // The document_start firewall is constructed while dormant; terminal
     // authority still prevents any marking/highlight lease from activating.
     expect(shieldHarness.create).toHaveBeenCalledOnce();
@@ -2591,7 +2598,7 @@ describe("C4 rewrite content entrypoints", () => {
       markedCount: 0,
       decisionRowCount: 1,
       contentRows: [{ xpath: "/html[1]/body[1]/p[1]", classification: "excluded" }],
-      sessionState: { name: "boot" },
+      sessionState: { name: "silent" },
       authority: { configPresent: true, lockRole: "editor", lockBlocked: false },
       presentation: { markingEditsBlocked: false, pageInputBlocked: false },
       presentationPhase: "interactive",
@@ -3783,7 +3790,7 @@ describe("C4 rewrite content entrypoints", () => {
     expect(windowListeners.has("hashchange")).toBe(true);
     expect(postureSetRequests).toBe(0);
     expect((await dispatchContentCommand(listener, "getContentMainStatus")).data).toMatchObject({
-      sessionState: { name: "boot", lastConsumedSeq: 0 },
+      sessionState: { name: "silent", lastConsumedSeq: 0 },
     });
   });
 
@@ -3919,7 +3926,7 @@ describe("C4 rewrite content entrypoints", () => {
     expect(signalPullRequests).toBeGreaterThanOrEqual(3);
     expect(postureSetRequests).toBe(0);
     expect((await dispatchContentCommand(listener, "getContentMainStatus")).data).toMatchObject({
-      sessionState: { name: "boot", lastConsumedSeq: 0 },
+      sessionState: { name: "silent", lastConsumedSeq: 0 },
     });
 
     navigationFolded = true;

@@ -709,3 +709,156 @@ cursor/entrypoint/preview-exit tests.
 6. `el02-headed-matrix` → 5
 7. `el02-review-push` → 6
 8. `el02-conformance` → 7
+
+## 7. EL-02-R1 conformance result
+
+**Verdict:** `NOT APPROVED — EL-02-R2 REQUIRED` on implementation commit
+`f19fc2e2626fea5ddcf6858d0890db32307846a1` (`re-write`). The commit was
+pushed and synchronized `0/0`. `pnpm verify` passed 1,554 tests; production and
+debug builds passed; P17 passed 19/19, P20 passed 4/4, and the complete P25
+composite passed all P14/P15/P16/P17/P18/P20/P23 children on clean tracked
+source. No authoritative Save or Lynx publication occurred.
+
+The clean exact-source headed Arno conformance proved `EL02-AC-01`: silent
+**Show Content List** opened in 51 ms with 75 rows from the saved property
+configuration even though the transient presentation selectors were empty.
+It then disproved terminal Preview restoration. One trusted Exit occurrence
+produced three `preview.exit.requested` signals and a visible reason-specific
+failure after the bounded retries, but remained in `exit_restoring` with
+**Restoring page** visible.
+
+Debug inspection isolated the page/popup split at the same signal cursor:
+
+- popup: `silent_preview → exit_restoring`, last processed exit request `#8`;
+- content: `boot`, `lastConsumedSeq: 8`, managed Arno authority, editor lock,
+  inactive marking, valid silent selector rows;
+- the cold content organ had never received a preceding `marking.disabled` or
+  `session.navigated` edge, so it consumed `preview.opened` and all exit-request
+  sequences while retaining `boot`; it therefore never owned the
+  `exit_restoring` transition that reports the sole `preview-exited` fact.
+
+This remaining failure is not a transport starvation defect. R1's deadlines
+worked as designed: the action terminalized visibly inside its budget. The
+defect is cold-realm organ initialization/coherence hidden by fixtures that
+always supplied `marking.disabled` before a silent Preview.
+
+| Criterion | Result | R1 conformance evidence |
+|---|---|---|
+| `EL02-AC-01` | PASS | Exact-source Arno silent Content List opened from authoritative saved selectors with an empty transient selector presentation. |
+| `EL02-AC-02` | PASS | Focused bus suites and the complete verify/gate run prove typed deadlines, late-settlement hygiene, and disposal. |
+| `EL02-AC-03` | PASS | Signal-cursor regressions pass and the headed failed exit completed all three retries instead of stranding the queue. |
+| `EL02-AC-04` | PASS | Whole-operation budget tests pass; the headed occurrence returned its visible bounded failure. |
+| `EL02-AC-05` | FAIL | The headed occurrence did not reach a restored terminal state; visible failure alone is insufficient while the page remains blocked in `exit_restoring`. |
+| `EL02-AC-06` | PARTIAL | Saved silent projection and prior exact routing pass; the aborted custom route probe selected an unavailable first row and did not complete this occurrence's two-way proof. |
+| `EL02-AC-07` | PASS | The exact headed sample retained zero invisible consent paints, zero extension payload artifacts, and no console failures. |
+| `EL02-AC-08` | PARTIAL | All automated gates pass, but the headed candidate matrix cannot pass while Preview Exit remains non-terminal. |
+| `EL02-AC-09` | FAIL | R1 is independently not approved; the implementation commit is synchronized but cannot close EL-02. |
+
+# EL-02-R2 — Cold content-organ authority hydration and terminal Preview restore
+
+## 1. Remediation verdict and scope
+
+`EL-02-R2` repairs the exact cold-realm coherence gap found by R1 conformance.
+The content realm's local physical default is silent: marking is inactive and
+no Preview exists. Once a current managed page context or a validated retained
+property shield lease grants DOM authority, `boot` must adopt that truthful
+silent baseline before consuming session signals. Sequence ownership remains
+with the brain; hydration does not mint a signal, advance the cursor, invent
+marking state, or override any non-boot session.
+
+No selector, marking, consent, endpoint, payload, Save, publication, emulation,
+or public permission contract changes are in scope.
+
+## 2. Implementation sequence
+
+### EL-02-R2-01 — Authority-fenced cold-realm baseline
+
+**Finding:** `EL-02-F003` — managed cold content can consume a silent Preview
+occurrence while remaining in `boot`, preventing content-owned restoration.
+
+**Files:** content organ/entrypoint and focused tests.
+
+1. Add one explicit content-organ bootstrap operation that changes only `boot`
+   to `silent`, preserves `lastConsumedSeq`, and is idempotent for every other
+   state.
+2. Invoke it only when `resumeInteractionShieldAuthority` adopts either a
+   definitive managed page context or a validated retained property-scoped
+   shield posture. Unmanaged, terminal, stale-generation, and failed context
+   paths remain boot/fail-open.
+3. Recompute the complete content presentation immediately from the hydrated
+   state. Existing callers retain physical rendering and lifecycle fences.
+4. Do not infer post-AI, marking, Preview, dirty, or lock state locally. All
+   subsequent state still arrives through sequenced brain signals.
+
+### EL-02-R2-02 — Exact missing-edge regressions
+
+1. Unit-prove boot-to-silent hydration, cursor preservation, and idempotence for
+   every non-boot content state.
+2. Add an entrypoint regression with managed authority and the production-cold
+   sequence `preview.opened(origin=silent) → preview.exit.requested`, deliberately
+   omitting `marking.disabled` and `session.navigated`.
+3. Prove the page reaches `silent_preview`, retires its projection before
+   restoration, reports exactly one `preview-exited` content fact, and returns
+   to `silent` when the resulting terminal signal arrives.
+4. Prove unmanaged/terminal context never hydrates or resurrects page authority.
+
+### EL-02-R2-03 — Validation, exact headed conformance, and review
+
+1. Run focused content-organ, content-entrypoint, popup Preview Exit, bus, and
+   signal suites.
+2. Run `pnpm verify`, production/debug builds, P17, P20, and the full P25
+   composite with unchanged thresholds.
+3. Repeat the exact-source repository `live-browser` Arno occurrence from a
+   cold content realm: saved silent Content List, semantic row routing both
+   directions, trusted Exit, and restored silent selector posture. Capture the
+   popup and content state before open, during Preview, and after Exit.
+4. Continue the externally available candidate matrix only after that root
+   reproducer passes. Use Ledigajobb, DPJ, Aleris, Acne Specialisten, Assist24,
+   Arno, ArkivIT, Teknikhallen, and Humanova; classify externally unavailable
+   candidates truthfully. Perform no authoritative Save or Lynx publication.
+5. Review only intended changes, commit and push normally, reindex the exact
+   commit, verify clean synchronized `0/0`, then independently check every
+   cumulative EL-02 criterion. Any failure creates `EL-02-R3`; only unanimous
+   PASS closes EL-02 and permits the next outer audit.
+
+## 3. Append-only R2 acceptance criteria
+
+- `EL02-R2-AC-01` Current managed/retained property authority hydrates only a
+  cold content `boot` state to `silent`, preserves its cursor, and never changes
+  a non-boot state.
+- `EL02-R2-AC-02` Unmanaged, terminal, stale, or failed context cannot hydrate
+  the content organ or restore DOM authority.
+- `EL02-R2-AC-03` A cold managed sequence with no synthetic
+  `marking.disabled`/navigation edge accepts silent Preview, owns Exit,
+  reports one `preview-exited` fact, and restores the page to `silent`.
+- `EL02-R2-AC-04` Preview projection/hover is retired before interactions
+  resume; saved silent overlays and two-way row routing remain correct.
+- `EL02-R2-AC-05` The exact headed Arno trusted Exit reaches terminal silent
+  state within the existing deadline with no failure toast or blocked curtain.
+- `EL02-R2-AC-06` All cumulative `EL02-AC-01` through `EL02-AC-09` pass on the
+  exact pushed source, including the full candidate matrix and zero unauthorized
+  Save/publication attempts.
+
+## 4. Regression risks and fallbacks
+
+- Hydrating on mere popup command receipt could grant authority to an unmanaged
+  page. The bootstrap stays inside the existing managed/retained authority
+  adoption function, after exact page/lifecycle validation.
+- Hydration could overwrite a restored marking/run occurrence. The pure helper
+  is strictly `boot`-only and preserves every non-boot object by identity.
+- A local bootstrap must not become a second state authority. It establishes
+  only the cold realm's physically true silent baseline; every session edge and
+  cursor advance remains brain-owned.
+- A fixture that includes `marking.disabled` would conceal the original defect.
+  The production-sequence regression explicitly forbids that signal.
+
+## 5. Todo chain
+
+1. `el02-r2-content-baseline`
+2. `el02-r2-cold-preview-regression` → 1
+3. `el02-r2-focused-validation` → 2
+4. `el02-r2-full-gates` → 3
+5. `el02-r2-headed-root-reproducer` → 4
+6. `el02-r2-headed-candidate-matrix` → 5
+7. `el02-r2-review-push` → 6
+8. `el02-r2-conformance` → 7
