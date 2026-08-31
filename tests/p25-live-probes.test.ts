@@ -9,7 +9,9 @@ import {
   collectorWindowShouldContinue,
   composedVisibilityEvidence,
   executeResizePerturbation,
+  finalizeFrameCollectorState,
   filterLongTasksToCollectorWindow,
+  markingAssertion,
   markingOwnerBelongsToCandidate,
   preparedMarkingTargetIsUsable,
   stablePreparedMarkingTargetAuthority,
@@ -607,6 +609,80 @@ describe("P25 frame collector Long Task evidence", () => {
     });
   });
 
+  it("terminalizes on the observer clock, drains pending Long Tasks, and preserves real frames", () => {
+    const frames = [{ at: 140, deltaMs: 16 }];
+    const state = {
+      startedAt: 100,
+      endedAt: null,
+      frames,
+      longTasks: [
+        { startTime: 90, duration: 80 },
+        { startTime: 180, duration: 20 },
+      ],
+      finished: false,
+      completionSource: null,
+    };
+    const observer = {
+      takeRecords: vi.fn(() => [
+        { name: "self", entryType: "longtask", startTime: 220, duration: 35, attribution: [] },
+        { name: "late", entryType: "longtask", startTime: 520, duration: 75, attribution: [] },
+      ]),
+      disconnect: vi.fn(),
+    };
+
+    expect(finalizeFrameCollectorState(state, observer, 500, "observer-clock", serializeLongTaskEntry)).toBe(true);
+    expect(state).toMatchObject({
+      startedAt: 100,
+      endedAt: 500,
+      finished: true,
+      completionSource: "observer-clock",
+      frames,
+      longTasks: [
+        { startTime: 180, duration: 20 },
+        { startTime: 220, duration: 35 },
+      ],
+    });
+    expect(state.frames).toBe(frames);
+    expect(observer.takeRecords).toHaveBeenCalledTimes(1);
+    expect(observer.disconnect).toHaveBeenCalledTimes(1);
+
+    expect(finalizeFrameCollectorState(state, observer, 800, "animation-frame", serializeLongTaskEntry)).toBe(true);
+    expect(state.endedAt).toBe(500);
+    expect(state.completionSource).toBe("observer-clock");
+    expect(observer.takeRecords).toHaveBeenCalledTimes(1);
+    expect(observer.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("supports natural animation-frame completion and rejects invalid timing bounds", () => {
+    const natural = {
+      startedAt: 100,
+      endedAt: null,
+      frames: [{ at: 200, deltaMs: 16 }],
+      longTasks: [],
+      finished: false,
+      completionSource: null,
+    };
+    const observer = { takeRecords: vi.fn(() => []), disconnect: vi.fn() };
+    expect(finalizeFrameCollectorState(natural, observer, 300, "animation-frame", serializeLongTaskEntry)).toBe(true);
+    expect(natural).toMatchObject({ endedAt: 300, finished: true, completionSource: "animation-frame" });
+
+    const invalid = {
+      startedAt: Number.NaN,
+      endedAt: null,
+      frames: [],
+      longTasks: [],
+      finished: false,
+      completionSource: null,
+    };
+    expect(finalizeFrameCollectorState(invalid, observer, 300, "observer-clock", serializeLongTaskEntry)).toBe(false);
+    expect(invalid).toMatchObject({ endedAt: null, finished: false, completionSource: null, frames: [] });
+
+    const source = readFileSync(new URL("../scripts/performance/p25/live-probes.mjs", import.meta.url), "utf8");
+    expect(source).toContain("else state.finalize(now, 'animation-frame')");
+    expect(source).toContain("state?.finalize?.(performance.now(), 'observer-clock')");
+    expect(source).toContain("completionSource: typeof raf?.completionSource === \"string\"");
+  });
+
   it("attributes only Long Tasks that start inside the current collector window", () => {
     expect(filterLongTasksToCollectorWindow([
       { startTime: 90, duration: 80 },
@@ -735,5 +811,52 @@ describe("P25 prepared marking target authority", () => {
       shiftedOwnerXpath,
       decision: { targetOwned },
     })).toBe(false);
+  });
+});
+
+describe("P25 settled Shift assertion authority", () => {
+  const targetXpath = "/html[1]/body[1]/main[1]/p[1]";
+  const target = { targetBreadth: 2 };
+  const delta = { created: [], removed: [], changed: [], ambientCreated: [], ambientRemoved: [] };
+
+  it("serializes the meaningful exact owner and a genuinely widened ancestor", () => {
+    expect(markingAssertion("shift-expand", {}, {
+      ...target,
+      targetOwned: [{
+        ownerXpath: targetXpath,
+        kind: "explicit-exclusion",
+        ownerRelation: "exact",
+        breadth: 2,
+      }],
+    }, delta, targetXpath)).toEqual({
+      kind: "explicit-exclusion",
+      ownerXpath: targetXpath,
+      ownerRelation: "exact",
+      breadthIncreased: false,
+      expectedOwnerXpath: targetXpath,
+    });
+
+    const ancestorXpath = "/html[1]/body[1]/main[1]";
+    expect(markingAssertion("shift-expand", {}, {
+      ...target,
+      targetOwned: [{
+        ownerXpath: ancestorXpath,
+        kind: "explicit-exclusion",
+        ownerRelation: "ancestor",
+        breadth: 8,
+      }],
+    }, delta, ancestorXpath)).toEqual({
+      kind: "explicit-exclusion",
+      ownerXpath: ancestorXpath,
+      ownerRelation: "ancestor",
+      breadthIncreased: true,
+      expectedOwnerXpath: ancestorXpath,
+    });
+  });
+
+  it("preserves the expected owner in both acknowledgement exits", () => {
+    const source = readFileSync(new URL("../scripts/performance/p25/live-probes.mjs", import.meta.url), "utf8");
+    expect(source).toContain("assertion: markingAssertion(id, before, last, settledDelta, expectedAcknowledgementXpath)");
+    expect(source).toContain("assertion: markingAssertion(id, before, last, targetDelta, expectedAcknowledgementXpath)");
   });
 });

@@ -1057,6 +1057,36 @@ export function serializeLongTaskEntry(entry) {
   };
 }
 
+export function finalizeFrameCollectorState(state, observer, now, source, serializeEntry) {
+  if (!state || typeof state !== "object") return false;
+  if (state.finished === true) return true;
+  if (!Number.isFinite(state.startedAt) || !Number.isFinite(now) || now < state.startedAt) return false;
+  let pending;
+  try {
+    pending = typeof observer?.takeRecords === "function" ? observer.takeRecords() : [];
+  } catch {
+    pending = [];
+  }
+  if (!Array.isArray(state.longTasks)) state.longTasks = [];
+  for (const entry of pending) {
+    if (Number.isFinite(entry?.startTime) && entry.startTime >= state.startedAt) {
+      state.longTasks.push(serializeEntry(entry));
+    }
+  }
+  state.endedAt = now;
+  state.longTasks = state.longTasks.filter((entry) =>
+    Number.isFinite(entry?.startTime) && entry.startTime >= state.startedAt && entry.startTime <= state.endedAt);
+  state.finished = true;
+  state.completionSource = source;
+  try {
+    observer?.disconnect?.();
+  } catch {
+    // Timing bounds and captured records are already terminal; teardown cannot
+    // invalidate them and the owning isolated world is removed with the stage.
+  }
+  return true;
+}
+
 export function collectorWindowShouldContinue({
   startedAt,
   actionFinishedAt,
@@ -1130,6 +1160,7 @@ function frameCollectorExpression(collectorKey, ownerXPath, durationMs) {
     const selectActiveOverlayRoot = ${selectActiveOverlayRoot.toString()};
     const collectOverlayRoots = ${collectOverlayRoots.toString()};
     const serializeLongTaskEntry = ${serializeLongTaskEntry.toString()};
+    const finalizeFrameCollectorState = ${finalizeFrameCollectorState.toString()};
     const key = ${JSON.stringify(collectorKey)};
     const ownerXPath = ${JSON.stringify(ownerXPath)};
     const durationMs = ${JSON.stringify(durationMs)};
@@ -1143,6 +1174,7 @@ function frameCollectorExpression(collectorKey, ownerXPath, durationMs) {
       actionStartedAt: null,
       actionFinishedAt: null,
       finished: false,
+      completionSource: null,
     };
     window[key] = state;
     let owner = null;
@@ -1160,6 +1192,8 @@ function frameCollectorExpression(collectorKey, ownerXPath, durationMs) {
       observer?.observe({ type: 'longtask', buffered: true });
       state.longTaskObserverInstalled = Boolean(observer);
     } catch {}
+    state.finalize = (now = performance.now(), source = 'observer-clock') =>
+      finalizeFrameCollectorState(state, observer, now, source, serializeLongTaskEntry);
     let previous = state.startedAt;
     const tick = (now) => {
       // Keep the observer cheaper than the presentation being measured. IDs
@@ -1201,12 +1235,7 @@ function frameCollectorExpression(collectorKey, ownerXPath, durationMs) {
         durationMs,
         frameCount: state.frames.length,
       })) requestAnimationFrame(tick);
-      else {
-        state.endedAt = now;
-        state.longTasks = state.longTasks.filter((entry) => entry.startTime >= state.startedAt && entry.startTime <= state.endedAt);
-        state.finished = true;
-        observer?.disconnect();
-      }
+      else state.finalize(now, 'animation-frame');
     };
     requestAnimationFrame(tick);
     return { installed: true, key };
@@ -1282,6 +1311,10 @@ export async function captureCompactFrames(session, { artifactDirectory, name, d
     })()`, { contextId });
     await sleep(Math.max(0, durationMs - actionDurationMs) + 240);
   } finally {
+    await session.evaluate(`(() => {
+      const state = window[${JSON.stringify(collectorKey)}];
+      return state?.finalize?.(performance.now(), 'observer-clock') ?? false;
+    })()`, { contextId }).catch(() => false);
     if (cpuProfilerStarted) {
       cpuProfile = await session.send("Profiler.stop").catch(() => null);
       await session.send("Profiler.disable").catch(() => undefined);
@@ -1291,6 +1324,7 @@ export async function captureCompactFrames(session, { artifactDirectory, name, d
   }
   const raf = await session.evaluate(`(() => {
     const state = window[${JSON.stringify(collectorKey)}] ?? null;
+    if (state) delete state.finalize;
     delete window[${JSON.stringify(collectorKey)}];
     return state;
   })()`, { contextId }).catch(() => null);
@@ -1334,6 +1368,7 @@ export async function captureCompactFrames(session, { artifactDirectory, name, d
     cpuProfile: cpuProfileArtifact,
     requestAnimationFrame: {
       finished: raf?.finished === true,
+      completionSource: typeof raf?.completionSource === "string" ? raf.completionSource : null,
       frames: rAFFrames,
       timing: summarizeTiming(rAFFrames.slice(1).map((frame) => frame.deltaMs)),
       longTaskObserverSupported: raf?.longTaskObserverSupported === true,
@@ -2199,7 +2234,7 @@ function markingDelta(before, after) {
   };
 }
 
-function markingAssertion(id, before, after, targetDelta, expectedOwnerXpath = null) {
+export function markingAssertion(id, before, after, targetDelta, expectedOwnerXpath = null) {
   if (id === "shift-expand") {
     const shifted = after.targetOwned.find((record) =>
       record.kind === "explicit-exclusion" &&
@@ -2300,7 +2335,7 @@ async function waitForGestureAcknowledgement(
         acknowledgementLatencyMs: Math.max(0, frame - startedAt),
         after: last,
         targetDelta: settledDelta,
-        assertion: markingAssertion(id, before, last, settledDelta),
+        assertion: markingAssertion(id, before, last, settledDelta, expectedAcknowledgementXpath),
         interactionAcknowledgement,
       };
     }
@@ -2311,7 +2346,7 @@ async function waitForGestureAcknowledgement(
     acknowledgementLatencyMs: null,
     after: last,
     targetDelta,
-    assertion: markingAssertion(id, before, last, targetDelta),
+    assertion: markingAssertion(id, before, last, targetDelta, expectedAcknowledgementXpath),
     interactionAcknowledgement,
   };
 }

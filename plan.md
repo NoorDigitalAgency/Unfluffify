@@ -1412,3 +1412,79 @@ publication attempts.
 5. `el02-r6-headed-arno` → 4
 6. `el02-r6-candidate-matrix` → 5
 7. `el02-r6-conformance` → 6
+
+# EL-02-R7 — Freeze-safe gesture evidence terminalization
+
+## 1. Entering conformance findings
+
+The exact-source Arno rerun on `c80d7d29` passed preflight, both Render
+Inspection modes, activation, and marking visual. This closes R6's consent/XPath
+failure: all 12 previously unresolved visible boundaries resolved correctly.
+The next `marking-gestures` stage exposed two evidence-harness defects and
+stopped with zero Save or publication attempts.
+
+- `EL-02-F013` (Medium, release-evidence blocker): the acknowledged Shift action
+  settled as the correct exact explicit exclusion for the cursor position, but
+  `waitForGestureAcknowledgement` recomputed its returned assertion without the
+  already proven expected owner XPath. The serialized assertion therefore
+  became null and contradicted the canonical target delta and interaction
+  acknowledgement.
+- `EL-02-F014` (Medium, release-evidence blocker): compact-frame completion is
+  owned only by page `requestAnimationFrame`. Reveal/freeze is explicitly
+  allowed to suspend page-owned animation callbacks, so a completed physical
+  action can leave the collector marked unfinished and turn an installed Long
+  Task observer into `unknown` evidence.
+
+The anomalous approximately one-second dispatch figures are not accepted as a
+product diagnosis. On the same visible, focused, normal-windowed 412×960 page,
+standalone mutable clicks measured about 1–2 ms. The exact compact collector
+reproduction measured 1–24 ms, completed with 60 Hz active-frame samples, and
+reported zero Long Tasks. The R7 rerun must nevertheless re-prove the complete
+stage from a fresh browser.
+
+## 2. Locked scope and delta plan
+
+1. Preserve `expectedAcknowledgementXpath` in every settled and timeout
+   `markingAssertion` result. Exact Shift boundaries remain valid where the
+   legacy widening ladder keeps the meaningful target exact; ancestor results
+   must still prove increased breadth.
+2. Give the compact collector an explicit idempotent finalizer in its isolated
+   world. The page rAF loop may finalize normally; otherwise, after the
+   observer-owned action/tail wait, the harness invokes that finalizer
+   synchronously to close bounds, filter Long Tasks, disconnect the observer,
+   and mark the evidence complete. It must not fabricate rAF or compositor
+   frames.
+3. Add regressions for exact-owner Shift serialization, timeout serialization,
+   natural rAF completion, and observer-clock completion while page rAF is
+   suspended. Retain fail-closed behavior when observer installation or timing
+   bounds are genuinely absent.
+4. Run focused tests, full verification, production/debug builds, review/push,
+   exact-source P25, and a fresh headed Arno workflow. Resume the candidate
+   matrix only after marking gestures and all later safe stages pass with zero
+   Save and publication attempts.
+
+## 3. R7 acceptance criteria
+
+- `EL02-R7-AC-01` A Shift action whose authoritative owner equals the clicked
+  target serializes an exact explicit exclusion; an ancestor owner serializes
+  an explicit exclusion with increased breadth.
+- `EL02-R7-AC-02` A naturally frozen page cannot leave an installed Long Task
+  observer in an indeterminate state after the physical action and observer
+  tail have ended.
+- `EL02-R7-AC-03` Forced finalization preserves actual frame cardinality and
+  timing, creates no synthetic frame, and still fails closed for missing
+  observers or invalid bounds.
+- `EL02-R7-AC-04` Exact-source Arno passes marking gestures with responsive
+  target-keyed acknowledgements, finite Long Task evidence at or below 50 ms,
+  native browser context menu behavior, and zero Save/publication attempts.
+
+## 4. Todo chain
+
+1. `el02-r7-shift-assertion-owner`
+2. `el02-r7-freeze-safe-finalizer` → 1
+3. `el02-r7-focused-regressions` → 2
+4. `el02-r7-full-gates` → 3
+5. `el02-r7-review-push` → 4
+6. `el02-r7-headed-arno` → 5
+7. `el02-r7-candidate-matrix` → 6
+8. `el02-r7-conformance` → 7
