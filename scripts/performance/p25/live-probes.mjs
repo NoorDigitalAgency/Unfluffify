@@ -2402,7 +2402,7 @@ export async function withSiteSession(target, callback) {
     await session.send("Page.bringToFront");
     return await callback(session);
   } finally {
-    session.close();
+    await session.close();
   }
 }
 
@@ -2412,6 +2412,6 @@ export async function withPopupSession(target, callback) {
     await session.send("Runtime.enable");
     return await callback(session);
   } finally {
-    session.close();
+    await session.close();
   }
 }

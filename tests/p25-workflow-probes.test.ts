@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import {
+  captureWorkflowPopupState,
   adoptCandidateDisposition,
   createCandidateDispositionRecord,
   evaluateCandidateValidity,
@@ -20,6 +21,23 @@ import {
   validateFullWorkflowEvidence,
   viewportPostureMatches,
 } from "../scripts/performance/p25/workflow-probes.mjs";
+
+describe("P25 production popup evidence", () => {
+  it("maps the exact production blocked copy without requiring debug-only attributes", async () => {
+    let expression = "";
+    await captureWorkflowPopupState({
+      async evaluate(value: string) {
+        expression = value;
+        return {};
+      },
+    });
+
+    expect(expression).toContain("element.getAttribute('data-blocked-reason')");
+    expect(expression).toContain("Run AI again to update the selectors for the latest markings.");
+    expect(expression).toContain("? 'production-title'");
+    expect(expression).toContain("blockedReason: debugBlockedReason ?? blockedReasonFromTitle");
+  });
+});
 
 describe("P25 popup recovery acknowledgement", () => {
   const state = (controls: Array<Record<string, unknown>>, overrides: Record<string, unknown> = {}) => ({

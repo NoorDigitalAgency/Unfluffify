@@ -218,11 +218,22 @@ export async function captureWorkflowPopupState(session) {
     const control = (id) => {
       const element = document.getElementById(id);
       if (!(element instanceof HTMLElement)) return null;
+      const title = element.getAttribute('title');
+      const debugBlockedReason = element.getAttribute('data-blocked-reason');
+      const blockedReasonFromTitle = title === 'Run AI again to update the selectors for the latest markings.'
+        ? 'requires-ai-run'
+        : null;
       return {
         id,
         disabled: Boolean(element.disabled),
         checked: 'checked' in element ? Boolean(element.checked) : null,
-        blockedReason: element.getAttribute('data-blocked-reason'),
+        blockedReason: debugBlockedReason ?? blockedReasonFromTitle,
+        blockedReasonSource: debugBlockedReason
+          ? 'debug-attribute'
+          : blockedReasonFromTitle
+            ? 'production-title'
+            : null,
+        title,
         text: element.textContent?.replace(/\\s+/g, ' ').trim() ?? '',
       };
     };

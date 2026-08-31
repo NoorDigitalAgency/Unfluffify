@@ -312,7 +312,7 @@ async function browserAndProfileIdentity(endpoint, profileRoot) {
   try {
     commandLine = await browser.send("Browser.getBrowserCommandLine");
   } finally {
-    browser.close();
+    await browser.close();
   }
   const userDataArgument = (commandLine?.arguments ?? []).find((argument) => argument.startsWith("--user-data-dir="));
   if (!userDataArgument) throw new Error("Managed Chromium command line does not expose --user-data-dir");
@@ -1410,7 +1410,7 @@ async function runContentListWorkflow(popup, siteTarget, aiEvidence) {
       exited: !exited.preview.open,
     };
   } finally {
-    site.close();
+    await site.close();
   }
 }
 
@@ -1429,7 +1429,9 @@ async function waitForDirtyFreshnessProjection(popup, inputDispatchedAtEpochMs) 
   return {
     ...timing,
     saveBlockedReason: workflowControl(state, "page-save")?.blockedReason ?? null,
+    saveBlockedReasonSource: workflowControl(state, "page-save")?.blockedReasonSource ?? null,
     previewBlockedReason: workflowControl(state, "marking-preview")?.blockedReason ?? null,
+    previewBlockedReasonSource: workflowControl(state, "marking-preview")?.blockedReasonSource ?? null,
     state,
   };
 }
@@ -1858,7 +1860,7 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
         screenshots,
       };
     } finally {
-      popup.close();
+      await popup.close();
     }
   }
   if (id === "marking-visual") {
@@ -1979,7 +1981,7 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
         ai = workflow.initialAi;
         popup = await capturePopupState(session);
       } finally {
-        session.close();
+        await session.close();
       }
     } else if (mode === "retained-reference-only") {
       ai = {

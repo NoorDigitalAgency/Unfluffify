@@ -12,9 +12,12 @@ type Listener = (event: { data?: string }) => void;
 
 class FakeWebSocket {
   static OPEN = 1;
+  static CLOSING = 2;
+  static CLOSED = 3;
   static instances: FakeWebSocket[] = [];
   static deferredMethods = new Set<string>();
   static deferredReplies: Array<() => void> = [];
+  static deferClose = false;
 
   readonly sent: Array<Record<string, unknown>> = [];
   readonly listeners = new Map<string, Set<Listener>>();
@@ -62,7 +65,15 @@ class FakeWebSocket {
   }
 
   close(): void {
-    this.readyState = 3;
+    if (FakeWebSocket.deferClose) {
+      this.readyState = FakeWebSocket.CLOSING;
+      return;
+    }
+    this.finishClose();
+  }
+
+  finishClose(): void {
+    this.readyState = FakeWebSocket.CLOSED;
     this.emit("close", {});
   }
 }
@@ -96,6 +107,7 @@ afterEach(() => {
   FakeWebSocket.instances.length = 0;
   FakeWebSocket.deferredMethods.clear();
   FakeWebSocket.deferredReplies.length = 0;
+  FakeWebSocket.deferClose = false;
 });
 
 describe("P25 persistent publication guard", () => {
@@ -106,7 +118,23 @@ describe("P25 persistent publication guard", () => {
     await expect(session.send("Runtime.evaluate", { expression: "1" }, undefined, 10))
       .rejects.toThrow("CDP command Runtime.evaluate timed out after 10ms");
     expect(session.pending.size).toBe(0);
-    session.close();
+    await session.close();
+  });
+
+  it("does not release a direct target session until the socket close is acknowledged", async () => {
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    FakeWebSocket.deferClose = true;
+    const session = await new CdpSession({ webSocketDebuggerUrl: "ws://candidate" }).connect();
+    let closed = false;
+    const closing = session.close(1_000).then(() => { closed = true; });
+
+    await Promise.resolve();
+    expect(closed).toBe(false);
+    expect(FakeWebSocket.instances[0]?.readyState).toBe(FakeWebSocket.CLOSING);
+
+    FakeWebSocket.instances[0]?.finishClose();
+    await closing;
+    expect(closed).toBe(true);
   });
 
   it("derives payload hygiene and current-page envelope facts without retaining payload text", () => {

@@ -175,9 +175,31 @@ export class CdpSession {
     return response.result?.value;
   }
 
-  close() {
-    if (this.socket.readyState === WebSocket.OPEN) this.socket.close();
+  async close(timeoutMs = 5_000) {
     this.connected = false;
+    if (this.socket.readyState === 3) return;
+    await new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (callback) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        callback();
+      };
+      const timer = setTimeout(() => {
+        finish(() => reject(new Error(`CDP session close timed out after ${timeoutMs}ms`)));
+      }, timeoutMs);
+      this.socket.addEventListener("close", () => finish(resolve), { once: true });
+      if (this.socket.readyState === 3) {
+        finish(resolve);
+        return;
+      }
+      try {
+        if (this.socket.readyState < 2) this.socket.close();
+      } catch (error) {
+        finish(() => reject(error));
+      }
+    });
   }
 }
 
@@ -605,7 +627,7 @@ export class ExtensionTrafficGuard {
     }
     if (this.flattenedTargets.size === 0) {
       await browser.send("Target.setAutoAttach", { autoAttach: false, waitForDebuggerOnStart: false, flatten: true }).catch(() => undefined);
-      browser.close();
+      await browser.close();
       this.dynamicBrowser = null;
       throw new Error(`No ${this.extensionId} extension target was dynamically guarded`);
     }
@@ -673,7 +695,7 @@ export class ExtensionTrafficGuard {
       this.recordError(`Timed out draining ${this.pendingNetworkJobs.size} publication guard network job(s)`);
     }
     if (this.dynamicBrowser) {
-      this.dynamicBrowser.close();
+      await this.dynamicBrowser.close();
       this.dynamicBrowser = null;
       await Promise.allSettled([...this.pendingNetworkJobs]);
     }
