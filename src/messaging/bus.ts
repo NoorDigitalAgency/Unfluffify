@@ -39,11 +39,13 @@ export type DefineBusOptions = Readonly<{
   instanceId?: string;
   transport?: Transport;
   nextId?: () => string;
+  requestTimeoutMs?: number;
 }>;
 
 export type RequestOptions = Readonly<{
   target?: BusRealm;
   seq?: number;
+  timeoutMs?: number;
 }>;
 
 export type EmitOptions = Readonly<{
@@ -56,7 +58,16 @@ const INVALID_PAYLOAD = "INVALID_PAYLOAD";
 const HANDLER_FAILED = "HANDLER_FAILED";
 const INVALID_RESPONSE = "INVALID_RESPONSE";
 const TRANSPORT_FAILED = "TRANSPORT_FAILED";
+const REQUEST_TIMEOUT = "REQUEST_TIMEOUT";
+const BUS_DISPOSED = "BUS_DISPOSED";
 const MAX_REPLY_CACHE_ENTRIES = 128;
+export const DEFAULT_BUS_REQUEST_TIMEOUT_MS = 120_000;
+
+function positiveTimeoutMs(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.max(1, Math.floor(value))
+    : fallback;
+}
 
 function makeFailure(code: string, message: string, details?: Record<string, unknown>): BusFailure {
   return details ? { code, message, details } : { code, message };
@@ -73,6 +84,43 @@ function unknownToFailure(error: unknown, fallbackCode: string, fallbackMessage:
     fallbackCode,
     error instanceof Error && error.message ? error.message : fallbackMessage,
   );
+}
+
+/** Gives every command occurrence one terminal reply even when a browser
+ * transport or local handler never settles. Handlers are attached directly to
+ * the underlying promise so a late rejection is consumed, while the settled
+ * guard prevents a late reply from replacing the typed timeout outcome. */
+function withRequestDeadline<T>(
+  pending: PromiseLike<T> | T,
+  name: string,
+  timeoutMs: number,
+): Readonly<{ promise: Promise<T>; cancel: (failure: BusFailure) => void }> {
+  let cancel = (_failure: BusFailure): void => undefined;
+  const promise = new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const rejectOnce = (failure: unknown): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(failure);
+    };
+    const timer = setTimeout(() => {
+      rejectOnce(makeFailure(REQUEST_TIMEOUT, `Request timed out for ${name}`, { timeoutMs }));
+    }, timeoutMs);
+    cancel = rejectOnce;
+    Promise.resolve(pending).then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        rejectOnce(error);
+      },
+    );
+  });
+  return { promise, cancel };
 }
 
 let fallbackIdCounter = 0;
@@ -120,10 +168,16 @@ export function defineBus<const Contract extends BusContractDefinition>(
   const eventHandlers = new Map<string, Set<EventHandler<unknown>>>();
   const replyCache = new Map<string, Promise<BusFrame>>();
   const replyCacheOrder: string[] = [];
+  const pendingRequestCancels = new Set<(failure: BusFailure) => void>();
   const nextId = options.nextId ?? fallbackId;
   const transport = options.transport;
   const instanceId = options.instanceId ?? `${options.realm}:${nextId()}`;
+  const defaultRequestTimeoutMs = positiveTimeoutMs(
+    options.requestTimeoutMs,
+    DEFAULT_BUS_REQUEST_TIMEOUT_MS,
+  );
   let nextSeq = 0;
+  let disposed = false;
 
   const nextSequence = (override?: number): number => {
     if (override !== undefined) {
@@ -254,6 +308,12 @@ export function defineBus<const Contract extends BusContractDefinition>(
       payload: InferCommandRequest<Contract, Name>,
       requestOptions: RequestOptions = {},
     ): Promise<BusReply<InferCommandResponse<Contract, Name>>> {
+      if (disposed) {
+        return Promise.resolve({
+          ok: false,
+          failure: makeFailure(BUS_DISPOSED, `Bus is disposed for ${name}`),
+        });
+      }
       const command = contract.commands[name];
       const parsedPayload = command.request.safeParse(payload);
       if (!parsedPayload.success) {
@@ -286,7 +346,10 @@ export function defineBus<const Contract extends BusContractDefinition>(
             failure: makeFailure(TRANSPORT_FAILED, `No transport for ${name}`),
           }));
 
-      return Promise.resolve(replyPromise)
+      const timeoutMs = positiveTimeoutMs(requestOptions.timeoutMs, defaultRequestTimeoutMs);
+      const deadline = withRequestDeadline(replyPromise, name, timeoutMs);
+      pendingRequestCancels.add(deadline.cancel);
+      return deadline.promise
         .then((replyFrame): BusReply<InferCommandResponse<Contract, Name>> => {
           const reply = parseFrame(replyFrame);
           if (!reply || reply.frameType !== "reply" || reply.id !== frame.id) {
@@ -318,7 +381,10 @@ export function defineBus<const Contract extends BusContractDefinition>(
         .catch((error: unknown): BusReply<InferCommandResponse<Contract, Name>> => ({
           ok: false,
           failure: unknownToFailure(error, TRANSPORT_FAILED, `Transport failed for ${name}`),
-        }));
+        }))
+        .finally(() => {
+          pendingRequestCancels.delete(deadline.cancel);
+        });
     },
 
     onCommand<Name extends keyof Contract["commands"] & string>(
@@ -387,6 +453,12 @@ export function defineBus<const Contract extends BusContractDefinition>(
     receive,
 
     dispose(): void {
+      disposed = true;
+      const failure = makeFailure(BUS_DISPOSED, "Bus disposed before the request completed");
+      for (const cancel of pendingRequestCancels) {
+        cancel(failure);
+      }
+      pendingRequestCancels.clear();
       unsubscribeTransport?.();
       handlers.clear();
       eventHandlers.clear();

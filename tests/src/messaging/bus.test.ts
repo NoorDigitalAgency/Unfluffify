@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 import type { BusFrame } from "../../../src/messaging/contract";
@@ -44,6 +44,136 @@ describe("P1 defineBus (INV-10.9, INV-10.11)", () => {
       ok: true,
       data: { pong: "n1" },
     });
+  });
+
+  it("terminalizes a never-settling transported request with a typed deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const transport: Transport = {
+        async send() {
+          return await new Promise<BusFrame>(() => undefined);
+        },
+        onReceive() {
+          return () => undefined;
+        },
+      };
+      const bus = defineBus(contract, { realm: "popup", transport });
+      const pending = bus.request("diag.ping", { nonce: "timeout" }, {
+        target: "background",
+        timeoutMs: 25,
+      });
+
+      await vi.advanceTimersByTimeAsync(25);
+
+      await expect(pending).resolves.toEqual({
+        ok: false,
+        failure: {
+          code: "REQUEST_TIMEOUT",
+          message: "Request timed out for diag.ping",
+          details: { timeoutMs: 25 },
+        },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("applies the configured deadline to local handlers and ignores a late rejection", async () => {
+    vi.useFakeTimers();
+    try {
+      let rejectHandler!: (reason?: unknown) => void;
+      const bus = defineBus(contract, { realm: "background", requestTimeoutMs: 20 });
+      bus.onCommand("diag.ping", () => new Promise<{ pong: string }>((_resolve, reject) => {
+        rejectHandler = reject;
+      }));
+      const pending = bus.request("diag.ping", { nonce: "local-timeout" });
+
+      await vi.advanceTimersByTimeAsync(20);
+      await expect(pending).resolves.toMatchObject({
+        ok: false,
+        failure: { code: "REQUEST_TIMEOUT", details: { timeoutMs: 20 } },
+      });
+
+      // The request result is immutable after its deadline, and the rejection is
+      // still observed by the deadline wrapper rather than becoming unchecked.
+      rejectHandler(new Error("late handler failure"));
+      await Promise.resolve();
+      await expect(pending).resolves.toMatchObject({ failure: { code: "REQUEST_TIMEOUT" } });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears the request deadline when a transported reply wins the race", async () => {
+    vi.useFakeTimers();
+    try {
+      const transport: Transport = {
+        send(frame) {
+          return new Promise<BusFrame>((resolve) => {
+            setTimeout(() => resolve({
+              ...frame,
+              frameType: "reply",
+              source: "background",
+              target: frame.source,
+              ok: true,
+              payload: { pong: "before-deadline" },
+            }), 5);
+          });
+        },
+        onReceive() {
+          return () => undefined;
+        },
+      };
+      const bus = defineBus(contract, { realm: "popup", transport });
+      const pending = bus.request("diag.ping", { nonce: "fast" }, {
+        target: "background",
+        timeoutMs: 10,
+      });
+
+      await vi.advanceTimersByTimeAsync(5);
+      await expect(pending).resolves.toEqual({ ok: true, data: { pong: "before-deadline" } });
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("terminalizes outstanding requests on disposal and consumes a late rejection", async () => {
+    vi.useFakeTimers();
+    try {
+      let rejectTransport!: (reason?: unknown) => void;
+      const transport: Transport = {
+        send() {
+          return new Promise<BusFrame>((_resolve, reject) => {
+            rejectTransport = reject;
+          });
+        },
+        onReceive() {
+          return () => undefined;
+        },
+      };
+      const bus = defineBus(contract, { realm: "popup", transport });
+      const pending = bus.request("diag.ping", { nonce: "dispose" }, {
+        target: "background",
+        timeoutMs: 10_000,
+      });
+
+      bus.dispose();
+
+      await expect(pending).resolves.toMatchObject({
+        ok: false,
+        failure: { code: "BUS_DISPOSED" },
+      });
+      expect(vi.getTimerCount()).toBe(0);
+      rejectTransport(new Error("late transport failure"));
+      await Promise.resolve();
+      await expect(bus.request("diag.ping", { nonce: "after-dispose" })).resolves.toMatchObject({
+        ok: false,
+        failure: { code: "BUS_DISPOSED" },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns structured failures for invalid payload, no handler, and invalid response", async () => {

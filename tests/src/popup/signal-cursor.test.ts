@@ -130,6 +130,27 @@ describe("popup signal cursor", () => {
     await expect(cursor.serialize(async (consumedThrough) => consumedThrough)).resolves.toBe(0);
   });
 
+  it("runs a trailing pull once after a timed-out pull and advances from the live cursor", async () => {
+    const cursor = createSignalCursor();
+    const seen: number[] = [];
+
+    const timedOut = cursor.serialize(async (consumedThrough) => {
+      seen.push(consumedThrough);
+      throw { code: "REQUEST_TIMEOUT", message: "signal pull timed out" };
+    });
+    const trailing = cursor.serialize(async (consumedThrough) => {
+      seen.push(consumedThrough);
+      expect(cursor.claim(1)).toBe(true);
+      expect(cursor.claim(1)).toBe(false);
+      return 1;
+    });
+
+    await expect(timedOut).rejects.toMatchObject({ code: "REQUEST_TIMEOUT" });
+    await expect(trailing).resolves.toBe(1);
+    expect(seen).toEqual([0, 0]);
+    expect(cursor.consumedThrough()).toBe(1);
+  });
+
   it("forgets everything on a rebind, since the new tab's stream is unrelated", async () => {
     const cursor = createSignalCursor();
     cursor.claim(9);

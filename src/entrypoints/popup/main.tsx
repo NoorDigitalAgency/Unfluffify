@@ -940,12 +940,16 @@ function consumeSignal(signal: BrainSignal, tabId: number, requestKey: string | 
   return true;
 }
 
-async function pullSignals(tabId: number, requestKey = boundTabKey): Promise<number> {
+async function pullSignals(
+  tabId: number,
+  requestKey = boundTabKey,
+  timeoutMs?: number,
+): Promise<number> {
   return await brainSignals.serialize(async (consumedThrough) => {
     const response = await pullRewriteSignals(getPopupBus(), {
       tabId,
       afterSeq: consumedThrough,
-    });
+    }, timeoutMs);
     if (!response.ok) {
       return 0;
     }
@@ -3280,21 +3284,40 @@ async function reportPopupFactAndPull(
   until?: () => boolean,
   timeoutMs = 15_000,
 ): Promise<boolean> {
+  const deadlineAt = Date.now() + timeoutMs;
+  const remaining = (): number => Math.max(0, deadlineAt - Date.now());
   let observedRevision = signalsAvailableRevisionByTab.get(context.tabId) ?? 0;
-  const reported = await reportPopupFact(context, reason, facts, requestKey);
+  const reportBudgetMs = remaining();
+  if (reportBudgetMs <= 0) {
+    return false;
+  }
+  let reportTimer: ReturnType<typeof setTimeout> | null = null;
+  const reported = await Promise.race([
+    reportPopupFact(context, reason, facts, requestKey),
+    new Promise<false>((resolve) => {
+      reportTimer = setTimeout(() => resolve(false), reportBudgetMs);
+    }),
+  ]).finally(() => {
+    if (reportTimer !== null) {
+      clearTimeout(reportTimer);
+    }
+  });
   if (!reported) {
     return false;
   }
   if (boundTabId !== context.tabId || boundTabKey !== requestKey) {
     return false;
   }
-  await pullSignals(context.tabId, requestKey);
+  const initialPullBudgetMs = remaining();
+  if (initialPullBudgetMs <= 0) {
+    return false;
+  }
+  await pullSignals(context.tabId, requestKey, initialPullBudgetMs);
   if (!until || until()) {
     return true;
   }
-  const deadlineAt = Date.now() + timeoutMs;
   while (boundTabId === context.tabId && boundTabKey === requestKey) {
-    const remainingMs = deadlineAt - Date.now();
+    const remainingMs = remaining();
     if (remainingMs <= 0) {
       return false;
     }
@@ -3303,7 +3326,11 @@ async function reportPopupFactAndPull(
       return false;
     }
     observedRevision = signalsAvailableRevisionByTab.get(context.tabId) ?? observedRevision;
-    await pullSignals(context.tabId, requestKey);
+    const pullBudgetMs = remaining();
+    if (pullBudgetMs <= 0) {
+      return false;
+    }
+    await pullSignals(context.tabId, requestKey, pullBudgetMs);
     if (until()) {
       return true;
     }
@@ -4802,7 +4829,8 @@ async function showPreview(existingAction: OperatorActionOccurrence | null = nul
   // The visible action is already derived from a lock-gated presentation. Do
   // not repeat signal and authority round-trips before reading the local page
   // projection; later authority signals still fence or close a stale view.
-  const previewButton = resolvePopupActionButtons(store.getPresentation(), {
+  const presentation = store.getPresentation();
+  const previewButton = resolvePopupActionButtons(presentation, {
     runAi: true,
     save: true,
     discard: true,
@@ -4815,7 +4843,9 @@ async function showPreview(existingAction: OperatorActionOccurrence | null = nul
     return false;
   }
   const origin = store.getState().name === "silent" ? "silent" : "post_ai";
-  const selectors = store.getPresentation().selectors;
+  const selectors = origin === "silent"
+    ? currentPropertyConfiguration().selectors ?? { inclusionSelectors: [], exclusionSelectors: [] }
+    : presentation.selectors;
   if (origin === "silent" && selectors.inclusionSelectors.length + selectors.exclusionSelectors.length === 0) {
     notifyBoundEvent(binding, "Preview unavailable", "no saved selectors are available for this page", "warn");
     render();
@@ -4883,7 +4913,7 @@ async function performPreviewExit(): Promise<void> {
   }
   const requestKey = await handleBoundContext(context);
   const binding = captureBindingOccurrence(requestKey);
-  await pullSignals(context.tabId, requestKey);
+  await pullSignals(context.tabId, requestKey, PREVIEW_EXIT_ATTEMPT_TIMEOUT_MS);
   // Exit is a mechanical restore, not an edit. It remains available if the
   // property lock changes while preview is open, but a stale click cannot birth
   // an exit request after another signal already closed the preview.

@@ -4,6 +4,7 @@ import type { BusFrame } from "../../../src/messaging/contract";
 import type { BrainSensation } from "../../../src/background/brain/fold";
 import type { ConfigSnapshot } from "../../../src/storage/config";
 import type { RenderInspectionSession } from "../../../src/messaging/render-inspection";
+import { SIGNAL_PULL_TIMEOUT_MS } from "../../../src/messaging/rewrite-signals";
 
 function backendConfig(): ConfigSnapshot {
   const page = (pageKey: string) => ({
@@ -2196,8 +2197,15 @@ describe("rewrite popup entrypoint", () => {
     vi.useFakeTimers();
     try {
       render.mock.calls.at(-1)?.[0].props.onInspectRenderMode(false);
-      for (let index = 0; index < 50; index += 1) {
-        await Promise.resolve();
+      for (
+        let index = 0;
+        index < 100 && !runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "renderInspection.start");
+        index += 1
+      ) {
+        // The bus deadline adds one deliberate asynchronous terminality boundary
+        // to each request. Flush both queued microtasks and due-now tasks without
+        // consuming the inspection watchdog being tested below.
+        await vi.advanceTimersByTimeAsync(0);
       }
       expect(runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "renderInspection.start")).toBe(true);
       await vi.advanceTimersByTimeAsync(20_000);
@@ -4465,7 +4473,12 @@ describe("rewrite popup entrypoint", () => {
     let releasePreviewOpenedFact: (() => void) | null = null;
     let holdPreviewOpenedFact = false;
     let previewExitCount = 0;
+    let stallNextSignalPull = false;
     const runtime = makeRuntime(async (message) => {
+      if (message.name === "signals.pull" && stallNextSignalPull) {
+        stallNextSignalPull = false;
+        return await new Promise<BusFrame>(() => undefined);
+      }
       if (message.name === "page.context") {
         return replyFrame(message, {
           status: "managed_candidate",
@@ -4613,7 +4626,10 @@ describe("rewrite popup entrypoint", () => {
       markingEnabled: true,
       runPhase: "completed",
       runSessionId: "seed-run",
-      runSelectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+      // Deliberately leave the transient brain presentation empty. The silent
+      // UI and Preview action must both use the authoritative saved property
+      // selectors loaded from backendConfig(), which is the headed regression.
+      runSelectors: { inclusionSelectors: [], exclusionSelectors: [] },
     }, "seed-silent-preview-complete"));
     await runtime.sendMessage(reportedFactFrame("popup", "seed-silent-preview-saved", {
       savedSeq: 1,
@@ -4693,11 +4709,26 @@ describe("rewrite popup entrypoint", () => {
     render.mock.calls.at(-1)?.[0].props.onPreviewRowHover("silent-row", true);
     await waitFor(() => resolveDelayedActivation !== null, "the delayed cycle-A activation response");
     await waitFor(() => resolveDelayedEmphasis !== null, "the delayed cycle-A emphasis response");
-    render.mock.calls.at(-1)?.[0].props.onExitPreview();
-    await waitFor(
-      () => render.mock.calls.at(-1)?.[0].props.diagnostics.stateName === "silent",
-      "cycle A preview exit",
-    );
+    stallNextSignalPull = true;
+    vi.useFakeTimers();
+    try {
+      render.mock.calls.at(-1)?.[0].props.onExitPreview();
+      for (let index = 0; index < 100 && stallNextSignalPull; index += 1) {
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      expect(stallNextSignalPull).toBe(false);
+      await vi.advanceTimersByTimeAsync(SIGNAL_PULL_TIMEOUT_MS);
+      for (
+        let index = 0;
+        index < 100 && render.mock.calls.at(-1)?.[0].props.diagnostics.stateName !== "silent";
+        index += 1
+      ) {
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      expect(render.mock.calls.at(-1)?.[0].props.diagnostics.stateName).toBe("silent");
+    } finally {
+      vi.useRealTimers();
+    }
     projectionOccurrenceId = "silent-projection-b";
     raceProjectionRequests = false;
     delayPreviewActivation = false;

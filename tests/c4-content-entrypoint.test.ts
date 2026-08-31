@@ -2305,7 +2305,7 @@ describe("C4 rewrite content entrypoints", () => {
     };
     contentScript.main({ onInvalidated });
     expect(onInvalidated).toHaveBeenCalledTimes(1);
-    for (let index = 0; index < 20 && hideConsentOverlays.mock.calls.length === 0; index += 1) {
+    for (let index = 0; index < 100 && hideConsentOverlays.mock.calls.length === 0; index += 1) {
       await Promise.resolve();
     }
 
@@ -2324,7 +2324,7 @@ describe("C4 rewrite content entrypoints", () => {
 
     locationValue.href = "https://example.com/another-page";
     dispatchPageUrlChanged(addListener, locationValue.href);
-    for (let index = 0; index < 20 && hideConsentOverlays.mock.calls.length < 3; index += 1) {
+    for (let index = 0; index < 100 && hideConsentOverlays.mock.calls.length < 3; index += 1) {
       await Promise.resolve();
     }
 
@@ -2335,7 +2335,7 @@ describe("C4 rewrite content entrypoints", () => {
 
     locationValue.href = "https://example.com/outside";
     dispatchPageUrlChanged(addListener, locationValue.href);
-    for (let index = 0; index < 20 && restoreConsentOverlays.mock.calls.length === 0; index += 1) {
+    for (let index = 0; index < 100 && restoreConsentOverlays.mock.calls.length === 0; index += 1) {
       await Promise.resolve();
     }
 

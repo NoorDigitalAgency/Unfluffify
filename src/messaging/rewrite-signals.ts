@@ -1,6 +1,7 @@
 import type { createRealmBus } from "./realms";
 
 export type RewriteSignalBus = ReturnType<typeof createRealmBus>;
+export const SIGNAL_PULL_TIMEOUT_MS = 2_000;
 
 export function parseSenderTabId(sourceInstance?: string): number | null {
   const match = sourceInstance?.match(/(?:^|:)tab:(\d+):/);
@@ -36,6 +37,7 @@ export function parseSenderDocumentId(sourceInstance?: string): string | null {
 export async function pullRewriteSignals(
   bus: RewriteSignalBus,
   input: Readonly<{ tabId: number; afterSeq: number; organId?: string }>,
+  timeoutMs = SIGNAL_PULL_TIMEOUT_MS,
 ) {
-  return await bus.request("signals.pull", input, { target: "background" });
+  return await bus.request("signals.pull", input, { target: "background", timeoutMs });
 }

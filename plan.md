@@ -538,3 +538,174 @@ criterion is failed, partial, blocked, or untested, and no significant
 correctness, race, security/privacy, accessibility, performance, or cleanup
 regression attributable to the remediation remains. Per `expert-loop`, the next
 state is a fresh full-product outer audit, `EL-02`, on the pushed ledger HEAD.
+
+# EL-02-R1 — Preview authority and bounded signal terminality
+
+## 1. Audit basis and verdict
+
+The fresh `EL-02` outer audit ran on extension commit
+`fe583857b4e71758c1a5c1bde185a1dd84f43081` after the approved `EL-01-R1`
+ledger. It reused the complete prior product surface inventory, rechecked the
+exact automated baseline, and then exercised the Arno candidate in the headed
+repository `live-browser`. No authoritative Save or Lynx publication occurred.
+
+**Outer-audit verdict:** `NOT APPROVED — REMEDIATION REQUIRED`.
+
+| Finding | Severity | Observed evidence | Root cause |
+|---|---:|---|---|
+| `EL-02-F001` | High | Silent mode visibly offered **Show Content List** with 16 saved selectors, but the trusted action immediately reported “no saved selectors are available for this page.” | `showPreview` gates the silent action with transient brain-presentation selectors while the button and silent page projection use the authoritative property configuration. Two selector sources therefore contradict each other in one occurrence. |
+| `EL-02-F002` | High | An exact trusted Exit Preview click left Arno in Preview beyond the 20-second workflow deadline. A separate debug occurrence remained indefinitely at the operator `context` stage. | Popup/content signal pulls use the runtime bus without a request deadline. `createSignalCursor` correctly serializes work, but one never-settling transport request strands that pull and every trailing pull. `reportPopupFactAndPull` starts its nominal deadline only after the unbounded first pull, and Preview Exit performs another unbounded prerequisite pull before its bounded retries. |
+
+The exact Arno run that proved `EL-02-F002` is
+`output/playwright/p25-live-comparison/runs/2026-08-31T06-09-36-043Z-1573d430-rewrite-arno`.
+Its row-to-page and page-to-row routing both passed before Exit Preview failed;
+two-way Content List routing is therefore not reclassified as defective. A
+later successful exit proves the defect is occurrence-sensitive, not absent.
+
+## 2. Binding decisions and non-goals
+
+- The property configuration controller remains the authority for selectors in
+  silent mode. Post-AI preview continues to use the exact local brain
+  presentation for the active run.
+- Each operator occurrence reads one stable presentation snapshot. A control
+  cannot be enabled from one snapshot and then rejected from another.
+- Every internal command request terminalizes as either a valid reply or a typed
+  `REQUEST_TIMEOUT` failure. Late replies/rejections are consumed and ignored;
+  they cannot mutate a retired occurrence.
+- Signal pulls use a short explicit deadline so a serialized cursor queue always
+  advances. The general bus default remains long enough for legitimate commands
+  and is overrideable per request.
+- A named whole-operation timeout begins before the first signal pull. Preview
+  Exit retains occurrence/binding fences, bounded retries, visible failure copy,
+  and mechanical state-neutral restoration.
+- No endpoint, payload schema, public extension permission, selector semantics,
+  consent suppression, marking contract, Save behavior, or Lynx publication
+  contract changes are in scope.
+
+## 3. Implementation sequence
+
+### EL-02-R1-01 — One authoritative silent selector snapshot
+
+**Finding:** `EL-02-F001`.
+
+**Files:** `src/entrypoints/popup/main.tsx` and popup entrypoint/source-contract
+tests.
+
+1. Capture the presentation once when Preview begins.
+2. Resolve silent selectors from `currentPropertyConfiguration()` and post-AI
+   selectors from that captured presentation.
+3. Use the same resolved selector snapshot for the empty guard and downstream
+   preview occurrence; preserve all binding and projection revision fences.
+4. Add a regression in which presentation selectors are empty while the current
+   property has saved selectors: the enabled action must request rows and open.
+
+### EL-02-R1-02 — Bus-level typed request deadlines
+
+**Finding:** `EL-02-F002`.
+
+**Files:** `src/messaging/bus.ts`, `tests/src/messaging/bus.test.ts`, and affected
+type consumers.
+
+1. Add `requestTimeoutMs` to bus defaults and `timeoutMs` to an individual
+   request. Validate a finite positive duration and fall back to the bounded
+   default.
+2. Race every local or transported command request against that deadline and
+   return a structured `REQUEST_TIMEOUT` failure containing the effective
+   duration.
+3. Clear timers on every terminal path. Attach handlers to the underlying
+   request so late resolution/rejection is consumed but cannot replace the
+   already returned timeout result.
+4. Prove default and per-request deadlines, successful pre-deadline replies,
+   late resolve/reject hygiene, local-handler coverage, and disposal safety.
+
+### EL-02-R1-03 — Recoverable signal queue and whole-operation budgets
+
+**Finding:** `EL-02-F002`.
+
+**Files:** `src/messaging/rewrite-signals.ts`,
+`src/entrypoints/popup/main.tsx`, content signal-pull consumer, popup signal
+cursor/entrypoint/preview-exit tests.
+
+1. Give rewrite signal pulls an explicit short deadline and allow callers to
+   pass the remaining occurrence budget.
+2. Start `reportPopupFactAndPull`'s deadline before reporting/pulling; each wait
+   and pull receives only the remaining budget. A timeout returns `false`
+   truthfully instead of leaving an operation pending.
+3. Bound Preview Exit's prerequisite reconciliation pull before entering its
+   existing three-attempt loop. Retain the terminal check after a lost reply.
+4. Prove that a timed-out serialized pull releases the queue, the trailing pull
+   consumes the next signal once, and a trusted exit occurrence terminalizes or
+   presents its reason-specific failure inside the workflow deadline.
+
+### EL-02-R1-04 — Integrated validation and conformance
+
+1. Run focused bus, signal cursor, preview exit, popup entrypoint, content, and
+   source-contract suites.
+2. Run `pnpm verify`, production and debug builds, and the applicable P17, P20,
+   and P25 browser/performance gates without changing thresholds.
+3. Run the repository `live-browser`/`live-round` exact headed workflow on all
+   valid candidate pages: Ledigajobb, DPJ, Aleris, Acne Specialisten, Assist24,
+   Arno, ArkivIT, Teknikhallen, and Humanova. Acapedia (403), the 3D Prima
+   candidate URLs (404), and Bigbag (no candidate) remain truthful N/A unless
+   their external status changes.
+4. Re-prove inspection, exact render posture, consent/extraction hygiene,
+   marking modifiers and clear, AI, Content List open and two-way routing,
+   silent highlighting, reveal/freeze/lazy restoration, Preview Exit, Discard,
+   payload/console cleanliness, and zero Save/publication attempts.
+5. Review intended changes, commit and push normally, reindex the exact commit,
+   verify clean `0/0` synchronization, then independently check every criterion
+   below. Any failed/partial/blocked product-owned criterion creates
+   `EL-02-R2`; only `APPROVED` starts `EL-03`.
+
+## 4. Append-only acceptance criteria
+
+- `EL02-AC-01` Silent Preview derives both action truth and the empty-selector
+  guard from the authoritative current property configuration; post-AI Preview
+  remains tied to the active presentation occurrence.
+- `EL02-AC-02` Every bus command request has a finite deadline and returns typed
+  `REQUEST_TIMEOUT` on expiry; late settlement is harmless and produces no
+  unchecked rejection.
+- `EL02-AC-03` One timed-out signal pull cannot strand the cursor queue; a
+  trailing pull runs, advances from the current cursor, and consumes each signal
+  at most once.
+- `EL02-AC-04` `reportPopupFactAndPull` budgets its complete operation, including
+  the initial pull, and returns false on deadline or binding retirement.
+- `EL02-AC-05` Preview Exit remains single-flight and occurrence-fenced, and
+  reaches a terminal state or visible reason-specific failure inside the exact
+  browser workflow deadline.
+- `EL02-AC-06` Content List semantic keyboard behavior, row-to-page and
+  page-to-row routing, silent overlays, and locked selector/payload contracts do
+  not regress.
+- `EL02-AC-07` Consent suppression remains active and suppressed, invisible,
+  extension, script/style/noscript, and debug artifacts enter no marking row,
+  Content List, capture, AI, Save, or publication payload.
+- `EL02-AC-08` `pnpm verify`, production/debug builds, applicable P17/P20/P25
+  gates, and all externally available headed candidates pass on the exact pushed
+  commit with unchanged thresholds and zero unauthorized Save/publication.
+- `EL02-AC-09` Final branch is clean and synchronized `0/0`; independent
+  conformance is `APPROVED` before the next outer audit.
+
+## 5. Regression risks and fallbacks
+
+- A universal deadline that is too short could terminate valid long-running
+  commands. Keep a conservative bounded bus default and use the short override
+  only for signal pulls and occurrence-local reconciliation.
+- A timeout race can leak a timer or surface a late rejection. Centralize the
+  race, clear on both sides, and test resolve/reject after timeout.
+- Reading configuration after an await could cross a binding. Capture it only
+  after exact context binding and retain the existing occurrence fences.
+- A failed prerequisite pull can hide a signal that already closed Preview.
+  Recheck local terminal state before retries and after every attempt.
+- Browser/site/harness failures remain classified by evidence. N/A, BLOCKED,
+  PARTIAL, and NOT TESTED never count as PASS.
+
+## 6. Todo chain
+
+1. `el02-selector-authority`
+2. `el02-bus-deadlines` → 1
+3. `el02-signal-budget` → 2
+4. `el02-focused-regressions` → 3
+5. `el02-automated-gates` → 4
+6. `el02-headed-matrix` → 5
+7. `el02-review-push` → 6
+8. `el02-conformance` → 7
