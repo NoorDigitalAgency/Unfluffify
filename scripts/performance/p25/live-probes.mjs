@@ -574,8 +574,7 @@ export function resolveBridgeXpath(xpath, environment = globalThis) {
   const isBridgeExcluded = (node) => {
     if (node?.nodeType !== 1) return false;
     const id = node.getAttribute?.("id") ?? "";
-    return node.hasAttribute?.("data-uf-consent-hidden")
-      || node.hasAttribute?.("data-wxt-shadow-root")
+    return node.hasAttribute?.("data-wxt-shadow-root")
       || node.getAttribute?.("data-uf-extension-ui") === "true"
       || String(node.tagName).toLowerCase() === "browser-mcp-container"
       || id === "browser-mcp-container"
@@ -647,11 +646,23 @@ export function bridgeXpathForElement(target, environment = globalThis) {
   const document = environment?.document;
   const root = document?.documentElement;
   if (!root || target?.nodeType !== 1) return null;
+  const composedParent = (node) => {
+    if (node?.assignedSlot) return node.assignedSlot;
+    if (node?.parentElement) return node.parentElement;
+    try {
+      return node?.getRootNode?.()?.host ?? null;
+    } catch {
+      return null;
+    }
+  };
+  for (let node = target, seen = new Set(); node?.nodeType === 1 && !seen.has(node); node = composedParent(node)) {
+    seen.add(node);
+    if (node.hasAttribute?.("data-uf-consent-hidden")) return null;
+  }
   const isBridgeExcluded = (node) => {
     if (node?.nodeType !== 1) return false;
     const id = node.getAttribute?.("id") ?? "";
-    return node.hasAttribute?.("data-uf-consent-hidden")
-      || node.hasAttribute?.("data-wxt-shadow-root")
+    return node.hasAttribute?.("data-wxt-shadow-root")
       || node.getAttribute?.("data-uf-extension-ui") === "true"
       || String(node.tagName).toLowerCase() === "browser-mcp-container"
       || id === "browser-mcp-container"

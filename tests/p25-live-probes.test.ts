@@ -444,9 +444,11 @@ describe("P25 composed visual visibility evidence", () => {
     const main = node("main", [paragraph]);
     const navigation = node("nav");
     const pageHeader = node("div", [navigation]);
-    const suppressedModal = node("div", [node("button")], {
+    const suppressedButton = node("button") as ReturnType<typeof node> & { parentElement?: unknown };
+    const suppressedModal = node("div", [suppressedButton], {
       "data-uf-consent-hidden": "true",
-    });
+    }) as ReturnType<typeof node> & { parentElement?: unknown };
+    suppressedButton.parentElement = suppressedModal;
     const body = node("body", [suppressedModal, pageHeader, main]);
     const html = node("html", [body]);
     const querySelectorAll = vi.fn((tag: string) =>
@@ -460,12 +462,14 @@ describe("P25 composed visual visibility evidence", () => {
 
     expect(resolveBridgeXpath("/body[1]/main[1]/p[1]", { document })).toBe(paragraph);
     expect(resolveBridgeXpath("/html[1]/body[1]/main[1]", { document })).toBe(main);
-    expect(resolveBridgeXpath("/html[1]/body[1]/div[1]/nav[1]", { document })).toBe(navigation);
+    expect(resolveBridgeXpath("/html[1]/body[1]/div[1]/button[1]", { document })).toBe(suppressedButton);
+    expect(resolveBridgeXpath("/html[1]/body[1]/div[2]/nav[1]", { document })).toBe(navigation);
     expect(resolveBridgeXpath("/body[2]/main[1]", { document })).toBeNull();
     expect(querySelectorAll).not.toHaveBeenCalled();
-    expect(bridgeXpathForElement(navigation, { document })).toBe("/html[1]/body[1]/div[1]/nav[1]");
+    expect(bridgeXpathForElement(navigation, { document })).toBe("/html[1]/body[1]/div[2]/nav[1]");
     expect(bridgeXpathForElement(main, { document })).toBe("/html[1]/body[1]/main[1]");
     expect(bridgeXpathForElement(suppressedModal, { document })).toBeNull();
+    expect(bridgeXpathForElement(suppressedButton, { document })).toBeNull();
   });
 
   it("rejects a geometrically visible source hidden by a composed ancestor", () => {

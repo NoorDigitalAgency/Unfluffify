@@ -1356,3 +1356,59 @@ publication attempts.
 5. `el02-r5-headed-arno` → 4
 6. `el02-r5-candidate-matrix` → 5
 7. `el02-r5-conformance` → 6
+
+# EL-02-R6 — Consent-preserving live-probe XPath alignment
+
+## 1. Entering conformance finding
+
+`EL-02-F012` (Medium, release-evidence blocker) was exposed after R5 fixed the
+Render-mode recovery path. Exact-source Arno passed preflight, both inspections,
+and activation, then `marking-visual` falsely reported 12 painted invisible
+sources. The retained screenshot proves the boundaries were visibly aligned to
+real header, breadcrumb, heading, paragraph, link, image, and product content.
+The source IDs all failed only in P25's `resolveBridgeXpath`.
+
+Root cause is confirmed in `scripts/performance/p25/live-probes.mjs`: its bridge
+resolver and XPath generator still remove `[data-uf-consent-hidden]` nodes from
+sibling traversal. R4 deliberately changed the authoritative bridge and payload
+contract to retain page-authored consent DOM as hidden exclusion coverage.
+Removing those nodes in the probe shifts every following sibling index and
+misclassifies valid visible paint as unresolved. Evidence is retained under
+`.temp/expert-loop-r6-probe-defect/`; the guard recorded zero Save and
+publication attempts.
+
+## 2. Locked scope and delta plan
+
+1. Include page-authored consent-hidden nodes when resolving and generating
+   bridge XPath sibling indices. Continue excluding extension-authored roots,
+   WXT roots, browser automation containers, and Unfluffify UI.
+2. Preserve UI ineligibility: `bridgeXpathForElement` must still return no
+   gesture target for a consent-hidden node or any composed descendant.
+3. Update the executable fake-DOM regression so a consent sibling occupies its
+   truthful bridge index, later visible targets resolve at the shifted index,
+   and consent targets remain rejected.
+4. Run focused live-probe and P25 contracts, full verification, production/debug
+   builds, review/push, and full clean-source P25. Restart the repo live browser
+   on the exact pushed source and rerun Arno from both inspections through
+   marking visual before resuming the candidate workflow.
+
+## 3. R6 acceptance criteria
+
+- `EL02-R6-AC-01` Bridge resolution counts consent-hidden page DOM in XPath
+  traversal and resolves the visible post-consent sibling to the exact source.
+- `EL02-R6-AC-02` Consent-hidden nodes and descendants remain unavailable as
+  marking gesture targets despite their truthful bridge presence.
+- `EL02-R6-AC-03` Exact-source Arno reports zero unresolved/invisible painted
+  sources while preserving visible marking boundaries and 412×960 posture.
+- `EL02-R6-AC-04` Focused/full/build/P25 gates pass on the synchronized commit,
+  with zero Save and publication attempts in headed validation.
+
+## 4. Todo chain
+
+1. `el02-r6-consent-bridge-probe`
+2. `el02-r6-focused-regression` → 1
+3. `el02-r6-full-gates` → 2
+4. `el02-r6-review-push` → 3
+5. `el02-r6-headed-arno` → 4
+6. `el02-r6-candidate-matrix` → 5
+7. `el02-r6-conformance` → 6
