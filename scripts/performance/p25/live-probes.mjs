@@ -107,6 +107,141 @@ export async function captureDocumentIdentity(session, expectedUrl) {
   };
 }
 
+function documentIdentityFromActiveTabEvidence(value, expectedUrl) {
+  const normalizedUrl = normalizeLiveUrl(value.href);
+  if (normalizedUrl !== normalizeLiveUrl(expectedUrl)) {
+    throw new Error(`Observed document URL ${normalizedUrl} does not match ${normalizeLiveUrl(expectedUrl)}`);
+  }
+  const comparable = {
+    normalizedUrl,
+    title: value.title,
+    doctype: value.doctype,
+    language: value.language,
+    elementCount: value.elementCount,
+    textSha256: sha256(value.text),
+    resourceSetSha256: sha256(JSON.stringify(value.resources)),
+  };
+  const documentId = typeof value.documentId === "string" && value.documentId
+    ? value.documentId
+    : null;
+  const exact = {
+    ...comparable,
+    frameId: documentId ? `document:${documentId}` : "frame:0",
+    loaderId: documentId ?? `time-origin:${value.timeOrigin}`,
+    securityOrigin: new URL(value.href).origin,
+    timeOrigin: value.timeOrigin,
+  };
+  return {
+    fingerprint: sha256(JSON.stringify(exact)),
+    comparableFingerprint: sha256(JSON.stringify(comparable)),
+    normalizedUrl,
+    ...exact,
+    readyState: value.readyState,
+  };
+}
+
+/**
+ * Captures the post-inspection document and optional site screenshot through
+ * extension-owned tab APIs. Opening a second DevTools session on the website
+ * target here can perturb or detach the extension's immediately-following
+ * chrome.debugger viewport transition, so this evidence path deliberately
+ * keeps the P25 observer on the popup target.
+ */
+export async function captureActiveTabEvidenceWithoutDebugger(
+  popupSession,
+  expectedUrl,
+  { screenshotPath = null } = {},
+) {
+  const value = await popupSession.evaluate(`(async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (typeof tab?.id !== 'number' || typeof tab.windowId !== 'number') {
+      throw new Error('Active website tab is unavailable');
+    }
+    const [frameResult] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, frameIds: [0] },
+      world: 'ISOLATED',
+      func: () => {
+        const extensionSelector = '[data-uf-extension-ui="true"], #unfluffify-overlay, #unfluffify-silent-highlight-overlay, .uf-marking-layer-root';
+        const clone = document.documentElement.cloneNode(true);
+        for (const element of clone.querySelectorAll(extensionSelector)) element.remove();
+        const text = (clone.querySelector('body')?.textContent ?? clone.textContent ?? '').replace(/\\s+/g, ' ').trim();
+        const resources = performance.getEntriesByType('resource').map((entry) => {
+          try {
+            const url = new URL(entry.name, location.href);
+            return /^https?:$/.test(url.protocol) ? url.origin + url.pathname : null;
+          } catch {
+            return String(entry.name);
+          }
+        }).filter(Boolean).sort();
+        return {
+          href: location.href,
+          title: document.title,
+          readyState: document.readyState,
+          timeOrigin: performance.timeOrigin,
+          doctype: document.doctype?.name ?? null,
+          language: document.documentElement.lang || null,
+          elementCount: clone.querySelectorAll('*').length,
+          text,
+          resources,
+        };
+      },
+    });
+    const frame = await chrome.webNavigation.getFrame({ tabId: tab.id, frameId: 0 }).catch(() => null);
+    const screenshotDataUrl = ${screenshotPath === null ? "null" : "await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' })"};
+    return {
+      tabId: tab.id,
+      document: { ...(frameResult?.result ?? {}), documentId: frame?.documentId ?? null },
+      screenshotDataUrl,
+    };
+  })()`);
+  const document = documentIdentityFromActiveTabEvidence(value.document, expectedUrl);
+  let screenshot = null;
+  if (screenshotPath !== null) {
+    const match = /^data:image\/png;base64,(.+)$/s.exec(value.screenshotDataUrl ?? "");
+    if (!match) throw new Error("Active-tab screenshot did not return PNG data");
+    const bytes = Buffer.from(match[1], "base64");
+    await mkdir(dirname(screenshotPath), { recursive: true });
+    await writeFile(screenshotPath, bytes, { flag: "wx" });
+    screenshot = {
+      path: screenshotPath,
+      bytes: bytes.length,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    };
+  }
+  return { tabId: value.tabId, document, screenshot };
+}
+
+/** Lightweight popup-owned viewport proof for the fence immediately before
+ * marking activation. It must not open the website target's DevTools socket. */
+export async function captureActiveTabViewportPosture(popupSession, expectedUrl) {
+  const value = await popupSession.evaluate(`(async () => {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (typeof tab?.id !== 'number') throw new Error('Active website tab is unavailable');
+    const [frameResult] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id, frameIds: [0] },
+      world: 'ISOLATED',
+      func: () => ({
+        href: location.href,
+        viewport: { width: innerWidth, height: innerHeight },
+        interactiveViewport: {
+          left: visualViewport?.offsetLeft ?? 0,
+          top: visualViewport?.offsetTop ?? 0,
+          width: visualViewport?.width ?? document.documentElement?.clientWidth ?? innerWidth,
+          height: visualViewport?.height ?? document.documentElement?.clientHeight ?? innerHeight,
+        },
+      }),
+    });
+    return frameResult?.result ?? null;
+  })()`);
+  if (!value || normalizeLiveUrl(value.href) !== normalizeLiveUrl(expectedUrl)) {
+    throw new Error(`Active-tab viewport belongs to ${value?.href ?? "no document"}, expected ${expectedUrl}`);
+  }
+  return {
+    viewport: value.viewport,
+    interactiveViewport: value.interactiveViewport,
+  };
+}
+
 export async function capturePopupState(session) {
   await session.send("Runtime.enable");
   const state = await session.evaluate(`(() => {

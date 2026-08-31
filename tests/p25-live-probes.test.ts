@@ -23,6 +23,8 @@ import {
   topHitPaintEvidence,
   waitForPresentationOpportunity,
   bridgeXpathForElement,
+  captureActiveTabEvidenceWithoutDebugger,
+  captureActiveTabViewportPosture,
   captureResizeGeometrySnapshot,
   collectOverlayRoots,
   markingDecisionExpression,
@@ -119,6 +121,78 @@ describe("P25 live site-session visibility", () => {
     expect(source).toContain("const deadline = Date.now() + 500");
     expect(source).toContain("document.querySelectorAll('[data-uf-marking-menu=\"true\"]')");
     expect(source).toContain("Marking context menu did not dismiss after trusted Escape input");
+  });
+});
+
+describe("P25 extension-owned observer boundary", () => {
+  it("captures render evidence through popup-owned tab APIs without a website debugger", async () => {
+    let expression = "";
+    const result = await captureActiveTabEvidenceWithoutDebugger({
+      async evaluate(value: string) {
+        expression = value;
+        return {
+          tabId: 7,
+          document: {
+            href: "https://example.test/path",
+            title: "Example",
+            readyState: "complete",
+            timeOrigin: 42,
+            doctype: "html",
+            language: "en",
+            elementCount: 5,
+            text: "Candidate text",
+            resources: ["https://example.test/app.js"],
+            documentId: "document-7",
+          },
+          screenshotDataUrl: null,
+        };
+      },
+    }, "https://example.test/path");
+
+    expect(expression).toContain("chrome.scripting.executeScript");
+    expect(expression).toContain("chrome.webNavigation.getFrame");
+    expect(expression).not.toContain("chrome.debugger");
+    expect(result.tabId).toBe(7);
+    expect(result.screenshot).toBeNull();
+    expect(result.document).toMatchObject({
+      normalizedUrl: "https://example.test/path",
+      loaderId: "document-7",
+      frameId: "document:document-7",
+      timeOrigin: 42,
+      readyState: "complete",
+    });
+  });
+
+  it("proves the pre-activation viewport through scripting only", async () => {
+    let expression = "";
+    const posture = await captureActiveTabViewportPosture({
+      async evaluate(value: string) {
+        expression = value;
+        return {
+          href: "https://example.test/path",
+          viewport: { width: 1920, height: 1080 },
+          interactiveViewport: { left: 0, top: 0, width: 1905, height: 1080 },
+        };
+      },
+    }, "https://example.test/path");
+
+    expect(expression).toContain("chrome.scripting.executeScript");
+    expect(expression).not.toContain("chrome.debugger");
+    expect(posture.viewport).toEqual({ width: 1920, height: 1080 });
+  });
+
+  it("keeps direct website sessions outside the render-to-activation ownership fence", () => {
+    const source = readFileSync(new URL("../scripts/performance/p25-live-comparison.mjs", import.meta.url), "utf8");
+    const renderStart = source.indexOf('if (id === "render-mode-with-javascript" || id === "render-mode-without-javascript")', source.indexOf("async function runStageAction"));
+    const activationStart = source.indexOf('if (id === "activation-network")', renderStart);
+    const activationClick = source.indexOf("const started = performance.now()", activationStart);
+    const renderStage = source.slice(renderStart, activationStart);
+    const activationPreparation = source.slice(activationStart, activationClick);
+
+    expect(renderStage).toContain("captureActiveTabEvidenceWithoutDebugger");
+    expect(renderStage).not.toContain("withSiteSession(targets.site");
+    expect(activationPreparation).toContain("waitForActiveTabViewportPosture");
+    expect(activationPreparation).not.toContain("waitForSiteWorkflowPosture");
   });
 });
 

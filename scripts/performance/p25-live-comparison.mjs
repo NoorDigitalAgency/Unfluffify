@@ -38,6 +38,8 @@ import {
   validatePersistentPublicationGuardEvidence,
 } from "./p25/live-cdp.mjs";
 import {
+  captureActiveTabEvidenceWithoutDebugger,
+  captureActiveTabViewportPosture,
   captureCompactFrames,
   captureDocumentIdentity,
   capturePopupState,
@@ -899,6 +901,23 @@ async function waitForSiteWorkflowPosture(target, predicate, timeoutMs) {
   });
 }
 
+async function waitForActiveTabViewportPosture(popup, expectedUrl, predicate, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let last = null;
+  let lastError = null;
+  while (Date.now() < deadline) {
+    try {
+      last = await captureActiveTabViewportPosture(popup, expectedUrl);
+      lastError = null;
+      if (predicate(last)) return last;
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Popup-owned active-tab viewport did not terminalize: ${JSON.stringify({ last, lastError })}`);
+}
+
 function viewportMatches(posture, width, height) {
   return viewportPostureMatches(posture, width, height);
 }
@@ -1728,10 +1747,12 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
         renderMode,
         timeoutMs: integerOption(options, "render-timeout-ms", 180_000),
       }));
-    const { document, siteShot } = await withSiteSession(targets.site, async (session) => ({
-      document: await captureDocumentIdentity(session, identity.expectedUrl),
-      siteShot: await captureScreenshot(session, join(screenshotDirectory, `${id}-site.png`)),
-    }));
+    const { document, screenshot: siteShot } = await withPopupSession(
+      targets.popup,
+      (session) => captureActiveTabEvidenceWithoutDebugger(session, identity.expectedUrl, {
+        screenshotPath: join(screenshotDirectory, `${id}-site.png`),
+      }),
+    );
     const { popup, popupShot } = await withPopupSession(targets.popup, async (session) => ({
       popup: await capturePopupState(session),
       popupShot: await captureScreenshot(session, join(screenshotDirectory, `${id}-popup.png`)),
@@ -1744,7 +1765,7 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
         inspectionProof,
         observerBoundary: diagnosticObserveOnlyReason
           ? "diagnostic-observe-only-no-render-control-dispatch"
-          : "site-observer-attached-after-extension-terminal-acknowledgement",
+          : "popup-owned-tab-evidence-without-website-debugger",
       },
       document,
       screenshots,
@@ -1774,8 +1795,9 @@ async function runStageAction({ id, options, identity, runDirectory, targets, gu
             workflowControl(state, "desktop-preview-enabled")?.checked === true,
           integerOption(options, "activation-timeout-ms", 45_000),
         );
-        const posture = await waitForSiteWorkflowPosture(
-          targets.site,
+        const posture = await waitForActiveTabViewportPosture(
+          popup,
+          identity.expectedUrl,
           (state) => viewportMatches(state, 1920, 1080),
           integerOption(options, "activation-timeout-ms", 45_000),
         );
