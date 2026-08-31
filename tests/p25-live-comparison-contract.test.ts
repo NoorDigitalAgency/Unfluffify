@@ -259,11 +259,13 @@ function recordedComparisonPair(label = "dpj") {
 }
 
 describe("P25 live-comparison identity and candidate contract", () => {
-  it("waits through a transiently absent alternate Render Inspection control", () => {
+  it("waits through transient Render Inspection controls and terminalizes one Cancel dispatch", () => {
     const source = readFileSync(new URL("../scripts/performance/p25-live-comparison.mjs", import.meta.url), "utf8");
     expect(source).toMatch(/implementation === "rewrite" &&\s*\(!alternate \|\| alternate\.disabled \|\| alternate\.visible === false\)/);
     expect(source).toMatch(/requestedReadyDeadline[\s\S]*?while \(control\?\.disabled[\s\S]*?settledProof = proveMode/);
-    expect(source).toMatch(/catch \(error\)[\s\S]*?while \(Date\.now\(\) < deadline\)[\s\S]*?transitionedToggle[\s\S]*?return transitioned/);
+    expect(source).toMatch(/async function waitForRenderModeExitTerminal[\s\S]*?while \(Date\.now\(\) < deadline\)[\s\S]*?toggle-enabled[\s\S]*?return last/);
+    expect(source).toMatch(/recovery\.id === "render-mode-cancel"[\s\S]*?state = await waitForRenderModeExitTerminal\(popup, deadline\)[\s\S]*?continue/);
+    expect(source).not.toContain("state.renderInspectionView !== state.renderChoice");
   });
 
   it("normalizes fragment, query ordering, default ports, and trailing slash coherently", () => {

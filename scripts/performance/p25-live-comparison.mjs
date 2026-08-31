@@ -1094,6 +1094,26 @@ async function runRenderInspection(popup, { implementation, renderMode, timeoutM
   throw new Error(`Timed out waiting for ${renderMode} Render Inspection; last=${JSON.stringify(last)}`);
 }
 
+async function waitForRenderModeExitTerminal(popup, deadline) {
+  let last = await capturePopupState(popup);
+  while (Date.now() < deadline) {
+    const toggle = last.controls.find((control) => control.id === "toggle-enabled");
+    if (toggle && !toggle.disabled && toggle.visible !== false && last.busy === false) return last;
+    if (last.view !== "render-mode" && last.busy === false) return last;
+    const toastText = typeof last.toast === "string"
+      ? last.toast
+      : typeof last.toast?.text === "string"
+        ? last.toast.text
+        : "";
+    if (!last.busy && /failed|error|timed out/i.test(toastText)) {
+      throw new Error(`Render-mode exit failed before the marking session returned: ${JSON.stringify(last)}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    last = await capturePopupState(popup);
+  }
+  throw new Error(`Timed out waiting for the single Render-mode exit activation to terminalize; last=${JSON.stringify(last)}`);
+}
+
 async function ensurePopupSessionView(popup, implementation, timeoutMs = 30_000) {
   const exitIds = implementation === "legacy"
     ? ["render-mode-edit", "render-mode-cancel"]
@@ -1103,43 +1123,6 @@ async function ensurePopupSessionView(popup, implementation, timeoutMs = 30_000)
   while (Date.now() < deadline) {
     const toggle = state.controls.find((control) => control.id === "toggle-enabled");
     if (toggle && !toggle.disabled && toggle.visible !== false && state.busy === false) return state;
-
-    // The two immutable comparison stages intentionally finish on the second
-    // inspection mode. If the retained render choice is the other mode, the
-    // product correctly refuses Cancel until that retained choice has a current
-    // document/generation proof. Re-prove it through the real inspection
-    // control before attempting to leave the view.
-    if (
-      implementation === "rewrite" &&
-      state.view === "render-mode" &&
-      state.renderChoice &&
-      state.renderInspectionView !== state.renderChoice
-    ) {
-      try {
-        await runRenderInspection(popup, {
-          implementation,
-          renderMode: state.renderChoice,
-          timeoutMs: Math.max(1_000, deadline - Date.now()),
-        });
-      } catch (error) {
-        while (Date.now() < deadline) {
-          const transitioned = await capturePopupState(popup);
-          const transitionedToggle = transitioned.controls.find((control) => control.id === "toggle-enabled");
-          if (
-            transitionedToggle &&
-            !transitionedToggle.disabled &&
-            transitionedToggle.visible !== false &&
-            transitioned.busy === false
-          ) {
-            return transitioned;
-          }
-          await new Promise((resolve) => setTimeout(resolve, 50));
-        }
-        throw error;
-      }
-      state = await capturePopupState(popup);
-      continue;
-    }
 
     // A prior immutable run can leave an extension-owned same-user edit lease in
     // the copied profile. Claiming that lease through the visible controls is a
@@ -1186,6 +1169,14 @@ async function ensurePopupSessionView(popup, implementation, timeoutMs = 30_000)
       ) {
         await new Promise((resolve) => setTimeout(resolve, 50));
         acknowledgedState = await capturePopupState(popup);
+      }
+      // Cancel owns any retained-mode restoration and its current-document
+      // proof. The control intentionally remains visible while that work is in
+      // flight, so returning to the generic recovery loop would redispatch the
+      // same action and continually restart recovery.
+      if (recovery.id === "render-mode-cancel") {
+        state = await waitForRenderModeExitTerminal(popup, deadline);
+        continue;
       }
       state = acknowledgedState;
       continue;

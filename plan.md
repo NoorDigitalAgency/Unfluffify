@@ -1277,3 +1277,82 @@ must regression-prove and preserve it; it is not a presumed defect.
   commit/push the reviewed source, execute clean-source P14–P25 (including
   consecutive P25), complete the candidate live round, and issue the next
   independent expert-check verdict.
+
+# EL-02-R5 — Render-mode recovery harness terminalization
+
+## 1. Entering conformance finding
+
+`EL-02-F011` (Medium, release-evidence blocker) was reproduced twice on the
+exact pushed `277d5b841be64787da6c885be6b993ec9873c77a` production bundle during the
+Arno candidate round. Both Render Inspection stages passed, but P25's
+`ensurePopupSessionView` timed out before activation. The product was not stuck:
+one independently dispatched real `#render-mode-cancel` pointer activation
+restored the retained JavaScript mode and returned to silent view. The harness
+instead treated the intermediate disabled-control acknowledgement as permission
+to loop and activate the still-visible Cancel control again, restarting the
+product-owned recovery until the 45-second deadline.
+
+The failed and isolation artifacts are retained under
+`.temp/expert-loop-r5-harness-defect/`. Both guarded runs recorded zero final
+publication attempts.
+
+## 2. Root cause and locked scope
+
+- Root cause: `scripts/performance/p25-live-comparison.mjs` combines a redundant
+  retained-mode pre-proof with a generic recovery loop. After a Cancel click is
+  acknowledged, `render-mode-cancel` remains visible and enabled while the
+  retained-mode inspection finishes, so the generic loop can click it again.
+- Product Render Inspection, its retained-mode restoration, paint
+  acknowledgement, and Cancel semantics are unchanged.
+- Lock takeover/continue/discard recovery remains multi-step and retryable; the
+  pending-terminal rule applies specifically to Render-mode exit actions.
+- No Save, `/publish`, endpoint, payload, extension permission, or public UI
+  change is in scope.
+
+## 3. Executable delta plan
+
+### EL-02-R5-01 — Single-dispatch Render-mode exit
+
+1. Remove the harness-side retained-mode pre-proof. Cancel already owns the
+   required retained-mode restoration and document proof.
+2. After one trusted Render-mode exit activation, wait through its intermediate
+   disabled-control state until the normal session toggle is visible and
+   actionable, the deadline expires, or an explicit terminal failure appears.
+3. Never redispatch the same Render-mode exit while that terminal wait is
+   pending. Preserve the existing acknowledgement/race loop for lock recovery.
+
+### EL-02-R5-02 — Regression and exact live proof
+
+1. Add executable harness-contract coverage proving the retained-mode pre-proof
+   is absent, Render Cancel uses one terminal wait, and generic lock recovery is
+   still present.
+2. Run the focused P25 workflow-probe tests, `pnpm verify`, production/debug
+   builds, full P25, and the source-identity checks required by the final diff.
+3. Commit and push normally, then rerun exact-source Arno through both Render
+   Inspection modes and activation. Acceptance requires one Cancel dispatch,
+   successful return to the session, 412×960 marking posture, and zero Save or
+   publication requests.
+4. Resume the remaining valid-candidate live matrix only after Arno passes.
+
+## 4. Append-only R5 acceptance criteria
+
+- `EL02-R5-AC-01` Two successful Render Inspection modes followed by session
+  recovery produce exactly one real Render-mode exit activation and reach the
+  normal session before the bounded deadline.
+- `EL02-R5-AC-02` No harness-side retained-mode inspection is dispatched before
+  Cancel; the product remains the sole owner of retained-mode restoration.
+- `EL02-R5-AC-03` Lock recovery acknowledgement, races, and multi-step actions
+  retain their existing behavior and regression coverage.
+- `EL02-R5-AC-04` Focused/full/build/P25 gates pass on the exact committed source,
+  and headed Arno passes through activation with zero `/save` and `/publish`
+  requests before the candidate matrix resumes.
+
+## 5. Todo chain
+
+1. `el02-r5-render-exit-terminal-wait`
+2. `el02-r5-harness-regression` → 1
+3. `el02-r5-focused-full-gates` → 2
+4. `el02-r5-review-push` → 3
+5. `el02-r5-headed-arno` → 4
+6. `el02-r5-candidate-matrix` → 5
+7. `el02-r5-conformance` → 6

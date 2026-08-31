@@ -693,8 +693,16 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).toContain("const initialBefore = await ensurePopupSessionView(");
     expect(harness).toContain('"lock-take-over",');
     expect(harness).toContain("if (recovery?.id)");
-    expect(harness).toContain("state.renderInspectionView !== state.renderChoice");
-    expect(harness).toContain("renderMode: state.renderChoice");
+    expect(harness).not.toContain("state.renderInspectionView !== state.renderChoice");
+    expect(harness).not.toContain("renderMode: state.renderChoice");
+    expect(harness).toContain("async function waitForRenderModeExitTerminal(popup, deadline)");
+    expect(harness).toContain('recovery.id === "render-mode-cancel"');
+    expect(harness).toContain("state = await waitForRenderModeExitTerminal(popup, deadline)");
+    const sessionRecovery = harness.slice(
+      harness.indexOf("async function ensurePopupSessionView"),
+      harness.indexOf("function compactPopupTransition"),
+    );
+    expect(sessionRecovery.match(/waitForRenderModeExitTerminal\(popup, deadline\)/g)).toHaveLength(1);
     expect(harness).toContain('id: "interrupted-stage"');
     expect(harness).toContain("Stage process ended before stage.json was committed; treated as interrupted and failed.");
     expect(harness).toContain('physicalActivatePopupControl(popup, "desktop-preview-enabled", "pointer")');
