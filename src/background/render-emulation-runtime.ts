@@ -500,21 +500,28 @@ export function createRenderEmulationRuntime(input: Readonly<{
     if (failureReason !== null && postureIsCurrent(tabId, held)) {
       // The renderer/compositor boundary can trail the CDP acknowledgement by a
       // frame. Re-write the complete serialized posture once, then give that
-      // replacement write its own presentation opportunity before proving it.
+      // replacement write a bounded sequence of presentation opportunities
+      // before proving it.
       // Measuring immediately after the rewrite can observe Chrome's transient
       // desktop-scrollbar layout viewport even though the mobile viewport is
-      // about to become exact. A second mismatch after the bounded frame is
-      // evidence, not something to hide behind unbounded retries.
+      // already physically exact. Some documents need several compositor turns
+      // before window.innerWidth catches up. We never rewrite again, stop at the
+      // first exact proof, and treat a mismatch after four frames as evidence.
       await waitForBrowserFrame(tabId).catch(() => undefined);
       if (postureIsCurrent(tabId, held)) {
         state = await writePosture(tabId, held, realUserAgent);
-        await waitForBrowserFrame(tabId).catch(() => undefined);
-        measured = await measurePosture(tabId);
-        failureReason = proveEmulationPosture(
-          state,
-          measured,
-          intendedUserAgentFor(held.mode, realUserAgent),
-        );
+        for (let frame = 0; frame < 4 && postureIsCurrent(tabId, held); frame += 1) {
+          await waitForBrowserFrame(tabId).catch(() => undefined);
+          measured = await measurePosture(tabId);
+          failureReason = proveEmulationPosture(
+            state,
+            measured,
+            intendedUserAgentFor(held.mode, realUserAgent),
+          );
+          if (failureReason === null) {
+            break;
+          }
+        }
       }
     }
     return { state, measured, failureReason };

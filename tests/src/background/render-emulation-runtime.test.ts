@@ -219,6 +219,29 @@ describe("render emulation runtime", () => {
     )).toHaveLength(2);
   });
 
+  it("waits through a bounded multi-frame layout transition without rewriting again", async () => {
+    const debuggerApi = fakeDebugger();
+    debuggerApi.mismatchNextProofs(3);
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+    });
+
+    await expect(runtime.apply(7, "mobile", 1, false)).resolves.toMatchObject({
+      mode: "mobile",
+      width: 412,
+      height: 960,
+      active: true,
+      identityStale: false,
+    });
+    expect(debuggerApi.sent.filter((call) => call.method === "Emulation.setDeviceMetricsOverride"))
+      .toHaveLength(2);
+    expect(debuggerApi.sent.filter((call) =>
+      call.method === "Runtime.evaluate" &&
+      String(call.params?.expression ?? "").includes("requestAnimationFrame")
+    )).toHaveLength(4);
+  });
+
   it("rolls a persistent proof mismatch back to the last exact posture", async () => {
     const debuggerApi = fakeDebugger();
     const runtime = createRenderEmulationRuntime({
@@ -226,7 +249,7 @@ describe("render emulation runtime", () => {
       tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
     });
     await runtime.apply(7, "mobile", 1, false);
-    debuggerApi.mismatchNextProofs(2);
+    debuggerApi.mismatchNextProofs(5);
 
     await expect(runtime.apply(7, "desktop", 1, false)).resolves.toMatchObject({
       mode: "desktop",
