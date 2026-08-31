@@ -196,7 +196,7 @@ describe("render emulation runtime", () => {
     expect(metrics?.params).toMatchObject({ mobile: false, width: 1920 });
   });
 
-  it("retries one frame-late viewport once and acknowledges only the exact proof", async () => {
+  it("retries one frame-late viewport once and proves the replacement after its own frame", async () => {
     const debuggerApi = fakeDebugger();
     debuggerApi.mismatchNextProofs(1);
     const runtime = createRenderEmulationRuntime({
@@ -213,10 +213,10 @@ describe("render emulation runtime", () => {
     });
     expect(debuggerApi.sent.filter((call) => call.method === "Emulation.setDeviceMetricsOverride"))
       .toHaveLength(2);
-    expect(debuggerApi.sent.some((call) =>
+    expect(debuggerApi.sent.filter((call) =>
       call.method === "Runtime.evaluate" &&
       String(call.params?.expression ?? "").includes("requestAnimationFrame")
-    )).toBe(true);
+    )).toHaveLength(2);
   });
 
   it("rolls a persistent proof mismatch back to the last exact posture", async () => {

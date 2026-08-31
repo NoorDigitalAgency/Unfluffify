@@ -499,11 +499,16 @@ export function createRenderEmulationRuntime(input: Readonly<{
     );
     if (failureReason !== null && postureIsCurrent(tabId, held)) {
       // The renderer/compositor boundary can trail the CDP acknowledgement by a
-      // frame. Re-write the complete serialized posture once; a second mismatch
-      // is evidence, not something to hide behind unbounded retries.
+      // frame. Re-write the complete serialized posture once, then give that
+      // replacement write its own presentation opportunity before proving it.
+      // Measuring immediately after the rewrite can observe Chrome's transient
+      // desktop-scrollbar layout viewport even though the mobile viewport is
+      // about to become exact. A second mismatch after the bounded frame is
+      // evidence, not something to hide behind unbounded retries.
       await waitForBrowserFrame(tabId).catch(() => undefined);
       if (postureIsCurrent(tabId, held)) {
         state = await writePosture(tabId, held, realUserAgent);
+        await waitForBrowserFrame(tabId).catch(() => undefined);
         measured = await measurePosture(tabId);
         failureReason = proveEmulationPosture(
           state,
