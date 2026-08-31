@@ -499,3 +499,42 @@ Stored in `.temp/run-plan-session.sqlite`:
 9. `p26-integrated-acceptance` → 8
 10. `p26-review-push` → 9
 11. `p26-conformance-check` → 10
+
+## 12. EL-01-R1 conformance result
+
+**Verdict:** `APPROVED` on implementation commit
+`3d28d2a080a71a97cf0f6cc60c6e94f31d4bc916` (`re-write`). The tracked
+worktree was clean and synchronized with `origin/re-write` before this
+append-only ledger update. No authoritative Save or Lynx publication occurred.
+
+The secure WebSocket counterpart is Hub `develop` commit
+`6b38ef0cf447f32991287075d1c606e9b886aad7`, released successfully as
+`v2026.11-alpha.15` and `v2026.11-beta.15`. The live development endpoint
+reported that exact SHA.
+
+| Criterion | Result | Current evidence |
+|---|---|---|
+| `AC-01` | PASS | Manifest/source parity and unrelated-authority gates prove no production MAIN-world installation on unmanaged pages. |
+| `AC-02` | PASS | Capability-runtime, document-generation, navigation, close, and worker-recovery tests pass. |
+| `AC-03` | PASS | Production build, hostile capability tests, and headed payload inspection contain no public relay, marker, extension artifact, or credential. |
+| `AC-04` | PASS | Stabilization/page-world suites and headed Humanova activation reached true bottom, froze lazy loading/motion, and restored the initial position. |
+| `AC-05` | PASS | Typed transport timeout, cancellation, malformed/non-JSON, AI deadline, and terminal-cleanup tests pass. |
+| `AC-06` | PASS | Production WebSocket URL is tokenless; Hub first-frame bearer authentication, rotation, rejection, deadline, duplicate-frame, and legacy-header tests pass; headed lock authority recovered against the deployed Hub. |
+| `AC-07` | PASS | Lock transition, pending-state, popup projection, and forbidden-action tests pass; headed controls became truthful after authenticated authority. |
+| `AC-08` | PASS | Exact emulation tests and headed measurements prove 412×960 marking and 1920×1080 silent desktop posture with rollback coverage. |
+| `AC-09` | PASS | Marking tests and trusted headed gestures prove plain no-op/unmark, Shift expansion, Alt inclusion, context actions, and exact clean restoration. |
+| `AC-10` | PASS | P17/P25 and headed Humanova prove semantic rows, native Space activation, retained focus, row→page, page→row, and unavailable-target truth. |
+| `AC-11` | PASS | Modal/transient-surface, roving-focus, keyboard, inertness, and restore-path suites pass. |
+| `AC-12` | PASS | Settings validation, Chrome 116 manifest, offscreen single-flight, and startup compatibility suites pass. |
+| `AC-13` | PASS | Production copy/accessibility tests and headed Content List inspection prove truthful modifier guidance, human technical labels, names, focus, and target sizing. |
+| `AC-14` | PASS | P14 thresholds remain unchanged; three consecutive P25 composites pass on the implementation commit. |
+| `AC-15` | PASS | Package, icon subset, logo, duplicate, and production-size budget tests pass. |
+| `AC-16` | PASS | `pnpm verify` (1,540 tests), production/debug builds, applicable P14–P25 gates, and repository-live-browser Humanova workflow pass with zero Save/publication attempts. |
+| `AC-17` | PASS | Consent remains intentionally suppressed; headed payload contained zero consent UI/suppression artifacts, zero extension artifacts, and zero inline script/style/noscript source bytes. |
+| `AC-18` | PASS | Implementation commit is pushed, worktree is clean/synchronized, and this independent conformance pass is `APPROVED`. |
+
+All `EL-01` product-owned findings mapped into `EL-01-R1` are resolved. No
+criterion is failed, partial, blocked, or untested, and no significant
+correctness, race, security/privacy, accessibility, performance, or cleanup
+regression attributable to the remediation remains. Per `expert-loop`, the next
+state is a fresh full-product outer audit, `EL-02`, on the pushed ledger HEAD.
