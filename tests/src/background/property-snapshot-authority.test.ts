@@ -49,7 +49,7 @@ function snapshot(overrides: Partial<ConfigSnapshot> = {}): ConfigSnapshot {
 }
 
 describe("authoritative property snapshot adoption", () => {
-  it("adopts a full save response without dropping untouched pages", () => {
+  it("adopts a complete Load response without dropping untouched pages", () => {
     const previous = snapshot();
     const response = snapshot({
       propertyRevision: 5,

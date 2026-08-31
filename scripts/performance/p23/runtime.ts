@@ -95,10 +95,11 @@ const onScroll = (): void => {
     }
     const root = document.querySelector<HTMLElement>(".uf-marking-layer-root");
     const layers = retainedSilentLayers();
+    const rootOpacity = root ? Number(getComputedStyle(root).opacity) : 1;
     if (
       root?.classList.contains("uf-scrolling") &&
       layers.length > 0 &&
-      layers.every((layer) => layer.opacity <= 0.01)
+      layers.every((layer) => rootOpacity * layer.opacity <= 0.01)
     ) {
       silentFadeLatencyMs = performance.now() - inputAt;
     }
@@ -200,6 +201,7 @@ const runtime = {
       .find((box) => box.getAttribute("data-uf-silent-highlight") === silentXpath) ?? null;
     const layers = retainedSilentLayers();
     const root = document.querySelector<HTMLElement>(".uf-marking-layer-root");
+    const rootOpacity = root ? Number(getComputedStyle(root).opacity) : 1;
     return {
       xpath: silentXpath,
       initialTop: initialSilentTop,
@@ -212,9 +214,12 @@ const runtime = {
       latencyMs: silentLatencyMs,
       count: currentBoxes.length,
       rootScrolling: root?.classList.contains("uf-scrolling") ?? false,
+      rootOpacity,
       layers,
-      allRetainedLayersTransparent: layers.length > 0 && layers.every((layer) => layer.opacity <= 0.01),
-      allRetainedLayersVisible: layers.length > 0 && layers.every((layer) => layer.opacity >= 0.99),
+      allRetainedPresentationTransparent: layers.length > 0 &&
+        layers.every((layer) => rootOpacity * layer.opacity <= 0.01),
+      allRetainedPresentationVisible: layers.length > 0 && rootOpacity >= 0.99 &&
+        layers.every((layer) => layer.opacity >= 0.99),
     };
   },
   semanticState() {

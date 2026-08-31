@@ -74,14 +74,15 @@ describe("P23 frozen-surface browser gate contract", () => {
     expect(gate).toContain('"silent-scroll-fades-before-reposition-and-restores"');
     expect(controller).toContain("page.mouse.move");
     expect(controller).toContain("page.mouse.wheel");
-    expect(controller).toContain("state.allRetainedLayersTransparent");
-    expect(controller).toContain("state.allRetainedLayersVisible");
+    expect(controller).toContain("state.allRetainedPresentationTransparent");
+    expect(controller).toContain("state.allRetainedPresentationVisible");
     expect(controller).toContain("{ polling: 5, timeout: 500 }");
     expect(gate).toContain("payload.silentDuring.fadeLatencyMs <= SILENT_FADE_BUDGET_MS");
     expect(runtime).toContain("presentationClockFor(window)");
     expect(runtime).toContain("createMarkingEngine(document.documentElement");
     expect(runtime).toContain("current === initialSilentBox");
     expect(runtime).toContain("fadeLatencyMs: silentFadeLatencyMs");
+    expect(runtime).toContain("rootOpacity * layer.opacity <= 0.01");
     expect(engine).toContain(
       `const SILENT_VIEWPORT_GEOMETRY_QUIET_MS = ${String(SILENT_GEOMETRY_QUIET_MS)};`,
     );

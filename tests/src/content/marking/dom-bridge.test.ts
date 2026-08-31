@@ -488,7 +488,7 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
-  it("keeps an ordinary click unmark-only while Shift admits a new exclusion", () => {
+  it("lets an ordinary click create an exclusion without requiring Shift", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
     const target = new FakeElement("P", rect(10, 10, 100, 20), "Included copy");
@@ -498,20 +498,18 @@ describe("P6 DOM bridge", () => {
     doc.hits = [target, root];
     const engine = createMarkingEngine(root as unknown as Element);
 
-    expect(engine.resolveAtPoint(20, 15, "exclude", false)).toBeNull();
+    const ordinary = engine.resolveAtPoint(20, 15, "exclude", false);
+    expect(ordinary?.xpath).toBe("/main[1]/p[1]");
     expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[1]", excluded: false });
-
-    const shifted = engine.resolveAtPoint(20, 15, "exclude", true);
-    expect(shifted?.xpath).toBe("/main[1]/p[1]");
-    expect(engine.acknowledge(shifted!, "exclude")).toBe(true);
+    expect(engine.acknowledge(ordinary!, "exclude")).toBe(true);
     expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[1]", excluded: false });
-    expect(engine.toggle(shifted!, "exclude")).toBe(true);
+    expect(engine.toggle(ordinary!, "exclude")).toBe(true);
     expect(engine.rows()).toContainEqual({
       xpath: "/main[1]/p[1]",
       excluded: true,
       explicit: true,
     });
-    expect(engine.acknowledge(shifted!, "clear")).toBe(true);
+    expect(engine.acknowledge(ordinary!, "exclude")).toBe(true);
     engine.dispose();
   });
 
@@ -637,10 +635,10 @@ describe("P6 DOM bridge", () => {
 
     doc.hitReadCount = 0;
     expect(engine.resolveAtPoint(150, 15, "exclude")?.xpath).toBe("/main[1]/p[1]");
-    expect(doc.hitReadCount).toBe(0);
+    expect(doc.hitReadCount).toBe(1);
     // The bounding box spans this gap, but no painted fragment owns it.
     expect(engine.resolveAtPoint(110, 15, "exclude")).toBeNull();
-    expect(doc.hitReadCount).toBe(1);
+    expect(doc.hitReadCount).toBe(2);
     engine.dispose();
   });
 
@@ -664,7 +662,7 @@ describe("P6 DOM bridge", () => {
 
     doc.hitReadCount = 0;
     expect(engine.resolveAtPoint(20, 20, "exclude")?.xpath).toBe("/main[1]/p[1]");
-    expect(doc.hitReadCount).toBe(0);
+    expect(doc.hitReadCount).toBe(1);
     engine.dispose();
   });
 
@@ -2579,7 +2577,7 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
-  it("keeps visible explicit includes through transient covers and ghosts hidden retained includes", () => {
+  it("retains explicit includes in state without painting covered or hidden ghosts", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
     const paragraph = new FakeElement("P", rect(10, 10, 120, 20), "Retained content");
@@ -2598,14 +2596,14 @@ describe("P6 DOM bridge", () => {
 
     doc.hits = [root];
     engine.renderReadOnly();
-    expect(overlays().map((overlay) => overlay.className)).toEqual(["uf-rect uf-explicit-include"]);
+    expect(overlays()).toEqual([]);
 
     paragraph.style.visibility = "hidden";
     engine.refresh();
     engine.renderReadOnly();
-    expect(overlays().map((overlay) => overlay.className)).toEqual(["uf-rect uf-explicit-include-ghost"]);
+    expect(overlays()).toEqual([]);
     expect(engine.overlayRoot().children.flatMap((layer) => layer.children).some((overlay) =>
-      overlay.className.includes("uf-explicit-exclude-ghost")
+      overlay.className.includes("-ghost")
     )).toBe(false);
     engine.dispose();
   });
@@ -2857,7 +2855,7 @@ describe("P6 DOM bridge", () => {
     renderer.dispose();
   });
 
-  it("rebuilds for page mutations but not extension or consent-suppressed mutations", () => {
+  it("rebuilds for page and consent-suppressed mutations but not extension mutations", () => {
     vi.useFakeTimers();
     const doc = new FakeDocument();
     const callbacks: Array<(records: MutationRecord[]) => void> = [];
@@ -2908,6 +2906,8 @@ describe("P6 DOM bridge", () => {
     } as unknown as MutationRecord]);
 
     expect(animationFrames).toHaveLength(0);
+    vi.advanceTimersByTime(100);
+    expect(animationFrames).toHaveLength(0);
 
     const suppressedRoot = new FakeElement("DIALOG", rect(0, 0, 300, 20));
     suppressedRoot.ownerDocument = doc;
@@ -2930,6 +2930,9 @@ describe("P6 DOM bridge", () => {
     } as unknown as MutationRecord]);
 
     expect(animationFrames).toHaveLength(0);
+    vi.advanceTimersByTime(100);
+    expect(animationFrames).toHaveLength(1);
+    animationFrames[0]?.();
 
     const second = new FakeElement("P", rect(0, 30, 120, 20), "Second");
     second.ownerDocument = doc;
@@ -2941,7 +2944,7 @@ describe("P6 DOM bridge", () => {
       removedNodes: [],
     } as unknown as MutationRecord]);
 
-    expect(animationFrames).toHaveLength(0);
+    expect(animationFrames).toHaveLength(1);
     vi.advanceTimersByTime(75);
     const third = new FakeElement("P", rect(0, 60, 120, 20), "Third");
     third.ownerDocument = doc;
@@ -2953,14 +2956,102 @@ describe("P6 DOM bridge", () => {
       removedNodes: [],
     } as unknown as MutationRecord]);
     vi.advanceTimersByTime(99);
-    expect(animationFrames).toHaveLength(0);
-    vi.advanceTimersByTime(1);
     expect(animationFrames).toHaveLength(1);
-    animationFrames[0]?.();
+    vi.advanceTimersByTime(1);
+    expect(animationFrames).toHaveLength(2);
+    animationFrames[1]?.();
     expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[2]", excluded: false });
     expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[3]", excluded: false });
     engine.dispose();
     vi.useRealTimers();
+  });
+
+  it("defers an authoritative child-list refresh until viewport input has repainted", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const mutationCallbacks: Array<(records: MutationRecord[]) => void> = [];
+      const listeners = new Map<string, (event?: Event) => void>();
+      const animationFrames: Array<() => void> = [];
+      const idleCallbacks: Array<() => void> = [];
+      const cancelIdleCallback = vi.fn();
+      Object.assign(doc.defaultView, {
+        MutationObserver: class {
+          constructor(callback: (records: MutationRecord[]) => void) {
+            mutationCallbacks.push(callback);
+          }
+          observe() {}
+          disconnect() {}
+        },
+        requestAnimationFrame(callback: () => void) {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+        requestIdleCallback(callback: () => void) {
+          idleCallbacks.push(callback);
+          return 40 + idleCallbacks.length;
+        },
+        cancelIdleCallback,
+        addEventListener(type: string, listener: (event?: Event) => void) {
+          listeners.set(type, listener);
+        },
+        removeEventListener(type: string) {
+          listeners.delete(type);
+        },
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 3_000));
+      const first = new FakeElement("P", rect(0, 0, 120, 20), "First");
+      for (const element of [root, first]) element.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      root.appendChild(first);
+      const createBridge = vi.fn((element: Element) => createDomBridgeView(element));
+      const engine = createMarkingEngine(root as unknown as Element, {
+        render: true,
+        instrumentation: { createBridge },
+      });
+
+      const appended = new FakeElement("P", rect(0, 40, 120, 20), "Appended during scroll");
+      appended.ownerDocument = doc;
+      root.appendChild(appended);
+      mutationCallbacks[0]?.([{
+        type: "childList",
+        target: root,
+        addedNodes: [appended],
+        removedNodes: [],
+      }] as unknown as MutationRecord[]);
+      vi.advanceTimersByTime(100);
+      expect(idleCallbacks).toHaveLength(1);
+      expect(animationFrames).toHaveLength(0);
+      listeners.get("scroll")?.({ target: doc } as unknown as Event);
+
+      expect(engine.overlayRoot().className).toContain("uf-scrolling");
+      expect(cancelIdleCallback).toHaveBeenCalledWith(41);
+      vi.advanceTimersByTime(229);
+      expect(animationFrames).toHaveLength(0);
+      expect(createBridge).toHaveBeenCalledTimes(1);
+      expect(engine.rows()).not.toContainEqual({ xpath: "/main[1]/p[2]", excluded: false });
+
+      vi.advanceTimersByTime(1);
+      expect(animationFrames).toHaveLength(1);
+      animationFrames.shift()?.();
+      expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
+      expect(createBridge).toHaveBeenCalledTimes(1);
+
+      vi.advanceTimersByTime(99);
+      expect(animationFrames).toHaveLength(0);
+      vi.advanceTimersByTime(1);
+      expect(idleCallbacks).toHaveLength(2);
+      expect(animationFrames).toHaveLength(0);
+      idleCallbacks[1]?.();
+      expect(animationFrames).toHaveLength(1);
+      animationFrames.shift()?.();
+      expect(createBridge).toHaveBeenCalledTimes(2);
+      expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[2]", excluded: false });
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("frame-slices a broad child-list bridge rebuild through authoritative adoption", () => {
@@ -3023,7 +3114,7 @@ describe("P6 DOM bridge", () => {
     }
   });
 
-  it("rebuilds sibling identities when consent suppression hides a bridged element", () => {
+  it("retains sibling identities when consent suppression makes a bridged element non-interactive", () => {
     vi.useFakeTimers();
     const doc = new FakeDocument();
     const callbacks: Array<(records: MutationRecord[]) => void> = [];
@@ -3080,13 +3171,14 @@ describe("P6 DOM bridge", () => {
     expect(animationFrames).toHaveLength(1);
     animationFrames.shift()?.();
     expect(createBridge).toHaveBeenCalledTimes(2);
-    expect(engine.rows()).not.toContainEqual({
+    expect(engine.rows()).toContainEqual({
       xpath: "/main[1]/div[2]/p[1]",
       excluded: false,
     });
     expect(engine.rows()).toContainEqual({
-      xpath: "/main[1]/div[1]/p[1]",
-      excluded: false,
+      xpath: "/main[1]/div[1]",
+      excluded: true,
+      explicit: true,
     });
     engine.dispose();
     vi.useRealTimers();
@@ -3188,7 +3280,7 @@ describe("P6 DOM bridge", () => {
 
       expect(createBridge).toHaveBeenCalledTimes(1);
       expect(renderer.branchRender).toHaveBeenCalledTimes(1);
-      expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[1]", excluded: true });
+      expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[1]", excluded: true, explicit: true });
       engine.dispose();
     } finally {
       vi.useRealTimers();
@@ -3896,6 +3988,54 @@ describe("P6 DOM bridge", () => {
       while (animationFrames.length > 0) animationFrames.shift()?.();
       expect(renderer.geometryBranchRender).toHaveBeenLastCalledWith(expect.any(Number), true);
       expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("frame-chunks IntersectionObserver registration for large marking corpora", () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const animationFrames: Array<() => void> = [];
+      const observed: Element[] = [];
+      class FakeIntersectionObserver {
+        constructor(_callback: IntersectionObserverCallback) {}
+        observe(target: Element): void {
+          observed.push(target);
+        }
+        disconnect(): void {
+          observed.splice(0);
+        }
+      }
+      Object.assign(doc.defaultView, {
+        IntersectionObserver: FakeIntersectionObserver,
+        requestAnimationFrame(callback: () => void) {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 20_000));
+      root.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      for (let index = 0; index < 600; index += 1) {
+        const paragraph = new FakeElement("P", rect(0, index * 22, 120, 20), `Row ${index}`);
+        paragraph.ownerDocument = doc;
+        root.appendChild(paragraph);
+      }
+
+      const engine = createMarkingEngine(root as unknown as Element, { render: true });
+
+      expect(observed).toHaveLength(256);
+      expect(animationFrames).toHaveLength(1);
+      animationFrames.shift()?.();
+      expect(observed).toHaveLength(512);
+      expect(animationFrames).toHaveLength(1);
+      animationFrames.shift()?.();
+      expect(observed).toHaveLength(601);
+      expect(animationFrames).toHaveLength(0);
       engine.dispose();
     } finally {
       vi.useRealTimers();
@@ -4746,7 +4886,7 @@ describe("P6 DOM bridge", () => {
     expect(widened?.xpath).toBe("/main[1]/div[1]/section[1]");
   });
 
-  it("reconstructs the ancestor hit path so a plain click clears a widened owner", () => {
+  it("rehydrates an expanded exclusion and excludes its ordinary clicked descendant", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 400, 400));
     const group = new FakeElement("SECTION", rect(10, 10, 360, 320));
@@ -4768,11 +4908,16 @@ describe("P6 DOM bridge", () => {
     expect(widened?.xpath).toBe("/main[1]/section[1]");
     expect(engine.toggle(widened!, "exclude")).toBe(true);
 
-    const owner = engine.resolveAtPoint(50, 45, "exclude", false);
-    expect(owner?.xpath).toBe("/main[1]/section[1]");
-    expect(engine.toggle(owner!, "exclude")).toBe(true);
+    const descendant = engine.resolveAtPoint(50, 45, "exclude", false);
+    expect(descendant?.xpath).toBe("/main[1]/section[1]/p[1]");
+    expect(engine.toggle(descendant!, "exclude")).toBe(true);
     expect(engine.rows()).not.toContainEqual({
       xpath: "/main[1]/section[1]",
+      excluded: true,
+      explicit: true,
+    });
+    expect(engine.rows()).toContainEqual({
+      xpath: "/main[1]/section[1]/p[1]",
       excluded: true,
       explicit: true,
     });
@@ -5134,7 +5279,7 @@ describe("P6 DOM bridge", () => {
     ]);
   });
 
-  it("omits live consent-suppressed subtrees from rows and capture without mutating the page", () => {
+  it("keeps consent-suppressed page DOM in payload rows and capture without making it interactive", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
     const suppressed = new FakeElement("P", rect(0, 0, 200, 40), "Hidden modal copy");
@@ -5158,10 +5303,20 @@ describe("P6 DOM bridge", () => {
       pageUrl: "https://example.com/page",
     });
 
-    expect(view.byElement.has(suppressed as unknown as Element)).toBe(false);
-    expect(view.byElement.get(content as unknown as Element)?.evaluationNode.xpath).toBe("/main[1]/p[1]");
-    expect(engine.rows().some((row) => row.xpath === "/main[1]/p[2]")).toBe(false);
-    expect(captured).toBe("<main><p>Page content</p></main>");
+    expect(view.byElement.has(suppressed as unknown as Element)).toBe(true);
+    expect(view.byElement.get(suppressed as unknown as Element)?.evaluationNode).toMatchObject({
+      xpath: "/main[1]/p[1]",
+      visible: false,
+      interactionSuppressed: true,
+    });
+    expect(view.byElement.get(content as unknown as Element)?.evaluationNode.xpath).toBe("/main[1]/p[2]");
+    expect(engine.rows()).toContainEqual({
+      xpath: "/main[1]/p[1]",
+      excluded: true,
+      explicit: true,
+    });
+    expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[2]", excluded: false });
+    expect(captured).toBe('<main><p class="cookie-modal">Hidden modal copy</p><p>Page content</p></main>');
     expect(submission.pages[0]?.renderedHtml).toBe(captured);
     expect(suppressed.attributes).toEqual(before);
   });
@@ -5341,16 +5496,16 @@ describe("P6 DOM bridge", () => {
     );
   });
 
-  it("removes legacy consent-hidden subtrees without touching adjacent content", () => {
+  it("retains legacy consent-hidden page content while stripping helper attributes", () => {
     expect(stripUncapturableHtml(
       '<main><div data-uf-consent-hidden="true" style="color: red"><p>Modal copy</p></div><p style="color: blue">Page copy</p></main>',
-    )).toBe('<main><p style="color: blue">Page copy</p></main>');
+    )).toBe('<main><div style="color: red"><p>Modal copy</p></div><p style="color: blue">Page copy</p></main>');
   });
 
-  it("removes consent-hidden subtrees regardless of helper attribute quoting", () => {
+  it("retains consent-hidden subtrees regardless of helper attribute quoting", () => {
     expect(stripUncapturableHtml(
       `<main><section ${CONSENT_HIDDEN_ATTR}='true'><div>Country modal</div></section><p>Content</p></main>`,
-    )).toBe("<main><p>Content</p></main>");
+    )).toBe("<main><section><div>Country modal</div></section><p>Content</p></main>");
   });
 
   it("strips production source bodies without disturbing element identity or adjacent content", () => {
@@ -5522,7 +5677,7 @@ describe("P6 DOM bridge", () => {
     expect(host.getAttribute("data-uf-closed-shadow-host")).toBe("true");
   });
 
-  it("keeps closed explicit include descendants creation-proof but plain-clearable", () => {
+  it("keeps explicit inclusions plain-clearable while Alt transfers them to descendants", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("SECTION", rect(0, 0, 300, 300), "Boundary");
     const child = new FakeElement("P", rect(0, 0, 100, 20), "Child");
@@ -5548,38 +5703,20 @@ describe("P6 DOM bridge", () => {
     engine.toggle(engine.resolveAtPoint(10, 10, "include")!, "include");
     doc.hits = [child, root];
 
-    const context = engine.resolveContextAtPoint(10, 10);
-    expect(context.include?.xpath).toBe("/section[1]");
-    expect(context.existingExclude?.xpath).toBe("/section[1]");
-
     const plainOwner = engine.resolveAtPoint(10, 10, "exclude");
     expect(plainOwner?.xpath).toBe("/section[1]");
-    expect(engine.clear(plainOwner!)).toBe(true);
+    expect(engine.toggle(plainOwner!, "exclude")).toBe(true);
     expect(engine.hasExplicitMark(plainOwner!)).toBe(false);
-    engine.dispose();
-  });
-
-  it("derives every context-menu capability from one composed hit observation", () => {
-    const doc = new FakeDocument();
-    const root = new FakeElement("SECTION", rect(0, 0, 300, 300), "Boundary");
-    const child = new FakeElement("P", rect(0, 0, 100, 20), "Child");
-    root.ownerDocument = doc;
-    child.ownerDocument = doc;
-    doc.documentElement.ownerDocument = doc;
-    doc.documentElement.appendChild(root);
-    root.appendChild(child);
+    // Start a fresh explicit parent decision, then prove Alt targets and moves
+    // that decision to the painted child instead of closing at the parent.
     doc.hits = [root];
-    const engine = createMarkingEngine(root as unknown as Element);
-    engine.toggle(engine.resolveAtPoint(10, 10, "include")!, "include");
-    doc.pointHits = () => [child, root];
-    doc.hitReadCount = 0;
-
-    const context = engine.resolveContextAtPoint(10, 10);
-
-    expect(doc.hitReadCount).toBe(1);
-    expect(context.include?.xpath).toBe("/section[1]");
-    expect(context.existingExclude?.xpath).toBe("/section[1]");
-    expect(context.shiftedExclude?.xpath).toBe("/section[1]");
+    expect(engine.toggle(engine.resolveAtPoint(10, 10, "include")!, "include")).toBe(true);
+    doc.hits = [child, root];
+    const altChild = engine.resolveAtPoint(10, 10, "include");
+    expect(altChild?.xpath).toBe("/section[1]/p[1]");
+    expect(engine.toggle(altChild!, "include")).toBe(true);
+    expect(engine.hasExplicitMark(altChild!)).toBe(true);
+    expect(engine.hasExplicitMark(plainOwner!)).toBe(false);
     engine.dispose();
   });
 });

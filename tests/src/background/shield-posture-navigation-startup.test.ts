@@ -1392,7 +1392,15 @@ describe("P15 shield navigation/startup ordering", () => {
       }));
       await terminalWrite.started;
       const unregister = call("session.unregister", { tabId: 7 }, "popup");
+      // Terminal cleanup first drains the already-admitted durable fact write.
+      // Releasing it lets cleanup establish the tombstone; the tombstone gate
+      // then provides the window in which the later callback must be rejected.
+      terminalWrite.release();
       await tombstoneWriteStarted;
+      let unregisterSettled = false;
+      void unregister.finally(() => {
+        unregisterSettled = true;
+      });
       socket.emit("message", JSON.stringify({
         type: "lock_state",
         state: "locked",
@@ -1403,14 +1411,9 @@ describe("P15 shield navigation/startup ordering", () => {
         propertyRevision: 2,
         feedRevision: 1,
       }));
-      releaseTombstoneWrite?.();
-      let unregisterSettled = false;
-      void unregister.finally(() => {
-        unregisterSettled = true;
-      });
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(unregisterSettled).toBe(false);
-      terminalWrite.release();
+      releaseTombstoneWrite?.();
       await expect(unregister).resolves.toMatchObject({
         ok: true,
         payload: { status: "ok" },

@@ -76,16 +76,16 @@ export function renderContentFixturePage({ variant = "production" } = {}) {
     throw new Error(`Unsupported P18 content variant: ${variant}`);
   }
   return documentShell({
-    title: "P18 marking context-menu fixture",
+    title: "P18 native context-menu fixture",
     fixture: { realm: "content", variant },
     runtime: "/content-runtime-production.js",
     body: `
 <main id="p18-content-main">
   <article id="p18-mark-target" data-p18-mark-target="primary">
-    Canonical article content for the marking context menu
+    Canonical article content for native right-click verification
   </article>
   <article id="p18-second-mark-target" data-p18-mark-target="replacement">
-    A second canonical target for menu replacement and interaction recovery
+    A second canonical target for context-menu dismissal and interaction recovery
   </article>
   <button id="p18-page-action" type="button">Page action sentinel</button>
   <div id="p18-content-scroll-sentinel" aria-hidden="true">scroll sentinel</div>
@@ -94,6 +94,8 @@ export function renderContentFixturePage({ variant = "production" } = {}) {
   window.__p18PageState = {
     clicks: 0,
     contextMenus: 0,
+    contextMenuDefaultPrevented: null,
+    contextMenuAuthoredTarget: null,
     pageWorldCommands: 0,
     pageWorldCommandNames: [],
     scrollEvents: [],
@@ -122,8 +124,13 @@ export function renderContentFixturePage({ variant = "production" } = {}) {
   document.querySelector("#p18-page-action").addEventListener("click", () => {
     window.__p18PageState.clicks += 1;
   });
-  document.addEventListener("contextmenu", () => {
+  document.addEventListener("contextmenu", (event) => {
     window.__p18PageState.contextMenus += 1;
+    window.__p18PageState.contextMenuDefaultPrevented = event.defaultPrevented;
+    window.__p18PageState.contextMenuAuthoredTarget = document
+      .elementsFromPoint(event.clientX, event.clientY)
+      .find((element) => element.hasAttribute("data-p18-mark-target"))
+      ?.getAttribute("data-p18-mark-target") || null;
   });
 </script>`,
   });

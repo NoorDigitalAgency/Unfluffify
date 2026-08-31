@@ -10,7 +10,7 @@ import {
   createTabStateRepo,
   createSessionDraft,
   discardSessionDraft,
-  replaceBaselineFromSave,
+  replaceBaselineFromLoad,
   updateSessionDraft,
   parseSettings,
   type ConfigSnapshot,
@@ -296,7 +296,7 @@ describe("P2 storage repositories", () => {
 
     expect(dirty.dirty).toBe(true);
     expect(discardSessionDraft(dirty)).toEqual(session);
-    expect(replaceBaselineFromSave(dirty, updated)).toEqual({
+    expect(replaceBaselineFromLoad(dirty, updated)).toEqual({
       baseline: updated,
       draft: updated,
       dirty: false,

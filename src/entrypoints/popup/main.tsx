@@ -23,7 +23,6 @@ import type { PopupState } from "../../popup/organ/machine";
 import { createPopupRootRecovery } from "../../popup/root-recovery";
 import type { BrainSignal } from "../../domain/schema/signals";
 import type { AiRunPayloadSnapshot } from "../../domain/schema/submission";
-import { sanitizeStaticConsentHtml } from "../../common/static-consent-html";
 import {
   browser,
   callBrowserApi,
@@ -133,26 +132,20 @@ let previewExitOperation: Promise<void> | null = null;
 function effectivePresentationSelectors(): { inclusionSelectors: string[]; exclusionSelectors: string[] } {
   const presentation = store.getPresentation();
   const organSelectors = presentation.selectors;
-  if (
-    organSelectors.inclusionSelectors.length > 0 ||
-    organSelectors.exclusionSelectors.length > 0 ||
-    !presentation.silentModeActive
-  ) {
+  const savedSelectors = currentPropertyConfiguration().selectors;
+  // Silent mode is a projection of loaded backend authority. AI/session
+  // selectors belong only to the active marking session and must not survive a
+  // successful Save→Load boundary as a competing local presentation.
+  if (!presentation.silentModeActive || !savedSelectors) {
     return {
       inclusionSelectors: [...organSelectors.inclusionSelectors],
       exclusionSelectors: [...organSelectors.exclusionSelectors],
     };
   }
-  const savedSelectors = currentPropertyConfiguration().selectors;
-  return savedSelectors
-    ? {
-      inclusionSelectors: [...savedSelectors.inclusionSelectors],
-      exclusionSelectors: [...savedSelectors.exclusionSelectors],
-    }
-    : {
-      inclusionSelectors: [...organSelectors.inclusionSelectors],
-      exclusionSelectors: [...organSelectors.exclusionSelectors],
-    };
+  return {
+    inclusionSelectors: [...savedSelectors.inclusionSelectors],
+    exclusionSelectors: [...savedSelectors.exclusionSelectors],
+  };
 }
 
 function operatorActionPresentation() {
@@ -1866,7 +1859,12 @@ async function refreshSilentSelectorPreview(
   context: TargetTabContext,
   requestKey = boundTabKey,
 ): Promise<boolean> {
-  const inSilentMode = store.getState().name === "silent";
+  // Silent Preview is an interaction surface over the same authoritative
+  // silent-selector paint. Treating it as a non-silent state sends
+  // clearSilentSelectors on open, leaving a truthful list beside an empty page
+  // layer and breaking page-to-row routing until Preview exits.
+  const stateName = store.getState().name;
+  const inSilentMode = stateName === "silent" || stateName === "silent_preview";
   const selectors = currentPropertyConfiguration().selectors;
   let documentNonce = "";
   if (inSilentMode && selectors) {
@@ -2680,15 +2678,7 @@ async function captureSubmission(
     return null;
   }
   onXpathRefinement?.();
-  const refined = await refineSubmissionXpaths(response.snapshot as AiRunPayloadSnapshot);
-  if (refined.renderMode !== "static") return refined;
-  return {
-    ...refined,
-    pages: refined.pages.map((page) => ({
-      ...page,
-      rawHtml: sanitizeStaticConsentHtml(page.rawHtml ?? ""),
-    })),
-  };
+  return await refineSubmissionXpaths(response.snapshot as AiRunPayloadSnapshot);
 }
 
 function configFromSubmission(
@@ -3666,7 +3656,7 @@ type PropertyLoadOutcome =
   | Readonly<{ status: "unavailable" | "failed" | "stale"; cached: false; reason: string }>;
 
 function propertyLoadOutcomeFromStatus(status: string, cached: boolean): PropertyLoadOutcome {
-  if (status === "ok") {
+  if (status === "ok" || status === "integrity_shrink") {
     return { status: "loaded", cached };
   }
   if (status === "not_found") {
@@ -4435,6 +4425,7 @@ async function performSaveSession(action: OperatorActionOccurrence): Promise<voi
   let reconciliationStarted = false;
   let reconciliationReason = "save-aborted";
   let mutationCommitted = false;
+  let committedIntegrityWarning = false;
   let committedRecovery: PostSaveLocalRecovery | null = null;
   try {
     resumeInteractionsAfterAbort = await sendContentMessage(context.tabId, { type: "pauseContentMainInteractions" });
@@ -4511,11 +4502,12 @@ async function performSaveSession(action: OperatorActionOccurrence): Promise<voi
     const response = await getPopupBus().request("config.save", saveRequest, { target: "background" });
     if (response.ok && response.data.status === "ok") {
       // Hub success is the commit boundary. Fence the old engine before any
-      // later signal drain, identity check, configuration adoption or local
+      // later signal drain, identity check, authoritative reload or local
       // transition can fail: none of those failures can roll back the remote
       // mutation or make a second Save safe.
       mutationCommitted = true;
-      reconciliationReason = "ok";
+      committedIntegrityWarning = false;
+      reconciliationReason = response.data.status;
       postSaveAuthorityRefreshRequired = true;
       committedRecovery = {
         binding,
@@ -4528,9 +4520,28 @@ async function performSaveSession(action: OperatorActionOccurrence): Promise<voi
       resumeInteractionsAfterAbort = false;
       lastSubmissionSnapshot = null;
       lastSubmissionKey = null;
-      if (bindingOccurrenceIsCurrent(binding) && response.data.config) {
-        configurationController.adoptAuthoritativeConfig(response.data.config, "ok");
+      // The mutation response proves only that Save committed. Configuration
+      // authority is re-established by one fresh Load of the backend's complete
+      // latest shape; no response fragment or mutable marking snapshot becomes
+      // a competing local authority.
+      configurationController.retryPropertyLoad();
+      const loaded = await loadPropertyConfig(saveRequest.siteId, () =>
+        bindingOccurrenceIsCurrent(binding) && postSaveLocalRecovery === committedRecovery
+      );
+      if (loaded.status !== "loaded") {
+        reconciliationReason = `save-committed-load-${loaded.status}`;
+        if (committedRecovery && postSaveLocalRecovery === committedRecovery) {
+          postSaveLocalRecovery = { ...committedRecovery, kind: "reload-required" };
+        }
+        notifyBoundEvent(
+          binding,
+          "Save committed; authoritative Load required",
+          "Hub accepted the Save, but its complete latest configuration could not be loaded. Reload the saved page before continuing.",
+          "danger",
+        );
+        return;
       }
+      committedIntegrityWarning ||= currentPropertyConfiguration().status === "integrity_shrink";
     }
     if (!bindingOccurrenceIsCurrent(binding)) {
       reconciliationReason = mutationCommitted ? "save-committed-binding-changed" : "binding-changed";
@@ -4563,11 +4574,7 @@ async function performSaveSession(action: OperatorActionOccurrence): Promise<voi
       return;
     }
     reconciliationReason = response.ok ? response.data.status : response.failure.code;
-    if (!response.ok || response.data.status !== "ok") {
-      if (response.ok && response.data.status === "integrity_shrink" && response.data.config) {
-        configurationController.adoptAuthoritativeConfig(response.data.config, "integrity_shrink");
-        silentSelectorsAppliedKey = null;
-      }
+    if (!mutationCommitted) {
       const detail = response.ok && response.data.status === "stale_fence"
         ? response.data.duplicateOperation === true
           ? "Hub recognized the operation, but its recorded lock fence is stale; Refresh before retrying"
@@ -4666,7 +4673,14 @@ async function performSaveSession(action: OperatorActionOccurrence): Promise<voi
       const silentPresentationReady = await refreshSilentSelectorPreview(settledContext, requestKey);
       if (silentPresentationReady) {
         postSaveLocalRecovery = null;
-        notifyBoundEvent(binding, "Session saved", snapshot.baseUrl, "success");
+        notifyBoundEvent(
+          binding,
+          committedIntegrityWarning ? "Session saved; integrity review required" : "Session saved",
+          committedIntegrityWarning
+            ? "Hub saved and reloaded the complete configuration, but reported an integrity shrink that must be reviewed before another write."
+            : snapshot.baseUrl,
+          committedIntegrityWarning ? "danger" : "success",
+        );
       } else {
         reconciliationReason = "save-committed-silent-presentation-failed";
         postSaveLocalRecovery = { ...committedRecovery, kind: "reload-required" };
@@ -4691,9 +4705,10 @@ async function performSaveSession(action: OperatorActionOccurrence): Promise<voi
     if (!saveObserved) {
       silentSelectorsAppliedKey = null;
     }
-    // Save owns the mutation and authoritative response adoption. Context,
-    // Todo, lock, configuration and silent-selector reconciliation resume once
-    // through the paused slow-lane queue after every cleanup path completes.
+    // Save owns only the remote mutation. The distinct post-commit Load above
+    // owns authoritative replacement. Context, Todo, lock, configuration and
+    // silent-selector reconciliation resume once through the paused slow-lane
+    // queue after every cleanup path completes.
   } catch (error: unknown) {
     if (mutationCommitted) {
       resumeInteractionsAfterAbort = false;
@@ -5012,12 +5027,14 @@ async function performDiscardMarkings(action: OperatorActionOccurrence): Promise
     return;
   }
   advanceOperatorAction(action, "activation");
+  const loadedSelectors = currentPropertyConfiguration().selectors;
   const reset = await sendContentMessage(context.tabId, {
     type: "resetContentMain",
     // The observed page may be an alias (for example www vs apex). Data-
     // affecting content commands must carry the canonical property authority.
     baseUrl: lock.baseUrl,
     pageUrl: context.url,
+    ...(loadedSelectors ? { selectors: loadedSelectors } : {}),
   });
   if (!bindingOccurrenceIsCurrent(binding)) {
     return;
@@ -5027,6 +5044,10 @@ async function performDiscardMarkings(action: OperatorActionOccurrence): Promise
     render();
     return;
   }
+  lastSubmissionSnapshot = null;
+  lastSubmissionKey = null;
+  activeRunSessionId = null;
+  aiResumeRequestKey = null;
   contentDirty = false;
   advanceOperatorAction(action, "emulation");
   const postureReady = await ensureSessionEmulationTarget(context, {

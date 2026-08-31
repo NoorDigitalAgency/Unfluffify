@@ -26,6 +26,7 @@ const MUTATION_OWNER_SCAN_LIMIT = 64;
 const DOCUMENT_NATIVE_TOUCH_ACTION = "pan-x pan-y pinch-zoom";
 const NESTED_OWNER_TOUCH_ACTION = "pinch-zoom";
 const NESTED_TOUCH_DOCUMENT_RELEASE_QUIET_MS = 160;
+const WHEEL_NATIVE_SCROLL_SETTLE_MS = 40;
 
 type MutationObserverLike = Pick<MutationObserver, "disconnect" | "observe">;
 
@@ -167,6 +168,8 @@ export function createInteractionShield(
   let fallbackScrollOwnerProofHandle: number | null = null;
   let scheduleFallbackScrollOwnerProof = (): void => undefined;
   let wheelFallbackOccurrence = 0;
+  let wheelFallbackFrameHandle: number | null = null;
+  let wheelFallbackTaskHandle: number | null = null;
   let pendingWheelFallback: {
     occurrence: number;
     shield: HTMLElement;
@@ -205,6 +208,42 @@ export function createInteractionShield(
     deltaX: number;
     deltaY: number;
   } | null = null;
+
+  // Capture extension-world scheduling before page freeze can replace the
+  // page-facing clock. Native wheel movement commits at the presentation
+  // boundary, so its guarded fallback must not race in a zero-delay task and
+  // double-advance the same physical packet.
+  const requestPresentationFrame = typeof view?.requestAnimationFrame === "function"
+    ? view.requestAnimationFrame.bind(view)
+    : null;
+  const cancelPresentationFrame = typeof view?.cancelAnimationFrame === "function"
+    ? view.cancelAnimationFrame.bind(view)
+    : null;
+  const schedulePresentationFallback = typeof view?.setTimeout === "function"
+    ? view.setTimeout.bind(view)
+    : globalThis.setTimeout.bind(globalThis);
+  const cancelPresentationFallback = typeof view?.clearTimeout === "function"
+    ? view.clearTimeout.bind(view)
+    : globalThis.clearTimeout.bind(globalThis);
+
+  const cancelWheelFallbackSettlement = (): void => {
+    if (wheelFallbackFrameHandle !== null) {
+      try {
+        cancelPresentationFrame?.(wheelFallbackFrameHandle);
+      } catch {
+        // A frame that has already won needs no further cancellation.
+      }
+      wheelFallbackFrameHandle = null;
+    }
+    if (wheelFallbackTaskHandle !== null) {
+      try {
+        cancelPresentationFallback(wheelFallbackTaskHandle);
+      } catch {
+        // Fake or retired realms may reject a stale task handle.
+      }
+      wheelFallbackTaskHandle = null;
+    }
+  };
 
   const markFallbackScrollOwnerDirty = (): void => {
     invalidateViewportScrollOwnerProofs();
@@ -245,6 +284,7 @@ export function createInteractionShield(
     markFallbackScrollOwnerDirty();
     wheelFallbackOccurrence += 1;
     pendingWheelFallback = null;
+    cancelWheelFallbackSettlement();
     touchFallbackOccurrence += 1;
     pendingTouchFallback = null;
   };
@@ -1035,6 +1075,51 @@ export function createInteractionShield(
     }, 0);
   };
 
+  const scheduleWheelFallbackSettlement = (occurrence: number): void => {
+    cancelWheelFallbackSettlement();
+    let settled = false;
+    const settle = (): void => {
+      if (settled) return;
+      settled = true;
+      cancelWheelFallbackSettlement();
+      const pending = pendingWheelFallback;
+      if (
+        !pending ||
+        pending.occurrence !== occurrence ||
+        !mounted ||
+        shield !== pending.shield
+      ) {
+        return;
+      }
+      pendingWheelFallback = null;
+      // Browser-default scrolling is primary. Inspect it only after a paint
+      // opportunity: a zero-delay task can run before Chromium commits the
+      // compositor scroll and would then replay the same delta manually.
+      if (
+        pending.owner.currentInlineOffset() !== pending.beforeLeft ||
+        pending.owner.currentOffset() !== pending.beforeTop
+      ) {
+        return;
+      }
+      pending.owner.scrollTo(
+        pending.beforeTop + pending.deltaY,
+        "auto",
+        pending.beforeLeft + pending.deltaX,
+      );
+    };
+    if (requestPresentationFrame) {
+      try {
+        wheelFallbackFrameHandle = requestPresentationFrame(() => settle());
+      } catch {
+        wheelFallbackFrameHandle = null;
+      }
+    }
+    wheelFallbackTaskHandle = schedulePresentationFallback(
+      settle,
+      WHEEL_NATIVE_SCROLL_SETTLE_MS,
+    ) as unknown as number;
+  };
+
   const scheduleWheelFallback = (event: Event): boolean => {
     if (event.type !== "wheel" || !view || !shield) {
       return false;
@@ -1069,36 +1154,7 @@ export function createInteractionShield(
       deltaX,
       deltaY,
     };
-    // Reveal/freeze intentionally suspends the page animation clock. Use the
-    // next task, not requestAnimationFrame, so the fallback remains available
-    // while still running after the native wheel default action.
-    const scheduleTask = view.setTimeout?.bind(view) ?? setTimeout;
-    scheduleTask(() => {
-      const pending = pendingWheelFallback;
-      if (
-        !pending ||
-        pending.occurrence !== occurrence ||
-        !mounted ||
-        shield !== pending.shield
-      ) {
-        return;
-      }
-      pendingWheelFallback = null;
-      // Native wheel scrolling remains primary. Some properties retain a
-      // page-owned root scroll lock after reveal/freeze; only when the native
-      // frame made no progress do we advance the same document scroller.
-      if (
-        pending.owner.currentInlineOffset() !== pending.beforeLeft ||
-        pending.owner.currentOffset() !== pending.beforeTop
-      ) {
-        return;
-      }
-      pending.owner.scrollTo(
-        pending.beforeTop + pending.deltaY,
-        "auto",
-        pending.beforeLeft + pending.deltaX,
-      );
-    }, 0);
+    scheduleWheelFallbackSettlement(occurrence);
     return owner.kind === "element";
   };
 
@@ -1509,26 +1565,34 @@ export function createInteractionShield(
     }
   };
 
-  const handleViewportChange = (): void => {
+  const handleViewportIdentityChange = (): void => {
     cancelFallbackScrollOwner();
     clearTouchFallback();
     updateViewportGeometry();
   };
 
+  const handleVisualViewportScroll = (): void => {
+    // Visual-viewport panning changes only shield geometry. The document or
+    // nested element that owns scrolling is unchanged, so invalidating its
+    // cached proof here forces the next wheel packet back through the bounded
+    // but still expensive owner resolver.
+    updateViewportGeometry();
+  };
+
   const addViewportListeners = (): void => {
     view?.addEventListener("scroll", handleNestedTouchDocumentScroll, true);
-    view?.addEventListener("resize", handleViewportChange);
-    view?.addEventListener("orientationchange", handleViewportChange);
-    view?.visualViewport?.addEventListener("resize", handleViewportChange);
-    view?.visualViewport?.addEventListener("scroll", handleViewportChange);
+    view?.addEventListener("resize", handleViewportIdentityChange);
+    view?.addEventListener("orientationchange", handleViewportIdentityChange);
+    view?.visualViewport?.addEventListener("resize", handleViewportIdentityChange);
+    view?.visualViewport?.addEventListener("scroll", handleVisualViewportScroll);
   };
 
   const removeViewportListeners = (): void => {
     view?.removeEventListener("scroll", handleNestedTouchDocumentScroll, true);
-    view?.removeEventListener("resize", handleViewportChange);
-    view?.removeEventListener("orientationchange", handleViewportChange);
-    view?.visualViewport?.removeEventListener("resize", handleViewportChange);
-    view?.visualViewport?.removeEventListener("scroll", handleViewportChange);
+    view?.removeEventListener("resize", handleViewportIdentityChange);
+    view?.removeEventListener("orientationchange", handleViewportIdentityChange);
+    view?.visualViewport?.removeEventListener("resize", handleViewportIdentityChange);
+    view?.visualViewport?.removeEventListener("scroll", handleVisualViewportScroll);
   };
 
   const createShield = (): HTMLElement => {
@@ -1578,6 +1642,7 @@ export function createInteractionShield(
     shieldTouchAction = DOCUMENT_NATIVE_TOUCH_ACTION;
     wheelFallbackOccurrence += 1;
     pendingWheelFallback = null;
+    cancelWheelFallbackSettlement();
     clearTouchFallback();
     observer?.disconnect();
     observer = null;

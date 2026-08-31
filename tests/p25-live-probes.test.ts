@@ -11,8 +11,6 @@ import {
   executeResizePerturbation,
   filterLongTasksToCollectorWindow,
   markingOwnerBelongsToCandidate,
-  preparedMarkingContextIsClean,
-  preparedMarkingContextCanBeCleared,
   preparedMarkingTargetIsUsable,
   stablePreparedMarkingTargetAuthority,
   resolveCollectorPerformanceWindow,
@@ -118,9 +116,10 @@ describe("P25 live site-session visibility", () => {
     expect(source).toContain("candidate.closest('article,[role=\"article\"]')");
     expect(source).toContain("const attemptLimit = options.attemptLimit ?? 128");
     expect(source).toContain("lastRejections.length > 12");
-    expect(source).toContain("const deadline = Date.now() + 500");
-    expect(source).toContain("document.querySelectorAll('[data-uf-marking-menu=\"true\"]')");
-    expect(source).toContain("Marking context menu did not dismiss after trusted Escape input");
+    expect(source).toContain("NATIVE_CONTEXT_PROBE_KEY");
+    expect(source).toContain("document.addEventListener('contextmenu'");
+    expect(source).toContain("state.defaultPrevented = event.defaultPrevented");
+    expect(source).toContain("dismissNativeContextMenu(session)");
   });
 });
 
@@ -193,22 +192,6 @@ describe("P25 extension-owned observer boundary", () => {
     expect(renderStage).not.toContain("withSiteSession(targets.site");
     expect(activationPreparation).toContain("waitForActiveTabViewportPosture");
     expect(activationPreparation).not.toContain("waitForSiteWorkflowPosture");
-  });
-});
-
-describe("P25 configured-target preparation", () => {
-  const actions = (clearDisabled: boolean) => [
-    { action: "include", disabled: false },
-    { action: "exclude", disabled: clearDisabled ? false : true },
-    { action: "widen", disabled: true },
-    { action: "clear", disabled: clearDisabled },
-  ];
-
-  it("distinguishes a clean target from a physically clearable configured target", () => {
-    expect(preparedMarkingContextIsClean(actions(true))).toBe(true);
-    expect(preparedMarkingContextCanBeCleared(actions(true))).toBe(false);
-    expect(preparedMarkingContextIsClean(actions(false))).toBe(false);
-    expect(preparedMarkingContextCanBeCleared(actions(false))).toBe(true);
   });
 });
 
@@ -704,20 +687,6 @@ describe("P25 prepared marking target authority", () => {
       shiftedOwnerXpath: target.xpath,
       decision: { targetOwned: [] },
     })).toBe(true);
-  });
-
-  it("requires context-menu authority to prove there is no latent explicit owner", () => {
-    const clean = [
-      { action: "include", disabled: false },
-      { action: "exclude", disabled: false },
-      { action: "widen", disabled: true },
-      { action: "clear", disabled: true },
-    ];
-    expect(preparedMarkingContextIsClean(clean)).toBe(true);
-    expect(preparedMarkingContextIsClean(clean.map((action) =>
-      action.action === "clear" ? { ...action, disabled: false } : action
-    ))).toBe(false);
-    expect(preparedMarkingContextIsClean(clean.filter((action) => action.action !== "exclude"))).toBe(false);
   });
 
   it("normalizes a related nested physical owner before exact Alt and Shift proof", () => {

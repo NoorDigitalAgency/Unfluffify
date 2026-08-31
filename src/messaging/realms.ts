@@ -345,7 +345,9 @@ export const applicationContract = defineContract({
     "config.save": {
       request: PropertySaveRequestSchema,
       response: z.discriminatedUnion("status", [
-        z.object({ status: z.literal("ok"), config: ConfigSnapshotSchema }),
+        // Save success is a commit acknowledgement only. The caller must issue
+        // a distinct config.load to obtain the latest complete authority.
+        z.object({ status: z.literal("ok") }),
         z.object({
           status: z.union([
             z.enum([

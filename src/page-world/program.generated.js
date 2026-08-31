@@ -76,6 +76,7 @@
       "RECONCILE",
       "SET_MOTION_PAUSED",
       "SET_LAZY_LOADING_SUPPRESSED",
+      "SET_NAVIGATION_GUARD",
       "DESTROY",
       "PAGE_WORLD_ARM",
       "PAGE_WORLD_SET_MOTION_PAUSED",
@@ -88,6 +89,13 @@
     let lazyBridgeInstalled = false;
     let paused = false;
     let lazySuppressed = false;
+    let navigationGuardActive = false;
+    let guardedPushState = null;
+    let guardedReplaceState = null;
+    let guardedBack = null;
+    let guardedForward = null;
+    let guardedGo = null;
+    let guardedNavigationListener = null;
     const queued = [...inheritedQueuedTimers];
     const originals = {
       setTimeout: page.setTimeout,
@@ -110,7 +118,12 @@
       rootAddEventListener: page.addEventListener,
       rootRemoveEventListener: page.removeEventListener,
       documentAddEventListener: page.document?.addEventListener,
-      documentRemoveEventListener: page.document?.removeEventListener
+      documentRemoveEventListener: page.document?.removeEventListener,
+      historyPushState: page.history?.pushState,
+      historyReplaceState: page.history?.replaceState,
+      historyBack: page.history?.back,
+      historyForward: page.history?.forward,
+      historyGo: page.history?.go
     };
     const wrappedEventRegistrations = [];
     const timeoutTokens = /* @__PURE__ */ new Map();
@@ -2003,9 +2016,108 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
       if (command === "PAGE_WORLD_DESTROY") return "DESTROY";
       return command;
     }
+    function normalizedNavigationDocumentUrl(value) {
+      if (value === void 0 || value === null || value === "") return null;
+      try {
+        const url = new URL(String(value), page.location.href);
+        return `${url.origin}${url.pathname}${url.search}`;
+      } catch {
+        return null;
+      }
+    }
+    function restoreNavigationGuardHooks() {
+      const history = page.history;
+      if (history && guardedPushState && history.pushState === guardedPushState && originals.historyPushState) {
+        history.pushState = originals.historyPushState;
+      }
+      if (history && guardedReplaceState && history.replaceState === guardedReplaceState && originals.historyReplaceState) {
+        history.replaceState = originals.historyReplaceState;
+      }
+      if (history && guardedBack && history.back === guardedBack && originals.historyBack) {
+        history.back = originals.historyBack;
+      }
+      if (history && guardedForward && history.forward === guardedForward && originals.historyForward) {
+        history.forward = originals.historyForward;
+      }
+      if (history && guardedGo && history.go === guardedGo && originals.historyGo) {
+        history.go = originals.historyGo;
+      }
+      if (guardedNavigationListener) {
+        page.navigation?.removeEventListener?.("navigate", guardedNavigationListener);
+      }
+      guardedPushState = null;
+      guardedReplaceState = null;
+      guardedBack = null;
+      guardedForward = null;
+      guardedGo = null;
+      guardedNavigationListener = null;
+    }
+    function approveDirtyNavigation(target) {
+      if (!navigationGuardActive) return true;
+      const current = normalizedNavigationDocumentUrl(page.location.href);
+      const next = normalizedNavigationDocumentUrl(target);
+      if (next !== null && next === current) return true;
+      const approved = page.confirm?.(
+        "Leaving this page discards your unsaved Unfluffify markings. Continue?"
+      ) === true;
+      if (!approved) return false;
+      navigationGuardActive = false;
+      restoreNavigationGuardHooks();
+      return true;
+    }
+    function setNavigationGuard(active) {
+      navigationGuardActive = active;
+      if (!active) {
+        restoreNavigationGuardHooks();
+        return;
+      }
+      const history = page.history;
+      const nativePushState = originals.historyPushState;
+      const nativeReplaceState = originals.historyReplaceState;
+      const nativeBack = originals.historyBack;
+      const nativeForward = originals.historyForward;
+      const nativeGo = originals.historyGo;
+      if (!guardedPushState && history && nativePushState && nativeReplaceState) {
+        guardedPushState = function guardedHistoryPushState(data, unused, url) {
+          if (!approveDirtyNavigation(url)) return;
+          nativePushState.call(this, data, unused, url);
+        };
+        guardedReplaceState = function guardedHistoryReplaceState(data, unused, url) {
+          if (!approveDirtyNavigation(url)) return;
+          nativeReplaceState.call(this, data, unused, url);
+        };
+        history.pushState = guardedPushState;
+        history.replaceState = guardedReplaceState;
+        if (!page.navigation && nativeBack && nativeForward && nativeGo) {
+          guardedBack = function guardedHistoryBack() {
+            if (!approveDirtyNavigation()) return;
+            nativeBack.call(this);
+          };
+          guardedForward = function guardedHistoryForward() {
+            if (!approveDirtyNavigation()) return;
+            nativeForward.call(this);
+          };
+          guardedGo = function guardedHistoryGo(delta) {
+            if (!approveDirtyNavigation()) return;
+            nativeGo.call(this, delta);
+          };
+          history.back = guardedBack;
+          history.forward = guardedForward;
+          history.go = guardedGo;
+        }
+      }
+      if (!guardedNavigationListener && page.navigation) {
+        guardedNavigationListener = ((event) => {
+          if (approveDirtyNavigation(event.destination?.url)) return;
+          if (event.cancelable) event.preventDefault();
+        });
+        page.navigation.addEventListener("navigate", guardedNavigationListener);
+      }
+    }
     function resetPageWorldToIdle() {
       paused = false;
       lazySuppressed = false;
+      setNavigationGuard(false);
       stopLazyOwnerLifecycle();
       nestedLazyViewportOwner = null;
       releaseMotionFreeze();
@@ -2134,6 +2246,9 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
           }
           page.document?.documentElement?.toggleAttribute("data-uf-lazy-loading-suppressed", lazySuppressed);
         }
+        if (command === "SET_NAVIGATION_GUARD") {
+          setNavigationGuard(Boolean(request.payload && request.payload.active));
+        }
         if (command === "DESTROY") {
           lifecyclePhase = "destroying";
           resetPageWorldToIdle();
@@ -2142,6 +2257,7 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
           armed,
           paused,
           lazySuppressed,
+          navigationGuardActive,
           sessionNonce,
           phase: lifecyclePhase,
           initialDiscoveryComplete: motionInitialDiscoveryComplete,

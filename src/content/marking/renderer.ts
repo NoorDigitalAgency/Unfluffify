@@ -259,14 +259,18 @@ export function hasPaintReachableTargetGeometry(element: Element): boolean {
 }
 
 function ownPaintReachableClientRectsFor(element: Element, document: Document): RectLike[] {
-  return ownMeasurableRects(element).filter((rect) =>
+  const own = ownMeasurableRects(element);
+  if (own.length === 0 || !isCurrentlyVisuallyVisible(element, own[0])) {
+    return [];
+  }
+  return own.filter((rect) =>
     rectInViewport(rect, document) && rectIsPaintReachable(element, rect, document)
   );
 }
 
-/** Raw geometry is deliberately separate from paint-reachable geometry. It is
- *  used only for retained explicit marks: a visible include must survive a
- *  transient cover, while a genuinely hidden include becomes a ghost. */
+/** Raw geometry is deliberately separate from paint-reachable geometry and is
+ * used for non-marking preview availability only. Hidden decisions never gain
+ * a ghost marking/highlighting surface. */
 function rawClientRectsFor(element: Element): RectLike[] {
   const measurable = ownMeasurableRects(element);
   if (measurable.length > 0) {
@@ -573,17 +577,9 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     xpath: string,
     classification: Classification,
   ): boolean => {
-    // A retained explicit inclusion deliberately survives a transient physical
-    // cover (and becomes a ghost only when its authored visibility disappears).
-    // Every ordinary classification must continue to satisfy the same live
-    // paint proof used when it was first drawn.
-    if (classification === "explicit-include") {
-      return true;
-    }
     const target = latestTargetByXpath.get(xpath);
     return Boolean(
       target &&
-      measuredVisibilityFor(target.element) &&
       (LIVE_VISIBILITY_EXCLUSION_CLASSIFICATIONS.has(classification)
         ? measuredOwnPaintRectsFor(target.element)
         : measuredClientRectsFor(target.element)).length > 0,
@@ -748,28 +744,15 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     if (!target) {
       return;
     }
-    // Chromium can retain opacity-zero carousel content in elementsFromPoint().
-    // Hit reachability is therefore necessary but not sufficient for ordinary
-    // marking paint. Only an explicit inclusion owns the legacy ghost contract;
-    // implicit content and every exclusion class disappear with live visual
-    // invisibility.
-    const visuallyHiddenClassification = classification !== "explicit-include"
-      && !measuredVisibilityFor(target.element);
     const unpaintedException = classification === "exception" && !target.visible;
-    if (visuallyHiddenClassification || unpaintedException) {
+    if (unpaintedException) {
       return;
     }
     const layerKey = LAYER_BY_CLASSIFICATION[classification];
-    let presentation = overlayClassFor(classification);
-    let rects = LIVE_VISIBILITY_EXCLUSION_CLASSIFICATIONS.has(classification)
+    const presentation = overlayClassFor(classification);
+    const rects = LIVE_VISIBILITY_EXCLUSION_CLASSIFICATIONS.has(classification)
       ? measuredOwnPaintRectsFor(target.element)
       : measuredClientRectsFor(target.element);
-    if (rects.length === 0 && classification === "explicit-include") {
-      rects = rawClientRectsFor(target.element).filter((rect) => rectInViewport(rect, options.document));
-      if (!target.visible) {
-        presentation = "uf-explicit-include-ghost";
-      }
-    }
     const layer = layers.get(layerKey);
     if (!layer) {
       return;
@@ -877,12 +860,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       }
       const isExcludedPresentation = requestedPresentation.includes("uf-silent-immutable")
         || requestedPresentation.includes("uf-silent-excluded");
-      if (isExcludedPresentation && !measuredVisibilityFor(target.element)) {
-        return;
-      }
-      const presentation = requestedPresentation === "uf-silent-content" && !target.visible
-        ? "uf-silent-content uf-silent-content-ghost"
-        : requestedPresentation;
+      const presentation = requestedPresentation;
       const layerKey: LayerKey = presentation.includes("uf-silent-immutable")
         ? "silent-immutable"
         : presentation.includes("uf-silent-excluded")
@@ -892,12 +870,9 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       if (!layer) {
         return;
       }
-      let rects = isExcludedPresentation
+      const rects = isExcludedPresentation
         ? measuredOwnPaintRectsFor(target.element)
         : measuredClientRectsFor(target.element);
-      if (rects.length === 0 && presentation.includes("uf-silent-content-ghost")) {
-        rects = rawClientRectsFor(target.element);
-      }
       if (preserveUnmeasured && rects.length === 0) {
         // Viewport movement can make a still-canonical source temporarily
         // ineligible for strict paint hit-testing. Keep its keyed projection

@@ -7,6 +7,14 @@
 > and silent/post-AI preview blocks underlying page actions while allowing scrolling. The prose below
 > has been reconciled to those decisions; git history retains the superseded legacy details.
 
+> **Authority amendment (2026-08-31):** The operator-approved contract in
+> **Approved session, interaction, and submission authority** below supersedes
+> every older plain-click, context-menu, dirty-fingerprint, hidden-row, local
+> persistence, and AI-corpus statement that conflicts with it. Save is the only
+> remote persistence boundary. After it commits, a distinct Load fetches the
+> newest complete backend shape and complete-replaces local configuration; the
+> Save response is not local authority. The AI endpoint is stateless.
+
 This document is the source of truth for the marking rules restored from
 `052c164b077d459fa7a6e79b306f01144336719c`, with deliberate current safeguards
 kept in place: `BUTTON` remains toggleable, the redundant void `LINK` tag is
@@ -26,6 +34,101 @@ Any legitimate contract change must update this document, `.copilot/knowledge.md
 `.copilot/plan.md`, `README.md`, and the focused regression tests in the same
 commit. A change that only patches rendering, caching, hover targeting, or sync
 output is not sufficient if it alters the rules below.
+
+## Approved session, interaction, and submission authority
+
+### State and session lifetime
+
+- The mutable taxonomy is exactly `implicit inclusion`, `explicit inclusion`,
+  and `explicit exclusion`. Expansion is boundary ownership, not a fourth state.
+- Enabling marking starts a fresh clean session from defaults followed by the
+  current saved CSS-selector influence. Only explicit mutable decisions are
+  retained in the active session; every other mutable target is projected as an
+  implicit inclusion.
+- The first successful operator marking mutation makes the session dirty and it
+  stays dirty monotonically. Reversing the visible decision does not make the
+  session clean; fingerprints may optimize or fence work but never decide dirt.
+- No mutable marking session is preserved outside active marking. Clean disable
+  dismisses it directly. Dirty disable and dirty navigation first require user
+  approval; approval discards the complete session and cancellation preserves
+  it exactly. Full-document navigation uses the native before-unload gate;
+  same-document path/query navigation is synchronously gated in the MAIN world
+  before History/Navigation commits. Fragment-only movement is not a new page
+  boundary. Discard has the same complete-reset meaning.
+- Run AI retains the active session but presents subdued gray, non-interactive
+  markings. Completion restores interactive marking; failure restores the same
+  dirty session. Save ends the session only after authoritative success.
+- Save persists exactly the authorized current-page result plus the domain-wide
+  selectors to the backend. A distinct Load then fetches the backend's latest
+  complete property shape and replaces local configuration atomically. Once
+  that Load succeeds, the active mutable session is destroyed: no session row,
+  selector suggestion, draft, or pre-Load snapshot is merged into or preserved
+  beside the loaded shape. A failed Save
+  leaves the session intact. Silent highlighting after Save reflects the loaded
+  authoritative selectors, and the next enable starts fresh from them.
+
+### Gestures and target ownership
+
+- Every visible eligible target highlights in all three mutable states. Hidden
+  or invisible targets never paint or accept UI interaction. Immutable nodes,
+  immutable descendants, extension UI, consent UI, source-only nodes, and other
+  inherently ineligible nodes are not marking targets.
+- Plain left click toggles an implicit inclusion to explicit exclusion, explicit
+  exclusion to implicit inclusion, and explicit inclusion back to its default
+  result (or to unmarked when owned by an expanded exclusion).
+- Shift changes exclusion target breadth, not the toggle taxonomy. Its hover may
+  move between the individual target and the nearest eligible ancestor according
+  to pointer position. Shift-click applies the same state transitions to that
+  resolved target and can create a widened exclusion.
+- An expanded exclusion owns ordinary descendants. Clicking one removes the
+  boundary, rehydrates all descendants from defaults with no expansion
+  provenance, then explicitly excludes the clicked descendant. Clicking the
+  boundary itself removes it and performs the same rehydration. An explicitly
+  included descendant is the exception: clearing it removes only that inclusion
+  and leaves the expanded ancestor intact.
+- Alt is individual explicit-inclusion mode and wins over Shift. It toggles
+  implicit inclusion to explicit inclusion, explicit exclusion to explicit
+  inclusion, and explicit inclusion back to the applicable default/unmarked
+  result. It can target a mutable descendant below an expanded exclusion.
+  Mixed-text targeting may expose both a textual container and its child up to
+  that container; Alt-clicking the child of an explicitly included container
+  atomically removes the parent inclusion and includes the child.
+- Immutable descendants can never be explicitly included or excluded. Meta and
+  Ctrl have no marking semantics. The extension does not listen for or suppress
+  `contextmenu`; native right click is always preserved.
+- Hover and click consume the same occurrence-fenced target. During scroll,
+  resize, or layout churn, overlays fade out; once stable they are repositioned
+  when topology is unchanged or recomputed when needed, then fade back in.
+  Passive gray boundaries may remain where suitable but never imply interaction.
+
+### Payload and AI corpus
+
+- UI visibility and payload disposition are separate. An existing explicit
+  inclusion or exclusion survives its element becoming hidden and remains the
+  same explicit payload row; only its paint and interaction disappear. If it
+  becomes visible again, its preserved session decision paints again.
+- An otherwise mutable hidden/invisible target with no explicit session decision
+  is emitted as an effective explicit exclusion for that payload occurrence. It
+  is not inserted into the session decision snapshot and does not dirty it.
+- Explicit inclusions always submit, including below a mutable expanded
+  exclusion. Expanded-exclusion descendants without such an inclusion are
+  omitted and covered by the shallowest submitted exclusion ancestor.
+- Immutable elements and every immutable descendant are omitted as individual
+  XPath rows. The hardcoded immutable-selector list is sent separately to AI;
+  immutable descendants cannot override it.
+- Consent elements are non-interactive in marking UI. Their page content is
+  still given truthful extraction coverage: when hidden/suppressed and not
+  already covered by immutable or excluded ancestry, it is represented as an
+  effective exclusion rather than silently becoming included.
+- The AI endpoint persists nothing about a property or its pages. Its returned
+  session id is only an ephemeral asynchronous-job polling handle. Every run sends one self-contained corpus
+  containing every candidate page for the property, its applicable static and/or
+  rendered HTML, its rows/ancestor coverage, the separate immutable selectors,
+  and the active current-page session projection. The endpoint returns one
+  domain-wide selector set and cannot reuse any input from an earlier run.
+- Save, not Run AI, is the remote persistence boundary. After Save succeeds,
+  Load adopts the complete newest backend shape locally. Discard or an abandoned
+  AI run leaves no remote draft.
 
 Non-negotiable invariants:
 
@@ -61,7 +164,7 @@ Non-negotiable invariants:
   it). Selector matching is not consulted here because it ended after seeding.
 - Fast refresh, caching, or performance work may only be an adaptation layer over
   the canonical evaluator and must not create a second marking truth. Toggles are
-  serialized, generation/fingerprint guarded, and branch-spliced; stale work is
+  serialized, generation/occurrence guarded, and branch-spliced; stale work is
   rejected. A routine full-document reconcile after every toggle is forbidden.
 
 The implementation is split across:
@@ -106,11 +209,11 @@ that fresh session baseline rather than separately fetched backend-saved
 markings.
 
 The resulting model renders marking overlays while marking mode is enabled and
-stores normalized XPath rows in `config.pageMarkings[pageUrl]`.
+holds normalized XPath rows only in the active session until Save.
 
-`config.pageMarkings` can contain local drafts. Candidate completion is a
+The active session may contain local drafts in memory. Candidate completion is a
 backend-save fact for passive observers, but the current editor's popup must use
-the local page-marking session as the source of truth for the Todo List,
+that active page-marking session as the source of truth for the Todo List,
 candidate `Marked` badges, marked-pages list, and Lynx checklist coverage while
 that editor remains on an eligible Live Page.
 Preview Contents has two accepted entry points. The silent-highlighting Preview
@@ -134,23 +237,25 @@ only interrupts the user after the fetched candidate signature changes: if the
 active page is no longer valid, marking is stopped and a blocking alert explains
 why; in all changed cases the Todo List root is expanded and a warning notice
 asks the user to review the updated candidates.
-Unrelated config syncs must not upload local draft page markings; only
-backend-saved pages belong in those ordinary sync payloads. The explicit
-session save action is the exception: it uploads all local marked pages for the
-current property as one session snapshot. Marking changes remain session-local
-until that save, and discarding the session must reload the saved backend state
-for the current property and force the current page entry to be reloaded in the
-content script so no live draft survives the discard. A marking session that
+Unrelated config syncs must not upload local draft page markings. The explicit
+session Save action is the sole persistence boundary: it uploads exactly the
+current page plus the property-wide selectors, then Load adopts the backend's
+complete newest response as the only local configuration. Nothing from the
+active session is preserved or merged after that successful Load. Marking
+changes remain session-local until that Save; Discard removes the whole session and immediately rebuilds a clean
+active session from defaults plus the latest already-loaded authoritative
+selectors, without retaining any dismissed decision or treating the AI result
+as a baseline. A marking session that
 changes local page markings must run AI again before save is enabled, and
 marking mode must not be disabled until the user saves or discards that
 session.
 
-The Save Session button is gated by the page-save UI state: pending session
+The Save Session button is gated by the page-save UI state: dirty session
 changes, page controls visibility, reconciliation state, and
-`sessionRequiresAiRun`. It must not add a second `aiRunUpToDate` fingerprint
-gate on top of `sessionRequiresAiRun`; that fingerprint only disables Run AI
-while the last AI output still matches the current exclude/include XPaths.
-CSS-selector-only edits do not change the AI-run fingerprint.
+`sessionRequiresAiRun`. Dirty is monotonic after the first successful marking
+mutation and is never cleared by a matching fingerprint. A content-equivalence
+fingerprint may still avoid a redundant AI run while nothing changed after the
+last successful run, but it is not session-clean authority.
 
 Property edit ownership is defined separately in `PROPERTY_LOCK.md`. Marking
 mode must respect that contract: only the current property editor can mutate
@@ -211,9 +316,10 @@ taxonomy: a `<link>` is a void metadata element that never carries text or
 descendants, so it can never be a marking target and listing it as immutable was
 redundant.
 
-Toggleable defaults are not promoted to explicit includes by a plain exclude
-click. Plain exclude mode resolves only a current exclusion owner to clear;
-holding `Shift` is required to resolve and create any new exclusion target.
+Plain click toggles an eligible implicit inclusion to explicit exclusion and an
+explicit exclusion back to implicit inclusion. `Shift` changes the resolved
+breadth and is required only to widen the target to an eligible ancestor; it is
+not required to create an exclusion on the individual target.
 Include mode is explicit:
 the user holds `Alt` and the selected target is written to the local
 `includeXpaths` list, then synced as an explicit include row in `xpaths`. This
@@ -356,6 +462,20 @@ Marking mode must avoid duplicate full-page passes:
 - Scroll and pointer repaint paths reuse the current collections and reposition
   boxes; they must not trigger a full default-layer collection unless the DOM,
   config, or explicit marking state changed.
+- Initial IntersectionObserver registration is frame-chunked. The first trusted
+  scroll/resize input owns the compositor fade immediately, cancels or defers
+  competing structural work, and resumes it only after the stable repaint.
+  Effective visibility is the product of the root and layer opacity; retained
+  gray boundaries keep node identity while the root fades out and back in.
+- The transparent interaction shield keeps its proved scroll owner across visual
+  viewport movement. A wheel packet waits through the next presentation boundary
+  (with a 40 ms starvation bound) before applying a manual fallback, and only if
+  native scrolling did not move; one physical delta must never be doubled.
+- Silent Preview is a view over the existing authoritative silent-selector
+  paint, not a reason to clear it. Its list and page remain two-way routable for
+  the whole occurrence. In debug builds, clicking an annotated XPath rectangle
+  performs page-to-row routing while Preview is open; outside Preview it keeps
+  the debug copy behavior.
 
 ### Rebuild model: target and interim (MA-3)
 
@@ -476,10 +596,11 @@ from the committing event's `altKey` (race-proof at click time).
   target resolution or commits.
 - `passthrough` — the Space page-interaction latch is held; clicks pass to the
   page (open accordions/tabs) and the overlay yields.
-- `include` — Alt is active; clicks reach into excluded/hidden content to rescue
-  it as an explicit include (closed boundary).
-- `exclude` — the default active mode; plain clicks clear the exact current
-  exclusion owner, while Shift-click resolves and creates an exclusion target.
+- `include` — Alt is active; clicks reach individual eligible targets inside
+  mutable excluded content and toggle explicit inclusion. Hidden content and
+  immutable descendants remain non-interactive.
+- `exclude` — the default active mode; plain clicks toggle the individual target
+  while Shift changes target breadth and can resolve a widened ancestor.
 
 **Mode inputs and precedence.** The mode is derived by fixed precedence:
 
@@ -513,9 +634,8 @@ hover- and click-markable.
 Hit targets must have renderable marking geometry. A live element whose own box
 is hidden, transparent, or otherwise not visible cannot be selected just
 because `elementsFromPoint` returned it. Collapsed textual wrappers may fall
-back to visible descendant geometry, and hidden explicit includes may remain as
-ghost include markings when measurable. Explicit exclusions remain stored for
-extraction when hidden, but never use raw geometry and never draw an overlay
+back to visible descendant geometry. Existing hidden explicit decisions remain
+in session/payload state but never draw ghost geometry and are not interactive
 until the target becomes user-visible again.
 
 Renderable marking geometry also has to be paint-reachable in the current
@@ -531,18 +651,17 @@ above the ancestor still reads as covered.
 
 ### Exclude Mode
 
-Plain exclude clicks are **unmark-only**. Without `Shift`, a click never creates
-an exclusion at any depth. It resolves the visually top current exclusion owner
-at the clicked painted fragment and clears exactly that owner: an explicit row is
-removed, and an active toggleable default is recorded as `excluded: false`.
-Immutable exclusions remain immutable. Clicking included content or a gap between
-painted fragments is a valid no-op.
+Plain exclude clicks toggle the resolved individual target: implicit inclusion
+becomes explicit exclusion, explicit exclusion becomes implicit inclusion, and
+explicit inclusion is removed back to its default result. Immutable exclusions
+remain immutable. Clicking a gap between painted fragments is a valid no-op.
 
-An existing widened explicit exclusion owns its whole visible interaction
-surface: a plain click or **Clear mark** inside any of its painted fragments
-removes that one explicit row. Overlapping owners follow visible layer/paint
-order, not XPath depth or one broad bounding box. Creating any explicit or
-widened exclusion always requires `Shift`.
+An existing widened explicit exclusion owns ordinary descendants. Clicking the
+boundary removes it and rehydrates descendants. Clicking an ordinary descendant
+does the same atomically and then explicitly excludes the clicked target. An
+explicitly included descendant is independent: clearing it leaves the widened
+ancestor intact. Overlapping owners follow visible layer/paint order, not XPath
+depth or one broad bounding box.
 
 `Shift+Click` enables parent selection. Under the restored 052c behavior, target
 resolution first prefers the clicked element when it is a structured group or
@@ -591,8 +710,10 @@ instead of only the deepest child. The selected element is stored locally in
 `includeXpaths` when it is eligible and synced through the single `xpaths` field
 as an explicit include row.
 
-Explicit include boundaries are closed boundaries: descendants under an active
-include are not targetable until the include itself is removed.
+Explicit include boundaries own ordinary plain-click targeting, but Alt may
+target an eligible individual descendant. If Alt selects that descendant, the
+ancestor include is removed and the child becomes the explicit include in one
+atomic mutation.
 
 ### Page Interaction Mode
 
@@ -662,9 +783,9 @@ include remain the rescue paths for meaningful content inside such boundaries.
 
 Genuine hiding — `display:none`, `visibility:hidden`/`collapse`, `opacity:0`,
 `hidden`, sr-only/`clip`-rect off-canvas, or a zero-area box — is not visible and
-is not markable or submitted (interaction-gated panels such as collapsed
-accordions and inactive tab panels fall here until the user expands them via the
-page-interaction mode).
+is not markable in the UI. Payload evaluation remains complete: a preserved
+explicit decision survives hiding, and an otherwise mutable hidden target emits
+an effective explicit exclusion without becoming a session decision.
 
 A **CSS text clamp is not hiding.** When an element's text is fully present in
 the DOM but visually truncated downward by a vertical clamp — `overflow-y`
@@ -682,30 +803,34 @@ shows no preview and stays excluded.
 When an element is explicitly excluded:
 
 - redundant descendant exclude rows are removed,
-- overlapping include rows are removed,
-- broader explicit exclude ancestors are removed when the new target is a more
-  specific descendant,
+- overlapping ordinary descendant rows are removed, while an explicit inclusion
+  may coexist as a deliberate override inside a mutable expanded exclusion,
+- clicking an ordinary descendant of a broader explicit exclusion removes that
+  boundary, rehydrates its descendants from defaults, then excludes the clicked
+  target,
 - broader generated default-excluded ancestors are converted to `excluded:
   false` instead of being removed, so the descendant exclusion can live inside an
   unexcluded default boundary,
-- hidden include overrides inside a removed excluded ancestor are cleaned up.
+- include overrides are retained only when the approved gesture leaves their
+  owning expanded boundary intact.
 
-When an explicit exclude is toggled off, descendant include overrides that only
-existed to punch through that exclusion are removed with it.
+When an expanded explicit exclusion is toggled off, descendants are rehydrated
+from defaults with no provenance link to the removed boundary.
 
 ## Explicit Include Rules
 
 When an explicit include is added:
 
-- descendant excludes under that include are removed,
-- descendant includes under that include are removed,
+- ordinary descendant decisions under that include are normalized,
+- Alt may later move the inclusion atomically from a mixed-text ancestor to an
+  eligible child,
 - non-toggleable explicit excludes are converted away,
 - toggleable default rows can remain with `excluded: false` to record the user
   override. That row unmarks the exact default boundary; it is not treated as a
   full explicit include subtree.
 
 Hidden explicit include choices remain stored while their DOM element exists and
-render as ghost include markings when they still have measurable geometry.
+always submit as explicit inclusions, but never render ghost geometry.
 
 ## AI Selector Integration
 
@@ -732,16 +857,15 @@ construction run only after that visible feedback has had a chance to paint, so
 large saved-page payloads cannot make the click look ignored. Async run status
 polling uses a five-second cadence while the run is active.
 
-An AI run always uses the stored local page snapshots for every marked page
-under the current base URL. The payload must be built from saved `renderedHtml`,
-saved or backfilled `rawHtml`, and saved `submissionXpaths`/refined raw XPaths.
-Compute-time DOM collection must not replace that corpus, because selector
-calculation depends on the whole saved multi-page property snapshot rather than
-just the current tab.
-The only allowed live overlay is the active current page: if the editor has
-unsaved current-page changes, the run may refresh that page's stored snapshot
-immediately before building the request, but every other page in the corpus
-must still come from existing stored local data.
+The AI endpoint is stateless with respect to property/page data. Its asynchronous
+session id is only a temporary status/result polling handle, not retained property
+state. Every run sends the complete property corpus at once: every candidate
+page, its static and/or rendered HTML according to render
+mode, its submission rows and coverage, the separate immutable-selector list,
+and the active current-page session projection. Other pages come from the
+latest authoritative loaded property shape. The endpoint persists no property corpus or draft and
+returns one domain-wide selector set. Save subsequently persists the accepted
+property/page result; Load adopts the backend's latest complete shape.
 
 ## Shadow DOM
 
@@ -817,7 +941,8 @@ Rules:
   sent with the payload, not by per-page XPath rows; stale immutable rows are
   suppressed before submission,
 - visible textual markable content submits as included rows,
-- visually invisible textual markable content submits as excluded rows using the
+- visually invisible textual markable content submits as effective explicit
+  excluded rows using the
   mobile simulation geometry at save time; below-fold content is still considered
   visible because the submission viewport is treated as page-height, while
   content outside the mobile viewport width or document height is invisible;
@@ -832,10 +957,9 @@ Rules:
 - same-property pages that are outside the current Live Page candidate list
   still keep silent highlighting and property-lock status for that property;
   only marking entry is blocked there,
-- if the editor tab navigates to a different property, the previous property's
-  editor session stays recoverable for 30 seconds through initial tab state;
-  the page and popup mirror that cooldown, returning to the original property
-  restores the same client session, and expiry releases the old property lock,
+- if the editor tab navigates to a different property, property-lock cooldown
+  may remain recoverable for 30 seconds, but approved navigation discards the
+  marking session itself; returning never restores mutable marking decisions,
 - Render Mode detection uses the explicit inspection snapshot: sanitized
   rendered HTML captured after reveal/freeze and before highlighting, paired
   with static/raw HTML from the background `fetchStaticPageHtml` path,
@@ -854,14 +978,12 @@ The older 052c `links` silent layer for already-marked page anchors is not part
 of the current locked contract.
 
 Immutable silent highlights use a subtle dashed border and transparent
-background. Hidden implicit includes are dropped, while hidden explicit includes
-can remain as ghost include sources. Excluded sources remain collectable while
-temporarily hidden; current renderability only controls whether a rect is drawn
-at that moment.
+background. Hidden targets never draw ghost geometry. Their effective payload
+state remains independent from current renderability.
 
-Silent highlight rectangles remain mounted during scrolling and resize and are
-repositioned on the next coalesced animation frame. Movement must not hide the
-layer, retire its projection occurrence, or wait for a remote refresh.
+Marking and silent-highlight rectangles fade out during scroll, resize, and
+layout churn. Once stable, they reuse/reposition existing geometry when valid or
+recompute when required, then fade back in without waiting for remote refresh.
 
 ## Regression Coverage
 

@@ -31,6 +31,7 @@ import { createTransferPayloadStore } from "./transfer-payload-store";
 import { actionIconStateForContext, createActionIconController } from "./action-icon";
 import { clearDomainCache } from "../storage/domain-cache";
 import { createInitialTabFacts } from "./brain/fold";
+import type { TabFacts } from "../domain/schema/facts";
 import type { ShieldPostureProjection } from "../messaging/shield-posture";
 import {
   createPageWorldCapabilityRuntime,
@@ -856,6 +857,27 @@ export function startRewriteBackground(): void {
     });
     return queued;
   };
+  const factPersistenceTails = new Map<number, Promise<void>>();
+  const enqueueFactPersistence = (tabId: number, facts: TabFacts): Promise<void> => {
+    const previous = factPersistenceTails.get(tabId) ?? Promise.resolve();
+    const queued = previous.then(
+      () => services.persistence.persistDurableFacts(facts),
+      () => services.persistence.persistDurableFacts(facts),
+    );
+    const tail = queued.then(() => undefined, () => undefined);
+    factPersistenceTails.set(tabId, tail);
+    void tail.finally(() => {
+      if (factPersistenceTails.get(tabId) === tail) {
+        factPersistenceTails.delete(tabId);
+      }
+    });
+    return queued;
+  };
+  const drainFactPersistence = async (tabId: number): Promise<void> => {
+    while (factPersistenceTails.has(tabId)) {
+      await factPersistenceTails.get(tabId);
+    }
+  };
   const renderInspectionDocumentFenceIsCurrent = (
     tabId: number,
     fence: RenderInspectionDocumentFence,
@@ -875,10 +897,7 @@ export function startRewriteBackground(): void {
     tabId: number,
     preserveSignalHead = true,
   ): Promise<void> => {
-    const latestRun = await services.repos.runRecordRepo.loadLatestForTab(tabId);
-    if (latestRun.ok && latestRun.value) {
-      await services.repos.runRecordRepo.clear(latestRun.value.sessionId);
-    }
+    await services.lynx.retireAiRunForTab(tabId);
     await services.repos.tabStateRepo.clear(tabId);
     const signalHead = preserveSignalHead ? runtime.retainedSignalHead(tabId) : 0;
     if (signalHead > 0) {
@@ -892,7 +911,10 @@ export function startRewriteBackground(): void {
     tabId: number,
     cleanup: () => Promise<void>,
   ): Promise<void> => {
-    const termination = withTabLifecycleOperation(tabId, cleanup);
+    const termination = withTabLifecycleOperation(tabId, async () => {
+      await drainFactPersistence(tabId);
+      await cleanup();
+    });
     tabTerminations.set(tabId, termination);
     const clearTermination = () => {
       if (tabTerminations.get(tabId) === termination) {
@@ -990,7 +1012,7 @@ export function startRewriteBackground(): void {
         });
         const snapshot = brain.snapshot();
         if (snapshot && !tabTerminations.has(facts.tabId)) {
-          await services.persistence.persistDurableFacts(snapshot);
+          await enqueueFactPersistence(facts.tabId, snapshot);
         }
         return !tabTerminations.has(facts.tabId);
       });
@@ -1154,7 +1176,15 @@ export function startRewriteBackground(): void {
     const tabId = envelope.sensation.tabId === 0
       ? parseSenderTabId(meta.sourceInstance) ?? 0
       : envelope.sensation.tabId;
-    const report = async (): Promise<void> => {
+    // A replacement document can legitimately report content-started while
+    // navigation cleanup is still retiring the prior document. Queue that
+    // content occurrence behind cleanup, then let the authoritative document
+    // and Unregister tombstone fences decide it. Popup facts have no document
+    // identity and must remain terminally rejected at this boundary.
+    if (tabTerminations.has(tabId) && meta.source !== "content") {
+      return;
+    }
+    const report = async (): Promise<Readonly<{ persistence: Promise<void> | null }>> => {
       const brain = await runtime.getBrain(tabId);
       brain.observe({
         ...envelope.sensation,
@@ -1165,11 +1195,25 @@ export function startRewriteBackground(): void {
         },
       });
       const snapshot = brain.snapshot();
+      const persistence = snapshot
+        ? enqueueFactPersistence(tabId, snapshot)
+        : null;
       if (snapshot) {
-        await services.persistence.persistDurableFacts(snapshot);
         // This fact belongs to the tab, not the popup. Publishing it here keeps
         // heartbeats accurate while every UI surface is closed.
         lockRuntime.unsavedChanged(tabId, snapshot.hasUnsavedWork);
+      }
+      const reportedFacts = envelope.sensation.facts;
+      if (
+        reportedFacts.markingEnabled === false ||
+        reportedFacts.savedSeq !== undefined ||
+        reportedFacts.discardedSeq !== undefined
+      ) {
+        // Run metadata belongs to the active marking session. Increment the
+        // continuation generation before clearing it so an in-flight stateless
+        // AI poll cannot recreate a retired local record after Disable,
+        // Discard, navigation, or Save ends that session.
+        await services.lynx.retireAiRunForTab(tabId);
       }
       const siteId = typeof envelope.sensation.facts.siteId === "number" ? envelope.sensation.facts.siteId : snapshot?.siteId ?? null;
       if (envelope.sensation.reason === "activity-ping" && siteId !== null) {
@@ -1186,6 +1230,7 @@ export function startRewriteBackground(): void {
       }
       await bus.emit("signals.available", { tabId }, { target: "popup" });
       await emitSignalsAvailableToContent(tabId);
+      return { persistence };
     };
     if (meta.source === "content") {
       const documentId = parseSenderDocumentId(meta.sourceInstance);
@@ -1196,24 +1241,29 @@ export function startRewriteBackground(): void {
       if (!authorizedSender) {
         return;
       }
-      await withTabLifecycleOperation(tabId, async () => {
+      const result = await withTabLifecycleOperation(tabId, async () => {
+        if (tabTerminations.has(tabId)) {
+          return null;
+        }
         if (
           !await isCurrentMainDocument(tabId, documentId) ||
           await consentSuppressionDisabled(tabId) ||
           !await isCurrentMainDocument(tabId, documentId)
         ) {
-          return;
+          return null;
         }
-        await report();
+        return report();
       });
+      await result?.persistence;
       return;
     }
-    await withTabLifecycleOperation(tabId, async () => {
-      if (await consentSuppressionDisabled(tabId)) {
-        return;
+    const result = await withTabLifecycleOperation(tabId, async () => {
+      if (tabTerminations.has(tabId) || await consentSuppressionDisabled(tabId)) {
+        return null;
       }
-      await report();
+      return report();
     });
+    await result?.persistence;
   });
   const unavailableLockDirective = (request: Readonly<{
     pageUrl: string;
@@ -2258,30 +2308,13 @@ export function startRewriteBackground(): void {
     }
     const result = await services.lynx.saveConfigSnapshot(authorization.request);
     if (result.status === "ok") {
-      // The backend acknowledgement is the durable Save boundary. The caller
-      // will establish the replacement silent-selector posture after adopting
-      // the returned authoritative selectors.
+      // Save proves only that the remote mutation committed. Retire every
+      // cached authority generation so the caller's mandatory post-commit
+      // config.load performs a distinct remote Load and complete replacement.
+      // Never adopt the Save response into the durable local baseline.
       await shieldPosture.clearProperty(request.environmentKey, request.siteId);
-      try {
-        const adoption = await services.property.applyBackendSave(
-          request.environmentKey,
-          request.siteId,
-          result.data,
-        );
-        definitiveConfigAuthority.set(`${request.environmentKey}\u0000${request.siteId}`, "ok");
-        return adoption.integrityWarning
-          ? {
-              status: "integrity_shrink" as const,
-              config: adoption.snapshot,
-              reason: adoption.integrityWarning.message,
-            }
-          : { status: "ok" as const, config: adoption.snapshot };
-      } catch (error) {
-        if (error instanceof PropertySnapshotIntegrityError) {
-          return { status: "integrity_shrink" as const };
-        }
-        throw error;
-      }
+      invalidatePropertyAuthority(`${request.environmentKey}\u0000${request.siteId}`);
+      return { status: "ok" as const };
     }
     return result.status === "conflict"
       ? { status: result.status, httpStatus: result.httpStatus, ...(result.data ? { config: result.data } : {}) }
@@ -2317,11 +2350,14 @@ export function startRewriteBackground(): void {
     const result = await services.lynx.publishConfigSnapshot(authorization.request);
     if ("data" in result) {
       try {
-        const adoption = await services.property.applyBackendSave(
+        const adoption = await services.property.applyBackendLoad(
           request.environmentKey,
           request.siteId,
-          result.data,
+          { status: "ok", config: result.data },
         );
+        if (adoption.source !== "backend") {
+          throw new Error("Successful publication load did not produce backend authority");
+        }
         if (adoption.integrityWarning) {
           return {
             status: "integrity_shrink" as const,

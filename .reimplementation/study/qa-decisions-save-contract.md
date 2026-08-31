@@ -8,7 +8,13 @@
 > **Repositories:** extension `Unfluffify@re-write`; owned backend
 > `UnfluffifyHub@develop`; external GraphQL schema remains unchanged.
 >
-> **Date:** 2026-08-14.
+> **Date:** 2026-08-14; Save→Load authority amended by the repository owner on 2026-08-31.
+>
+> **Latest authority amendment:** Save persists exactly one current page plus the property-wide
+> selectors and returns a commit outcome only. The extension must then issue a distinct Load and
+> atomically adopt its complete newest backend shape. A successful Load destroys the active mutable
+> session; no rows, suggestions, draft, Save response fragment, or pre-Load snapshot are merged or
+> retained. This amendment supersedes conflicting response-adoption language below.
 
 This record closes the ambiguity behind the earlier sentence “make `/save` keyed per page.” It
 also defines the property feed, editor lock, draft-recovery, and Lynx-publication behavior needed
@@ -41,9 +47,11 @@ without access to the Q&A transcript.
   persists it by `(environmentKey, siteId)`; the side panel receives projections, not authority.
 - A working draft is a separate current-session overlay. The AI corpus is the authoritative
   stored marked-page corpus with the current page's live snapshot replacing that page.
-- Successful save, remove, reconciliation, and publication responses atomically replace the
-  affected authoritative baseline. A genuine 404 clears it. Transport, auth, payload-validation,
-  or ambiguous failures preserve the last valid baseline.
+- A successful Save invalidates cached authority but does not replace the baseline from its
+  response. One distinct successful Load atomically replaces the complete baseline and destroys
+  the active mutable session without merging local session data. Remove, reconciliation, and
+  publication retain their separately specified response rules. A genuine Load 404 clears saved
+  authority. Transport, auth, payload-validation, or ambiguous failures do not promote local data.
 - The full corpus and completed AI output survive side-panel closure and MV3 service-worker
   restart. Page context is derived and generation-scoped; it is never a stale independent cache.
 
@@ -59,9 +67,10 @@ without access to the Q&A transcript.
   and unified marking `rows[]`.
 - The Hub upserts only that named page and preserves every page absent from the request. `/remove`
   is the only ordinary user-driven page deletion door.
-- The response is the complete authoritative property snapshot, not merely the changed page. The
-  extension clears the draft only after it validates and adopts that response. Save ends marking
-  and lands in silent mode as D10 requires.
+- The response is commit acknowledgement only, never configuration authority. After it succeeds,
+  the extension performs one distinct `/load`; only that complete, validated newest shape is
+  adopted. Successful Load destroys the active mutable session with no local merge or retention,
+  then Save completion lands in silent mode as D10 requires.
 - The full stored corpus is used for the next AI run, never as the save request body.
 
 ## D16 — Server-owned timestamps; selectors are the semantic output
@@ -118,9 +127,10 @@ without access to the Q&A transcript.
 
 ## D19 — Shrink is permitted only with reconciliation proof
 
-- `/save` itself never removes pages. Because the property lock excludes concurrent editors, an
-  ordinary save response should not shrink the client baseline.
-- A smaller authoritative response is adoptable only when it contains a newer reconciliation
+- `/save` itself never removes pages and its acknowledgement is never inspected as configuration.
+  Because the property lock excludes concurrent editors, the distinct post-Save Load should not
+  ordinarily shrink the prior complete baseline.
+- A smaller authoritative Load result is adoptable only when it contains a newer reconciliation
   revision, the accepted complete-feed fingerprint, the exact `removedPageKeys`, and separate relabel
   metadata. The client verifies the proof against the latest accepted feed.
 - Any unexplained shrink is a high-severity integrity failure: keep the last baseline and current
@@ -132,10 +142,11 @@ without access to the Q&A transcript.
 - A draft is scoped to `(environmentKey, siteId, tabId, pageKey, markingSessionId)`. It survives side
   panel closure, service-worker restart, and temporary auth/network/feed failures only while that
   marking session remains alive.
-- Successful save, explicit discard, marking-mode exit, navigation/reload, tab close, definitive
-  property loss/change, or authoritative lock transfer terminates the session and deletes its local
-  draft. Configuration cannot be opened mid-draft without Save or Discard, so stage changes do not
-  migrate or quarantine a draft.
+- A successful Save commits remotely but does not make local state authoritative. The required
+  successful follow-up Load terminates the session and deletes all mutable local state. Explicit
+  discard, approved marking-mode exit, approved navigation/reload, tab close, definitive property
+  loss/change, or authoritative lock transfer also terminates it. Configuration cannot be opened
+  mid-session without Save or Discard, so stage changes do not migrate or quarantine local state.
 - If the current `pageKey` disappears, enter `suspended_candidate_removed`: keep the draft visible,
   clearly explain the reason, and disable Run AI/Save. The Hub's authoritative stored marking is still
   removed by reconciliation.

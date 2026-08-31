@@ -8,7 +8,6 @@ export const CONTENT_INPUT_EVENTS = Object.freeze([
   "click",
   "auxclick",
   "dblclick",
-  "contextmenu",
   "mousedown",
   "mouseup",
   "mousemove",

@@ -33,13 +33,12 @@ describe("rewrite popup FSM", () => {
     expect(state.name).toBe("pre_ai_dirty");
   });
 
-  it("restores the exact post-AI clean state when a marking edit is canonically reversed", () => {
+  it("keeps the session dirty when a marking edit is visually reversed", () => {
     let state = transitionPopupState(
       {
         name: "post_ai_clean",
         lastConsumedSeq: 1,
         reconciliationReason: "",
-        markingCleanState: "post_ai_clean",
       },
       signal(2, "markings.changed", { dirty: true, fingerprint: "changed" }),
     );
@@ -50,8 +49,8 @@ describe("rewrite popup FSM", () => {
       signal(3, "markings.changed", { dirty: false, fingerprint: "fresh" }),
     );
     expect(state).toMatchObject({
-      name: "post_ai_clean",
-      markingCleanState: "post_ai_clean",
+      name: "pre_ai_dirty",
+      lastConsumedSeq: 3,
     });
   });
 
@@ -217,6 +216,10 @@ describe("markings never outlive the marking session", () => {
     name,
     lastConsumedSeq: 1,
     reconciliationReason: "",
+    runSessionId: "run-local",
+    runDeadlineAt: 123,
+    runDirtyDuringRun: true,
+    selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
     markingRows: [
       { xpath: "/html[1]/body[1]/div[1]/nav[1]", classification: "excluded" },
       { xpath: "/html[1]/body[1]/div[1]/p[1]", classification: "included" },
@@ -228,6 +231,12 @@ describe("markings never outlive the marking session", () => {
 
     expect(state.name).toBe("silent");
     expect(state.markingRows).toEqual([]);
+    expect(state).toMatchObject({
+      selectors: undefined,
+      runSessionId: undefined,
+      runDeadlineAt: undefined,
+      runDirtyDuringRun: undefined,
+    });
   });
 
   it("drops the rows when the page navigates", () => {
@@ -236,6 +245,7 @@ describe("markings never outlive the marking session", () => {
 
     expect(state.name).toBe("silent");
     expect(state.markingRows).toEqual([]);
+    expect(state.selectors).toBeUndefined();
   });
 
   it("drops the rows once the session is saved to the backend", () => {
@@ -243,6 +253,7 @@ describe("markings never outlive the marking session", () => {
 
     expect(state.name).toBe("silent");
     expect(state.markingRows).toEqual([]);
+    expect(state.selectors).toBeUndefined();
   });
 
   it("drops the rows on discard, which resets the page to a clean session", () => {
@@ -250,6 +261,12 @@ describe("markings never outlive the marking session", () => {
 
     expect(state.name).toBe("pre_ai_clean");
     expect(state.markingRows).toEqual([]);
+    expect(state).toMatchObject({
+      selectors: undefined,
+      runSessionId: undefined,
+      runDeadlineAt: undefined,
+      runDirtyDuringRun: undefined,
+    });
   });
 
   it("keeps the rows while the session is still live", () => {

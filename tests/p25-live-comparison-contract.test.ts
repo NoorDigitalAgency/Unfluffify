@@ -99,7 +99,35 @@ function markingGestureEvidence() {
   return {
     target: { xpath: targetXpath, shiftedOwnerXpath },
     operations: [
-      { id: "plain-no-create", ...acknowledged, changed: false, targetDelta: unchangedTargetDelta },
+      {
+        id: "plain-exclude",
+        ...acknowledged,
+        changed: true,
+        assertion: {
+          kind: "explicit-exclusion",
+          ownerRelation: "exact",
+          ownerXpath: targetXpath,
+        },
+      },
+      {
+        id: "plain-exclude-unmark",
+        ...acknowledged,
+        changed: true,
+        assertion: { removedExactOwner: true, remainingTargetOwned: 0 },
+      },
+      {
+        id: "alt-include",
+        ...acknowledged,
+        changed: true,
+        assertion: { kind: "explicit-inclusion", ownerRelation: "exact", ownerXpath: targetXpath },
+      },
+      { id: "native-context-menu", ...acknowledged, changed: false, targetDelta: unchangedTargetDelta },
+      {
+        id: "plain-include-unmark",
+        ...acknowledged,
+        changed: true,
+        assertion: { removedExactOwner: true, remainingTargetOwned: 0 },
+      },
       {
         id: "shift-expand",
         ...acknowledged,
@@ -111,33 +139,12 @@ function markingGestureEvidence() {
           breadthIncreased: true,
         },
       },
-      {
-        id: "plain-exact-unmark",
-        ...acknowledged,
-        changed: true,
-        assertion: { removedExactOwner: true, remainingTargetOwned: 0 },
-      },
-      {
-        id: "alt-include",
-        ...acknowledged,
-        changed: true,
-        assertion: { kind: "explicit-inclusion", ownerRelation: "exact", ownerXpath: targetXpath },
-      },
-      { id: "context-menu", ...acknowledged, changed: false, targetDelta: unchangedTargetDelta },
-      {
-        id: "plain-include-unmark",
-        ...acknowledged,
-        changed: true,
-        assertion: { removedExactOwner: true, remainingTargetOwned: 0 },
-      },
     ],
-    contextMenu: [
-      { action: "include", label: "Include", disabled: false },
-      { action: "exclude", label: "Exclude", disabled: true },
-      { action: "widen", label: "Widen exclusion", disabled: false },
-      { action: "clear", label: "Clear mark", disabled: false },
-    ],
-    contextExpectedDisabled: { include: false, exclude: true, widen: false, clear: false },
+    nativeContextMenu: {
+      eventObserved: true,
+      defaultPrevented: false,
+      extensionMenuCount: 0,
+    },
     timing: { count: 5, medianMs: 40, p95Ms: 80, worstMs: 80 },
   };
 }
@@ -422,10 +429,10 @@ describe("P25 live-comparison stage and aggregate contract", () => {
       .toMatchObject({ pass: false });
   });
 
-  it("accepts unrelated dynamic overlay churn when a plain click leaves its target untouched", () => {
+  it("accepts unrelated dynamic overlay churn alongside the exact plain-click toggle", () => {
     const run = aggregate();
-    const operation = run.probes.markingGestures.operations.find((candidate) => candidate.id === "plain-no-create")!;
-    operation.changed = true;
+    const operation = run.probes.markingGestures.operations.find((candidate) => candidate.id === "plain-exclude")!;
+    operation.targetDelta = { created: [], removed: [], changed: [], ambientCreated: [], ambientRemoved: [] };
     operation.targetDelta.ambientRemoved = [{
       ownerXpath: "/html[1]/body[1]/aside[1]",
       kind: "explicit-exclusion",

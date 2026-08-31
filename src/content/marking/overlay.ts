@@ -2,9 +2,8 @@ import type { Classification } from "../../domain/schema/marking";
 
 export const MARKING_OVERLAY_STYLE_ID = "unfluffify-marking-overlay-style";
 
-/** The exact 16-class legacy marking vocabulary. Some states are activated by
- *  later interaction slices, but their visuals live together so a box never
- *  falls back to page-owned CSS while the state changes. */
+/** The active marking vocabulary. Hidden decisions deliberately have no ghost
+ * class: state survives invisibility, but presentation must not. */
 export const MARKING_OVERLAY_CLASSES = [
   "uf-layer",
   "uf-scrolling",
@@ -16,11 +15,8 @@ export const MARKING_OVERLAY_CLASSES = [
   "uf-default",
   "uf-ai-content",
   "uf-ai-content-overlay",
-  "uf-ai-content-ghost",
   "uf-explicit-include",
-  "uf-explicit-include-ghost",
   "uf-explicit-exclude",
-  "uf-explicit-exclude-ghost",
   "uf-interaction-ack",
 ] as const;
 
@@ -41,6 +37,9 @@ export const MARKING_OVERLAY_STYLES = `
   inset: 0;
   z-index: 2147483647 !important;
   pointer-events: none;
+  opacity: 1;
+  transition: opacity 0.15s ease;
+  will-change: opacity;
 }
 .uf-marking-layer-root.uf-page-inspection-active {
   background: rgba(16, 20, 28, 0.2);
@@ -64,29 +63,16 @@ export const MARKING_OVERLAY_STYLES = `
 .uf-marking-layer-root .uf-layer[data-layer="focus"] { z-index: 9; }
 .uf-marking-layer-root .uf-layer[data-layer="hover"] { z-index: 10; }
 .uf-marking-layer-root .uf-layer[data-layer="interaction"] { z-index: 11; }
-.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="hard"],
-.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="default"],
-.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="saved-explicit-exclude"],
-.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="saved-explicit-include"],
-.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="ai-content"],
-.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="silent-immutable"],
-.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="silent-content"],
-.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="silent-excluded"],
-.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="session-explicit-exclude"],
-.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="session-explicit-include"],
-.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="focus"],
-.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="hover"],
-.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="interaction"],
+.uf-marking-layer-root.uf-scrolling {
+  /* One pre-composited root fade avoids invalidating a descendant selector
+     across every overlay rectangle at the trusted scroll edge. Stale fixed
+     coordinates disappear synchronously; removing the class restores them
+     through the root's shared 150 ms transition. */
+  opacity: 0;
+  transition-duration: 0s;
+}
 .uf-marking-layer-root.uf-page-inspection-active .uf-layer {
   opacity: 0;
-}
-.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="silent-immutable"],
-.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="silent-content"],
-.uf-marking-layer-root.uf-scrolling .uf-layer[data-layer="silent-excluded"] {
-  /* Match pinned legacy's quiet transaction: hide stale fixed coordinates
-     synchronously, retain the nodes through the event train, then let the base
-     transition restore them after the one committed redraw. */
-  transition-duration: 0s;
 }
 .uf-marking-layer-root.uf-marking-temporarily-disabled .uf-layer {
   opacity: 0.28;
@@ -158,28 +144,13 @@ export const MARKING_OVERLAY_STYLES = `
 .uf-marking-layer-root .uf-ai-content.uf-ai-content-overlay {
   background-color: transparent;
 }
-.uf-marking-layer-root .uf-ai-content.uf-ai-content-ghost {
-  background-color: transparent;
-  background-image: none;
-  border-style: dotted;
-  border-color: rgba(53, 148, 58, 0.45);
-  animation: none !important;
-}
 .uf-marking-layer-root .uf-explicit-include {
   border: 3px solid #1b5e20;
   background: rgba(27, 94, 32, 0.2);
 }
-.uf-marking-layer-root .uf-explicit-include-ghost {
-  border: 1px dotted rgba(27, 94, 32, 0.45);
-  background: transparent;
-}
 .uf-marking-layer-root .uf-explicit-exclude {
   border: 3px solid #c62828;
   background: rgba(198, 40, 40, 0.2);
-}
-.uf-marking-layer-root .uf-explicit-exclude-ghost {
-  border: 1px dashed rgba(198, 40, 40, 0.45);
-  background: transparent;
 }
 @keyframes uf-interaction-pulse {
   0% { opacity: 0.95; transform: scale(1); }
@@ -196,10 +167,6 @@ export const MARKING_OVERLAY_STYLES = `
 .uf-marking-layer-root .uf-silent-content {
   border: 2px dashed #44b532;
   background: rgba(68, 181, 50, 0.08);
-}
-.uf-marking-layer-root .uf-silent-content-ghost {
-  border: 1px dotted rgba(68, 181, 50, 0.45);
-  background: transparent;
 }
 .uf-marking-layer-root .uf-silent-immutable {
   border: 1px dashed rgba(156, 107, 107, 0.45);
@@ -223,35 +190,6 @@ export const MARKING_OVERLAY_STYLES = `
     opacity: 0.6;
   }
 }
-[data-uf-marking-menu="true"] {
-  position: fixed;
-  z-index: 2147483647;
-  display: grid;
-  min-width: 166px;
-  gap: 2px;
-  box-sizing: border-box;
-  padding: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 9px;
-  background: rgba(35, 39, 47, 0.97);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
-  color: white;
-  pointer-events: auto;
-  font: 600 12px/1.3 Inter, system-ui, sans-serif;
-}
-[data-uf-marking-menu-action] {
-  min-height: 30px;
-  padding: 6px 9px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: inherit;
-  text-align: start;
-  font: inherit;
-  cursor: pointer;
-}
-[data-uf-marking-menu-action]:hover { background: rgba(255, 255, 255, 0.12); }
-[data-uf-marking-menu-action]:disabled { opacity: 0.38; cursor: default; }
 `;
 
 export function overlayClassFor(classification: Classification): string {

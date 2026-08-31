@@ -23,6 +23,8 @@ type P18Fixture = Readonly<{
 type PageState = {
   clicks: number;
   contextMenus: number;
+  contextMenuDefaultPrevented: boolean | null;
+  contextMenuAuthoredTarget: string | null;
   pageWorldCommands: number;
   pageWorldCommandNames: string[];
   scrollEvents: Array<{ readonly at: number; readonly y: number }>;
@@ -364,23 +366,6 @@ function queueSignal(name: BrainSignal["name"], payload: Record<string, unknown>
   return signal;
 }
 
-function menuSnapshot(): Record<string, unknown> | null {
-  const menu = document.querySelector<HTMLElement>('[data-uf-marking-menu="true"]');
-  if (!menu) return null;
-  const rect = menu.getBoundingClientRect();
-  return {
-    role: menu.getAttribute("role"),
-    text: menu.innerText.replace(/\s+/g, " ").trim(),
-    connected: menu.isConnected,
-    rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
-    actions: [...menu.querySelectorAll<HTMLButtonElement>("[data-uf-marking-menu-action]")].map((button) => ({
-      id: button.getAttribute("data-uf-marking-menu-action"),
-      label: button.innerText,
-      disabled: button.disabled,
-    })),
-  };
-}
-
 function toastSnapshot(): Record<string, unknown> | null {
   const toast = document.querySelector<HTMLElement>('[data-uf-content-toast="true"]');
   if (!toast) return null;
@@ -404,7 +389,6 @@ function createRuntimeApi() {
     readyError: () => readyError,
     dispatch,
     queueSignal,
-    menuSnapshot,
     async snapshot(): Promise<Record<string, unknown>> {
       let status: unknown = null;
       try {
@@ -414,7 +398,6 @@ function createRuntimeApi() {
       }
       return {
         status,
-        menu: menuSnapshot(),
         toast: toastSnapshot(),
         pageState: clone(window.__p18PageState),
         backgroundFrameNames: backgroundFrames.map((frame) => frame.name),

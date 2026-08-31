@@ -9,14 +9,16 @@ The popup fixture mounts the shipping React `App`, popup store, event source,
 transient-surface manager, toast controller, scroll lock, and production CSS.
 The inspected-page fixture starts the shipping content entrypoint behind a
 deterministic background-authority adapter. Physical right-click therefore
-flows through the actual content listener, canonical marking engine, and
-shipping marking menu. The adapter supplies only external browser/background
-answers; it contains no surface ordering or marking action model.
+flows through the actual content listener and overlay while the fixture proves
+that the native page `contextmenu` event remains unprevented, no extension menu
+appears, and no marking mutation occurs. The adapter supplies only external
+browser/background answers; it contains no surface ordering or marking action
+model.
 
 The browser catalog uses physical pointer and keyboard input for menu mutual
 exclusion, outside dismissal, nested topmost-only Escape, busy protection, the
-Preview Escape request boundary, popup scroll restoration, content right-click
-integration, and restored marking interaction. Popup and content notifications
+Preview Escape request boundary, popup scroll restoration, native content
+right-click preservation, and restored marking interaction. Popup and content notifications
 are produced by their shipping toast controllers. Playwright's browser clock
 advances those production timeout callbacks to prove replacement, manual close,
 and the exact 1.8/4/6 second deadlines without duplicating a scheduler.

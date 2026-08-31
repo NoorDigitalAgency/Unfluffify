@@ -110,7 +110,30 @@ describe("P0 evaluate pass (INV-2.5..INV-2.10, INV-4.1..INV-4.4, INV-5.1..INV-5.
     expect(result.overlay.has(hiddenChild.xpath)).toBe(false);
     expect(result.rows).toEqual([
       { xpath: footer.xpath, excluded: false },
-      { xpath: hiddenChild.xpath, excluded: true },
+      { xpath: hiddenChild.xpath, excluded: true, explicit: true },
+    ]);
+  });
+
+  it("keeps hidden UI non-interactive while emitting complete explicit payload coverage", () => {
+    const hidden = leaf("hidden", "/html[1]/body[1]/aside[1]/p[1]", {
+      visible: false,
+      interactionSuppressed: true,
+    });
+    const previouslyIncluded = leaf("included", "/html[1]/body[1]/main[1]/p[1]", {
+      visible: false,
+    });
+    const root = node("body", "/html[1]/body[1]", [hidden, previouslyIncluded], {
+      tagName: "BODY",
+    });
+
+    const result = evaluate({
+      rows: [{ xpath: previouslyIncluded.xpath, excluded: false, explicit: true }],
+    }, { root });
+
+    expect(result.overlay.has(hidden.xpath)).toBe(false);
+    expect(result.rows).toEqual([
+      { xpath: hidden.xpath, excluded: true, explicit: true },
+      { xpath: previouslyIncluded.xpath, excluded: false, explicit: true },
     ]);
   });
 

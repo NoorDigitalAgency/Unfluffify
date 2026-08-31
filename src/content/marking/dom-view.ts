@@ -397,8 +397,7 @@ function hasStyleHiddenAncestor(element: Element, pass: DomBridgePass): boolean 
 
 function isExtensionUi(element: Element): boolean {
   const elementId = readElementId(element);
-  return element.hasAttribute(CONSENT_HIDDEN_ATTR) ||
-    element.hasAttribute("data-wxt-shadow-root") ||
+  return element.hasAttribute("data-wxt-shadow-root") ||
     element.getAttribute("data-uf-extension-ui") === "true" ||
     element.tagName.toLowerCase() === "browser-mcp-container" ||
     elementId === "browser-mcp-container" ||
@@ -458,6 +457,7 @@ function* buildNodeProgressively(
   byXpath: Map<string, DomBridgeNode>,
   pass: DomBridgePass,
   options: DomBridgeOptions,
+  inheritedInteractionSuppressed = false,
 ): Generator<void, DomBridgeNode | null, void> {
   if (isExtensionUi(element)) {
     return null;
@@ -472,6 +472,7 @@ function* buildNodeProgressively(
   const childEvaluations: EvaluationNode[] = [];
   const tagName = element.tagName.toUpperCase();
   const immutable = isImmutableTag(tagName);
+  const interactionSuppressed = inheritedInteractionSuppressed || element.hasAttribute(CONSENT_HIDDEN_ATTR);
   if (!immutable) {
     const seenTags = new Map<string, number>();
     for (const child of elementChildren(element, pass)) {
@@ -490,6 +491,7 @@ function* buildNodeProgressively(
         byXpath,
         pass,
         options,
+        interactionSuppressed,
       );
       if (built) {
         childNodes.push(built.xpathNode);
@@ -498,10 +500,12 @@ function* buildNodeProgressively(
     }
   }
   xpathNode.children = childNodes;
-  const landmarks = landmarkCount(element, pass);
+  // Suppressed page-authored UI remains in the extraction tree and capture,
+  // but it must never incur geometry/style work merely to prove that it cannot
+  // paint. Its text/XPath coverage is still evaluated below.
+  const landmarks = interactionSuppressed ? 0 : landmarkCount(element, pass);
   const structuralRole = structuralRoleFor(element);
-  const geometry = geometryFor(element, pass);
-  const visible = isUserVisible(element, geometry);
+  const visible = interactionSuppressed ? false : isUserVisible(element, geometryFor(element, pass));
   const shadow = shadowProvenanceFor(element);
   const evaluationNode: EvaluationNode = {
     key,
@@ -514,13 +518,14 @@ function* buildNodeProgressively(
     pageShell: tagName === "HTML" || tagName === "BODY" || tagName === "MAIN" || landmarks >= 2,
     landmarkCount: landmarks,
     chrome: isExtensionUi(element),
+    interactionSuppressed,
     immutable,
     shadow,
     // An inaccessible authored root does not make the host's accessible light
     // children uncapturable. Preview classification uses `shadow`; the marking
     // evaluator's terminal flag remains reserved for wholly synthetic branches.
     closedShadow: false,
-    silentWhitespaceExclusion: !immutable && isSilentWhitespaceExclusion(
+    silentWhitespaceExclusion: !immutable && !interactionSuppressed && isSilentWhitespaceExclusion(
       element,
       visible,
       styleFor(element, pass),
@@ -731,11 +736,12 @@ export function createDomBridgePresentationRefreshCursor(
         if (!node) continue;
         const entry = current.byKey.get(node.key);
         if (!entry) continue;
-        const geometry = geometryFor(entry.element, pass);
-        const visible = isUserVisible(entry.element, geometry);
+        const visible = node.interactionSuppressed
+          ? false
+          : isUserVisible(entry.element, geometryFor(entry.element, pass));
         presentationByKey.set(node.key, {
           visible,
-          silentWhitespaceExclusion: node.immutable !== true && isSilentWhitespaceExclusion(
+          silentWhitespaceExclusion: node.immutable !== true && !node.interactionSuppressed && isSilentWhitespaceExclusion(
             entry.element,
             visible,
             styleFor(entry.element, pass),

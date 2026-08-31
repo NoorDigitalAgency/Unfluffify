@@ -1060,7 +1060,7 @@ describe("rewrite background startup", () => {
     }
   });
 
-  it("rejects a panel's known-stale fence in background without sending a save", async () => {
+  it("rejects a stale fence then treats accepted Save as commit-only before remote Load", async () => {
     const addMessageListener = vi.fn();
     const listeners = new Map<string, Array<(event: { data?: unknown }) => void>>();
     const socketFrames: string[] = [];
@@ -1078,6 +1078,30 @@ describe("rewrite background startup", () => {
     const originalFetch = globalThis.fetch;
     const originalWebSocket = globalThis.WebSocket;
     const saveRequests: Array<{ url: string; body: unknown }> = [];
+    let saveAccepted = false;
+    let loadRequests = 0;
+    const snapshot = (propertyRevision: number, inclusionSelector: string) => ({
+      version: 2,
+      environmentKey: "stage.example.com",
+      siteId: 42,
+      baseUrl: "https://example.com",
+      propertyRevision,
+      feedRevision: 2,
+      membershipFingerprint: "membership",
+      assignmentFingerprint: "assignment",
+      renderMode: "rendered",
+      renderModeUpdatedAt: "2026-08-31T10:00:00Z",
+      selectors: { inclusionSelectors: [inclusionSelector], exclusionSelectors: [] },
+      selectorsUpdatedAt: "2026-08-31T10:00:00Z",
+      submittedSelectorsFingerprint: "",
+      pages: {},
+      reconciliation: {
+        revision: 2,
+        feedFingerprint: "feed-2",
+        removedPageKeys: [],
+        relabelledPages: [],
+      },
+    });
     globalThis.chrome = {
       runtime: { sendMessage: vi.fn(), onMessage: { addListener: addMessageListener } },
       tabs: {
@@ -1120,8 +1144,18 @@ describe("rewrite background startup", () => {
           upstreamCode: null,
         }), { status: 200 });
       }
+      if (url.endsWith("/load")) {
+        loadRequests += 1;
+        return new Response(JSON.stringify(
+          saveAccepted ? snapshot(5, "article") : snapshot(4, "main"),
+        ), { status: 200 });
+      }
       if (url.endsWith("/save")) {
         saveRequests.push({ url, body: JSON.parse(String(init?.body ?? "null")) });
+        saveAccepted = true;
+        // Deliberately disagree with the following Load. If this response is
+        // ever adopted locally, the assertion below will expose it.
+        return new Response(JSON.stringify(snapshot(99, ".poison-save-response")), { status: 200 });
       }
       return new Response("{}", { status: 500 });
     }) as typeof fetch;
@@ -1135,9 +1169,8 @@ describe("rewrite background startup", () => {
         sendResponse: (value: unknown) => void,
       ) => unknown;
       let sequence = 0;
-      const call = async (name: string, payload: unknown): Promise<unknown> => {
+      const call = (name: string, payload: unknown): Promise<unknown> => new Promise((resolve) => {
         sequence += 1;
-        let response: unknown;
         runtimeListener({
           kind: "uf-bus/1",
           frameType: "request",
@@ -1148,10 +1181,8 @@ describe("rewrite background startup", () => {
           sourceInstance: "popup:test",
           target: "background",
           payload,
-        }, {}, (value: unknown) => { response = value; });
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        return response;
-      };
+        }, {}, resolve);
+      });
 
       await call("settings.save", {
         stageBase: "stage.example.com",
@@ -1228,6 +1259,15 @@ describe("rewrite background startup", () => {
         feedRevision: 2,
       }));
 
+      await expect(call("config.load", { siteId: 42 })).resolves.toMatchObject({
+        ok: true,
+        payload: {
+          status: "ok",
+          config: { propertyRevision: 4, selectors: { inclusionSelectors: ["main"] } },
+        },
+      });
+      expect(loadRequests).toBe(1);
+
       const reply = await call("config.save", {
         operationId: "save-stale-1",
         environmentKey: "stage.example.com",
@@ -1251,6 +1291,39 @@ describe("rewrite background startup", () => {
         payload: { status: "stale_fence", httpStatus: 409 },
       });
       expect(saveRequests).toEqual([]);
+
+      const accepted = await call("config.save", {
+        operationId: "save-current-1",
+        environmentKey: "stage.example.com",
+        siteId: 42,
+        editorSessionId: subscribe.editorSessionId,
+        lockToken: "fence-current",
+        expectedPropertyRevision: 4,
+        expectedFeedRevision: 2,
+        page: {
+          pageKey: "/page",
+          pageType: "detail",
+          renderedHtml: "<html><main>saved</main></html>",
+          rows: [],
+        },
+        selectors: { inclusionSelectors: ["article"], exclusionSelectors: [] },
+        renderMode: "rendered",
+      });
+      expect(accepted).toMatchObject({
+        ok: true,
+        payload: { status: "ok" },
+      });
+      expect((accepted as { payload?: Record<string, unknown> }).payload).not.toHaveProperty("config");
+      expect(saveRequests).toHaveLength(1);
+
+      await expect(call("config.load", { siteId: 42 })).resolves.toMatchObject({
+        ok: true,
+        payload: {
+          status: "ok",
+          config: { propertyRevision: 5, selectors: { inclusionSelectors: ["article"] } },
+        },
+      });
+      expect(loadRequests).toBe(2);
     } finally {
       globalThis.fetch = originalFetch;
       globalThis.WebSocket = originalWebSocket;

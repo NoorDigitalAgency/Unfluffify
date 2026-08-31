@@ -23,7 +23,10 @@ export function applyToggle(
   const existing = markSet.rows.find((row) => row.xpath === xpath);
   if (existing && !existing.excluded && existing.explicit === true) {
     return {
-      rows: markSet.rows.filter((row) => row.xpath !== xpath && !isXPathInSubtree(row.xpath, xpath)),
+      // Clearing an explicit inclusion removes that decision only. Default rows
+      // below it remain ordinary mutable state, and an expanded exclusion above
+      // it remains the owner of the branch.
+      rows: markSet.rows.filter((row) => row.xpath !== xpath),
     };
   }
   if (mode === "exclude" && existing?.excluded) {
@@ -37,7 +40,11 @@ export function applyToggle(
   const rows = markSet.rows.filter((row) =>
     row.xpath !== xpath &&
     !isXPathInSubtree(row.xpath, xpath) &&
-    !(mode === "exclude" && row.excluded && isXPathInSubtree(xpath, row.xpath))
+    !(mode === "exclude" && row.excluded && isXPathInSubtree(xpath, row.xpath)) &&
+    // Alt inclusion is an individual decision. Moving an explicit inclusion
+    // from a parent to a painted descendant removes the ancestor in the same
+    // canonical mutation; inherited implicit/default coverage is untouched.
+    !(mode === "include" && !row.excluded && row.explicit === true && isXPathInSubtree(xpath, row.xpath))
   );
   for (const ancestorXpath of options.unexcludeAncestorXpaths ?? []) {
     rows.push({ xpath: ancestorXpath, excluded: false });
@@ -62,6 +69,37 @@ function indexNodesByXpath(root: EvaluationNode): ReadonlyMap<string, Evaluation
   };
   visit(root);
   return result;
+}
+
+export function collectDefaultExclusionRows(node: EvaluationNode, rows: MarkRow[] = []): MarkRow[] {
+  if (
+    isToggleableDefaultTag(node.tagName) &&
+    node.visible &&
+    !node.chrome &&
+    !node.immutable &&
+    !node.closedShadow
+  ) {
+    rows.push({ xpath: node.xpath, excluded: true });
+  }
+  for (const child of node.children ?? []) {
+    collectDefaultExclusionRows(child, rows);
+  }
+  return rows;
+}
+
+export function mergeDefaultExclusions(
+  root: EvaluationNode,
+  markSet: CanonicalMarkSet = { rows: [] },
+): CanonicalMarkSet {
+  const rows = [...markSet.rows];
+  const existing = new Set(rows.map((row) => row.xpath));
+  for (const row of collectDefaultExclusionRows(root)) {
+    if (!existing.has(row.xpath)) {
+      rows.push(row);
+      existing.add(row.xpath);
+    }
+  }
+  return { rows };
 }
 
 function nearestAncestorMark(markSet: CanonicalMarkSet, xpath: string): MarkRow | undefined {
@@ -96,7 +134,6 @@ export function createMarkingStore(domView: DomView, initialMarks: CanonicalMark
       mode: Exclude<MarkMode, "disabled" | "passthrough">,
     ): EvaluationResult & Readonly<{ branchRoot: EvaluationNode }> {
       let outermostExcludedAncestorRow: MarkRow | null = null;
-      const unexcludeAncestorXpaths = new Set<string>();
       if (mode === "exclude") {
         for (const row of marks.rows) {
           if (!row.excluded || row.xpath === branchRoot.xpath || !isXPathInSubtree(branchRoot.xpath, row.xpath)) {
@@ -105,19 +142,54 @@ export function createMarkingStore(domView: DomView, initialMarks: CanonicalMark
           if (!outermostExcludedAncestorRow || row.xpath.length < outermostExcludedAncestorRow.xpath.length) {
             outermostExcludedAncestorRow = row;
           }
-          if (row.explicit !== true) {
-            const ancestor = nodeByXpath.get(row.xpath);
-            if (ancestor && isToggleableDefaultTag(ancestor.tagName)) {
-              unexcludeAncestorXpaths.add(row.xpath);
-            }
-          }
         }
       }
       const outermostExcludedAncestor = outermostExcludedAncestorRow
         ? nodeByXpath.get(outermostExcludedAncestorRow.xpath) ?? null
         : null;
-      const evaluationRoot = outermostExcludedAncestor ?? branchRoot;
-      marks = applyToggle(marks, branchRoot.xpath, mode, { unexcludeAncestorXpaths });
+      const existing = marks.rows.find((row) => row.xpath === branchRoot.xpath);
+      let evaluationRoot = outermostExcludedAncestor ?? branchRoot;
+      if (existing && !existing.excluded && existing.explicit === true) {
+        // Explicit inclusion is the one exception inside an expanded
+        // exclusion: remove only that inclusion and preserve its ancestor.
+        marks = applyToggle(marks, branchRoot.xpath, mode);
+        if (!outermostExcludedAncestor) {
+          marks = mergeDefaultExclusions(branchRoot, marks);
+        }
+      } else if (mode === "exclude" && outermostExcludedAncestor) {
+        // Clicking an ordinary descendant dissolves the complete expanded
+        // boundary occurrence. Every decision below it is discarded, defaults
+        // are recalculated without selector provenance, and the clicked target
+        // becomes the one new explicit exclusion.
+        marks = {
+          rows: marks.rows.filter((row) => !isXPathInSubtree(row.xpath, outermostExcludedAncestor.xpath)),
+        };
+        if (isToggleableDefaultTag(outermostExcludedAncestor.tagName)) {
+          marks = {
+            rows: [...marks.rows, { xpath: outermostExcludedAncestor.xpath, excluded: false }],
+          };
+        }
+        marks = mergeDefaultExclusions(outermostExcludedAncestor, marks);
+        marks = {
+          rows: [
+            ...marks.rows.filter((row) => row.xpath !== branchRoot.xpath),
+            { xpath: branchRoot.xpath, excluded: true, explicit: true },
+          ],
+        };
+      } else if (mode === "exclude" && existing?.excluded) {
+        // Clicking an exclusion boundary itself toggles that exact boundary to
+        // implicit inclusion and rehydrates all descendants from defaults.
+        marks = {
+          rows: marks.rows.filter((row) => !isXPathInSubtree(row.xpath, branchRoot.xpath)),
+        };
+        marks = {
+          rows: [...marks.rows, { xpath: branchRoot.xpath, excluded: false }],
+        };
+        marks = mergeDefaultExclusions(branchRoot, marks);
+        evaluationRoot = branchRoot;
+      } else {
+        marks = applyToggle(marks, branchRoot.xpath, mode);
+      }
       const inheritedAncestorMark = nearestAncestorMark(marks, evaluationRoot.xpath);
       const inheritedExcludedAncestor = nearestExcludedAncestorMark(marks, evaluationRoot.xpath);
       const nextResult = evaluateBranch(result, {

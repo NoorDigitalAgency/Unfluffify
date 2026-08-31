@@ -60,7 +60,7 @@ describe("P6 content marking engine", () => {
     expect(resolveTarget([footer], "passthrough")).toBeNull();
   });
 
-  it("promotes the nearest mixed direct-text ancestor in include mode", () => {
+  it("keeps Alt inclusion on the deepest painted mixed-text target", () => {
     const child: MarkingCandidate = {
       key: "child",
       xpath: "/html[1]/body[1]/aside[1]/span[1]",
@@ -74,7 +74,8 @@ describe("P6 content marking engine", () => {
       ownsDirectText: true,
     };
 
-    expect(resolveTarget([child, mixed], "include")).toBe(mixed);
+    expect(resolveTarget([child, mixed], "include")).toBe(child);
+    expect(resolveTarget([mixed], "include")).toBe(mixed);
   });
 
   it("allows Alt to create an explicit include for ordinary implicitly-included content", () => {
@@ -85,7 +86,7 @@ describe("P6 content marking engine", () => {
     }], "include")).toMatchObject({ key: "content" });
   });
 
-  it("resolves a widened explicit exclusion owner before a descendant", () => {
+  it("keeps descendants of an expanded exclusion independently targetable", () => {
     const widened: MarkingCandidate = {
       key: "section",
       xpath: "/html[1]/body[1]/main[1]/section[1]",
@@ -99,10 +100,11 @@ describe("P6 content marking engine", () => {
       selfMarkable: true,
       parent: widened,
     };
-    expect(resolveTarget([child, widened], "exclude")).toBe(widened);
+    expect(resolveTarget([child, widened], "exclude")).toBe(child);
+    expect(resolveTarget([widened], "exclude")).toBe(widened);
   });
 
-  it("keeps explicit include boundaries closed until the boundary itself is removed", () => {
+  it("keeps explicit includes plain-clickable while Alt can transfer to a descendant", () => {
     const include: MarkingCandidate = {
       key: "include",
       xpath: "/html[1]/body[1]/section[1]",
@@ -118,7 +120,7 @@ describe("P6 content marking engine", () => {
 
     expect(resolveTarget([child, include], "exclude")).toBe(include);
     expect(resolveTarget([include], "exclude")).toBe(include);
-    expect(resolveTarget([child, include], "include")).toBe(include);
+    expect(resolveTarget([child, include], "include")).toBe(child);
   });
 
   it("flattens open shadow children, skips extension UI, and marks closed shadow hosts", () => {
@@ -235,6 +237,35 @@ describe("P6 content marking engine", () => {
     expect(store.rows()).toEqual([{ xpath: child.xpath, excluded: true, explicit: true }]);
   });
 
+  it("drilling an expanded exclusion clears sibling decisions and rehydrates sibling defaults", () => {
+    const child = leaf("child", "/html[1]/body[1]/section[1]/p[1]");
+    const defaultSibling: EvaluationNode = {
+      ...leaf("default-sibling", "/html[1]/body[1]/section[1]/button[1]"),
+      tagName: "BUTTON",
+    };
+    const section: EvaluationNode = {
+      key: "section",
+      tagName: "SECTION",
+      xpath: "/html[1]/body[1]/section[1]",
+      visible: true,
+      structuralBoundary: true,
+      children: [child, defaultSibling],
+    };
+    const store = createMarkingStore({ root: section }, {
+      rows: [
+        { xpath: section.xpath, excluded: true, explicit: true },
+        { xpath: defaultSibling.xpath, excluded: false, explicit: true },
+      ],
+    });
+
+    store.toggle(child, "exclude");
+
+    expect(store.canonicalSet().rows).toEqual([
+      { xpath: defaultSibling.xpath, excluded: true },
+      { xpath: child.xpath, excluded: true, explicit: true },
+    ]);
+  });
+
   it("converts auto toggleable-default ancestors to unexcluded rows when drilling", () => {
     const child = leaf("child", "/html[1]/body[1]/footer[1]/p[1]");
     const footer: EvaluationNode = {
@@ -339,6 +370,92 @@ describe("P6 content marking engine", () => {
     ]);
   });
 
+  it("plain-clicking an explicitly included expanded descendant removes only that inclusion", () => {
+    const child = leaf("child", "/html[1]/body[1]/section[1]/p[1]");
+    const section: EvaluationNode = {
+      key: "section",
+      tagName: "SECTION",
+      xpath: "/html[1]/body[1]/section[1]",
+      visible: true,
+      structuralBoundary: true,
+      children: [child],
+    };
+    const store = createMarkingStore({ root: section }, {
+      rows: [
+        { xpath: section.xpath, excluded: true, explicit: true },
+        { xpath: child.xpath, excluded: false, explicit: true },
+      ],
+    });
+
+    store.toggle(child, "exclude");
+
+    expect(store.canonicalSet().rows).toEqual([
+      { xpath: section.xpath, excluded: true, explicit: true },
+    ]);
+    expect(store.rows()).toEqual([
+      { xpath: section.xpath, excluded: true, explicit: true },
+    ]);
+  });
+
+  it("Alt converts an explicit exclusion to an explicit inclusion", () => {
+    const paragraph = leaf("paragraph", "/html[1]/body[1]/main[1]/p[1]");
+    const store = createMarkingStore({ root: paragraph }, {
+      rows: [{ xpath: paragraph.xpath, excluded: true, explicit: true }],
+    });
+
+    store.toggle(paragraph, "include");
+
+    expect(store.canonicalSet().rows).toEqual([
+      { xpath: paragraph.xpath, excluded: false, explicit: true },
+    ]);
+  });
+
+  it("always emits a hidden explicit inclusion through a mutable expanded exclusion", () => {
+    const child = {
+      ...leaf("child", "/html[1]/body[1]/section[1]/p[1]"),
+      visible: false,
+    };
+    const section: EvaluationNode = {
+      key: "section",
+      tagName: "SECTION",
+      xpath: "/html[1]/body[1]/section[1]",
+      visible: true,
+      structuralBoundary: true,
+      children: [child],
+    };
+    const store = createMarkingStore({ root: section }, {
+      rows: [
+        { xpath: section.xpath, excluded: true, explicit: true },
+        { xpath: child.xpath, excluded: false, explicit: true },
+      ],
+    });
+
+    expect(store.rows()).toEqual([
+      { xpath: section.xpath, excluded: true, explicit: true },
+      { xpath: child.xpath, excluded: false, explicit: true },
+    ]);
+  });
+
+  it("omits immutable roots and descendants even if stale canonical marks name them", () => {
+    const child = leaf("child", "/html[1]/body[1]/img[1]/p[1]");
+    const immutable: EvaluationNode = {
+      key: "image",
+      tagName: "IMG",
+      xpath: "/html[1]/body[1]/img[1]",
+      visible: true,
+      immutable: true,
+      children: [child],
+    };
+    const store = createMarkingStore({ root: immutable }, {
+      rows: [
+        { xpath: immutable.xpath, excluded: true, explicit: true },
+        { xpath: child.xpath, excluded: false, explicit: true },
+      ],
+    });
+
+    expect(store.rows()).toEqual([]);
+  });
+
   it("does not inherit node-local unexclude rows as subtree includes", () => {
     const hidden = { ...leaf("hidden", "/html[1]/body[1]/footer[1]/p[1]"), visible: false };
     const footer: EvaluationNode = {
@@ -356,7 +473,7 @@ describe("P6 content marking engine", () => {
     store.toggle(hidden, "include");
     store.toggle(hidden, "include");
 
-    expect(store.rows()).toEqual([{ xpath: hidden.xpath, excluded: true }]);
+    expect(store.rows()).toEqual([{ xpath: hidden.xpath, excluded: true, explicit: true }]);
   });
 
   it("toggles an exact excluded target off instead of re-adding the exclusion", () => {
@@ -384,9 +501,12 @@ describe("P6 content marking engine", () => {
     expect(store.rows()).toEqual([{ xpath: footer.xpath, excluded: false }]);
   });
 
-  it("unmarks only the boundary, preserving descendant excludes and clearing dependent include punches", () => {
+  it("unmarks an expanded boundary by clearing descendant decisions and rehydrating defaults", () => {
     const excludedChild = leaf("excluded-child", "/html[1]/body[1]/footer[1]/p[1]");
-    const includedChild = leaf("included-child", "/html[1]/body[1]/footer[1]/p[2]");
+    const includedChild: EvaluationNode = {
+      ...leaf("included-child", "/html[1]/body[1]/footer[1]/button[1]"),
+      tagName: "BUTTON",
+    };
     const footer: EvaluationNode = {
       key: "footer",
       tagName: "FOOTER",
@@ -406,8 +526,24 @@ describe("P6 content marking engine", () => {
     store.toggle(footer, "exclude");
 
     expect(store.canonicalSet().rows).toEqual([
-      { xpath: excludedChild.xpath, excluded: true, explicit: true },
       { xpath: footer.xpath, excluded: false },
+      { xpath: includedChild.xpath, excluded: true },
+    ]);
+  });
+
+  it("clears an explicit inclusion back to the target's calculated default", () => {
+    const button: EvaluationNode = {
+      ...leaf("button", "/html[1]/body[1]/button[1]"),
+      tagName: "BUTTON",
+    };
+    const store = createMarkingStore({ root: button }, {
+      rows: [{ xpath: button.xpath, excluded: false, explicit: true }],
+    });
+
+    store.toggle(button, "exclude");
+
+    expect(store.canonicalSet().rows).toEqual([
+      { xpath: button.xpath, excluded: true },
     ]);
   });
 
@@ -486,7 +622,28 @@ describe("P6 content marking engine", () => {
     expect(store.canonicalSet().rows).toEqual([]);
   });
 
-  it("clears only an explicit context-menu mark and restores the calculated default", () => {
+  it("atomically transfers an Alt inclusion from an ancestor to its painted descendant", () => {
+    const child = leaf("child", "/html[1]/body[1]/section[1]/p[1]");
+    const section: EvaluationNode = {
+      key: "section",
+      tagName: "SECTION",
+      xpath: "/html[1]/body[1]/section[1]",
+      visible: true,
+      ownsDirectText: true,
+      children: [child],
+    };
+    const store = createMarkingStore({ root: section }, {
+      rows: [{ xpath: section.xpath, excluded: false, explicit: true }],
+    });
+
+    store.toggle(child, "include");
+
+    expect(store.canonicalSet().rows).toEqual([
+      { xpath: child.xpath, excluded: false, explicit: true },
+    ]);
+  });
+
+  it("can clear one exact explicit mark and restore its calculated default", () => {
     const section: EvaluationNode = {
       key: "section",
       tagName: "SECTION",
@@ -505,7 +662,7 @@ describe("P6 content marking engine", () => {
   });
 
   it("maps every evaluation category into the legacy overlay grammar", () => {
-    expect(MARKING_OVERLAY_CLASSES).toHaveLength(16);
+    expect(MARKING_OVERLAY_CLASSES).toHaveLength(13);
     expect(overlayClassFor("implicit-include")).toBe("uf-default");
     expect(overlayClassFor("explicit-include")).toBe("uf-explicit-include");
     expect(overlayClassFor("exception")).toBe("uf-explicit-exclude");
@@ -526,25 +683,18 @@ describe("P6 content marking engine", () => {
     expect(MARKING_OVERLAY_STYLES).toContain("border: 2px dashed #b03b3b");
     expect(MARKING_OVERLAY_STYLES).toContain("animation-play-state: paused !important");
     expect(MARKING_OVERLAY_STYLES).toContain("border: 3px dashed #c62828");
-    expect(MARKING_OVERLAY_STYLES).toContain('[data-uf-marking-menu="true"]');
+    expect(MARKING_OVERLAY_STYLES).not.toContain('[data-uf-marking-menu="true"]');
+    expect(MARKING_OVERLAY_STYLES).not.toContain("-ghost");
   });
 
-  it("fades every silent layer while scroll geometry is stale", () => {
-    const fadeSelectors = MARKING_OVERLAY_STYLES.match(
-      /(\.uf-marking-layer-root\.uf-scrolling[\s\S]+?)\{\n {2}opacity: 0;\n\}/,
-    )?.[1];
-    const immediateSilentFadeSelectors = MARKING_OVERLAY_STYLES.match(
-      /(\.uf-marking-layer-root\.uf-scrolling \.uf-layer\[data-layer="silent-immutable"\][\s\S]+?)\{\n[\s\S]+?transition-duration: 0s;\n\}/,
-    )?.[1];
-
-    expect(fadeSelectors).toBeDefined();
-    expect(immediateSilentFadeSelectors).toBeDefined();
-    for (const layer of ["silent-immutable", "silent-content", "silent-excluded"]) {
-      expect(fadeSelectors).toContain(`.uf-layer[data-layer="${layer}"]`);
-      expect(immediateSilentFadeSelectors).toContain(`.uf-layer[data-layer="${layer}"]`);
-    }
-    // Removing uf-scrolling restores the shared 150 ms transition; only the
-    // stale-geometry edge is synchronous.
+  it("fades the pre-composited overlay root while scroll geometry is stale", () => {
+    expect(MARKING_OVERLAY_STYLES).toContain("will-change: opacity");
+    expect(MARKING_OVERLAY_STYLES).toContain(`.uf-marking-layer-root.uf-scrolling {
+  /* One pre-composited root fade`);
+    expect(MARKING_OVERLAY_STYLES).toContain("opacity: 0;\n  transition-duration: 0s;");
+    expect(MARKING_OVERLAY_STYLES).not.toContain(".uf-marking-layer-root.uf-scrolling .uf-layer");
+    // Removing uf-scrolling restores the shared root 150 ms transition; only
+    // the stale-geometry edge is synchronous.
     expect(MARKING_OVERLAY_STYLES).toContain("transition: opacity 0.15s ease");
   });
 
@@ -565,7 +715,7 @@ describe("P6 content marking engine", () => {
     expect(buildSilentHighlights(evaluation, visible)).toEqual([left.xpath]);
   });
 
-  it("retains hidden explicit includes in silent highlights", () => {
+  it("retains hidden explicit decisions without creating silent highlights", () => {
     const evaluation = {
       overlay: new Map(),
       rows: [{ xpath: "/html[1]/body[1]/main[1]/p[1]", excluded: false, explicit: true }],
@@ -578,9 +728,7 @@ describe("P6 content marking engine", () => {
       }],
     ]);
 
-    expect(buildSilentHighlights(evaluation, hiddenGeometry)).toEqual([
-      "/html[1]/body[1]/main[1]/p[1]",
-    ]);
+    expect(buildSilentHighlights(evaluation, hiddenGeometry)).toEqual([]);
   });
 
   it("projects silent content shallowly while retaining explicit occurrences", () => {
@@ -616,8 +764,9 @@ describe("P6 content marking engine", () => {
         { xpath: ancestor, excluded: false },
       ],
     }, { get })).toEqual([ancestor, explicitChild]);
-    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledTimes(2);
     expect(get).toHaveBeenCalledWith(ancestor);
+    expect(get).toHaveBeenCalledWith(explicitChild);
   });
 
   it("deduplicates descendant silent exclusions under the shallow owner", () => {
@@ -683,7 +832,7 @@ describe("P6 content marking engine", () => {
       rawHtml: '<main><div id="unfluffify-consent-bypass-style">Helper</div><aside data-uf-consent-hidden="true">Hidden static modal</aside><p>Static</p></main>',
       evaluation,
     });
-    expect(snapshot.pages[0]?.renderedHtml).toBe("<main><p>Rendered</p></main>");
-    expect(snapshot.pages[0]?.rawHtml).toBe("<main><p>Static</p></main>");
+    expect(snapshot.pages[0]?.renderedHtml).toBe("<main><aside>Hidden rendered modal</aside><p>Rendered</p></main>");
+    expect(snapshot.pages[0]?.rawHtml).toBe("<main><aside>Hidden static modal</aside><p>Static</p></main>");
   });
 });

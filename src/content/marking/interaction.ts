@@ -1,13 +1,3 @@
-import type { TransientSurfaceManager } from "../../ui/transient-surface-manager";
-import { focusRovingEdge, moveRovingDomFocus } from "../../ui/roving-focus";
-
-export type MarkingMenuAction = Readonly<{
-  id: "include" | "exclude" | "widen" | "clear";
-  label: string;
-  enabled: boolean;
-  run: () => void;
-}>;
-
 /** One browser gesture may surface through more than one DOM event. */
 export function createPhysicalActionDeduper() {
   const committed = new Set<string>();
@@ -27,70 +17,4 @@ export function createPhysicalActionDeduper() {
       return true;
     },
   };
-}
-
-export function openMarkingContextMenu(options: Readonly<{
-  document: Document;
-  manager: TransientSurfaceManager;
-  x: number;
-  y: number;
-  actions: readonly MarkingMenuAction[];
-}>): () => void {
-  const root = options.document.createElement("div");
-  root.setAttribute("data-uf-extension-ui", "true");
-  root.setAttribute("data-uf-marking-menu", "true");
-  root.setAttribute("role", "menu");
-  root.setAttribute("aria-label", "Marking actions");
-  root.style.left = `${Math.max(8, Math.min(options.x, (options.document.documentElement.clientWidth || 320) - 174))}px`;
-  root.style.top = `${Math.max(8, Math.min(options.y, (options.document.documentElement.clientHeight || 240) - 174))}px`;
-
-  let closed = false;
-  const remove = (): void => {
-    if (closed) {
-      return;
-    }
-    closed = true;
-    root.remove();
-  };
-
-  for (const action of options.actions) {
-    const button = options.document.createElement("button");
-    button.type = "button";
-    button.setAttribute("role", "menuitem");
-    button.tabIndex = -1;
-    button.setAttribute("data-uf-marking-menu-action", action.id);
-    button.disabled = !action.enabled;
-    button.textContent = action.label;
-    button.addEventListener("click", (event) => {
-      if (event.isTrusted === false) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      if (action.enabled) {
-        action.run();
-      }
-      close();
-    });
-    root.appendChild(button);
-  }
-  root.addEventListener("keydown", (event) => {
-    if (!moveRovingDomFocus(root, '[role="menuitem"]', event.key)) return;
-    event.preventDefault();
-    event.stopPropagation();
-  });
-  options.document.documentElement.appendChild(root);
-  const surface = options.manager.open({
-    id: "marking-context-menu",
-    kind: "menu",
-    root: () => root,
-    outside: "dismiss",
-    escape: "dismiss",
-    dismiss: remove,
-  });
-  focusRovingEdge(root, '[role="menuitem"]', "first");
-  const close = (): void => {
-    surface.close("context-change");
-  };
-  return close;
 }

@@ -23,6 +23,7 @@ type HarnessState = {
   armed: boolean;
   paused: boolean;
   lazySuppressed: boolean;
+  navigationGuardActive: boolean;
   sessionNonce: string;
   phase: "idle" | "armed" | "frozen";
   initialDiscoveryComplete: boolean;
@@ -53,6 +54,7 @@ export function createGatePageWorldCapabilityHarness(options: HarnessOptions) {
     armed: false,
     paused: false,
     lazySuppressed: false,
+    navigationGuardActive: false,
     sessionNonce: "",
     phase: "idle",
     initialDiscoveryComplete: false,
@@ -63,6 +65,7 @@ export function createGatePageWorldCapabilityHarness(options: HarnessOptions) {
       armed: false,
       paused: false,
       lazySuppressed: false,
+      navigationGuardActive: false,
       sessionNonce: "",
       phase: "idle",
       initialDiscoveryComplete: false,
@@ -72,6 +75,7 @@ export function createGatePageWorldCapabilityHarness(options: HarnessOptions) {
     armed: state.armed,
     paused: state.paused,
     lazySuppressed: state.lazySuppressed,
+    navigationGuardActive: state.navigationGuardActive,
     sessionNonce: state.sessionNonce,
     phase: state.phase,
     initialDiscoveryComplete: state.initialDiscoveryComplete,
@@ -126,6 +130,7 @@ export function createGatePageWorldCapabilityHarness(options: HarnessOptions) {
         armed: true,
         paused: false,
         lazySuppressed: false,
+        navigationGuardActive: false,
         sessionNonce: nonce,
         phase: "armed",
         initialDiscoveryComplete: false,
@@ -144,6 +149,8 @@ export function createGatePageWorldCapabilityHarness(options: HarnessOptions) {
     }
     if (command === "SET_LAZY_LOADING_SUPPRESSED") {
       state.lazySuppressed = request.payload?.suppressed === true;
+    } else if (command === "SET_NAVIGATION_GUARD") {
+      state.navigationGuardActive = request.payload?.active === true;
     } else if (command === "SET_MOTION_PAUSED") {
       state.paused = request.payload?.paused === true;
       state.phase = state.paused ? "frozen" : "armed";

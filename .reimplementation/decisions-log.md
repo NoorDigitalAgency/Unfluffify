@@ -93,14 +93,17 @@ contract and design. It is the provenance for every decision in `plan.md`,
 
 ## T4 — Session lifecycle invariants — LOCKED
 
-> **Amended by A2 / D14–D16:** the historical full-property request below is superseded by a
-> singular current-page partial upsert with a full authoritative response. The AI corpus remains
-> multi-page.
+> **Amended by A2 / D14–D16 and the 2026-08-31 owner ruling:** the historical full-property
+> request below is superseded by a singular current-page partial upsert. Save returns only a
+> commit outcome; one distinct Load then supplies the complete authoritative shape. The AI
+> corpus remains multi-page and self-contained because the AI endpoint is stateless.
 
 - **CONFIRMED:** AI-fresh gate — after any marking change, Run AI must re-run before Save enables; any
   post-AI edit drops back to dirty and re-requires a run; marking cannot be disabled until Save or
-  Discard. Save uploads ALL locally-marked pages as ONE property snapshot to `/save`, then replaces
-  local state from the server response (backend baseline updated); `saved` lands in silent. Fresh-session
+  Discard. Save uploads exactly the current page plus property-wide selectors to `/save`. Its response
+  is commit acknowledgement only; a separate `/load` fetches the backend's complete newest shape and
+  atomically replaces local configuration before `saved` lands in silent. No mutable session rows,
+  suggestions, draft, or pre-Load snapshot are merged into or retained after that successful Load. Fresh-session
   — every enable re-seeds fresh from defaults+selectors, wiping any stale draft so the page never starts
   dirty; any navigation/reload (same page/property or not) disables marking.
 - **CORRECTED — Discard** throws away the session's uncommitted edits and returns to the **clean,
@@ -193,8 +196,10 @@ contract and design. It is the provenance for every decision in `plan.md`,
 - **MV3 suspension:** primary = keep-alive mechanisms during active work; fallback = persist durable facts
   + rehydrate + re-derive volatile authority; cross-realm messages idempotent-by-sequence (lost wake =
   safe replay).
-- **Data authority:** backend-authoritative + session working draft (fully sourced on `/load`, fully
-  replaced by the `/save` response; timestamp-merge only within one editing session).
+- **Data authority:** backend-authoritative + ephemeral active-session working state. Saved
+  configuration is fully sourced and atomically replaced only by `/load`; `/save` is a commit
+  boundary, never an adoption boundary. A successful post-Save Load destroys the mutable session
+  without merging or preserving local session data.
 - **Marking derivation:** minimal canonical mark set → one pure evaluation pass ("nearest-marked-ancestor
   decides each node") → both overlay classification + submission rows; branch-scoped incremental recompute;
   delete prune-on-toggle + scoped-splice + the parity audit.

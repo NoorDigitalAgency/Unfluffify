@@ -504,23 +504,23 @@ describe("P25 implementation-neutral render-mode proof", () => {
 function exactGestureEvidence() {
   return {
     operations: [
-      { id: "plain-no-create", acknowledged: true, acknowledgementLatencyMs: 12, targetDelta: { created: [], removed: [], changed: [] } },
-      { id: "shift-expand", acknowledged: true, acknowledgementLatencyMs: 13, assertion: { kind: "explicit-exclusion", ownerRelation: "ancestor", breadthIncreased: true } },
-      { id: "plain-exact-unmark", acknowledged: true, acknowledgementLatencyMs: 11, assertion: { removedExactOwner: true, remainingTargetOwned: 0 } },
+      { id: "plain-exclude", acknowledged: true, acknowledgementLatencyMs: 12, assertion: { kind: "explicit-exclusion", ownerRelation: "exact" } },
+      { id: "plain-exclude-unmark", acknowledged: true, acknowledgementLatencyMs: 11, assertion: { removedExactOwner: true, remainingTargetOwned: 0 } },
       { id: "alt-include", acknowledged: true, acknowledgementLatencyMs: 14, assertion: { kind: "explicit-inclusion", ownerRelation: "exact" } },
-      { id: "context-menu", acknowledged: true, acknowledgementLatencyMs: 15 },
+      { id: "native-context-menu", acknowledged: true, acknowledgementLatencyMs: 15, changed: false, targetDelta: { created: [], removed: [], changed: [] } },
       { id: "plain-include-unmark", acknowledged: true, acknowledgementLatencyMs: 10, assertion: { removedExactOwner: true, remainingTargetOwned: 0 } },
+      { id: "shift-expand", acknowledged: true, acknowledgementLatencyMs: 13, assertion: { kind: "explicit-exclusion", ownerRelation: "ancestor", breadthIncreased: true } },
     ],
-    contextExpectedDisabled: { clear: false, exclude: true, include: false, widen: false },
-    contextMenu: ["clear", "exclude", "include", "widen"].map((action) => ({
-      action,
-      disabled: action === "exclude",
-    })),
+    nativeContextMenu: {
+      eventObserved: true,
+      defaultPrevented: false,
+      extensionMenuCount: 0,
+    },
   };
 }
 
 describe("P25 exact marking gesture acceptance", () => {
-  it("accepts target-keyed exclusion, removal, inclusion, and exact menu evidence", () => {
+  it("accepts plain toggles, Alt inclusion, Shift breadth, and native-menu evidence", () => {
     expect(validateExactMarkingGestureEvidence(exactGestureEvidence())).toEqual({ pass: true, failures: [] });
   });
 
@@ -528,7 +528,7 @@ describe("P25 exact marking gesture acceptance", () => {
     const evidence = exactGestureEvidence();
     const xpath = "/html[1]/body[1]/main[1]/p[1]";
     Object.assign(evidence, { target: { xpath, shiftedOwnerXpath: xpath } });
-    evidence.operations[1] = {
+    evidence.operations[5] = {
       id: "shift-expand",
       acknowledged: true,
       acknowledgementLatencyMs: 13,
@@ -542,23 +542,22 @@ describe("P25 exact marking gesture acceptance", () => {
     expect(validateExactMarkingGestureEvidence(evidence)).toEqual({ pass: true, failures: [] });
   });
 
-  it("validates only shared gestures when pinned legacy has no action-menu contract", () => {
+  it("validates only shared gestures when pinned legacy retains its old contextmenu toggle", () => {
     const evidence = exactGestureEvidence();
     const legacyEvidence = {
       ...evidence,
-      operations: evidence.operations.filter((operation) => operation.id !== "context-menu"),
-      contextMenu: [],
-      contextExpectedDisabled: {},
+      operations: evidence.operations.filter((operation) => operation.id !== "native-context-menu"),
+      nativeContextMenu: null,
     };
-    expect(validateExactMarkingGestureEvidence(legacyEvidence, { requireContextMenu: false }))
+    expect(validateExactMarkingGestureEvidence(legacyEvidence, { requireNativeContextMenu: false }))
       .toEqual({ pass: true, failures: [] });
     expect(validateExactMarkingGestureEvidence(legacyEvidence).failures)
-      .toContain("context-menu:operation-missing");
+      .toContain("native-context-menu:missing");
   });
 
   it("rejects an ambient aggregate change on a different target", () => {
     const evidence = exactGestureEvidence();
-    evidence.operations[1] = {
+    evidence.operations[5] = {
       id: "shift-expand",
       changed: true,
       assertion: { kind: "explicit-exclusion", ownerRelation: "unrelated", breadthIncreased: true },
@@ -566,10 +565,10 @@ describe("P25 exact marking gesture acceptance", () => {
     expect(validateExactMarkingGestureEvidence(evidence).failures).toContain("shift-expand:not-widened-exclusion");
   });
 
-  it("accepts paired target acknowledgements for a canonical exclusion that intentionally has no settled box", () => {
+  it("rejects paint-only acknowledgements without settled canonical state", () => {
     const evidence = exactGestureEvidence();
     const ownerXpath = "/main[1]/section[1]";
-    evidence.operations[1] = {
+    evidence.operations[5] = {
       id: "shift-expand",
       acknowledged: true,
       acknowledgementLatencyMs: 18,
@@ -580,77 +579,44 @@ describe("P25 exact marking gesture acceptance", () => {
         ownerXpath,
       },
     } as never;
-    evidence.operations[2] = {
-      id: "plain-exact-unmark",
-      acknowledged: true,
-      acknowledgementLatencyMs: 16,
-      assertion: { removedExactOwner: false, remainingTargetOwned: 0 },
-      interactionAcknowledgement: {
-        kind: "explicit-exclusion",
-        ownerRelation: "ancestor",
-        ownerXpath,
-      },
-    } as never;
-
-    expect(validateExactMarkingGestureEvidence(evidence)).toEqual({ pass: true, failures: [] });
-  });
-
-  it("rejects unpainted create/clear acknowledgements that name different owners", () => {
-    const evidence = exactGestureEvidence();
-    evidence.operations[1] = {
-      id: "shift-expand",
-      acknowledged: true,
-      acknowledgementLatencyMs: 18,
-      assertion: {},
-      interactionAcknowledgement: {
-        kind: "explicit-exclusion",
-        ownerRelation: "ancestor",
-        ownerXpath: "/main[1]/section[1]",
-      },
-    } as never;
-    evidence.operations[2] = {
-      id: "plain-exact-unmark",
-      acknowledged: true,
-      acknowledgementLatencyMs: 16,
-      assertion: {},
-      interactionAcknowledgement: {
-        kind: "explicit-exclusion",
-        ownerRelation: "ancestor",
-        ownerXpath: "/main[1]/section[2]",
-      },
-    } as never;
-
-    expect(validateExactMarkingGestureEvidence(evidence).failures).toEqual(expect.arrayContaining([
-      "shift-expand:not-widened-exclusion",
-      "plain-exact-unmark:exact-owner-not-removed",
-    ]));
+    expect(validateExactMarkingGestureEvidence(evidence).failures)
+      .toContain("shift-expand:not-widened-exclusion");
   });
 
   it("rejects the right target with the wrong marking kind", () => {
     const evidence = exactGestureEvidence();
-    evidence.operations[3] = {
+    evidence.operations[2] = {
       id: "alt-include",
       assertion: { kind: "explicit-exclusion", ownerRelation: "exact" },
     } as never;
     expect(validateExactMarkingGestureEvidence(evidence).failures).toContain("alt-include:not-explicit-inclusion");
   });
 
-  it("rejects fingerprint-only changes and incomplete context actions", () => {
+  it("rejects fingerprint-only Shift changes and a mutating native right-click", () => {
     const evidence = exactGestureEvidence();
-    evidence.operations[1] = { id: "shift-expand", changed: true } as never;
-    evidence.contextMenu.pop();
+    evidence.operations[5] = { id: "shift-expand", changed: true } as never;
+    evidence.operations[3] = {
+      id: "native-context-menu",
+      acknowledged: true,
+      acknowledgementLatencyMs: 15,
+      changed: true,
+      targetDelta: { created: [{}], removed: [], changed: [] },
+    } as never;
     const validation = validateExactMarkingGestureEvidence(evidence);
     expect(validation.failures).toEqual(expect.arrayContaining([
       "shift-expand:not-widened-exclusion",
-      "context-menu:widen:missing",
-      "context-menu:unexpected-action-set",
+      "native-context-menu:marking-mutated",
     ]));
   });
 
-  it("rejects a falsely enabled Exclude action for an independently proven explicit owner", () => {
+  it("rejects an intercepted native context menu or extension-owned replacement", () => {
     const evidence = exactGestureEvidence();
-    evidence.contextMenu.find((action) => action.action === "exclude")!.disabled = false;
-    expect(validateExactMarkingGestureEvidence(evidence).failures).toContain("context-menu:exclude:disabled-state-mismatch");
+    evidence.nativeContextMenu.defaultPrevented = true;
+    evidence.nativeContextMenu.extensionMenuCount = 1;
+    expect(validateExactMarkingGestureEvidence(evidence).failures).toEqual(expect.arrayContaining([
+      "native-context-menu:prevented",
+      "native-context-menu:extension-menu-present",
+    ]));
   });
 
   it("rejects a correct eventual state without a target-keyed paint acknowledgement", () => {
@@ -694,8 +660,10 @@ describe("P25 full workflow fail-closed acceptance", () => {
     expect(harness).toContain("activatedRow: rowActivation.before");
     expect(harness).toContain("await physicalActivatePreviewPageTarget(site)");
     expect(harness).toContain("Content List page-to-row correlation did not terminalize; evidence=");
-    expect(harness).toContain("allowContextPreclean: identity.implementation === \"rewrite\"");
-    expect(harness).toContain("preparationReset");
+    expect(harness).toContain("requireNativeContextMenu: implementation === \"rewrite\"");
+    expect(harness).toContain("requireNativeContextMenu,");
+    expect(harness).not.toContain("allowContextPreclean");
+    expect(harness).not.toContain("preparationReset");
     expect(harness).toContain("integerOption(options, \"activation-timeout-ms\", 45_000)");
     expect(harness).toContain("await runDiscardWorkflow(popup)");
     expect(harness).toContain("waitForDirtyFreshnessProjection(popup, dirtyEdit.inputDispatchedAtEpochMs)");

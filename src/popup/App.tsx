@@ -1685,7 +1685,7 @@ export function App({
         </div>
         {presentation.markingRows.length === 0 ? (
           <p className="preview-sidebar__empty">
-            Nothing marked yet. Hold Shift and click to exclude or expand an exclusion. Hold Alt and click to explicitly include. Plain-click an existing mark to clear it; right-click for contextual actions.
+            Nothing marked yet. Click to toggle the highlighted target. Hold Shift to widen to an eligible ancestor. Hold Alt to explicitly include the individual target; Alt wins over Shift. Right-click opens Chrome&apos;s normal menu.
           </p>
         ) : (
           <ul className="preview-sidebar__list">

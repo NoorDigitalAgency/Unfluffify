@@ -38,8 +38,8 @@ describe("P18 real-browser transient-surface and toast gate contract", () => {
       "escape-never-runs-edit-or-terminal-actions",
       "preview-escape-requests-normal-exit-boundary",
       "panel-scroll-restored-after-dismissal",
-      "marking-right-click-commits-canonical-action",
-      "marking-menu-dismissal-preserves-marking-interaction",
+      "marking-right-click-preserves-native-context-menu",
+      "native-context-menu-dismissal-preserves-marking-interaction",
       "production-toast-replaces-current",
       "production-toast-manual-close-stays-dismissed",
       "toast-deadlines-exact-1800-4000-6000",
@@ -128,6 +128,8 @@ describe("P18 real-browser transient-surface and toast gate contract", () => {
     expect(contentRuntime).toContain('case "pageWorld.acquire"');
     expect(contentRuntime).toContain('case "pageWorld.command"');
     expect(pageWorldHarness).toContain('command === "RECONCILE"');
+    expect(pageWorldHarness).toContain('command === "SET_NAVIGATION_GUARD"');
+    expect(pageWorldHarness).toContain("navigationGuardActive: state.navigationGuardActive");
   });
 
   it("keeps the nested candidate-confirmation fixture on the pending-session branch", () => {

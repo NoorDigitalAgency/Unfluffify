@@ -209,7 +209,12 @@ function comparableDocumentFor(aggregate) {
 }
 
 function exactGestureSemantics(legacy, rewrite) {
-  const project = (value) => (value?.operations ?? []).map((operation) => ({
+  // Native right-click is an approved rewrite-only correction: pinned legacy
+  // mutates on contextmenu. Compare the shared marking gestures exactly and
+  // validate rewrite native-menu preservation in its own fail-closed gate.
+  const project = (value) => (value?.operations ?? [])
+    .filter((operation) => operation?.id !== "native-context-menu")
+    .map((operation) => ({
     id: operation?.id ?? null,
     changed: operation?.changed ?? null,
     target: operation?.target ?? null,
@@ -220,8 +225,7 @@ function exactGestureSemantics(legacy, rewrite) {
     decision: operation?.decision ?? null,
     markingKind: operation?.markingKind ?? null,
   }));
-  return sameJson(project(legacy), project(rewrite)) &&
-    sameUnorderedRecords(legacy?.contextMenu ?? [], rewrite?.contextMenu ?? []);
+  return sameJson(project(legacy), project(rewrite));
 }
 
 function relativeP95Checks(legacy, rewrite) {
@@ -432,7 +436,10 @@ export function validateRunAggregate(aggregate) {
   const renderModes = new Set(stages.filter((stage) => stage.status === "passed" && stage.renderMode).map((stage) => stage.renderMode));
   pushCheck(checks, "both-render-modes", disposition?.parityEligible === false || RENDER_MODES.every((mode) => renderModes.has(mode)), [...renderModes]);
   pushCheck(checks, "visual-probes", disposition?.parityEligible === false || ["marking-visual", "marking-scroll-fade", "marking-resize", "silent-visual", "silent-scroll-fade", "silent-resize"].every((id) => ids.includes(id)), ids);
-  const gestureValidation = validateExactMarkingGestureEvidence(aggregate?.probes?.markingGestures);
+  const gestureValidation = validateExactMarkingGestureEvidence(
+    aggregate?.probes?.markingGestures,
+    { requireNativeContextMenu: aggregate?.identity?.implementation === "rewrite" },
+  );
   pushCheck(checks, "gesture-probes", disposition?.parityEligible === false || gestureValidation.pass, {
     failures: gestureValidation.failures,
     evidence: aggregate?.probes?.markingGestures ?? null,

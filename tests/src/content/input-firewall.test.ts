@@ -27,7 +27,6 @@ describe("constrained page input firewall", () => {
       "click",
       "auxclick",
       "dblclick",
-      "contextmenu",
       "mousedown",
       "mouseup",
       "mousemove",
@@ -61,6 +60,7 @@ describe("constrained page input firewall", () => {
       "selectstart",
       "submit",
     ]);
+    expect(CONTENT_INPUT_EVENTS).not.toContain("contextmenu");
     expect(EXTENSION_BOUNDARY_INPUT_EVENTS).not.toEqual(expect.arrayContaining([
       "mouseenter",
       "mouseleave",

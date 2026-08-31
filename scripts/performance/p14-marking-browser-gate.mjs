@@ -1034,7 +1034,7 @@ async function main() {
           budgetAppliesTo: "rewrite (legacy windows are retained as comparison evidence)",
         },
         mutation: "childList append at scrollY=0 after the real settle/throttle paths quiesce",
-        mutationPressure: "Large marking scenarios continuously mutate a late consent-suppressed subtree during physical hover/click; rewrite structural work must remain zero while the later included mutation still refreshes.",
+        mutationPressure: "Large marking scenarios mutate a late consent-suppressed subtree during physical hover/click; it must remain unpainted/non-interactive and its debounced extraction refresh must stay outside the trusted-input structural-work window. Functional tests prove the trailing refresh.",
         semanticClassification: "Every canonical row is projected against each runtime's internal classification map; an absent entry is the literal undetected state. Extra evaluator-only wrapper entries are counted but are outside the canonical row domain.",
         legacyIncrementalClassification: "Legacy marking retains its exact activation cachedCollections classifications for unchanged nodes, overlays later live reconciled collections, and overlays exact explicit Element collections produced by collectExplicitMarkingElements + splitExplicitMarkingCollectionsBySavedState. No normalized row boolean is converted into a class.",
         rewriteInteractionAdapter: "Mirrors the production pointerdown/click physical-action dedupe, extension-target guard, mode resolution, synchronous cursor install, toggle counter, and report payload construction. Only the external asynchronous realm transport is a no-op because it does not gate committed overlay paint.",

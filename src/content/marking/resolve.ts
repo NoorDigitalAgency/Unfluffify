@@ -24,21 +24,12 @@ export function resolveTarget(
     return null;
   }
   if (mode === "include") {
-    const includeBoundary = hitPath.find((hit) => hit.explicitInclude);
-    if (includeBoundary) {
-      return includeBoundary;
-    }
-    const directTargetIndex = hitPath.findIndex((hit) => hit.selfMarkable);
-    if (directTargetIndex < 0) {
-      return null;
-    }
-    // Legacy include targeting promotes the nearest eligible mixed-text ancestor
-    // before falling back to the deepest hit. It never searches unrelated
-    // descendants elsewhere in the clicked subtree.
-    const mixedTextAncestor = hitPath
-      .slice(directTargetIndex + 1)
-      .find((hit) => hit.selfMarkable && hit.ownsDirectText);
-    return mixedTextAncestor ?? hitPath[directTargetIndex] ?? null;
+    // Alt is individual-target inclusion mode. The native hit stack already
+    // distinguishes direct text on a parent from a painted descendant: direct
+    // text resolves to the parent, while descendant paint resolves to that
+    // descendant. Do not close the branch at an explicit-inclusion ancestor;
+    // Alt-clicking a child transfers the explicit inclusion atomically.
+    return hitPath.find((hit) => hit.selfMarkable) ?? null;
   }
   const includeBoundary = hitPath.find((hit) => hit.explicitInclude);
   if (includeBoundary) {
@@ -49,20 +40,12 @@ export function resolveTarget(
     // composed candidate path.
     return includeBoundary;
   }
-  // A widened exclusion owns the visible interaction surface for everything
-  // below it. Resolve that exact explicit boundary first so a plain click (or
-  // Clear mark) removes only the widened mark instead of creating a nested row.
-  const explicitExcludeBoundary = hitPath.find((hit) => hit.explicitExclude);
-  if (explicitExcludeBoundary) {
-    return explicitExcludeBoundary;
-  }
-  for (const hit of hitPath) {
-    if (hit.selfMarkable && hit.excluded && hitPath[0] === hit) {
-      return hit;
-    }
-    if (hit.selfMarkable && !hit.excluded) {
-      return hit;
-    }
-  }
-  return null;
+  // An expanded exclusion is not a closed interaction surface. Its exact
+  // boundary resolves when that boundary is the deepest eligible painted hit;
+  // an ordinary descendant resolves independently so the store can remove the
+  // ancestor, rehydrate defaults, and exclude the clicked target. Explicit
+  // inclusions remain the one exception handled above: a plain/Shift click on
+  // their painted branch removes that exact inclusion without disturbing an
+  // expanded exclusion ancestor.
+  return hitPath.find((hit) => hit.selfMarkable) ?? null;
 }

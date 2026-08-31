@@ -2,7 +2,8 @@
 
 **Status:** Binding product and implementation specification
 
-**Decision dates:** 2026-08-20; follow-up comparison resolved 2026-08-21
+**Decision dates:** 2026-08-20; follow-up comparison resolved 2026-08-21;
+marking/session/payload contract re-approved 2026-08-31
 
 **Scope:** 104 resolved decision units: the original 91 (37 Intentional,
 22 Unsure, and 32 Diverged) plus 13 findings from the post-implementation deep
@@ -29,6 +30,18 @@ not product semantics. Product semantics come from this document.
 The terms **must**, **must not**, and **only** are normative. “Debug build” means
 a build produced with `UNFLUFFIFY_DEBUG=1`; debug-only capability must be absent
 or unreachable in a production build, not merely hidden with CSS.
+
+### 1.1 2026-08-31 marking authority
+
+The operator-approved contract in `MARKING_AND_HIGHLIGHTING_LOGIC.md` section
+**Approved session, interaction, and submission authority** supersedes older
+rows in this specification where they conflict. In particular: plain click
+toggles the individual mutable state; Shift changes breadth; Alt owns explicit
+inclusion and wins over Shift; the custom context menu is removed; dirty is
+monotonic after the first successful mutation; unsaved marking state exists only
+inside the active session; hidden UI and payload decisions are separate; the AI
+endpoint is stateless; and Save followed by authoritative Load is the only
+backend/local adoption boundary.
 
 ## 2. Reconciled system rules
 
@@ -64,8 +77,8 @@ The following rules combine decisions that otherwise appear to overlap:
    classifications, silent annotation/copy tools, traces, direct mode, bus
    inspection, and spinner/state tooling are debug-only. Production surfaces
    concise actionable status and toasts.
-8. **Authoritative reads are adopted; risky writes fail closed.** A structurally
-   valid authoritative response is adopted even when an unexpected shrink lacks
+8. **Authoritative Loads are adopted; risky writes fail closed.** A structurally
+   valid `/load` response is adopted even when an unexpected shrink lacks
    proof. That sets a prominent integrity-warning state. In combination with the
    fail-closed-write rule, later mutations remain blocked until a clean refresh
    or reconciliation proof clears the condition; dismissing the warning does not
@@ -74,9 +87,12 @@ The following rules combine decisions that otherwise appear to overlap:
    confirmations remain mandatory. If navigation inspection itself fails, a
    bounded fallback releases the navigation after the applicable generic warning.
 10. **Performance adaptations preserve semantics.** Serialized toggles,
-    generation checks, branch splicing, observer coalescing, geometry sampling,
-    and render caches may improve latency, but stale work must be rejected and no
-    optimization may alter include/exclude results.
+    generation checks, branch splicing, frame-chunked intersection registration,
+    observer coalescing, geometry sampling, root-level compositor fading, and
+    render caches may improve latency, but stale work must be rejected and no
+    optimization may alter include/exclude results. The first trusted viewport
+    input may defer structural work until the stable repaint; wheel fallback may
+    run only after a presentation boundary proves native scrolling did not move.
 11. **Consent suppression is property-scoped, not candidate- or session-scoped.**
     Every recognized property page continuously suppresses ordinary consent UI
     without removing its DOM and closes native HTML dialogs through the extension.
@@ -95,6 +111,30 @@ The following rules combine decisions that otherwise appear to overlap:
     Release evidence must cover DOM discovery, hit testing, geometry, overlay
     commit, browser paint, scrolling, stabilization, and silent/marking startup
     against preserved legacy behavior on deterministic fixtures.
+15. **Marking sessions are ephemeral and dirty is monotonic.** A session starts
+    fresh on enable, retains only explicit mutable decisions, becomes dirty on
+    its first successful mutation, and stays dirty until successful Save or
+    approved complete dismissal. No fingerprint can make it clean again.
+16. **Visibility never rewrites an explicit decision.** Hidden targets do not
+    paint or accept interaction. A prior explicit inclusion/exclusion survives
+    and submits unchanged; an otherwise mutable hidden target contributes an
+    effective explicit exclusion only to payload evaluation, never to session
+    state.
+17. **Immutable ancestry is absolute.** Immutable nodes and descendants cannot
+    be marked and emit no individual XPath rows. AI receives the hardcoded
+    immutable selectors separately.
+18. **AI is a stateless whole-property calculation.** Every run supplies every
+    candidate page and its applicable HTML/rows in one request and receives one
+    domain-wide selector set. No property corpus, AI draft, or page state
+    persists remotely. Any returned session id is only the ephemeral job handle
+    needed to poll that run; it supplies no input or memory to a later run.
+19. **Save then Load is the persistence boundary.** Save persists exactly the
+    authorized current page plus the property-wide selectors. Only after that
+    commit succeeds, a separate Load fetches the latest complete backend shape
+    and complete-replaces local configuration. The Save response itself is not
+    local authority, and no active-session row, suggestion, draft, or pre-Load
+    snapshot is merged into or preserved beside a successful Load. Discard and
+    abandoned/failed AI runs preserve nothing remotely.
 
 ## 3. Intentional differences — keep the rewrite decision
 
@@ -110,7 +150,7 @@ The following rules combine decisions that otherwise appear to overlap:
 | I-08 | Keep the canonical page key as relative `path + query + fragment`. |
 | I-09 | Keep UnfluffifyHub as the sole backend authority and API façade for property state, delegated GraphQL context, mutations, locking, and publication. |
 | I-10 | Keep the full property corpus in the background. Only the current page may be a live session overlay. Popup state is a projection, never authority. |
-| I-11 | Keep save structurally singular and partial: one current page plus property selectors, fenced and idempotent, with a complete authoritative response. |
+| I-11 | Keep Save structurally singular and partial: one current page plus property selectors, fenced and idempotent. Treat its response only as the commit outcome; a separate post-commit Load supplies the complete authoritative shape that replaces local configuration. |
 | I-12 | Adopt otherwise valid authoritative responses even when shrink is not proven, but enter the prominent integrity-warning/write-block state defined in §2. |
 | I-13 | Keep timestamps and revisions server-owned. Client clocks do not decide authority or conflict winners. |
 | I-14 | Keep deterministic complete-feed reconciliation: missing keys delete, relabels preserve content, conflicting duplicate assignments block without mutation, and empty page types are non-actionable. |
@@ -125,7 +165,7 @@ The following rules combine decisions that otherwise appear to overlap:
 | I-23 | A canonical SPA page-key change terminates the old page session and starts a new one. |
 | I-24 | Reload always terminates the current marking session and draft. |
 | I-25 | Definitive configuration deletion returns the extension to explicit onboarding. Do not silently reconstruct or reuse deleted connection state. |
-| I-26 | A background AI run may complete and persist after the panel closes. Surface the result when the panel returns, but never auto-apply it to a different/new session. |
+| I-26 | A background AI run may complete after the panel closes and remain locally resumable only inside that same active marking session. Its local continuation metadata and remote session id are temporary job-control state, not property persistence. Retire and generation-fence them on every terminal session edge. The AI endpoint retains no property corpus; never retain or auto-apply the result after dismissal or to a different/new session. |
 | I-27 | Keep fail-closed writes and fail-open reads. Reads may use the last validated baseline with warnings; writes require current authority, fence, revisions, and integrity. |
 | I-28 | Keep page blocking narrow and result-sensitive. Block only the interaction needed by the current operation/surface, and always provide an escape or recovery path. |
 | I-29 | Keep the full live theme system and user customization. |
@@ -176,7 +216,7 @@ The following rules combine decisions that otherwise appear to overlap:
 | D-05 | Strip every extension, consent-helper, and browser-automation artifact from rendered HTML, raw/static HTML, fingerprints, XPath sibling indexing, and every other captured representation. |
 | D-06 | Serialize toggles; validate generation and fingerprint; reject stale results; and assert branch-splice invariants. Do not perform a routine full-document reconcile after every toggle. |
 | D-07 | Treat Window, VisualViewport, root-resize, and scroll notifications as sources for one geometry transaction, not independent repaint authority. Fade stale viewport-fixed layers once, retain their nodes, coalesce the complete event train, then commit one geometry-only redraw after the pinned-legacy quiet window (120 ms silent scroll/resize, 250 ms marking scroll, 50 ms marking resize). A resize owns Chromium's induced scroll; same-signature observer duplicates cannot extend its deadline, while a genuinely changed viewport can. Retain the first presentation old value for 250 ms so responsive A→B→A churn is net-zero; compare inline-style endpoints as canonical property/value/priority declarations after restoring extension-owned motion locks through the capture ledger; and let geometry work walk only its measured corpus. Observer delivery must never restart a multi-frame full projection loop. |
-| D-08 | Right-click opens an extension marking-actions menu for Include, Exclude, Widen, and Clear. It does not silently perform the left-click action or open the page context menu while marking owns the pointer. |
+| D-08 | Superseded 2026-08-31: the extension never intercepts `contextmenu`; native browser right-click is always preserved and the custom marking-actions menu is removed. |
 | D-09 | Suppress duplicate physical-click delivery using pointer identity, timestamp, target, and mode while preserving intentional rapid distinct clicks. |
 | D-10 | Invalid targets receive immediate non-blocking overlay feedback and a concise actionable production toast. Technical rejection details are debug-only. |
 | D-11 | Space passthrough is complete press-and-hold behavior. It restores marking on release and safely recovers from blur, visibility changes, navigation, or missed `keyup`. |
@@ -211,7 +251,7 @@ decision, this row is the more specific authority.
 | ID | Binding outcome |
 |---|---|
 | N-01 | Sanitize consent-helper changes while serializing the live composed DOM, before removing their internal marker. Remove only extension-added consent properties and every `data-uf-*` artifact. Direct rendered capture, fingerprints, and AI submission must all receive the same clean representation without restoring or mutating the live consent UI for capture. |
-| N-02 | Use a reversible transparent interaction shield in silent highlighting and post-AI preview. It sits above page content and below extension UI, prevents both CSS and JavaScript hover/click targeting, permits native wheel and touch scrolling, and is removed on every terminal path. Event interception alone is insufficient. |
+| N-02 | Use a reversible transparent interaction shield in silent highlighting and post-AI preview. It sits above page content and below extension UI, prevents both CSS and JavaScript hover/click targeting, permits native wheel and touch scrolling, and is removed on every terminal path. Silent Preview retains the already-painted authoritative silent-selector layers; opening it must never clear and reconstruct them. Event interception alone is insufficient. |
 | N-03 | Make render-mode inspection a durable, tokenized background-owned session. It survives reload and panel closure, is adopted by the new content document, waits for an acknowledgement that the inspection surface painted, and clears only for a matching success, failure, timeout, cancellation, navigation, unregister, or teardown outcome. |
 | N-04 | Transport the complete internal preview model from the canonical evaluator: explicit-included, implicit-included, excluded, undetected, immutable, and closed-shadow. Production projects these to simple operator-facing included/excluded states; debug exposes the complete internal classification. No downstream layer may reconstruct information discarded by content. |
 | N-05 | Initialize a marking or silent engine in one transaction and one composed-DOM bridge pass: calculate defaults, apply optional selectors as ordinary explicit user marks, build indexes, and render. Constructors, activation, and selector seeding must not perform redundant whole-document refreshes. |
@@ -223,8 +263,8 @@ decision, this row is the more specific authority.
 | N-11 | Continuously suppress consent UI on every recognized property page, including non-candidates and pages with no active editor. Ordinary consent elements remain in the DOM but are invisible and non-interactive; native HTML dialogs are closed by the extension so the underlying document can be used. Late-added consent UI is suppressed continuously. Save, Discard, preview, marking changes, and same-property page transitions never restore it. Explicit Unregister, property-configuration removal, leaving the property, or extension unload ends the guarantee. |
 | N-12 | Make decision-to-test traceability executable. Every referenced automated-evidence path must exist; every decision must map to a decision-specific executable assertion or an explicitly named live/build acceptance check. Repair stale paths and add missing behavior tests rather than satisfying the gate with non-empty prose. |
 | N-13 | After the behavioral corrections above are stable, incrementally extract typed configuration, render-inspection, preview, Todo, maintenance, consent, and transient-surface controllers plus focused React sections. Preserve authority boundaries and behavior; do not perform another big-bang rewrite. |
-| N-14 | Each Preview row is a semantic button inside its list item. Pointer hover and keyboard focus share occurrence emphasis; native Enter/Space activation scrolls to the exact target; the accessible name includes ordinal, readable label, and included/excluded status. This direct P20 decision supersedes D-16's earlier pointer-only rule. |
-| N-15 | Plain exclude clicks are unmark-only and never create an exclusion. Shift is required for every new or widened exclusion; plain click/Clear removes the exact visually painted owner; Alt creates an eligible explicit inclusion. Fragment gaps do nothing and overlaps follow visible layer/paint order. This later direct marking contract supersedes legacy plain-click creation. |
+| N-14 | Each Preview row is a semantic button inside its list item. Pointer hover and keyboard focus share occurrence emphasis; native Enter/Space activation scrolls to the exact target; clicking a painted page target focuses its exact virtualized row; and the accessible name includes ordinal, readable label, and included/excluded status. While Preview is open, debug XPath rectangles route to that same page-to-row action instead of stealing the click for copy. This direct P20 decision supersedes D-16's earlier pointer-only rule. |
+| N-15 | Superseded 2026-08-31: plain click toggles an individual implicit inclusion, explicit inclusion, or explicit exclusion. Shift changes breadth and may widen to an eligible ancestor; it is not required for an individual exclusion. Alt creates/toggles explicit inclusion and wins over Shift. Expanded-boundary and descendant rehydration follow the locked marking document. |
 
 ## 7. Conformance definition
 

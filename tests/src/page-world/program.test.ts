@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 type PageWorldListener = (
   event: { data: unknown; source: { postMessage: (message: unknown) => void } },
@@ -969,6 +969,161 @@ describe("P5 page-world program", () => {
     expect(context.history.pushState).toBe(nativePushState);
     expect(context.history.replaceState).toBe(nativeReplaceState);
     expect(messages).toEqual([]);
+  });
+
+  it("guards dirty History navigation synchronously and restores native methods after approval", async () => {
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
+    const listeners: PageWorldListener[] = [];
+    const responses: unknown[] = [];
+    const confirmations = [false, true];
+    const context = {
+      location: { href: "https://example.com/a" },
+      history: {
+        pushState(_state: unknown, _title: string, url?: string | URL | null) {
+          if (url) context.location.href = new URL(String(url), context.location.href).href;
+        },
+        replaceState(_state: unknown, _title: string, url?: string | URL | null) {
+          if (url) context.location.href = new URL(String(url), context.location.href).href;
+        },
+        back() {},
+        forward() {},
+        go() {},
+      },
+      confirm: () => confirmations.shift() ?? false,
+      performance: { now: () => 123 },
+      document: { documentElement: { toggleAttribute() {} } },
+      setTimeout(callback: () => void) { callback(); return 1; },
+      clearTimeout() {},
+      setInterval() { return 1; },
+      clearInterval() {},
+      requestAnimationFrame(callback: (now: number) => void) { callback(1); return 1; },
+      cancelAnimationFrame() {},
+      addEventListener(_type: string, listener: PageWorldListener) { listeners.push(listener); },
+      postMessage(message: unknown) { responses.push(message); },
+    };
+    const nativePushState = context.history.pushState;
+    const nativeReplaceState = context.history.replaceState;
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
+    await dispatchFromPage(listeners, context, {
+      kind: "uf-page-bus/1",
+      type: "request",
+      nonce: "guard-session",
+      command: "ARM",
+      payload: {},
+    }, responses);
+    await dispatchFromPage(listeners, context, {
+      kind: "uf-page-bus/1",
+      type: "request",
+      nonce: "guard-on",
+      sessionNonce: "guard-session",
+      command: "SET_NAVIGATION_GUARD",
+      payload: { active: true },
+    }, responses);
+
+    expect(context.history.pushState).not.toBe(nativePushState);
+    expect(context.history.replaceState).not.toBe(nativeReplaceState);
+    context.history.pushState({}, "", "/b");
+    expect(context.location.href).toBe("https://example.com/a");
+
+    // Fragment-only movement is not a new document route and never prompts.
+    context.history.pushState({}, "", "/a#details");
+    expect(context.location.href).toBe("https://example.com/a#details");
+
+    context.history.replaceState({}, "", "/b");
+    expect(context.location.href).toBe("https://example.com/b");
+    expect(context.history.pushState).toBe(nativePushState);
+    expect(context.history.replaceState).toBe(nativeReplaceState);
+    expect(confirmations).toEqual([]);
+    expect(responses).toContainEqual(expect.objectContaining({
+      nonce: "guard-on",
+      ok: true,
+      payload: expect.objectContaining({ navigationGuardActive: true }),
+    }));
+  });
+
+  it("uses exact Navigation API destinations so fragment traversals stay in the dirty session", async () => {
+    const source = readFileSync("src/page-world/program.generated.js", "utf8");
+    const listeners: PageWorldListener[] = [];
+    const responses: unknown[] = [];
+    const confirmations = [false, true];
+    const confirm = vi.fn(() => confirmations.shift() ?? false);
+    let navigateListener: EventListener | null = null;
+    const context = {
+      location: { href: "https://example.com/a#current" },
+      history: {
+        pushState() {},
+        replaceState() {},
+        back() {},
+        forward() {},
+        go() {},
+      },
+      navigation: {
+        addEventListener(type: string, listener: EventListener) {
+          if (type === "navigate") navigateListener = listener;
+        },
+        removeEventListener(type: string, listener: EventListener) {
+          if (type === "navigate" && navigateListener === listener) navigateListener = null;
+        },
+      },
+      confirm,
+      performance: { now: () => 123 },
+      document: { documentElement: { toggleAttribute() {} } },
+      setTimeout(callback: () => void) { callback(); return 1; },
+      clearTimeout() {},
+      setInterval() { return 1; },
+      clearInterval() {},
+      requestAnimationFrame(callback: (now: number) => void) { callback(1); return 1; },
+      cancelAnimationFrame() {},
+      addEventListener(_type: string, listener: PageWorldListener) { listeners.push(listener); },
+      postMessage(message: unknown) { responses.push(message); },
+    };
+    const nativeBack = context.history.back;
+    installCapabilityRuntime(source, context as unknown as Record<string, unknown>);
+    await dispatchFromPage(listeners, context, {
+      kind: "uf-page-bus/1",
+      type: "request",
+      nonce: "guard-session",
+      command: "ARM",
+      payload: {},
+    }, responses);
+    await dispatchFromPage(listeners, context, {
+      kind: "uf-page-bus/1",
+      type: "request",
+      nonce: "guard-on",
+      sessionNonce: "guard-session",
+      command: "SET_NAVIGATION_GUARD",
+      payload: { active: true },
+    }, responses);
+
+    expect(context.history.back).toBe(nativeBack);
+    expect(navigateListener).not.toBeNull();
+    const fragmentPrevented = vi.fn();
+    navigateListener?.({
+      destination: { url: "https://example.com/a#previous" },
+      cancelable: true,
+      preventDefault: fragmentPrevented,
+    } as unknown as Event);
+    expect(fragmentPrevented).not.toHaveBeenCalled();
+    expect(confirm).not.toHaveBeenCalled();
+
+    const rejectedPrevented = vi.fn();
+    navigateListener?.({
+      destination: { url: "https://example.com/b" },
+      cancelable: true,
+      preventDefault: rejectedPrevented,
+    } as unknown as Event);
+    expect(rejectedPrevented).toHaveBeenCalledTimes(1);
+    expect(confirm).toHaveBeenCalledTimes(1);
+
+    const approvedPrevented = vi.fn();
+    navigateListener?.({
+      destination: { url: "https://example.com/b" },
+      cancelable: true,
+      preventDefault: approvedPrevented,
+    } as unknown as Event);
+    expect(approvedPrevented).not.toHaveBeenCalled();
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(navigateListener).toBeNull();
   });
 
   it("suppresses interval callbacks and lazy observer callbacks while paused/suppressed", async () => {

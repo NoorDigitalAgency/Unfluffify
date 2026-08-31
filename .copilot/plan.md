@@ -1882,3 +1882,36 @@ reason — Phase I had deferred it. Converted to reflect `temporarilyDisabledRea
 latent toast/overlay inconsistency in the post_ai+save co-occurrence. Docs
 (`MARKING_AND_HIGHLIGHTING_LOGIC.md`, `.copilot/knowledge.md`) and the
 `tests/popup-ai-run-gating.test.ts` source-contract updated. Full gate green.
+
+## 2026-08-31 approved marking/session/payload contract
+
+The operator re-specified the marking contract through deterministic Q&A and
+approved the consolidated result. `MARKING_AND_HIGHLIGHTING_LOGIC.md` section
+**Approved session, interaction, and submission authority** is binding and
+supersedes the older unmark-only/plain-click and custom-context-menu decisions.
+
+Implementation must enforce: three mutable states; plain individual toggle;
+Shift breadth; Alt individual explicit inclusion with Alt-over-Shift precedence;
+expanded-boundary rehydration and explicit-inclusion exceptions; no extension
+context menu; invisible UI targets never paint/interact while preserved explicit
+decisions survive into payloads; synthesized hidden exclusions remain payload-
+only; immutable ancestry is absolute and represented to AI only by the separate
+selector list; dirty is monotonic; marking sessions are entirely ephemeral;
+Run AI is one stateless whole-property request; and authoritative Save followed
+by Load is the only persistence/adoption boundary.
+
+Delivery is tracked by the active `plan.md` expert-loop ledger. The earlier R3
+net-clean proposal is invalid under this authority and must not ship; the R3
+latency/durability finding remains independently actionable.
+
+## 2026-08-31 R4 live-conformance addendum
+
+The headed Arno pass exposed and fixed two remaining presentation divergences:
+wheel fallback could race native compositor movement after visual-viewport
+invalidation, and entering `silent_preview` cleared the very silent-selector
+layers the Content List must correlate. The implementation now waits through a
+presentation boundary before any manual wheel fallback, retains the proved
+scroll owner across visual-viewport scroll, keeps silent paint mounted across
+Preview, and gives Preview routing precedence over debug XPath-copy rectangles.
+Focused regressions and the exact repo-managed browser must pass before R4 can
+be committed.

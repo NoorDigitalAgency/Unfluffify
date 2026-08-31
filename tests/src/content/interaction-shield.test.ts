@@ -259,38 +259,53 @@ class FakeWindow extends FakeEventTarget {
   innerWidth = 1_024;
   innerHeight = 768;
   visualViewport: FakeVisualViewport | undefined = new FakeVisualViewport();
-  private animationFrames: FrameRequestCallback[] = [];
-  private tasks: Array<() => void> = [];
+  private animationFrames = new Map<number, FrameRequestCallback>();
+  private tasks = new Map<number, Readonly<{ callback: () => void; delay: number }>>();
+  private nextAnimationFrame = 0;
+  private nextTask = 0;
 
   queueMicrotask(callback: VoidFunction): void {
     queueMicrotask(callback);
   }
 
   requestAnimationFrame(callback: FrameRequestCallback): number {
-    this.animationFrames.push(callback);
-    return this.animationFrames.length;
+    this.nextAnimationFrame += 1;
+    this.animationFrames.set(this.nextAnimationFrame, callback);
+    return this.nextAnimationFrame;
+  }
+
+  cancelAnimationFrame(handle: number): void {
+    this.animationFrames.delete(handle);
   }
 
   flushAnimationFrames(): void {
-    const frames = this.animationFrames.splice(0);
+    const frames = [...this.animationFrames.values()];
+    this.animationFrames.clear();
     for (const callback of frames) {
       callback(0);
     }
   }
 
-  setTimeout(callback: () => void): number {
-    this.tasks.push(callback);
-    return this.tasks.length;
+  setTimeout(callback: () => void, delay = 0): number {
+    this.nextTask += 1;
+    this.tasks.set(this.nextTask, { callback, delay });
+    return this.nextTask;
+  }
+
+  clearTimeout(handle: number): void {
+    this.tasks.delete(handle);
   }
 
   getComputedStyle(element: FakeElement): Pick<CSSStyleDeclaration, "overflowY"> {
     return { overflowY: element.getAttribute("data-fake-overflow-y") ?? "visible" };
   }
 
-  flushTasks(): void {
-    const tasks = this.tasks.splice(0);
-    for (const callback of tasks) {
-      callback();
+  flushTasks(maximumDelay = Number.POSITIVE_INFINITY): void {
+    const tasks = [...this.tasks.entries()]
+      .filter(([, task]) => task.delay <= maximumDelay);
+    for (const [handle, task] of tasks) {
+      this.tasks.delete(handle);
+      task.callback();
     }
   }
 }
@@ -744,6 +759,40 @@ describe("interaction shield controller", () => {
     expect(syntheticExtensionClick.preventDefault).toHaveBeenCalledOnce();
     expect(syntheticExtensionClick.stopPropagation).toHaveBeenCalledOnce();
     expect(syntheticExtensionClick.stopImmediatePropagation).toHaveBeenCalledOnce();
+  });
+
+  it("waits through the native presentation boundary before applying a wheel fallback", () => {
+    const context = harness();
+    context.document.documentElement.clientHeight = 768;
+    context.document.documentElement.scrollHeight = 3_000;
+    const controller = createInteractionShield({
+      document: asDocument(context.document),
+      window: asWindow(context.window),
+    });
+    controller.activate("silent-highlighting");
+    const shield = controller.element() as unknown as FakeElement;
+    // Prime owner discovery independently of the physical packet.
+    context.window.flushTasks();
+    context.document.scrollingElement.scrollTop = 100;
+
+    // Chromium's compositor movement becomes observable at presentation, not
+    // necessarily in a zero-delay task queued from the wheel listener.
+    context.window.requestAnimationFrame(() => {
+      context.document.scrollingElement.scrollTop += 240;
+    });
+    context.window.dispatch("wheel", inputEvent(
+      "wheel",
+      [shield, context.document.documentElement, context.window],
+      { deltaY: 240 },
+    ) as unknown as Event);
+
+    context.window.flushTasks(0);
+    expect(context.document.scrollingElement.scrollTop).toBe(100);
+    context.window.flushAnimationFrames();
+    context.window.flushTasks();
+    expect(context.document.scrollingElement.scrollTop).toBe(340);
+
+    controller.dispose();
   });
 
   it("privileges trusted controls nested inside a passive input boundary", () => {
@@ -1270,6 +1319,7 @@ describe("interaction shield controller", () => {
     const ownerDiscoveryStyleReads = computedStyle.mock.calls.length;
     expect(ownerDiscoveryStyleReads).toBeGreaterThan(0);
     expect(styleOf(shield, "touch-action")).toEqual(["pinch-zoom", "important"]);
+    context.window.visualViewport?.dispatch("scroll", { type: "scroll" } as Event);
 
     for (const [deltaX, deltaY] of [[20, 100], [25, 140]] as const) {
       context.window.dispatch("wheel", inputEvent(

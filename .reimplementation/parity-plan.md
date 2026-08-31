@@ -143,7 +143,7 @@ these is either silent or destructive.
 | ID | Defect | Evidence | Contract |
 |----|--------|----------|----------|
 | **A1** | **Page-shell rejection is back, and now suppresses exclusion rows.** `isPageShell` again treats `broadViewportFootprint` (width ≥ 0.9 × innerWidth) as a shell disjunct — the exact rule the architect **deleted on 2026-07-05** after the bonliva footer bug. Worse, the rewrite wired the shell test into default-exclusion collection, so a full-width or landmark-bearing FOOTER/HEADER/NAV holding its text in children gets **no exclusion row at all**, and its descendants classify `implicit-include` and **ship to the AI as content**. Silent in the UI. | `domain/boundary.ts:41`, `content/marking/dom-view.ts:225,228`, `content/marking/engine.ts:99-107`, `domain/evaluate.ts:62-64`, `boundary.ts:52` | INV-3.18/3.19, C-MARK-6 |
-| **A2** | **Destructive save, now deterministic.** `configFromSubmission` builds a one-key `pageMarkings` map and the backend currently treats the map as full replacement. The correction is **not** to merge the full corpus into the client request: D15 requires a singular `page` request, partial server upsert, full authoritative response, fenced/idempotent execution, and explicit shrink proof. | `main.tsx:866-873, :1250-1251`, `background/index.ts:300-309`, `lynx/rest.ts:49-69`; backend `SiteRepository.cs:153-170` | INV-6.5, D15, D19, D23 |
+| **A2** | **Destructive save, now deterministic.** `configFromSubmission` builds a one-key `pageMarkings` map and the backend currently treats the map as full replacement. The correction is **not** to merge the full corpus into the client request: D15 requires a singular `page` request, partial server upsert, commit-only Save acknowledgement, a distinct authoritative Load, fenced/idempotent execution, and explicit shrink proof on loaded authority. | `main.tsx:866-873, :1250-1251`, `background/index.ts:300-309`, `lynx/rest.ts:49-69`; backend `SiteRepository.cs:153-170` | INV-6.5, D15, D19, D23 |
 | **A3** | **Shift-widening picks a different element than legacy.** `chooseWidenTarget` climbs straight to the outermost eligible ancestor, implementing only step 4 of C-TGT-4's locked four-step ladder. | `domain/widening.ts:66-77` | C-TGT-4, INV-3.19 |
 | **A4** | **Static properties cannot be marked at all.** Schema requires `rawHtml` iff `renderMode === "static"`; `buildSubmissionSnapshot` parses eagerly and throws; **nothing anywhere fetches static HTML**. Run AI and Save fail at capture for a whole property class. | `domain/schema/submission.ts:42-48`, `content/marking/submit.ts:15`, `background/services.ts:71` | D5, INV-8.6 |
 | **A5** | **Synthetic XPath segment.** `dom-view.ts` emits a `/__closed-shadow[n]` segment, which may violate the "purely positional `/tag[index]`" rule and cannot resolve against the captured HTML. **Verify before fixing** — confirm against the capture path. | `content/marking/dom-view.ts:200-206` | C-SUB-4, INV-5.3 |
@@ -208,7 +208,7 @@ fixture/fake until they land. The exact contract is D13–D24 and `remote-api.md
 - Renew only from visible selected tabs in a focused, non-idle browser. Add the 10-minute
   candidate-suspension recovery grace before the ordinary inactivity countdown.
 
-### 5.3 Singular partial `/save` and authoritative responses
+### 5.3 Singular partial `/save`, commit acknowledgement, and authoritative `/load`
 
 - Replace `SaveRequest.PageMarkings` with required singular `Page`. `siteId:null`, missing page,
   and empty-map/full-replace forms are structurally impossible.
@@ -217,9 +217,12 @@ fixture/fake until they land. The exact contract is D13–D24 and `remote-api.md
 - Assign page/render-mode/selector timestamps server-side. Compare selector sets semantically;
   preserve `selectorsUpdatedAt` for identical values and never blank
   `submittedSelectorsFingerprint` on save.
-- Return the complete property snapshot from save/remove/reconcile/publish. Include property/feed
-  revisions and exact reconciliation removal/relabel proof so the client can reject unexplained
-  shrink.
+- Return only a commit outcome from Save. The client must then issue one distinct Load; that Load
+  returns the complete newest property snapshot and is the only post-Save configuration authority.
+  A successful Load replaces local configuration atomically and destroys the mutable session with
+  no merge or retention. Remove/reconcile/publish keep their separately defined response rules.
+  Include property/feed revisions and exact reconciliation removal/relabel proof in loaded authority
+  so the client can identify unexplained shrink.
 
 ### 5.4 Complete-feed reconciliation and operational block
 
@@ -262,7 +265,7 @@ versioned fixtures, but live acceptance waits for the corresponding H slice.
 |----|----|-------|-------|---------------------|
 | ☑ | **H1** | Environment registry + delegated-JWT `/context`: locked GraphQL queries, payload-first error classification, token rotation forwarding, relative page keys, membership/assignment fingerprints. **Landed in `UnfluffifyHub@8a57106`.** | — | HTTP 500 auth payload maps to auth; partial data never reconciles; two stages with the same `siteId` remain isolated. |
 | ☑ | **H2** | Fenced/idempotent lock and mutation envelope: `editorSessionId`, rotated `lockToken`, operation log, expected revisions, qualifying-presence heartbeat, same-user destructive transfer. **Landed in `UnfluffifyHub@ec13dad`.** | H1 | Stale token mutates nothing; duplicate transfer rotates once; hidden/idle heartbeat cannot extend lease; stale-untransferred same session reacquires. |
-| ☑ | **H3** | Full `/load`, singular partial `/save`, explicit `/remove`, server timestamps, normalized selector comparison, full authoritative responses. **Landed in `UnfluffifyHub@a4f7850`.** | H2 | Save B request contains no A; response contains A+B; duplicate operation has one timestamp; identical selectors preserve timestamps/fingerprint. |
+| ☑ | **H3** | Full `/load`, singular partial `/save`, explicit `/remove`, server timestamps, normalized selector comparison, commit-only Save acknowledgement, and Load-only post-Save authority. **Originally landed in `UnfluffifyHub@a4f7850`; Save→Load response authority amended 2026-08-31.** | H2 | Save B request contains no A; Save acknowledges one commit; the following Load contains A+B; duplicate operation has one timestamp; identical selectors preserve timestamps/fingerprint. |
 | ☑ | **H4** | Complete-feed reconciliation + persisted conflict block + explicit shrink/relabel proof. **Landed in `UnfluffifyHub@1d7d39d`.** | H1, H2, H3 | Missing key deletes; relabel preserves; duplicate cross-type key blocks without mutation; invalid feed deletes nothing. |
 | ☑ | **H5** | Hub-owned `/publish`: feed/fence/completeness/`cssInfo` gates, exact-JWT GraphQL mutation, idempotent definitive/unknown outcomes. **Landed in `UnfluffifyHub@5661e04`.** | H4 | Submitted fingerprint advances only on definitive success; timeout never reports success; same operation safely resolves/retries. |
 

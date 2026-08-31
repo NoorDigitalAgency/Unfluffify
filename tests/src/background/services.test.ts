@@ -612,6 +612,50 @@ describe("rewrite background services", () => {
     })).resolves.toEqual({ status: "not_found" });
   });
 
+  it("retires in-flight AI continuation state without letting a late result recreate it", async () => {
+    let resolveStatus: ((response: JsonResponse) => void) | undefined;
+    let statusRequested: (() => void) | undefined;
+    const statusStarted = new Promise<void>((resolve) => { statusRequested = resolve; });
+    const services = createRewriteBackgroundServices({
+      transport: async (request) => {
+        if (request.path === "/get_selectors") {
+          return { status: 200, body: { session_id: "session-retired" } };
+        }
+        if (request.path === "/get_selectors/status/session-retired") {
+          statusRequested?.();
+          return await new Promise<JsonResponse>((resolve) => { resolveStatus = resolve; });
+        }
+        if (request.path === "/get_selectors/result/session-retired") {
+          return { status: 200, body: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] } };
+        }
+        return { status: 500, body: null };
+      },
+    });
+    const running = services.lynx.runAiJob(snapshot, {
+      tabId: 79,
+      clientRunId: "popup-run-retired",
+      editorSessionId: "editor-retired",
+      environmentKey: "stage.example.com",
+      siteId: 42,
+      pageKey: "/page",
+    });
+
+    await statusStarted;
+    await services.lynx.retireAiRunForTab(79);
+    resolveStatus?.({ status: 200, body: { session_id: "session-retired", status: "done" } });
+
+    await expect(running).resolves.toMatchObject({
+      status: "error",
+      sessionId: "session-retired",
+      failureStage: "result",
+      reason: "session_retired",
+    });
+    await expect(services.repos.runRecordRepo.loadLatestForTab(79)).resolves.toEqual({
+      ok: true,
+      value: null,
+    });
+  });
+
   it("resumes a durable running AI record after a service-worker restart", async () => {
     const store = createMemoryStore();
     const beforeRestart = createRewriteBackgroundServices({ store, transport: async () => ({ status: 500, body: null }) });

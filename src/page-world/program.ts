@@ -64,9 +64,14 @@ type InstrumentedAttachShadow = ((this: Element, init: ShadowRootInit) => Shadow
 type MotionObservationRoot = Element | ShadowRoot;
 type PageWorldRoot = Readonly<{
   location: Location;
-  history: History;
+  history?: History;
   document: Document;
   performance: Performance;
+  confirm?: (message?: string) => boolean;
+  navigation?: Readonly<{
+    addEventListener: (type: string, listener: EventListener) => void;
+    removeEventListener?: (type: string, listener: EventListener) => void;
+  }>;
   Element?: typeof Element;
   Event?: typeof Event;
   EventTarget?: typeof EventTarget;
@@ -186,6 +191,7 @@ export async function installPageWorldProgram(
     "RECONCILE",
     "SET_MOTION_PAUSED",
     "SET_LAZY_LOADING_SUPPRESSED",
+    "SET_NAVIGATION_GUARD",
     "DESTROY",
     "PAGE_WORLD_ARM",
     "PAGE_WORLD_SET_MOTION_PAUSED",
@@ -198,6 +204,13 @@ export async function installPageWorldProgram(
   let lazyBridgeInstalled = false;
   let paused = false;
   let lazySuppressed = false;
+  let navigationGuardActive = false;
+  let guardedPushState: History["pushState"] | null = null;
+  let guardedReplaceState: History["replaceState"] | null = null;
+  let guardedBack: History["back"] | null = null;
+  let guardedForward: History["forward"] | null = null;
+  let guardedGo: History["go"] | null = null;
+  let guardedNavigationListener: EventListener | null = null;
   const queued: PageTimer[] = [...inheritedQueuedTimers];
   const originals = {
     setTimeout: page.setTimeout,
@@ -221,6 +234,11 @@ export async function installPageWorldProgram(
     rootRemoveEventListener: page.removeEventListener as EventTarget["removeEventListener"] | undefined,
     documentAddEventListener: page.document?.addEventListener,
     documentRemoveEventListener: page.document?.removeEventListener,
+    historyPushState: page.history?.pushState,
+    historyReplaceState: page.history?.replaceState,
+    historyBack: page.history?.back,
+    historyForward: page.history?.forward,
+    historyGo: page.history?.go,
   };
   const wrappedEventRegistrations: WrappedEventRegistration[] = [];
   const timeoutTokens = new Map<unknown, PageTimer>();
@@ -2550,9 +2568,138 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
     return command;
   }
 
+  function normalizedNavigationDocumentUrl(value: string | URL | null | undefined): string | null {
+    if (value === undefined || value === null || value === "") return null;
+    try {
+      const url = new URL(String(value), page.location.href);
+      return `${url.origin}${url.pathname}${url.search}`;
+    } catch {
+      return null;
+    }
+  }
+
+  function restoreNavigationGuardHooks(): void {
+    const history = page.history;
+    if (history && guardedPushState && history.pushState === guardedPushState && originals.historyPushState) {
+      history.pushState = originals.historyPushState;
+    }
+    if (
+      history &&
+      guardedReplaceState &&
+      history.replaceState === guardedReplaceState &&
+      originals.historyReplaceState
+    ) {
+      history.replaceState = originals.historyReplaceState;
+    }
+    if (history && guardedBack && history.back === guardedBack && originals.historyBack) {
+      history.back = originals.historyBack;
+    }
+    if (history && guardedForward && history.forward === guardedForward && originals.historyForward) {
+      history.forward = originals.historyForward;
+    }
+    if (history && guardedGo && history.go === guardedGo && originals.historyGo) {
+      history.go = originals.historyGo;
+    }
+    if (guardedNavigationListener) {
+      page.navigation?.removeEventListener?.("navigate", guardedNavigationListener);
+    }
+    guardedPushState = null;
+    guardedReplaceState = null;
+    guardedBack = null;
+    guardedForward = null;
+    guardedGo = null;
+    guardedNavigationListener = null;
+  }
+
+  function approveDirtyNavigation(target?: string | URL | null): boolean {
+    if (!navigationGuardActive) return true;
+    const current = normalizedNavigationDocumentUrl(page.location.href);
+    const next = normalizedNavigationDocumentUrl(target);
+    if (next !== null && next === current) return true;
+    const approved = page.confirm?.(
+      "Leaving this page discards your unsaved Unfluffify markings. Continue?",
+    ) === true;
+    if (!approved) return false;
+    navigationGuardActive = false;
+    restoreNavigationGuardHooks();
+    return true;
+  }
+
+  function setNavigationGuard(active: boolean): void {
+    navigationGuardActive = active;
+    if (!active) {
+      restoreNavigationGuardHooks();
+      return;
+    }
+    const history = page.history;
+    const nativePushState = originals.historyPushState;
+    const nativeReplaceState = originals.historyReplaceState;
+    const nativeBack = originals.historyBack;
+    const nativeForward = originals.historyForward;
+    const nativeGo = originals.historyGo;
+    if (
+      !guardedPushState &&
+      history &&
+      nativePushState &&
+      nativeReplaceState
+    ) {
+      guardedPushState = function guardedHistoryPushState(
+        this: History,
+        data: unknown,
+        unused: string,
+        url?: string | URL | null,
+      ): void {
+        if (!approveDirtyNavigation(url)) return;
+        nativePushState.call(this, data, unused, url);
+      };
+      guardedReplaceState = function guardedHistoryReplaceState(
+        this: History,
+        data: unknown,
+        unused: string,
+        url?: string | URL | null,
+      ): void {
+        if (!approveDirtyNavigation(url)) return;
+        nativeReplaceState.call(this, data, unused, url);
+      };
+      history.pushState = guardedPushState;
+      history.replaceState = guardedReplaceState;
+      if (!page.navigation && nativeBack && nativeForward && nativeGo) {
+        // Without the Navigation API there is no synchronous destination for a
+        // traversal, so the only safe fallback is to ask before invoking it.
+        // Current Chrome exposes Navigation and is handled below with its exact
+        // destination, which lets fragment-only back/forward remain unguarded.
+        guardedBack = function guardedHistoryBack(this: History): void {
+          if (!approveDirtyNavigation()) return;
+          nativeBack.call(this);
+        };
+        guardedForward = function guardedHistoryForward(this: History): void {
+          if (!approveDirtyNavigation()) return;
+          nativeForward.call(this);
+        };
+        guardedGo = function guardedHistoryGo(this: History, delta?: number): void {
+          if (!approveDirtyNavigation()) return;
+          nativeGo.call(this, delta);
+        };
+        history.back = guardedBack;
+        history.forward = guardedForward;
+        history.go = guardedGo;
+      }
+    }
+    if (!guardedNavigationListener && page.navigation) {
+      guardedNavigationListener = ((event: Event & {
+        destination?: { url?: string };
+      }) => {
+        if (approveDirtyNavigation(event.destination?.url)) return;
+        if (event.cancelable) event.preventDefault();
+      }) as EventListener;
+      page.navigation.addEventListener("navigate", guardedNavigationListener);
+    }
+  }
+
   function resetPageWorldToIdle(): void {
     paused = false;
     lazySuppressed = false;
+    setNavigationGuard(false);
     stopLazyOwnerLifecycle();
     nestedLazyViewportOwner = null;
     releaseMotionFreeze();
@@ -2706,6 +2853,9 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
         }
         page.document?.documentElement?.toggleAttribute("data-uf-lazy-loading-suppressed", lazySuppressed);
       }
+      if (command === "SET_NAVIGATION_GUARD") {
+        setNavigationGuard(Boolean(request.payload && request.payload.active));
+      }
       if (command === "DESTROY") {
         lifecyclePhase = "destroying";
         resetPageWorldToIdle();
@@ -2714,6 +2864,7 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
         armed,
         paused,
         lazySuppressed,
+        navigationGuardActive,
         sessionNonce,
         phase: lifecyclePhase,
         initialDiscoveryComplete: motionInitialDiscoveryComplete,

@@ -131,7 +131,10 @@ The request is the A.1 envelope plus:
 
 There is no `pageMarkings` map. The Hub refreshes/reconciles the feed, upserts only `page`,
 preserves all absent pages, assigns timestamps, and returns A.8. Save never performs implicit
-deletion.
+deletion. For the extension, a successful Save response is a commit acknowledgement only: it
+invalidates cached property authority and immediately issues a distinct `POST /load`. Only that
+Load response may complete-replace local configuration. The Save response body is never adopted as
+local authority, even when the Hub includes the full snapshot for protocol compatibility.
 
 ### A.5 `POST /remove` — explicit one-page deletion
 
@@ -175,9 +178,11 @@ mutation response, or partial data plus errors returns `publication_unknown` whi
 journal keeps that operation pending. Only the same operation/fence/revisions may retry; it verifies
 `cssInfo` first and otherwise resends the identical replace-state payload.
 
-### A.8 Authoritative response snapshot
+### A.8 Complete Hub response snapshot
 
-Every successful save/remove/reconcile/publish response contains the complete snapshot:
+Every successful save/remove/reconcile/publish response contains the complete snapshot below.
+Mutation responses remain useful for server reconciliation and protocol diagnostics, but the
+extension's post-Save configuration authority is deliberately Load-only as defined in A.3/A.4.
 
 ```jsonc
 {
@@ -325,6 +330,13 @@ Base = `endpointValue` (AI preference). Implemented in `src/background/remote-ne
 
 ### C.1 `POST /get_selectors` — start an AI run
 
+The AI service has **no property or page memory**. Every call is a complete,
+self-contained calculation: the request carries the latest loaded corpus for
+every candidate page in the property plus the active current-page projection.
+The returned session id is only an ephemeral asynchronous-job handle for the
+status/result calls below. It must never be interpreted as server-side property
+state, a reusable corpus, or a remotely persisted draft.
+
 `requestAiRunStartSnapshot()`. Body is the staged `AiRunPayloadSnapshot` (built by `prepareAiRunPayloadSnapshot`, `ai-run-orchestrator.ts`):
 
 ```jsonc
@@ -366,7 +378,7 @@ Base = `endpointValue` (AI preference). Implemented in `src/background/remote-ne
 | (anything else) | treat as done → fetch result |
 | HTTP 404 | `notFound` → run no longer exists |
 
-**Poll cadence:** `aiRunPollIntervalMs` default **5s**; overall deadline `aiRunTimeoutMs` default **480s (8 min)** (`AI_RUN_DEFAULT_TIMEOUT_MS` = `8 * 60 * 1000` = 480000 ms, `src/common/bus/contracts/ai-run.ts`). The loop polls first, then sleeps only while `running` (avoids head-of-loop lag). A per-run heartbeat (`refreshAiRunHeartbeat`) persists an AI-run record to session storage each iteration for MV3 resume.
+**Poll cadence:** `aiRunPollIntervalMs` default **5s**; overall deadline `aiRunTimeoutMs` default **480s (8 min)** (`AI_RUN_DEFAULT_TIMEOUT_MS` = `8 * 60 * 1000` = 480000 ms, `src/common/bus/contracts/ai-run.ts`). The loop polls first, then sleeps only while `running` (avoids head-of-loop lag). A per-run heartbeat (`refreshAiRunHeartbeat`) keeps an active-session continuation record in extension session storage so an MV3 worker restart can resume polling. That record is not AI/backend persistence and is retired on Save, Discard, marking disable, page navigation, or session replacement. Generation fencing prevents a late poll or result from recreating a retired record.
 
 ### C.3 `GET /get_selectors/result/:sessionId` — fetch result
 
@@ -382,7 +394,7 @@ Base = `endpointValue` (AI preference). Implemented in `src/background/remote-ne
 - Stored as `ai-run-result` transfer payload; normalized by `normalizeAiSelectorSet` into the config's `selectors` (A.5). HTTP 404 → `notFound`.
 - **Locked:** the rewrite matches the current parse exactly — the response must be an object carrying both selector arrays or it is rejected; empty/partial handling and 404→`notFound` follow the current client. No team confirmation needed.
 
-> Register alignment (T4): after any marking change, the AI run must re-run before Save enables; the result set seeds the fresh-page baseline and Discard's clean baseline. This is a client-side gate, not part of the AI wire contract.
+> Register alignment (T4): after any marking change, the AI run must re-run before Save enables. The result set is an active-session suggestion only. It does not seed Discard or a future marking session. Save commits the accepted result; only the subsequent distinct Load can make the backend's newest complete shape the authoritative selector baseline for Discard or a later enable. This is a client-side lifecycle gate, not AI-side persistence.
 
 ---
 
@@ -504,7 +516,8 @@ These are **design targets to implement server-side**, not confirmations. The re
 1. Implement `/context` as the sole property/feed resolver, with registered stages, exact-JWT
    delegation, payload-first error classification, canonical relative page keys, and feed fingerprints.
 2. Implement complete `/load`, structurally singular partial-upsert `/save`, explicit `/remove`,
-   fenced reconciliation, and full authoritative responses using unified `rows[]`.
+   fenced reconciliation, and full Hub responses using unified `rows[]`; ensure the client treats
+   Save as commit-only and performs a distinct Load for complete local replacement.
 3. Assign all timestamps server-side; preserve absent pages and submitted fingerprints; provide
    explicit shrink/relabel proof.
 4. Implement backend-issued/rotated `lockToken`, distinct `editorSessionId`, qualifying-presence

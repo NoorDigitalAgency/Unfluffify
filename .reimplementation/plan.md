@@ -202,8 +202,10 @@ this is the load-bearing summary.
 - **MV3 suspension**: PRIMARY = keep-alive during active work; FALLBACK = persist **durable** facts
   (per-tab state, run records, backend lock identity) + rehydrate + **re-derive volatile** authority
   (spinner selection, leases, connection runtimes); cross-realm messages **idempotent-by-sequence**.
-- **Data authority**: backend-authoritative + session working draft; local fully sourced on `/load`,
-  fully replaced by the `/save` response; timestamp-merge only **within** one editing session.
+- **Data authority**: backend-authoritative + ephemeral active-session working state. Local saved
+  configuration is fully sourced and atomically replaced only by `/load`; `/save` acknowledges the
+  remote commit but is never adopted as configuration. A successful post-Save Load destroys the
+  mutable session without merging or preserving local session data.
 - **Marking derivation**: store a **minimal canonical mark set** → one pure evaluation pass
   ("nearest-marked-ancestor decides each node") → derive **both** overlay classification **and**
   submission rows; branch-scoped incremental recompute; **delete** prune-on-toggle + scoped-splice +
@@ -424,7 +426,8 @@ designed safety net — verify it independently in P10 live.
 
 **Create:**
 - `src/lynx/rest.ts` — historical `/load`, `/save`, `/remove` implementation; current target is
-  `remote-api.md` A.1–A.8 (singular partial Save, full authoritative response, fenced/idempotent Hub).
+  `remote-api.md` A.1–A.8 (singular partial Save with commit-only acknowledgement, distinct full
+  authoritative Load, fenced/idempotent Hub).
 - `src/lynx/ai.ts` — `/get_selectors` (**LOCKED** to current code; conform exactly).
 - `src/lynx/graphql.ts` — locked GraphQL schemas remain exact, but D17/D24 move property/feed and
   publication calls behind the Hub with exact-JWT delegation.

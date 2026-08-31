@@ -74,8 +74,9 @@ export type StorefrontMutationPressureResult = Readonly<{
 }>;
 
 /**
- * Exercise the same extraction-irrelevant churn produced by a dynamic consent
- * surface without adding benchmark-owned nodes to the canonical fixture rows.
+ * Exercise page-authored hidden consent churn during the trusted-input window.
+ * Functional tests own its eventual extraction refresh; this pressure probe
+ * verifies that the debounced work never enters the click/hover paint path.
  */
 export function startStorefrontMutationPressure(): () => StorefrontMutationPressureResult {
   const consentRoot = document.createElement("aside");

@@ -27,8 +27,11 @@ truthful feedback.
   do not delete, rewrite, or silently absorb unrelated files.
 - Never call intentional consent suppression a defect. Blocking commerce,
   account, contact, assembly, country, modal, cookie, and similar UI is meant to
-  be hidden and excluded from every extraction surface. Report only incomplete,
-  over-broad, leaky, or visually stale suppression.
+  be visually hidden and non-interactive. Page-authored DOM must nevertheless
+  remain in sanitized HTML and receive truthful hidden-element payload coverage
+  under the marking contract; only extension-authored artifacts are absent.
+  Report incomplete, over-broad, visually stale, interactive, or payload-
+  misclassified suppression.
 - The pinned legacy implementation is a behavioral reference, not blanket
   authority. Current decision records and locked rewrite contracts win where
   the rewrite deliberately improves safety, accessibility, payload hygiene,
@@ -79,8 +82,9 @@ least:
 - reveal/freeze sequence, correct scroll owner, smooth top/middle/true-bottom/
   restore motion, growth and quiet proof, lazy-loading suppression, no-scroll
   pages, animation/media/SVG/timer suspension, and teardown;
-- marking defaults, eligible targets, hover, plain unmark-only behavior, Shift
-  expansion, Alt inclusion, exact clear, context actions, fragments, overlap,
+- marking defaults, eligible targets, hover, the three-state plain toggle,
+  Shift breadth, Alt inclusion with Alt-over-Shift precedence, expanded-boundary
+  rehydration and explicit-inclusion exceptions, native right click, fragments, overlap,
   shadow DOM, hidden state, scroll/resize fade, layer order, borders, cursors,
   accessibility, and interaction latency;
 - Run AI admission, immediate feedback, capture and payload preparation,
@@ -144,15 +148,18 @@ Confirm that:
 
 - invisible or suppressed decisions may remain canonical but paint no stale
   marking or silent-highlight geometry;
-- no consent-suppressed, extension-owned, freeze-authored, automation, or debug
-  artifact leaks into extraction or production payloads;
-- plain input never creates an exclusion, Shift expansion and Alt inclusion use
-  the approved target, and exact unmark clears the visible owner;
+- page-authored consent DOM remains truthfully covered while no extension-owned,
+  freeze-authored, automation, or debug artifact leaks into extraction or
+  production payloads;
+- plain input performs the approved implicit-inclusion/explicit-exclusion toggle
+  and clears an explicit inclusion to its applicable default; Shift breadth and
+  Alt inclusion use the approved target, Alt wins over Shift, expanded ownership
+  rehydrates correctly, and native right click is untouched;
 - every enabled Content List row has a truthful, physically routable target;
 - post-AI edits invalidate dependent actions promptly without waiting for remote
   authority;
-- Save mutates only the current page exactly once and adopts the complete
-  authoritative response;
+- Save mutates only the current page exactly once, treats that response as
+  commit-only, and a distinct Load then adopts the complete authoritative shape;
 - incomplete coverage produces zero final publication attempts.
 
 ### 5. Challenge every apparent finding

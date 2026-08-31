@@ -53,7 +53,7 @@ async (page) => {
       () => {
         const state = window.__p23Runtime.silentState();
         return state.retained && state.allBoxesRetained && !state.geometryChanged &&
-          state.rootScrolling && state.allRetainedLayersTransparent;
+          state.rootScrolling && state.allRetainedPresentationTransparent;
       },
       undefined,
       { polling: 1, timeout: 500 },
@@ -62,7 +62,7 @@ async (page) => {
   } catch (error) {
     const state = await page.evaluate(() => window.__p23Runtime.silentState());
     throw new Error(
-      "P23 silent layers did not fade before geometry reposition: " + JSON.stringify(state),
+      "P23 silent presentation did not fade before geometry reposition: " + JSON.stringify(state),
       { cause: error },
     );
   }
@@ -72,7 +72,7 @@ async (page) => {
         const state = window.__p23Runtime.silentState();
         return state.retained && state.allBoxesRetained && state.currentTop !== initialTop &&
           state.geometryChanged && state.latencyMs !== null && !state.rootScrolling &&
-          state.allRetainedLayersVisible;
+          state.allRetainedPresentationVisible;
       },
       silentBefore.initialTop,
       { polling: 5, timeout: 500 },

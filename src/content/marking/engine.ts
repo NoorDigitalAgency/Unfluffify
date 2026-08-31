@@ -25,7 +25,7 @@ import {
 } from "./dom-view";
 import { getComposedHitElements } from "./hit-testing";
 import { isPaintReachableWithinHits } from "./paint-reachability";
-import { canonicalMarkingFingerprint, createMarkingStore } from "./store";
+import { canonicalMarkingFingerprint, createMarkingStore, mergeDefaultExclusions } from "./store";
 import { resolveTarget, type MarkingCandidate } from "./resolve";
 import {
   createOverlayRenderer,
@@ -37,7 +37,6 @@ import {
 import { buildSilentHighlights, shallowXpathBoundaries } from "./silent-highlight";
 import { buildSubmissionSnapshot } from "./submit";
 import type { RenderMode } from "../../domain/schema/property";
-import { isToggleableDefaultTag } from "../../domain/taxonomy";
 import type { VisibilityGeometry } from "../../domain/visibility";
 import { isSelfMarkable, isToggleableBoundary } from "../../domain/boundary";
 import { readElementId } from "./element-identity";
@@ -51,6 +50,7 @@ function evaluationNodeFingerprint(node: EvaluationNode): string {
     node.visible ? "1" : "0",
     node.ownsDirectText ? "1" : "0",
     node.structuralBoundary ? "1" : "0",
+    node.interactionSuppressed ? "1" : "0",
     node.closedShadow ? "1" : "0",
     ...(node.children ?? []).map((child) => child.xpath),
   ].join("\u0000");
@@ -554,22 +554,6 @@ function toWidenNode(
   return widenNode;
 }
 
-function collectDefaultExclusionRows(node: EvaluationNode, rows: MarkRow[] = []): MarkRow[] {
-  if (
-    isToggleableDefaultTag(node.tagName) &&
-    node.visible &&
-    !node.chrome &&
-    !node.immutable &&
-    !node.closedShadow
-  ) {
-    rows.push({ xpath: node.xpath, excluded: true });
-  }
-  for (const child of node.children ?? []) {
-    collectDefaultExclusionRows(child, rows);
-  }
-  return rows;
-}
-
 function geometryForElement(element: Element): VisibilityGeometry {
   const rect = element.getBoundingClientRect();
   const view = element.ownerDocument.defaultView;
@@ -598,18 +582,6 @@ function geometryForElement(element: Element): VisibilityGeometry {
     viewportWidth: view?.innerWidth,
     pageHeight: element.ownerDocument.documentElement.scrollHeight,
   };
-}
-
-function mergeDefaultExclusions(root: EvaluationNode, markSet: CanonicalMarkSet = { rows: [] }): CanonicalMarkSet {
-  const rows = [...markSet.rows];
-  const existing = new Set(rows.map((row) => row.xpath));
-  for (const row of collectDefaultExclusionRows(root)) {
-    if (!existing.has(row.xpath)) {
-      rows.push(row);
-      existing.add(row.xpath);
-    }
-  }
-  return { rows };
 }
 
 export type MarkingEngineWorkStage =
@@ -669,6 +641,14 @@ const PROGRESSIVE_GEOMETRY_TARGET_THRESHOLD = 6;
 const PROGRESSIVE_GEOMETRY_CHUNK_SIZE = 2;
 const PROGRESSIVE_GEOMETRY_MAX_CHUNKS_PER_FRAME = 4;
 const PROGRESSIVE_GEOMETRY_FRAME_BUDGET_MS = 8;
+// Registering a large document with IntersectionObserver in one task makes
+// Chromium deliver the initial observation corpus in one correspondingly large
+// callback. On storefront-sized pages that callback can land inside the first
+// scroll input window even though the actual overlay repaint is progressive.
+// Preserve the simple synchronous path for ordinary pages, but frame-chunk the
+// large registration so both observer setup and delivery remain bounded.
+const PROGRESSIVE_INTERSECTION_OBSERVE_THRESHOLD = 512;
+const PROGRESSIVE_INTERSECTION_OBSERVE_CHUNK_SIZE = 256;
 // Newly inserted or removed content needs to become markable on roughly the
 // same cadence as the legacy renderer. Presentation attributes are noisier
 // (carousels commonly emit them in short trains), so retain the longer quiet
@@ -1023,6 +1003,9 @@ export function createMarkingEngine(
   let progressiveGeometryActive = false;
   let progressiveGeometryFollowup: Exclude<RenderWork, "structural"> | null = null;
   let targetIntersectionObserver: IntersectionObserver | null = null;
+  let intersectionObservationHandle: number | null = null;
+  let intersectionObservationCycle = 0;
+  let intersectionObservationComplete = true;
   let intersectionSnapshotReady = false;
   let incompleteIntersectionFallbackUsed = false;
   let intersectionByElement = new WeakMap<Element, boolean>();
@@ -1055,21 +1038,76 @@ export function createMarkingEngine(
     return wasActive;
   };
 
+  const closeIntersectionSnapshotIfComplete = (): boolean => {
+    if (
+      !intersectionObservationComplete
+      || pendingIntersectionElements.size > 0
+      || intersectionSnapshotReady
+    ) {
+      return false;
+    }
+    intersectionSnapshotReady = true;
+    if (!incompleteIntersectionFallbackUsed) {
+      return false;
+    }
+    incompleteIntersectionFallbackUsed = false;
+    return true;
+  };
+
+  const cancelIntersectionObservation = (): void => {
+    intersectionObservationCycle += 1;
+    if (intersectionObservationHandle !== null) {
+      presentationClock.cancelFrame(intersectionObservationHandle);
+      intersectionObservationHandle = null;
+    }
+    intersectionObservationComplete = true;
+  };
+
   const rebindIntersectionTargets = (): void => {
     if (!targetIntersectionObserver) {
       return;
     }
+    cancelIntersectionObservation();
     targetIntersectionObserver.disconnect();
     intersectionSnapshotReady = false;
+    intersectionObservationComplete = false;
     incompleteIntersectionFallbackUsed = false;
     intersectionByElement = new WeakMap<Element, boolean>();
     pendingIntersectionElements.clear();
     intersectingXpaths.clear();
     intersectionDirtyXpaths.clear();
-    for (const target of overlayTargets.values()) {
-      pendingIntersectionElements.add(target.element);
-      targetIntersectionObserver.observe(target.element);
-    }
+    const targets = [...overlayTargets.values()].map((target) => target.element);
+    const cycle = intersectionObservationCycle;
+    let offset = 0;
+    const observeNextChunk = (): void => {
+      intersectionObservationHandle = null;
+      if (
+        disposed
+        || cycle !== intersectionObservationCycle
+        || !targetIntersectionObserver
+      ) {
+        return;
+      }
+      const chunkSize = targets.length > PROGRESSIVE_INTERSECTION_OBSERVE_THRESHOLD
+        ? PROGRESSIVE_INTERSECTION_OBSERVE_CHUNK_SIZE
+        : targets.length;
+      const end = Math.min(offset + chunkSize, targets.length);
+      for (; offset < end; offset += 1) {
+        const element = targets[offset]!;
+        pendingIntersectionElements.add(element);
+        targetIntersectionObserver.observe(element);
+      }
+      if (offset < targets.length) {
+        const handle = presentationClock.requestFrame(observeNextChunk);
+        intersectionObservationHandle = handle || null;
+        return;
+      }
+      intersectionObservationComplete = true;
+      if (closeIntersectionSnapshotIfComplete()) {
+        scheduleRender("geometry");
+      }
+    };
+    observeNextChunk();
   };
 
   const viewportGeometryTargets = (): ReadonlyMap<string, OverlayRenderTarget> => {
@@ -2083,6 +2121,7 @@ type DeferredBranchRenderChunk = Readonly<{
     let structuralFallbackHandle: ReturnType<typeof setTimeout> | null = null;
     let structuralRenderInFlight = false;
     let structuralTrailingQuietMs: number | null = null;
+    let structuralDeferredForViewport = false;
     let progressivePresentationHandle: number | null = null;
     let progressivePresentationCycle = 0;
     let pendingStructuralNonAttributeMutation = false;
@@ -2153,6 +2192,17 @@ type DeferredBranchRenderChunk = Readonly<{
     };
     const dispatchStructuralRefresh = (): void => {
       cancelStructuralDispatch();
+      if (viewportGeometryHandle !== null) {
+        // A full bridge refresh is authoritative extraction work, but it is not
+        // trusted-input work. Consent teardown, lazy-content insertion, and
+        // other child-list mutations can finish their quiet window while a
+        // wheel/resize transaction still owns the viewport. Keep the pending
+        // mutation ledger intact and resume it only after that transaction has
+        // repainted; otherwise a document-scale bridge walk lands inside the
+        // input window and makes the retained overlay feel unresponsive.
+        structuralDeferredForViewport = true;
+        return;
+      }
       let fullBridgeChange = pendingStructuralNonAttributeMutation;
       const presentationTargets = new Set<Element>();
       pendingStructuralNonAttributeMutation = false;
@@ -2318,35 +2368,11 @@ type DeferredBranchRenderChunk = Readonly<{
     };
     const isExtractionIrrelevantNode = (node: Node): boolean => {
       const element = node.nodeType === 1 ? node as Element : node.parentElement;
-      return Boolean(
-        element?.closest?.('[data-uf-extension-ui="true"]')
-        || element?.closest?.("[data-uf-consent-hidden]"),
-      );
-    };
-    const isConsentSuppressionBoundaryMutation = (record: MutationRecord): boolean => {
-      if (
-        record.type !== "attributes"
-        || record.attributeName !== "data-uf-consent-hidden"
-        || record.target.nodeType !== 1
-      ) {
-        return false;
-      }
-      const element = record.target as Element;
-      // Adding or removing the suppression attribute changes whether this
-      // element participates in the flattened bridge. That can renumber every
-      // same-tag sibling after it, so it is structural even though the element
-      // is already suppressed by the time MutationObserver delivers the
-      // record. Descendant churn inside an existing suppressed/extension root
-      // remains extraction-irrelevant.
-      return !element.closest?.('[data-uf-extension-ui="true"]')
-        && !element.parentElement?.closest?.("[data-uf-consent-hidden]");
+      return Boolean(element?.closest?.('[data-uf-extension-ui="true"]'));
     };
     const isExtractionIrrelevantMutation = (record: MutationRecord): boolean => {
-      if (isConsentSuppressionBoundaryMutation(record)) {
-        return false;
-      }
-      // Mutations inside extension or consent-suppressed roots cannot affect
-      // extraction, even when a removed child is already detached.
+      // Only extension-owned UI is outside extraction. Consent-suppressed DOM
+      // is page-authored payload evidence, so its mutations remain relevant.
       if (isExtractionIrrelevantNode(record.target)) {
         return true;
       }
@@ -2462,10 +2488,8 @@ type DeferredBranchRenderChunk = Readonly<{
           renderer.pruneInvisibleExclusions();
         }
         if (netRecords.some(suppressedMutationTouchesBridge)) {
-          // Consent suppression is intentionally extraction-irrelevant, but it
-          // can hide or remove elements that already own marking rectangles.
-          // Reconcile their presentation on the next paint without rebuilding
-          // the extraction bridge or admitting the suppressed subtree.
+          // Suppression changes presentation immediately. The relevant record
+          // below also refreshes its retained extraction/payload fields.
           scheduleRender("geometry");
         }
         const relevantRecords = netRecords.filter((record) =>
@@ -2501,7 +2525,6 @@ type DeferredBranchRenderChunk = Readonly<{
     if (view?.IntersectionObserver) {
       targetIntersectionObserver = new view.IntersectionObserver((entries) => {
         let changed = false;
-        const snapshotWasReady = intersectionSnapshotReady;
         for (const entry of entries) {
           const bridgeEntry = bridge.byElement.get(entry.target);
           if (!bridgeEntry) {
@@ -2522,14 +2545,7 @@ type DeferredBranchRenderChunk = Readonly<{
             changed = true;
           }
         }
-        if (pendingIntersectionElements.size === 0) {
-          intersectionSnapshotReady = true;
-        }
-        if (
-          !snapshotWasReady
-          && intersectionSnapshotReady
-          && incompleteIntersectionFallbackUsed
-        ) {
+        if (closeIntersectionSnapshotIfComplete()) {
           // The bounded fallback deliberately used only retained/known-positive
           // targets. Close it with one current-snapshot pass; geometry requests
           // arriving during a progressive pass are coalesced into its trailing
@@ -2543,8 +2559,10 @@ type DeferredBranchRenderChunk = Readonly<{
       });
       rebindIntersectionTargets();
       cleanups.push(() => {
+        cancelIntersectionObservation();
         targetIntersectionObserver?.disconnect();
         targetIntersectionObserver = null;
+        intersectionObservationComplete = true;
         intersectionSnapshotReady = false;
         incompleteIntersectionFallbackUsed = false;
         intersectionByElement = new WeakMap<Element, boolean>();
@@ -2600,6 +2618,33 @@ type DeferredBranchRenderChunk = Readonly<{
       // after that exact geometry/classification transaction completes.
       revealMarkingAfterRender = true;
       scheduleRender("geometry");
+      if (structuralDeferredForViewport) {
+        structuralDeferredForViewport = false;
+        // Give the settled geometry transaction its paint before returning the
+        // retained mutation ledger to the idle scheduler. This does not drop or
+        // weaken extraction truth; it merely keeps full-document work outside
+        // the trusted wheel/resize path.
+        scheduleStructuralRefresh(STRUCTURAL_CHILD_LIST_QUIET_MS);
+      }
+    };
+    const deferPendingStructuralRefreshForViewport = (): void => {
+      if (
+        structuralRenderInFlight
+        || (
+          !pendingStructuralNonAttributeMutation
+          && pendingStructuralAttributeOldValues.size === 0
+        )
+      ) {
+        return;
+      }
+      // requestIdleCallback may remain pending beyond its quiet window and run
+      // just after the viewport timer expires. Deferring only inside its
+      // callback therefore leaves a race where the complete bridge rebuild and
+      // the trailing geometry paint share one input window. Claim the pending
+      // ledger at the first real viewport event instead, cancel both idle and
+      // timeout backstops, and resume from finishViewportGeometry.
+      cancelStructuralDispatch();
+      structuralDeferredForViewport = true;
     };
     const scheduleTrailingGeometry = (
       kind: ViewportGeometryKind,
@@ -2656,6 +2701,7 @@ type DeferredBranchRenderChunk = Readonly<{
         // owns whether this is new geometry.
         return;
       }
+      deferPendingStructuralRefreshForViewport();
       revealMarkingAfterRender = false;
       cancelProgressiveGeometryRender();
       if (hideStaleGeometry) {
@@ -2747,6 +2793,7 @@ type DeferredBranchRenderChunk = Readonly<{
       }
       cancelStructuralDispatch();
       structuralTrailingQuietMs = null;
+      structuralDeferredForViewport = false;
       structuralRenderInFlight = false;
       structuralRenderSettled = null;
       pendingStructuralNonAttributeMutation = false;
@@ -2826,33 +2873,6 @@ type DeferredBranchRenderChunk = Readonly<{
         ? prefetchedPointHits.elements
         : null;
       prefetchedPointHits = null;
-      if (mode === "exclude" && !shiftActive) {
-        // Plain input is unmark-only. Prefer any exact explicit mark (including
-        // an Alt-created inclusion), then fall back to the painted exclusion
-        // owner. Both lookups use the renderer's generation-fenced fragments,
-        // so clearing never relies on a stale bounding-box approximation.
-        const paintedOwnerXpath = renderer.paintedExplicitOwnerAtPoint(
-          x,
-          y,
-          bridgeGeneration,
-          hint?.overlayXpath,
-        ) ?? renderer.paintedExclusionOwnerAtPoint(
-          x,
-          y,
-          bridgeGeneration,
-          hint?.overlayXpath,
-        );
-        // Every indexed exception is a current painted classification owned by
-        // this bridge generation. The shallow exception painter guarantees the
-        // indexed XPath is the canonical exclusion boundary, so the direct
-        // bridge lookup avoids rebuilding or scanning an all-owner map.
-        const paintedOwner = paintedOwnerXpath
-          ? bridge.byXpath.get(paintedOwnerXpath)?.evaluationNode
-          : undefined;
-        if (paintedOwner && currentNodeForHint(paintedOwner.xpath) === paintedOwner) {
-          return paintedOwner;
-        }
-      }
       const pointHits = prefetched ?? getComposedHitElements(rootElement.ownerDocument, x, y);
       const hits = pointHits
         .filter((element) => composedContains(rootElement, element))
@@ -2907,24 +2927,47 @@ type DeferredBranchRenderChunk = Readonly<{
           candidate = candidate.parent ?? undefined;
         }
       }
-      const resolved = resolveTarget(candidates, mode);
+      let resolved = resolveTarget(candidates, mode);
+      if (mode === "exclude" && !shiftActive) {
+        // Preserve the generation-fenced painted-owner fallback for a boundary
+        // that is visibly covered by an unrelated stacking-context sibling.
+        // When the owner's own composed path is present, however, resolve the
+        // deepest mutable descendant: expanded exclusions deliberately do not
+        // close their descendants to ordinary clicking.
+        const paintedOwnerXpath = renderer.paintedExplicitOwnerAtPoint(
+          x,
+          y,
+          bridgeGeneration,
+          hint?.overlayXpath,
+        ) ?? renderer.paintedExclusionOwnerAtPoint(
+          x,
+          y,
+          bridgeGeneration,
+          hint?.overlayXpath,
+        );
+        if (paintedOwnerXpath && !candidateXpaths.has(paintedOwnerXpath)) {
+          const paintedOwner = bridge.byXpath.get(paintedOwnerXpath)?.evaluationNode;
+          const paintedCandidate = candidatesByXpath.get(paintedOwnerXpath);
+          if (
+            paintedOwner &&
+            paintedCandidate &&
+            currentNodeForHint(paintedOwner.xpath) === paintedOwner
+          ) {
+            resolved = paintedCandidate;
+          }
+        }
+      }
       if (!resolved) {
         return null;
       }
-      // Plain exclusion input may only remove an existing decision. An
-      // explicit inclusion is such a decision even though its evaluated
-      // classification is content rather than exception; keep it clearable
-      // while the renderer's generation-fenced owner fast path catches up.
-      if (
-        mode === "exclude" &&
-        !shiftActive &&
-        resolved.excluded !== true &&
-        resolved.explicitInclude !== true &&
-        resolved.explicitExclude !== true
-      ) {
-        return null;
-      }
       if (shiftActive && mode === "exclude") {
+        // Shift changes target breadth, not the state transition of an exact
+        // mutable boundary. Existing explicit decisions therefore toggle at
+        // their own boundary; ordinary targets continue into the widening
+        // resolver below.
+        if (resolved.explicitInclude || resolved.explicitExclude) {
+          return bridge.byXpath.get(resolved.xpath)?.evaluationNode ?? null;
+        }
         const widenNode = widenByKey.get(resolved.key) ?? widenByKey.get(resolved.xpath);
         if (!widenNode) {
           return null;
@@ -2993,30 +3036,6 @@ type DeferredBranchRenderChunk = Readonly<{
         return bridge.byKey.get(widened.key)?.evaluationNode ?? null;
       }
       return bridge.byXpath.get(resolved.xpath)?.evaluationNode ?? null;
-    },
-    resolveContextAtPoint(
-      x: number,
-      y: number,
-      hint?: MarkingPointResolutionHint,
-    ): Readonly<{
-      include: EvaluationNode | null;
-      existingExclude: EvaluationNode | null;
-      shiftedExclude: EvaluationNode | null;
-    }> {
-      // A context menu is one physical observation. Reuse its exact composed
-      // hit stack for all capabilities so page motion or a concurrent paint
-      // cannot make Include, Exclude, Widen, and Clear disagree about which
-      // element the operator right-clicked.
-      const elements = getComposedHitElements(rootElement.ownerDocument, x, y);
-      const resolveCached = (mode: "include" | "exclude", shiftActive: boolean) => {
-        prefetchedPointHits = { x, y, elements };
-        return this.resolveAtPoint(x, y, mode, shiftActive, hint);
-      };
-      return {
-        include: resolveCached("include", false),
-        existingExclude: resolveCached("exclude", false),
-        shiftedExclude: resolveCached("exclude", true),
-      };
     },
     acknowledge(
       node: EvaluationNode,

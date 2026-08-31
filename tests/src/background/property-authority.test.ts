@@ -244,12 +244,22 @@ describe("the backend is the single source of truth", () => {
     }
   });
 
-  it("drops the local render mode once a save puts it on the backend", async () => {
+  it("keeps local posture until the mandatory post-save Load replaces it", async () => {
     const svc = services();
     await svc.property.applyBackendLoad(ENVIRONMENT_KEY, SITE_ID, { status: "not_found" });
     await svc.property.rememberRenderMode(ENVIRONMENT_KEY, SITE_ID, "static");
 
-    await svc.property.applyBackendSave(ENVIRONMENT_KEY, SITE_ID, BACKEND_CONFIG);
+    const beforeLoad = await svc.repos.localPropertyRepo.load(ENVIRONMENT_KEY, SITE_ID);
+    expect(beforeLoad.ok && beforeLoad.value).toMatchObject({
+      backendConfigPresent: false,
+      renderMode: "static",
+    });
+
+    await svc.property.applyBackendLoad(
+      ENVIRONMENT_KEY,
+      SITE_ID,
+      { status: "ok", config: BACKEND_CONFIG },
+    );
 
     const stored = await svc.repos.localPropertyRepo.load(ENVIRONMENT_KEY, SITE_ID);
     expect(stored.ok && stored.value).toMatchObject({ backendConfigPresent: true });

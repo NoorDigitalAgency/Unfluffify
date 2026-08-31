@@ -291,7 +291,10 @@ describe("rewrite/legacy decision traceability", () => {
   it("rejects blank, undefined, duplicate, and incomplete acceptance evidence", () => {
     const { specification, traceability } = documents();
     const n02 = decisionLine(traceability, "N-02");
-    const blankN02 = n02.replace("`ACCEPT-P15-FROZEN-SHIELD`", "—");
+    const blankN02Columns = n02.split("|");
+    blankN02Columns[3] = " — ";
+    blankN02Columns[4] = " — ";
+    const blankN02 = blankN02Columns.join("|");
     const definition = traceability.split("\n")
       .find((line) => line.startsWith("| ACCEPT-P13-CAPTURE-SANITIZER |"));
     if (!definition) {

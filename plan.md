@@ -862,3 +862,418 @@ occurrence while remaining in `boot`, preventing content-owned restoration.
 6. `el02-r2-headed-candidate-matrix` → 5
 7. `el02-r2-review-push` → 6
 8. `el02-r2-conformance` → 7
+
+## 6. EL-02-R2 conformance result
+
+**Verdict:** `NOT APPROVED — EL-02-R3 REQUIRED` on implementation commit
+`fb005629085b98369a07bcbdd06187f6b065815a`.
+
+R2's scoped cold-realm repair is correct. Focused tests passed `115/115`,
+`pnpm verify` passed `1555/1555`, production and debug builds completed, P17
+passed `19/19`, P20 passed `4/4`, and the unchanged full P25 composite passed
+all seven children. The exact headed Arno occurrence also proved the missing
+edge: content began in `silent` at cursor 3, accepted saved silent Preview as
+`silent_preview` at cursor 4, and returned to unblocked `silent` at cursor 6.
+The production Content List then passed native-keyboard row activation,
+corresponding smooth row-to-page focus, trusted page-to-row routing, and
+terminal Exit. No Save or publication request was made.
+
+The broader cumulative check nevertheless exposed two independent marking
+coherence failures before the candidate matrix could continue:
+
+| Finding | Severity | Exact evidence | Root cause |
+| --- | --- | --- | --- |
+| `EL-02-F004` | High | After a Shift exclusion and plain unmark returned Arno to `dirty: false`, the content organ remained `pre_ai_dirty` while the popup correctly returned to its clean posture. | The popup transition consumes `markings.changed.payload.dirty`, remembers whether the clean origin was pre- or post-AI, and handles net-zero edits. The content transition ignores that payload and always moves a clean state to `pre_ai_dirty`. |
+| `EL-02-F005` | High | The exact Arno Shift interaction updated content in 60 ms, but the popup did not enable Discard/project dirty state for 4,639 ms, violating the one-second local projection contract. | The background observes the brain decision synchronously but keeps `signals.available` behind durable-fact persistence inside the tab lifecycle queue. Slow persistence therefore delays the first notification and also blocks a following unmark fact. |
+
+One apparent Preview page-target failure was rejected as a product finding. The
+probe clicked again while the intentional smooth row route had temporarily
+retired highlights. Reusing P25's bounded focus-correlation wait proved the
+expected fade/restore behavior and both routing directions.
+
+| Criterion | Result | Evidence |
+| --- | --- | --- |
+| `EL02-R2-AC-01` | PASS | Boot-only hydration and cursor/idempotence unit coverage passed. |
+| `EL02-R2-AC-02` | PASS | Terminal/unmanaged entrypoint fences remained boot and passed focused/full suites. |
+| `EL02-R2-AC-03` | PASS | The no-`marking.disabled`, no-navigation regression terminalized with exactly one content-owned exit fact. |
+| `EL02-R2-AC-04` | PASS | Arno projection retirement, smooth focus restore, and semantic two-way routing passed after applying the intended bounded scroll wait. |
+| `EL02-R2-AC-05` | PASS | Exact production Arno cold Preview restored `silent` without a toast or curtain. |
+| `EL02-R2-AC-06` | FAIL | `EL-02-F004` and `EL-02-F005` violate cumulative marking/state responsiveness, so the remaining candidate matrix is fenced until R3. |
+
+# EL-02-R3 — Net-clean marking parity and immediate ordered signal projection
+
+## 1. Remediation verdict and scope
+
+R3 repairs the two cumulative failures discovered by R2 conformance without
+changing selector semantics, marking target resolution, visual expansion,
+consent, endpoints, payloads, Save, publication, emulation dimensions, or
+public permissions. The brain remains the sole signal producer. Durable facts
+remain ordered and must settle before terminal tab cleanup, but their storage
+latency may not delay an already-produced in-memory signal or serialize later
+interactive facts behind I/O.
+
+## 2. Implementation sequence
+
+### EL-02-R3-01 — Symmetric net-clean content state
+
+**Finding:** `EL-02-F004`.
+
+1. Give the content state the same pre-/post-AI clean-origin memory already
+   owned by the popup state.
+2. On `markings.changed`, consume `payload.dirty`: a dirty edit records its
+   clean origin; a net-clean edit returns `pre_ai_dirty` to that exact origin.
+   Running and reconciling semantics remain monotonic exactly as in the popup.
+3. Establish/clear the clean-origin field on marking enable, successful AI,
+   discard, disable, navigation, and terminal save as appropriate.
+4. Unit-prove pre-AI and post-AI mark/unmark round trips, run/reconcile behavior,
+   cursor monotonicity, and post-AI Preview acceptance after a reverted edit.
+
+### EL-02-R3-02 — Ordered durability outside the interactive lifecycle lane
+
+**Finding:** `EL-02-F005`.
+
+1. After an authorized fact is synchronously observed by the brain, notify the
+   popup and content consumers before waiting on durable storage.
+2. Move fact persistence to a per-tab, thunk-based single-flight tail. Keep the
+   message event alive until its own durable write settles, but release the tab
+   lifecycle lane first so a following toggle can produce and publish its
+   signal immediately.
+3. Drain that persistence tail before terminal tab cleanup forgets brain/tab
+   state. Reject facts admitted after terminal cleanup begins; preserve current
+   document, consent, navigation, and source-instance fences.
+4. Prove with deferred persistence that dirty and net-clean availability events
+   arrive in order before either write resolves, persistence itself remains
+   ordered, and cleanup waits for the admitted tail without resurrecting facts.
+
+### EL-02-R3-03 — Exact interaction and integration regressions
+
+1. Add popup/background integration coverage showing a marking toggle projects
+   dirty controls from the event path without an authority refresh or 500 ms
+   backstop, and a net-clean toggle restores the clean controls the same way.
+2. Extend content entrypoint coverage through
+   `post_ai_clean → pre_ai_dirty → post_ai_clean → preview_open` and prove
+   physical presentation follows the restored state.
+3. Correct the live evidence probe to treat `markedCount` as its documented
+   monotonic user-toggle count and use `dirty`, fingerprint, and toggle sequence
+   for current-marking assertions. Retain P25's smooth-scroll focus wait.
+
+### EL-02-R3-04 — Validation and cumulative conformance
+
+1. Run focused content-organ, content-entrypoint, background startup/lifecycle,
+   brain-decision, popup entrypoint, bus, and interaction suites.
+2. Run `pnpm verify`, production/debug builds, P17, P20, and full P25 with
+   unchanged thresholds.
+3. Repeat exact-source headed Arno from silent Preview through marking default,
+   Shift expansion, plain unmark, Alt inclusion, AI, two-way Content List,
+   freshness, Discard, silent restore, payload hygiene, and console checks.
+4. Continue Ledigajobb, DPJ, Aleris, Acne Specialisten, Assist24, ArkivIT,
+   Teknikhallen, and Humanova only after Arno passes. Classify unavailable
+   properties truthfully. Make no authoritative Save or Lynx publication.
+5. Review, commit and push normally, reindex the exact commit, prove clean
+   synchronized `0/0`, and independently adjudicate every cumulative EL-02
+   criterion. Any failure creates R4; only unanimous PASS permits EL-03.
+
+## 3. Append-only R3 acceptance criteria
+
+- `EL02-R3-AC-01` Content and popup independently reach the same clean origin
+  after a net-zero pre- or post-AI marking round trip.
+- `EL02-R3-AC-02` A current authorized marking signal is available to both
+  consumers without waiting for durable fact storage, and consecutive toggles
+  remain ordered.
+- `EL02-R3-AC-03` Durable writes are single-flight and ordered; terminal cleanup
+  drains admitted work and no terminal/stale fact is resurrected.
+- `EL02-R3-AC-04` Exact headed dirty and net-clean popup projections each
+  terminalize within one second while visual marking remains responsive.
+- `EL02-R3-AC-05` P17, P20, P25, full verification, builds, exact Arno, and the
+  externally available candidate matrix pass with zero Save/publication calls.
+- `EL02-R3-AC-06` Every cumulative `EL02-AC-*`, R2, and R3 criterion passes on
+  the exact pushed and indexed source.
+
+## 4. Regression risks and fallbacks
+
+- Publishing before persistence must not make the brain non-authoritative. The
+  notification is emitted only after `brain.observe`; it announces an existing
+  sequenced signal and carries no alternate decision.
+- Releasing lifecycle serialization must not reorder storage. A dedicated
+  per-tab thunk tail owns durable ordering and is drained by cleanup.
+- A stale content document must never gain the fast path. Existing exact
+  sender/document/consent checks remain inside the lifecycle fence before brain
+  observation.
+- Net-clean restoration must remember post-AI provenance. Falling back blindly
+  to pre-AI would make valid selectors disappear after an edit is reverted.
+
+## 5. Todo chain
+
+1. `el02-r3-net-clean-content-state`
+2. `el02-r3-ordered-fact-durability` → 1
+3. `el02-r3-focused-regressions` → 2
+4. `el02-r3-full-gates` → 3
+5. `el02-r3-headed-arno` → 4
+6. `el02-r3-headed-candidate-matrix` → 5
+7. `el02-r3-review-push-index` → 6
+8. `el02-r3-conformance` → 7
+
+## 6. Marking contract lock (reconfirmed before implementation)
+
+The following interaction rules are normative for R3 and must be covered by
+unit, integration, and headed evidence: disabled marking is inert; plain click
+only clears an existing explicit mark; Shift creates/widens exclusion; Alt
+creates explicit inclusion; Shift+Alt keeps inclusion precedence; Meta/Ctrl
+remain link-navigation modifiers; context-menu actions are target-scoped;
+invisible, consent, extension, source, closed-shadow, and immutable-default
+nodes are ineligible; explicit boundaries own descendants; hover and click use
+the same composed target resolution and overlays restore after scroll/resize;
+and marking facts/payloads contain only valid user decisions. Any divergence
+is a new R3 finding and blocks approval.
+
+## 7. EL-02-R3 authority review
+
+**Verdict:** `REJECTED BEFORE COMMIT — SUPERSEDED BY EL-02-R4`.
+
+The deterministic operator Q&A on 2026-08-31 proved that R3's proposed
+net-clean restoration and its initial marking lock were based on an incorrect
+contract. Acceptance criteria remain preserved above for audit history, but
+they must not ship:
+
+- `EL-02-F004` is withdrawn as a product defect. Content remaining dirty after
+  a visually net-zero toggle was correct; the popup/fingerprint path that
+  returned clean is the actual divergence.
+- `EL-02-F005` remains confirmed and carries into R4 unchanged: durable fact
+  persistence delayed the locally decided marking signal by 4,639 ms.
+- The uncommitted net-clean content changes and tests are invalidated. The
+  uncommitted ordered-persistence work may carry forward only after R4 focused
+  race tests prove it against monotonic dirt and cleanup.
+
+# EL-02-R4 — Approved marking, ephemeral session, payload, and Save→Load contract
+
+## 1. Goal
+
+Implement the complete operator-approved 2026-08-31 marking contract while
+preserving the rewrite's reflex-arc authority, branch-scoped performance,
+mobile extraction posture, immutable taxonomy, property fences, and safe Save.
+The result must make gesture targeting, visual projection, active-session state,
+AI corpus construction, backend persistence, and authoritative adoption one
+coherent workflow without restoring a second local authority.
+
+## 2. Verified current facts and findings
+
+| Finding | Severity | Verified owner and divergence |
+| --- | --- | --- |
+| `EL-02-F005` | High | `src/background/index.ts` awaits durable fact persistence inside the per-tab lifecycle lane before `signals.available`; exact Arno projection took 4,639 ms. |
+| `EL-02-F006` | High | `src/content/marking/engine.ts:resolveAtPoint`, `resolve.ts:resolveTarget`, `store.ts:applyToggle`, and the content click handler enforce unmark-only plain input, closed explicit-inclusion ancestry, and incorrect expanded-descendant ownership. |
+| `EL-02-F007` | Medium | `content-loader.content.ts` installs a capture-phase `contextmenu` handler and `marking/interaction.ts` renders a custom menu; `input-firewall.ts` also suppresses native context menus. |
+| `EL-02-F008` | High | Content dirt compares the current canonical fingerprint to a clean fingerprint; popup/content organs consume `dirty:false` as net-clean. This contradicts monotonic dirty after the first successful mutation. |
+| `EL-02-F009` | High | Hidden rows are synthesized without explicit payload posture; hidden explicit includes can paint ghost geometry; consent nodes are removed from the bridge, rendered/static HTML, and submission instead of receiving hidden exclusion coverage. |
+| `EL-02-F010` | High | Save can directly adopt `config.save` response state and retain recovery-local authority before a definitive `config.load`; the approved boundary is Save once, then Load the newest complete backend shape and replace local state. |
+
+Overlay scroll/resize fade already has a rewrite implementation in
+`marking/renderer.ts:setScrolling` and the engine's viewport transaction. R4
+must regression-prove and preserve it; it is not a presumed defect.
+
+## 3. Locked decisions and non-goals
+
+- `MARKING_AND_HIGHLIGHTING_LOGIC.md` section **Approved session,
+  interaction, and submission authority** is normative. The matching authority
+  amendment in `.reimplementation/rewrite-legacy-decision-spec.md` wins over
+  historical parity notes.
+- Three mutable states only. Plain toggles the individual state; Shift changes
+  breadth; Alt toggles individual explicit inclusion and wins over Shift.
+- Expanded-boundary removal rehydrates descendants without provenance. An
+  explicit included descendant is independent; Alt may move a mixed-text
+  parent's include to its child atomically.
+- No extension `contextmenu` listener or custom marking menu. Meta/Ctrl add no
+  marking semantics.
+- UI visibility and payload disposition remain separate. Hidden targets never
+  paint/interact, preserved explicit decisions survive, and otherwise mutable
+  hidden targets produce payload-only explicit exclusions.
+- Immutable ancestry is absolute and has no XPath rows; AI receives the exact
+  hardcoded immutable selector list separately. Consent is UI-ineligible but
+  receives truthful hidden-exclusion coverage in HTML/rows.
+- Dirty is monotonic for an active session. No mutable session state survives
+  successful Save or approved dismissal. Run AI is stateless and receives the
+  complete property corpus. Save is singular; Load is complete-replace.
+- Do not change endpoint schemas, permissions, taxonomy tags, emulation
+  dimensions, property identity/fences, Lynx publication gates, or production
+  selector publication. Headed validation performs no authoritative Save or
+  Lynx publication.
+
+## 4. Implementation sequence
+
+### EL-02-R4-01 — Contract authority and executable regression matrix
+
+1. Reconcile `MARKING_AND_HIGHLIGHTING_LOGIC.md`, the rewrite decision spec,
+   `.copilot/knowledge.md`, `.copilot/plan.md`, README, and this ledger.
+2. Replace focused tests that encode superseded unmark-only, closed-include,
+   custom-menu, net-clean, consent-strip, ghost-geometry, and direct-adoption
+   behavior. Keep all unrelated safeguards.
+3. Add a table-driven transition matrix for plain/Shift/Alt × implicit include,
+   explicit include, explicit exclude, expanded boundary, ordinary expanded
+   descendant, and explicitly included expanded descendant. Include Alt-over-
+   Shift and Meta/Ctrl-neutral cases.
+
+### EL-02-R4-02 — Canonical target and mutation semantics
+
+1. In `src/content/marking/resolve.ts` and `engine.ts`, make unmodified pointer
+   resolution select the individual eligible target while retaining exact
+   explicit-include clearing and expanded ownership metadata. Shift resolves
+   the approved widen target; Alt never inherits Shift and may inspect below a
+   mutable exclusion or explicit-inclusion parent.
+2. In `store.ts`, implement atomic operations for: implicit↔explicit exclusion;
+   explicit include→default/unmarked; expanded boundary removal/rehydration;
+   ordinary expanded descendant drill; preserved explicit-inclusion exception;
+   and mixed-text parent-include→child-include transfer.
+3. Keep branch evaluation single-flight and scoped. Hover, acknowledgement, and
+   mutation must use the same bridge generation and target occurrence.
+4. Remove the marking context-menu implementation/listener and let native
+   `contextmenu` pass through the content firewall.
+
+### EL-02-R4-03 — UI-ineligible versus payload-covered DOM
+
+1. Split extension chrome/immutable ancestry from consent/visibility UI
+   ineligibility in `dom-view.ts`, target indexes, hit testing, and renderer.
+   Consent and hidden elements remain unavailable to UI but present in the
+   sanitized page model when they are page-authored content.
+2. Make payload evaluation emit an otherwise mutable hidden textual target as
+   `{ excluded:true, explicit:true }` without inserting that generated row into
+   the canonical session set. A preserved explicit include/exclude wins over
+   visibility; expanded and immutable ancestry apply the approved omission
+   precedence.
+3. Stop deleting page-authored consent subtrees from rendered/static AI HTML.
+   Strip only extension-authored attributes/styles/UI and retain XPath alignment.
+   Immutable roots/descendants remain omitted as rows and the exact immutable
+   selector list remains separately schema-validated.
+4. Prove hidden explicit decisions never paint ghost geometry and reappear with
+   the same decision if the element becomes visible again.
+
+### EL-02-R4-04 — Monotonic ephemeral session and authoritative Save→Load
+
+1. Replace fingerprint-based dirt with a monotonic successful-mutation latch.
+   `markContentMainClean` may record AI freshness but cannot reset session dirt.
+   Popup/content organs treat every decided marking-change edge as dirty; run
+   completion may become AI-current without making the session unmodified.
+2. Prove clean disable, dirty-confirmed disable, dirty-cancel, Discard,
+   approved/cancelled navigation, AI success/failure, Save failure, and Save
+   success. Dismissal removes all decisions; failures preserve the exact active
+   session.
+3. After the one fenced `config.save` succeeds, invalidate the property-load
+   cache and issue one authoritative `config.load`. Adopt only that complete
+   newest shape before silent highlighting and terminal `session.saved`.
+   Load/adoption failure enters explicit committed-recovery without retrying
+   Save or retaining the old session as authority.
+4. Prove each AI request is one self-contained complete candidate corpus and
+   causes no AI-side/local draft persistence; other pages come from the latest
+   loaded authoritative property data and current page uses the active session.
+
+### EL-02-R4-05 — Immediate ordered signal projection
+
+1. Retain `brain.observe` as decision authority, publish `signals.available`
+   immediately afterward, and serialize durable facts in a separate per-tab
+   tail rather than the interactive lifecycle lane.
+2. Keep the reporting message alive for its admitted durable write; drain the
+   tail before terminal cleanup and reject post-terminal/stale-document facts.
+3. Prove dirty edges arrive in order before deferred writes settle, durable
+   writes remain ordered, and popup dirty controls project in ≤1 second.
+
+### EL-02-R4-06 — Validation and expert-loop conformance
+
+1. Run focused marking resolver/store/evaluator/renderer/content-entrypoint,
+   popup/content organ, configuration, Save, background lifecycle, consent,
+   capture, submission, and firewall suites.
+2. Run `pnpm verify`, production/debug builds, P14, P17, P20, and full P25 on
+   the exact source.
+3. Use repository `live-browser`/`live-round` only. Prove exact Arno first, then
+   every externally available candidate property: gesture matrix, hover/cursor,
+   native right click, expansion rehydration, Alt transfer, hidden/consent
+   payload evidence, monotonic dirt, AI corpus, Discard, scrolling fade/restore,
+   Content List, and console/network hygiene. Make no Save/publication call.
+4. Review, commit intended files, reindex, push normally, reindex again, prove
+   `0/0`, and independently adjudicate every cumulative criterion. Rejection
+   creates R5; approval starts a fresh outer expert-check.
+
+## 5. R4 acceptance criteria
+
+- `EL02-R4-AC-01` Every cell in the gesture/state matrix produces the approved
+  target, mutation, hover, cursor, rehydration, and payload result.
+- `EL02-R4-AC-02` Native right click is never intercepted and hidden/ineligible
+  targets never paint or accept UI marking.
+- `EL02-R4-AC-03` Hidden explicit decisions survive; otherwise mutable hidden
+  targets emit payload-only explicit exclusions; immutable ancestry and expanded
+  omission precedence are exact; consent page HTML/coverage remains aligned.
+- `EL02-R4-AC-04` Dirt becomes true on the first successful mutation and remains
+  true until successful Save or approved dismissal, across AI and visual undo.
+- `EL02-R4-AC-05` Run AI sends one stateless complete-property corpus. Save emits
+  one current-page mutation, then one authoritative Load complete-replaces local
+  state before silent acknowledgement; failure paths preserve or explicitly
+  fence state without duplicate mutation.
+- `EL02-R4-AC-06` Marking signals project within one second independently of
+  durable storage, whose ordering/cleanup guarantees remain proven.
+- `EL02-R4-AC-07` Focused/full/build/browser gates and exact headed candidate
+  evidence pass on the pushed indexed source with zero authoritative
+  Save/publication calls.
+- `EL02-R4-AC-08` Every cumulative EL-02 criterion not explicitly superseded by
+  the approved 2026-08-31 authority passes; no significant regression remains.
+
+## 6. Todo chain
+
+1. `el02-r4-contract-regressions`
+2. `el02-r4-target-mutation-semantics` → 1
+3. `el02-r4-payload-visibility-separation` → 2
+4. `el02-r4-session-save-load` → 3
+5. `el02-r4-ordered-signal-projection` → 4
+6. `el02-r4-focused-full-gates` → 5
+7. `el02-r4-headed-arno-matrix` → 6
+8. `el02-r4-headed-candidate-matrix` → 7
+9. `el02-r4-review-push-index` → 8
+10. `el02-r4-conformance` → 9
+
+## 7. R4 execution evidence — 2026-08-31
+
+- Focused interaction-shield regression: 25/25 passed, including the native
+  presentation-boundary wheel fallback and visual-viewport owner retention.
+- Focused popup/content Preview regressions passed for silent-origin retention,
+  semantic routing, and debug-highlight page→row precedence.
+- Exact repo `live-browser` Arno evidence (no Save or Lynx publication): mobile
+  marking at 412×960; desktop silent preview at 1920×1080; one 720 px wheel
+  packet moved exactly 720 px; silent/marking roots faded, retained identity,
+  repositioned, and restored; consent remained suppressed with no ghost marking
+  overlays.
+- Gesture workflow: plain exclusion/restoration, Alt inclusion, expanded
+  ownership/rehydration, Alt-over-Shift, native context menu, and monotonic dirt
+  were exercised. A visually net-zero pair remained dirty as required.
+- Stateless Run AI completed on Arno in 8.9 s and auto-opened 117 detected rows.
+  Post-AI edit invalidated Save and Content List and re-enabled Run AI in 32 ms.
+  Confirmed Discard kept marking active, rebuilt the clean default/selector
+  baseline, and retained no session decision.
+- Content List: semantic buttons, accessible names, focus/pointer equality,
+  Enter/Space activation, page→virtualized-row focus, and row→page emphasis all
+  passed in marking preview. A follow-up audit found that `silent_preview`
+  incorrectly triggered `clearSilentSelectors`, and debug XPath rectangles then
+  stole page clicks. Both root causes are fixed and the fresh debug bundle kept
+  16 silent overlays mounted while page→row focused exact row 216 and matched
+  its XPath; focus and pointer painted the same 380×16 target.
+- Fresh production-bundle Arno verification retained exactly 16 silent layers
+  across opening Content List, projected 96 semantic rows, routed the painted
+  380×16 target to row 216, and gave pointer focus, keyboard focus, and Enter
+  activation the same target. No Save or Lynx publication was attempted.
+- Contract audit corrected one stale sentence that described Save as a complete
+  property upload. Binding authority is now explicit everywhere: Save carries
+  one current page plus property-wide selectors; a distinct Load complete-
+  replaces local configuration and destroys the active mutable session without
+  merging or preserving any local draft.
+- Full pre-commit verification passed: 147 files / 1,557 tests, production WXT
+  build, seven manifest assertions, and the separate debug build. Dirty-source
+  browser acceptance was semantically complete: P14 192 scenarios with zero
+  semantic/budget/activation/mutation-pressure/input-long-task failures; P15
+  36/36; P16 13/13; P17 19/19; P18 14/14; P20 4/4; P23 25/25. Their aggregate
+  source-identity result remains intentionally red until this source is
+  committed.
+- Final strict review found one traversal edge: `history.back/forward/go` could
+  conservatively prompt on a fragment-only destination. Current Chrome now
+  delegates traversals to the Navigation API's exact destination; the fallback
+  wrapper remains only where Navigation is unavailable. Focused page-world
+  coverage passes 33/33 and proves fragment traversal stays in-session while a
+  rejected path change is synchronously prevented.
+- Remaining: rerun the full suite after final documentation synchronization,
+  commit/push the reviewed source, execute clean-source P14–P25 (including
+  consecutive P25), complete the candidate live round, and issue the next
+  independent expert-check verdict.

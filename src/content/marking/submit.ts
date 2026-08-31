@@ -2,7 +2,6 @@ import { DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS } from "../../domain/constants";
 import { AiRunPayloadSnapshotSchema, type AiRunPayloadSnapshot } from "../../domain/schema/submission";
 import type { RenderMode } from "../../domain/schema/property";
 import type { EvaluationResult } from "../../domain/evaluate";
-import { CONSENT_HIDDEN_ATTR } from "../consent";
 import { sanitizeCaptureClassValue } from "./capture-hygiene";
 
 export function buildSubmissionSnapshot(input: Readonly<{
@@ -31,10 +30,6 @@ export function stripUncapturableHtml(html: string): string {
   let output = stripProductionSourceBodies(html);
   const artifactOpenPatterns = [
     /<(browser-mcp-container)\b[^>]*>/i,
-    new RegExp(
-      `<([a-zA-Z][\\w:-]*)(?=[^>]*\\s${CONSENT_HIDDEN_ATTR}(?:\\s|=|>))[^>]*>`,
-      "i",
-    ),
     /<([a-zA-Z][\w:-]*)(?=[^>]*\sdata-uf-extension-ui=(?:"true"|'true'))[^>]*>/i,
     /<([a-zA-Z][\w:-]*)(?=[^>]*\sdata-wxt-shadow-root(?:\s|=|>))[^>]*>/i,
     /<([a-zA-Z][\w:-]*)(?=[^>]*\sid=(?:"(?:browser-mcp-container|uf-consent-bypass|unfluffify-[^"]*)"|'(?:browser-mcp-container|uf-consent-bypass|unfluffify-[^']*)'))[^>]*>/i,

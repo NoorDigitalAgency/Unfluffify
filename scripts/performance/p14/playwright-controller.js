@@ -142,10 +142,9 @@ async (page) => {
         }
         const point = await page.evaluate(() => window.__p14Runtime.point("click-target"));
         await page.mouse.move(4, 4);
-        // Exclusion creation and its hover preview are Shift-only. Keep the
-        // physical modifier held through both samples so this gate benchmarks
-        // the production gesture instead of the ordinary-click unmark/no-op
-        // path.
+        // Hold Shift through both samples so this gate benchmarks the broader
+        // ancestor-selection path. Plain click also creates an exclusion under
+        // the approved contract, but is measured by the exact P25 gesture gate.
         await page.keyboard.down("Shift");
         const hoverWindow = await beginInputWindow("markingHover");
         await page.evaluate(() => window.__p14Runtime.armHover());

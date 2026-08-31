@@ -15,6 +15,7 @@ export type BoundaryNode = Readonly<{
   visible: boolean;
   ownsDirectText?: boolean;
   chrome?: boolean;
+  interactionSuppressed?: boolean;
   structuralRole?: StructuralRole;
   landmarkCount?: number;
   pageShell?: boolean;
@@ -74,6 +75,7 @@ export function isSelfMarkable(node: BoundaryNode, ctx: BoundaryContext = {}): b
   return (
     visible &&
     !chrome &&
+    !node.interactionSuppressed &&
     !isImmutableTag(node.tagName) &&
     ownsDirectText(node, ctx)
   );

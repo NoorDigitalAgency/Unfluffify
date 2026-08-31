@@ -232,14 +232,14 @@ function validate(payload) {
       payload.silentDuring.allBoxesRetained &&
       !payload.silentDuring.geometryChanged &&
       payload.silentDuring.rootScrolling &&
-      payload.silentDuring.allRetainedLayersTransparent &&
+      payload.silentDuring.allRetainedPresentationTransparent &&
       Number.isFinite(payload.silentDuring.fadeLatencyMs) &&
       payload.silentDuring.fadeLatencyMs <= SILENT_FADE_BUDGET_MS &&
       payload.silentAfter.retained &&
       payload.silentAfter.allBoxesRetained &&
       payload.silentAfter.geometryChanged &&
       !payload.silentAfter.rootScrolling &&
-      payload.silentAfter.allRetainedLayersVisible,
+      payload.silentAfter.allRetainedPresentationVisible,
     { before: payload.silentBefore, during: payload.silentDuring, after: payload.silentAfter },
   );
   check(

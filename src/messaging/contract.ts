@@ -29,6 +29,7 @@ export const PageCommandNameSchema = z.enum([
   "RECONCILE",
   "SET_MOTION_PAUSED",
   "SET_LAZY_LOADING_SUPPRESSED",
+  "SET_NAVIGATION_GUARD",
   "DESTROY",
 ]);
 

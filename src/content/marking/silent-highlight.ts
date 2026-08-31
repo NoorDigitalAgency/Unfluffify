@@ -58,11 +58,9 @@ export function buildSilentHighlights(
     if (row.explicit !== true && hasXpathAncestor(row.xpath, retained)) {
       continue;
     }
-    if (row.explicit !== true) {
-      const geometry = geometryByXpath.get(row.xpath);
-      if (geometry && !isUserVisible(row.xpath, geometry)) {
-        continue;
-      }
+    const geometry = geometryByXpath.get(row.xpath);
+    if (geometry && !isUserVisible(row.xpath, geometry)) {
+      continue;
     }
     if (!retained.has(row.xpath)) {
       retained.add(row.xpath);

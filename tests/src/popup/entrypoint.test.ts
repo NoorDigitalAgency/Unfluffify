@@ -2527,7 +2527,6 @@ describe("rewrite popup entrypoint", () => {
   it("fetches static source HTML before running AI, previewing, and saving", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     const rawSource = "<html><body><aside id=\"cookie-banner\">cookie secret</aside><main>server source</main></body></html>";
-    const sanitizedRawSource = "<html><body><main>server source</main></body></html>";
     vi.stubGlobal("DOMParser", class {
       parseFromString(html: string) {
         let serialized = html;
@@ -2752,7 +2751,7 @@ describe("rewrite popup entrypoint", () => {
           ...snapshot,
           pages: [{
             ...snapshot.pages[0],
-            rawHtml: sanitizedRawSource,
+            rawHtml: rawSource,
           }],
         },
       }),
@@ -3269,7 +3268,7 @@ describe("rewrite popup entrypoint", () => {
     },
   );
 
-  it("saves one first configuration from a cached not-found baseline and adopts authority", async () => {
+  it("commits one first configuration then adopts only the distinct Load authority", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
@@ -3307,6 +3306,14 @@ describe("rewrite popup entrypoint", () => {
     });
     let signalSeq = 0;
     const saveRequests: BusFrame[] = [];
+    let saveCommitted = false;
+    const loadedAfterSave: ConfigSnapshot = {
+      ...backendConfig(),
+      propertyRevision: 6,
+      feedRevision: 4,
+      selectors: { inclusionSelectors: ["article"], exclusionSelectors: [".latest-ad"] },
+      selectorsUpdatedAt: "2026-08-31T16:00:00Z",
+    };
     const runtime = makeRuntime(async (message) => {
       if (message.name === "page.context") {
         return replyFrame(message, {
@@ -3371,17 +3378,25 @@ describe("rewrite popup entrypoint", () => {
       if (message.name === "config.save") {
         saveRequests.push(message);
         await saveRelease;
+        saveCommitted = true;
         return replyFrame(message, { status: "ok", config: backendConfig() });
       }
       return replyFrame(message, []);
     }, "rendered", {
       delegatePageContextToHandler: true,
       deferReconciliationFactAvailability: true,
-      configLoad: (frame) => replyFrame(frame, {
-        status: "not_found",
-        renderMode: "rendered",
-        renderModeSource: "local",
-      }),
+      configLoad: (frame) => saveCommitted
+        ? replyFrame(frame, {
+            status: "ok",
+            config: loadedAfterSave,
+            renderMode: "rendered",
+            renderModeSource: "backend",
+          })
+        : replyFrame(frame, {
+            status: "not_found",
+            renderMode: "rendered",
+            renderModeSource: "local",
+          }),
       emulationApply: (frame) => replyFrame(frame, {
         mode: (frame.payload as { mode: "mobile" | "desktop" }).mode,
         width: (frame.payload as { mode: string }).mode === "desktop" ? 1920 : 412,
@@ -3489,12 +3504,13 @@ describe("rewrite popup entrypoint", () => {
       frame.name === "emulation.apply" &&
       (frame.payload as { mode?: string }).mode === "desktop" &&
       (frame.payload as { allowReload?: boolean }).allowReload === true)).toBe(true);
-    expect(runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "config.load")).toHaveLength(1);
+    expect(runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "config.load")).toHaveLength(2);
     expect(props().diagnostics).toMatchObject({
       configStatus: "ok",
       renderMode: "rendered",
       renderModeSource: "backend",
     });
+    expect(props().presentation.selectors).toEqual(loadedAfterSave.selectors);
     await new Promise((resolve) => setTimeout(resolve, 10));
     await flushEntrypointWork();
   });
@@ -4676,6 +4692,11 @@ describe("rewrite popup entrypoint", () => {
       }),
     }));
     expect(render.mock.calls.at(-1)?.[0].props.presentation.enableToggleChecked).toBe(false);
+    const contentCommandsAfterSilentOpen = tabsSendMessage.mock.calls.map(([, frame]) =>
+      ((frame as BusFrame).payload as { name?: string } | undefined)?.name,
+    );
+    expect(contentCommandsAfterSilentOpen).toContain("applySilentSelectors");
+    expect(contentCommandsAfterSilentOpen).not.toContain("clearSilentSelectors");
 
     // The open preview is re-projected on the normal popup poll. A second tick
     // while revision 2 is pending coalesces into exactly one trailing request;

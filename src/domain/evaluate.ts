@@ -20,6 +20,9 @@ export type EvaluationNode = Readonly<{
   pageShell?: boolean;
   landmarkCount?: number;
   chrome?: boolean;
+  /** Page-authored content retained for extraction but never exposed as a
+   * marking/highlighting target (for example consent UI suppressed by us). */
+  interactionSuppressed?: boolean;
   immutable?: boolean;
   closedShadow?: boolean;
   shadow?: PreviewShadowProvenance;
@@ -75,6 +78,9 @@ function classifyNode(
     return "immutable";
   }
   if (node.chrome) {
+    return null;
+  }
+  if (node.interactionSuppressed) {
     return null;
   }
   if (node.silentWhitespaceExclusion && !nearestMark) {
@@ -155,7 +161,10 @@ function walk(
     } else if (!submittedExcludedAncestor && shouldSubmitImplicitInclude(node)) {
       rows.push(makeRow(node, false));
     } else if (!submittedExcludedAncestor && shouldSubmitHiddenTextExclusion(node)) {
-      rows.push(makeRow(node, true));
+      // Visibility is a submission fact, not a user decision. Encode an
+      // otherwise mutable hidden occurrence as an effective explicit
+      // exclusion without adding it to the canonical/session mark set.
+      rows.push(makeRow(node, true, true));
       nextSubmittedExcludedAncestor = node.xpath;
     }
   }

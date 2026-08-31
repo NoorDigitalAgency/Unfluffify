@@ -187,7 +187,7 @@ type TestPageWorldCommand = Readonly<{
   nonce?: string;
   sessionNonce?: string;
   command?: string;
-  payload?: { paused?: boolean; suppressed?: boolean };
+  payload?: { paused?: boolean; suppressed?: boolean; active?: boolean };
 }>;
 
 function pageWorldAcknowledgement(message: TestPageWorldCommand): Record<string, unknown> {
@@ -210,6 +210,9 @@ function pageWorldAcknowledgement(message: TestPageWorldCommand): Record<string,
     lazySuppressed: message.command === "SET_LAZY_LOADING_SUPPRESSED"
       ? message.payload?.suppressed === true
       : paused,
+    navigationGuardActive: message.command === "SET_NAVIGATION_GUARD"
+      ? message.payload?.active === true
+      : false,
     sessionNonce,
     phase: paused ? "frozen" : "armed",
     initialDiscoveryComplete: paused,
@@ -896,6 +899,30 @@ describe("C4 rewrite content entrypoints", () => {
         rowId: "row-excluded",
       },
     }));
+
+    // Debug builds make silent rectangles clickable for XPath copy while the
+    // ordinary silent surface is open. Preview interaction takes precedence:
+    // the same exact rectangle must route page → row instead of being rejected
+    // merely because it is extension-owned UI.
+    const debugHighlightTarget = {
+      closest: vi.fn((selector: string) => selector === '[data-uf-extension-ui="true"]'
+        || selector === '[data-uf-silent-highlight]'
+        ? debugHighlightTarget
+        : null),
+    };
+    const debugHighlightClick = {
+      ...shieldClick,
+      target: debugHighlightTarget,
+      preventDefault: vi.fn(),
+      stopImmediatePropagation: vi.fn(),
+    };
+    const focusedBeforeDebugHighlight = focusedMessageCount();
+    dispatchTestEvent(documentListeners, "click", debugHighlightClick as unknown as Event);
+    await Promise.resolve();
+    expect(engine.previewRowAtPoint).toHaveBeenLastCalledWith(35, 45);
+    expect(debugHighlightClick.preventDefault).toHaveBeenCalledOnce();
+    expect(debugHighlightClick.stopImmediatePropagation).toHaveBeenCalledOnce();
+    expect(focusedMessageCount()).toBe(focusedBeforeDebugHighlight + 1);
 
     const emphasis = await dispatchTypedContentCommand(listener, "preview.emphasize", {
       pageUrl,
@@ -2620,6 +2647,7 @@ describe("C4 rewrite content entrypoints", () => {
     expect(engine.renderMarking).toHaveBeenCalledOnce();
     expect(engine.settlePresentation).toHaveBeenCalledTimes(2);
     expect(engine.renderReadOnly).not.toHaveBeenCalled();
+    expect(documentListeners.has("contextmenu")).toBe(false);
     expect((document.documentElement as HTMLElement).className).toBe("page-shell uf-cursor-exclude");
     expect(getURL).toHaveBeenCalledWith("cursors/exclude.svg");
     expect(getURL).toHaveBeenCalledWith("cursors/include.svg");
@@ -2848,6 +2876,9 @@ describe("C4 rewrite content entrypoints", () => {
     expect(engine.acknowledge).not.toHaveBeenCalled();
     expect(engine.toggle).not.toHaveBeenCalled();
     await waitForMockCalls(engine.toggle, 1);
+    await waitForCondition(() => pageWorldRequests().some((message) =>
+      message.command === "SET_NAVIGATION_GUARD" && message.payload?.active === true
+    ));
     expect(engine.acknowledge).toHaveBeenCalledWith(
       { xpath: "/html[1]/body[1]/p[1]" },
       "exclude",
@@ -2898,11 +2929,11 @@ describe("C4 rewrite content entrypoints", () => {
     expect(emittedSignalNames).not.toContain("markings.changed");
     await expect(dispatchContentCommand(listener, "markContentMainClean")).resolves.toMatchObject({
       ok: true,
-      data: { ok: true, active: true, dirty: false },
+      data: { ok: true, active: true, dirty: true },
     });
     expect((await dispatchContentCommand(listener, "getContentMainStatus")).data).toMatchObject({
-      dirty: false,
-      markedCount: 0,
+      dirty: true,
+      markedCount: 1,
       markingToggleSeq: 1,
     });
     documentListeners.get("click")?.({
@@ -2951,10 +2982,9 @@ describe("C4 rewrite content entrypoints", () => {
     expect(markingToggleFacts).toEqual([1, 2, 3]);
     expect((await dispatchContentCommand(listener, "getContentMainStatus")).data).toMatchObject({
       dirty: true,
-      markedCount: 2,
+      markedCount: 3,
       markingToggleSeq: 3,
     });
-    engine.hasExplicitMark.mockReturnValueOnce(true);
     documentListeners.get("click")?.({
       clientX: 12,
       clientY: 22,
@@ -2967,10 +2997,15 @@ describe("C4 rewrite content entrypoints", () => {
     expect(engine.acknowledge).toHaveBeenNthCalledWith(
       4,
       { xpath: "/html[1]/body[1]/p[1]" },
-      "clear",
+      "exclude",
     );
-    await waitForMockCalls(engine.clear, 1);
-    expect(engine.clear).toHaveBeenCalledWith({ xpath: "/html[1]/body[1]/p[1]" });
+    await waitForMockCalls(engine.toggle, 4);
+    expect(engine.toggle).toHaveBeenNthCalledWith(
+      4,
+      { xpath: "/html[1]/body[1]/p[1]" },
+      "exclude",
+    );
+    expect(engine.clear).not.toHaveBeenCalled();
     await waitForCondition(() => sendMessage.mock.calls
       .map(([frame]) => frame as {
         name?: string;
@@ -2980,7 +3015,7 @@ describe("C4 rewrite content entrypoints", () => {
       .length >= 4);
     expect((await dispatchContentCommand(listener, "getContentMainStatus")).data).toMatchObject({
       dirty: true,
-      markedCount: 3,
+      markedCount: 4,
       markingToggleSeq: 4,
     });
     engine.resolveAtPoint.mockReturnValueOnce(null);
@@ -2995,10 +3030,13 @@ describe("C4 rewrite content entrypoints", () => {
     documentListeners.get("click")?.(unresolvedClick as unknown as Event);
     expect(unresolvedClick.preventDefault).toHaveBeenCalledTimes(1);
     expect(unresolvedClick.stopPropagation).toHaveBeenCalledTimes(1);
-    expect(engine.toggle).toHaveBeenCalledTimes(3);
-    expect(engine.rejectAtPoint).toHaveBeenCalledTimes(1);
+    expect(engine.toggle).toHaveBeenCalledTimes(4);
+    expect(engine.rejectAtPoint).toHaveBeenCalledTimes(2);
     const destroyCallsBeforeSilent = pageWorldRequests().filter((message) => message.command === "DESTROY").length;
     const enterSilent = await dispatchContentCommand(listener, "enterSilentContentMain");
+    await waitForCondition(() => pageWorldRequests().some((message) =>
+      message.command === "SET_NAVIGATION_GUARD" && message.payload?.active === false
+    ));
     expect(engine.dispose).toHaveBeenCalledTimes(1);
     expect(pageWorldRequests().filter((message) => message.command === "DESTROY"))
       .toHaveLength(destroyCallsBeforeSilent);
@@ -3429,7 +3467,7 @@ describe("C4 rewrite content entrypoints", () => {
     });
   });
 
-  it("pauses and resumes marking interactions without clearing dirty state", async () => {
+  it("pauses and resumes dirty marking, then discards into a clean selector-seeded session", async () => {
     mockAlreadyPreparedPageVisit();
     const addListener = vi.fn();
     const pageUrl = installTestLocation();
@@ -3441,7 +3479,9 @@ describe("C4 rewrite content entrypoints", () => {
       resolveAtPoint: vi.fn(() => ({ xpath: "/html[1]/body[1]/p[1]" })),
       toggle: vi.fn(),
       rows: vi.fn(() => [{ xpath: "/html[1]/body[1]/p[1]", excluded: true }]),
+      lastInitializationSeededSelectors: vi.fn(() => true),
     };
+    const createMarkingEngine = vi.fn(() => engine);
     globalThis.chrome = {
       runtime: {
         onMessage: { addListener },
@@ -3463,7 +3503,10 @@ describe("C4 rewrite content entrypoints", () => {
       value: { innerHeight: 500, scrollY: 0, scrollTo: vi.fn(), postMessage: vi.fn(), addEventListener: vi.fn(), removeEventListener: vi.fn() },
     });
     vi.doMock("wxt/utils/define-content-script", () => ({ defineContentScript: (config: unknown) => config }));
-    vi.doMock("../src/content/marking", () => ({ createMarkingEngine: vi.fn(() => engine), installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()) }));
+    vi.doMock("../src/content/marking", () => ({
+      createMarkingEngine,
+      installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()),
+    }));
 
     const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
     (entrypoint.default as { main: () => void }).main();
@@ -3477,16 +3520,27 @@ describe("C4 rewrite content entrypoints", () => {
     expect((document.documentElement as HTMLElement).className).toContain("uf-cursor-disabled");
     expect(paused).toEqual({ ok: true, data: { ok: true, active: true, dirty: true, tree: "rewrite" } });
     const clean = await dispatchContentCommand(listener, "markContentMainClean");
-    expect(clean).toEqual({ ok: true, data: { ok: true, active: true, dirty: false, tree: "rewrite" } });
+    expect(clean).toEqual({ ok: true, data: { ok: true, active: true, dirty: true, tree: "rewrite" } });
     await applyLockState(listener, {
       canEdit: false,
       blockedReason: "locked",
       banner: { visible: false, reason: "locked" },
     });
-    await expect(dispatchContentCommand(listener, "resetContentMain")).resolves.toMatchObject({
+    const resetSelectors = {
+      inclusionSelectors: ["main article"],
+      exclusionSelectors: ["main nav"],
+    };
+    await expect(dispatchContentCommand(listener, "resetContentMain", {
+      selectors: resetSelectors,
+    })).resolves.toMatchObject({
       ok: true,
       data: { ok: true, initialized: true, tree: "rewrite" },
     });
+    expect(createMarkingEngine).toHaveBeenNthCalledWith(2, document.documentElement, {
+      render: true,
+      selectors: resetSelectors,
+    });
+    expect(engine.lastInitializationSeededSelectors).toHaveBeenCalledOnce();
     await applyLockState(listener);
     await dispatchContentCommand(listener, "resumeContentMainInteractions");
     expect(documentListeners.has("click")).toBe(true);

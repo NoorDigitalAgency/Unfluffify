@@ -35,7 +35,7 @@ import {
 } from "../content/marking";
 import { markingHoverNeedsLeadingPaint } from "../content/marking/hover-scheduling";
 import { retireSupersededMarkingRoots } from "../content/marking/root-authority";
-import { createPhysicalActionDeduper, openMarkingContextMenu } from "../content/marking/interaction";
+import { createPhysicalActionDeduper } from "../content/marking/interaction";
 import { presentationClockFor } from "../content/presentation-clock";
 import { createPreviewController } from "../content/preview-controller";
 import { createSignalScheduler } from "../content/signal-scheduler";
@@ -116,13 +116,12 @@ let markingActive = false;
  *  would read as an edit, and a toggle that removes rows would not. One toggle is
  *  one change, which is the only definition that holds on a dynamic page. */
 let userToggleCount = 0;
-/** Canonical decision identity acknowledged as clean by activation or the last
- * successful AI result. Unlike a toggle counter, this makes an exact clear of a
- * temporary mark genuinely reversible. */
+/** Canonical decision identity last acknowledged by activation or AI. It is
+ * diagnostic/generation evidence only; session dirt is monotonic and never
+ * derives from fingerprint equality. */
 let cleanMarkingFingerprint: string | null = null;
-/** Brain-facing event cursor. AI cleanup resets userToggleCount because the
- * current decisions are no longer dirty, but it must not reset this sequence:
- * the next operator edit still has to advance past the last observed fact. */
+/** Brain-facing event cursor. AI acknowledgement does not reset either this
+ * sequence or the session's monotonic user-toggle count. */
 let markingToggleSeq = 0;
 let markingInteractionsPaused = false;
 /** Explicit transport pause (Save/capture) is distinct from a derived lock or
@@ -144,6 +143,9 @@ let navigationWatcherInstalled = false;
 let lastKnownPageUrl = typeof location !== "undefined" ? location.href : "";
 let contentBus: RewriteSignalBus | null = null;
 let pageWorldSessionNonce = "";
+let dirtyNavigationGuardDesired = false;
+let dirtyNavigationGuardApplied = false;
+let dirtyNavigationGuardSync: Promise<void> = Promise.resolve();
 let pageWorldLifecycleEpoch = 0;
 let pageWorldDestroyInFlight: Readonly<{
   nonce: string;
@@ -284,10 +286,10 @@ function readMarkingDecisionFingerprint(): string | null {
 }
 
 function isUserMarkingDirty(): boolean {
-  const current = readMarkingDecisionFingerprint();
-  return cleanMarkingFingerprint === null || current === null
-    ? userToggleCount > 0
-    : current !== cleanMarkingFingerprint;
+  // Session dirt is historical, not an equivalence calculation. Once an
+  // operator mutation succeeds, visually reversing it cannot make the session
+  // undiscardable or erase the fact that AI/Save must reconcile it.
+  return userToggleCount > 0;
 }
 
 function currentMarkingFingerprint(): string {
@@ -903,6 +905,7 @@ type StabilizationPageCommand =
   | "RECONCILE"
   | "SET_LAZY_LOADING_SUPPRESSED"
   | "SET_MOTION_PAUSED"
+  | "SET_NAVIGATION_GUARD"
   | "DESTROY";
 type StabilizationPageCommandError = Error & Readonly<{
   command: StabilizationPageCommand;
@@ -970,6 +973,47 @@ async function requestStabilizationPageCommand(
   } finally {
     if (timeoutHandle !== null) clearTimeout(timeoutHandle);
   }
+}
+
+/** Keep the synchronous MAIN-world History/Navigation guard ordered without
+ * putting its remote acknowledgement on the marking paint path. */
+function setDirtyNavigationGuard(active: boolean): Promise<void> {
+  dirtyNavigationGuardDesired = active;
+  dirtyNavigationGuardSync = dirtyNavigationGuardSync
+    .catch(() => undefined)
+    .then(async () => {
+      while (dirtyNavigationGuardApplied !== dirtyNavigationGuardDesired) {
+        const target = dirtyNavigationGuardDesired;
+        const sessionNonce = pageWorldSessionNonce;
+        if (!sessionNonce) {
+          dirtyNavigationGuardApplied = false;
+          return;
+        }
+        try {
+          const response = await requestStabilizationPageCommand(
+            "SET_NAVIGATION_GUARD",
+            { active: target },
+            sessionNonce,
+          );
+          if (pageWorldSessionNonce !== sessionNonce) {
+            dirtyNavigationGuardApplied = false;
+            continue;
+          }
+          const acknowledged = response.payload.navigationGuardActive;
+          if (acknowledged !== target) {
+            throw new Error("Page-world navigation guard acknowledgement mismatched the requested state");
+          }
+          dirtyNavigationGuardApplied = acknowledged;
+        } catch (error) {
+          dirtyNavigationGuardApplied = false;
+          if (dirtyNavigationGuardDesired && markingActive) {
+            console.error("[Unfluffify][rewrite] Unable to arm dirty navigation guard", error);
+          }
+          return;
+        }
+      }
+    });
+  return dirtyNavigationGuardSync;
 }
 
 function requireStabilizationPageState(
@@ -1295,6 +1339,8 @@ async function runActivationStabilization(pageUrl: string): Promise<RevealRunRes
           };
         }
         pageWorldSessionNonce = armed.nonce;
+        dirtyNavigationGuardApplied = false;
+        setDirtyNavigationGuard(markingActive && isUserMarkingDirty());
         const result = await runReveal({
           hasVerticalScrollRoom: (initialScrollOwner?.maximumOffset() ?? 0) > 2,
           activationStale: isStale,
@@ -3240,7 +3286,6 @@ function ensureMarkingListeners(): void {
     button: number;
     at: number;
   }> | null = null;
-  let closeMarkingMenu: (() => void) | null = null;
   type ResolvedMarkingTarget = NonNullable<
     ReturnType<NonNullable<typeof markingEngine>["resolveAtPoint"]>
   >;
@@ -3341,6 +3386,7 @@ function ensureMarkingListeners(): void {
         }
         userToggleCount += 1;
         markingToggleSeq += 1;
+        setDirtyNavigationGuard(true);
         reportMarkingToggle();
       };
       const finish = (): void => {
@@ -3458,8 +3504,6 @@ function ensureMarkingListeners(): void {
     ) {
       return;
     }
-    closeMarkingMenu?.();
-    closeMarkingMenu = null;
     altIncludeActive = event.altKey;
     syncMarkingCursor();
     const mode = markModeForClick(event);
@@ -3484,12 +3528,6 @@ function ensureMarkingListeners(): void {
       y: Math.round(event.clientY),
     });
     if (!target) {
-      // Plain exclude mode is intentionally an unmark-only gesture. A miss on
-      // an already-included area is a valid no-op; Shift is required to create
-      // or widen an exclusion, so do not flash an error for ordinary browsing.
-      if (mode === "exclude" && !event.shiftKey) {
-        return;
-      }
       markingEngine.rejectAtPoint?.(event.clientX, event.clientY);
       const debugDetail = typeof __UF_DEBUG_BUILD__ !== "undefined" && __UF_DEBUG_BUILD__
         ? ` (${Math.round(event.clientX)}, ${Math.round(event.clientY)})`
@@ -3500,10 +3538,7 @@ function ensureMarkingListeners(): void {
       });
       return;
     }
-    const mutationMode = mode === "exclude" && !event.shiftKey && markingEngine.hasExplicitMark?.(target)
-      ? "clear"
-      : mode;
-    commit(physicalIdFor(event), target, mutationMode, event.clientX, event.clientY);
+    commit(physicalIdFor(event), target, mode, event.clientX, event.clientY);
   };
   const handlePointerDown = (event: PointerEvent): void => {
     if (!isTrustedMarkingInput(event)) {
@@ -3517,98 +3552,6 @@ function ensureMarkingListeners(): void {
       button: event.button,
       at: event.timeStamp,
     };
-  };
-  const handleContextMenu = (event: MouseEvent): void => {
-    if (!isTrustedMarkingInput(event)) {
-      return;
-    }
-    if (!markingActive || !markingEngine || spacePassthroughActive) {
-      return;
-    }
-    const eventTarget = event.target as Element | null;
-    if (
-      eventTarget?.closest?.('[data-uf-extension-ui="true"]') &&
-      !eventTarget.closest?.(".uf-marking-layer-root")
-    ) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    closeMarkingMenu?.();
-    const physicalId = physicalIdFor(event);
-    const overlayXpath = overlayXpathFromTarget(event.target);
-    const contextTargets = markingEngine.resolveContextAtPoint?.(
-      event.clientX,
-      event.clientY,
-      overlayXpath ? { overlayXpath } : undefined,
-    );
-    // Retain the old injected-engine seam for unit fixtures. Production owns
-    // the atomic path above and never independently re-hits the moving page.
-    const include = contextTargets
-      ? contextTargets.include
-      : resolveAtPoint(event.clientX, event.clientY, "include", false, overlayXpath);
-    const existingExclude = contextTargets
-      ? contextTargets.existingExclude
-      : resolveAtPoint(event.clientX, event.clientY, "exclude", false, overlayXpath);
-    const shiftedExclude = contextTargets
-      ? contextTargets.shiftedExclude
-      : resolveAtPoint(event.clientX, event.clientY, "exclude", true, overlayXpath);
-    const clearTarget = existingExclude ?? include;
-    if (!include && !existingExclude && !shiftedExclude) {
-      markingEngine.rejectAtPoint?.(event.clientX, event.clientY);
-      contentToasts.show({ message: "That area can't be marked.", tone: "warning" });
-      return;
-    }
-    closeMarkingMenu = openMarkingContextMenu({
-      document,
-      manager: ensureContentTransientSurfaces().manager,
-      x: event.clientX,
-      y: event.clientY,
-      actions: [
-        {
-          id: "include",
-          label: "Include",
-          enabled: Boolean(include),
-          run: () => include && commit(physicalId, include, "include", event.clientX, event.clientY),
-        },
-        {
-          id: "exclude",
-          label: "Exclude",
-          enabled: Boolean(!existingExclude && shiftedExclude),
-          run: () => shiftedExclude && commit(
-            physicalId,
-            shiftedExclude,
-            "exclude",
-            event.clientX,
-            event.clientY,
-          ),
-        },
-        {
-          id: "widen",
-          label: "Widen exclusion",
-          enabled: Boolean(existingExclude && shiftedExclude && shiftedExclude.xpath !== existingExclude.xpath),
-          run: () => shiftedExclude && commit(
-            physicalId,
-            shiftedExclude,
-            "exclude",
-            event.clientX,
-            event.clientY,
-          ),
-        },
-        {
-          id: "clear",
-          label: "Clear mark",
-          enabled: Boolean(clearTarget && markingEngine?.hasExplicitMark?.(clearTarget)),
-          run: () => clearTarget && commit(
-            physicalId,
-            clearTarget,
-            "clear",
-            event.clientX,
-            event.clientY,
-          ),
-        },
-      ],
-    });
   };
   const handleMouseMove = (event: MouseEvent): void => {
     if (!isTrustedMarkingInput(event)) {
@@ -3697,7 +3640,6 @@ function ensureMarkingListeners(): void {
   };
   document.addEventListener("pointerdown", handlePointerDown, true);
   document.addEventListener("click", handleClick, true);
-  document.addEventListener("contextmenu", handleContextMenu, true);
   document.addEventListener("mousemove", handleMouseMove, true);
   document.addEventListener("mouseleave", handleMouseLeave, true);
   document.addEventListener("keydown", handleKeyDown, true);
@@ -3710,7 +3652,6 @@ function ensureMarkingListeners(): void {
   removeMarkingListeners = () => {
     document.removeEventListener("click", handleClick, true);
     document.removeEventListener("pointerdown", handlePointerDown, true);
-    document.removeEventListener("contextmenu", handleContextMenu, true);
     document.removeEventListener("mousemove", handleMouseMove, true);
     document.removeEventListener("mouseleave", handleMouseLeave, true);
     document.removeEventListener("keydown", handleKeyDown, true);
@@ -3735,8 +3676,6 @@ function ensureMarkingListeners(): void {
     trailingMarkingMutation = null;
     lastPointer = null;
     lastPointerDown = null;
-    closeMarkingMenu?.();
-    closeMarkingMenu = null;
     removeMarkingListeners = null;
     if (spacePassthroughWatchdog !== null) {
       clearTimeout(spacePassthroughWatchdog);
@@ -3802,6 +3741,7 @@ type MarkingDeactivationMode = "terminal" | "silent";
 
 function deactivateMarking(mode: MarkingDeactivationMode = "terminal"): Promise<void> | null {
   let terminalTeardown: Promise<void> | null = null;
+  setDirtyNavigationGuard(false);
   markingActive = false;
   userToggleCount = 0;
   cleanMarkingFingerprint = null;
@@ -3948,18 +3888,25 @@ function installNavigationWatcher(): void {
   window.addEventListener("hashchange", () => handleUrlChanged());
 }
 
-function resetMarking(): boolean {
+async function resetMarking(selectors: SelectorSet | null): Promise<boolean> {
   if (typeof document === "undefined" || !document.documentElement) {
     return false;
   }
+  const navigationGuardSettled = setDirtyNavigationGuard(false);
   markingEngine?.setInputTransparent?.(false);
   markingEngine?.dispose();
   removeSilentDebugCopyListener?.();
-  destroyPageWorldSession();
-  markingEngine = createAuthoritativeMarkingEngine(document.documentElement, { render: true });
+  // Discard retires only the mutable marking session. Keep the page-world
+  // reveal/freeze lease alive while marking remains enabled, and rebuild the
+  // clean session from defaults with the latest loaded selectors laid over
+  // them exactly as a fresh activation would.
+  markingEngine = createAuthoritativeMarkingEngine(document.documentElement, {
+    render: true,
+    selectors,
+  });
   userToggleCount = 0;
   cleanMarkingFingerprint = readMarkingDecisionFingerprint();
-  selectorsSeeded = false;
+  selectorsSeeded = selectors !== null && markingEngine.lastInitializationSeededSelectors();
   lastKnownPageUrl = typeof location !== "undefined" ? location.href : lastKnownPageUrl;
   silentInteractionShieldActive = false;
   releaseDurablePostureLocally();
@@ -3969,6 +3916,7 @@ function resetMarking(): boolean {
   lastContentSurfaceSignature = "";
   renderContentSurface();
   clearPersistedShieldPosture("silent-cleared");
+  await navigationGuardSettled;
   return true;
 }
 
@@ -4205,7 +4153,8 @@ function handlePreviewPageClick(event: MouseEvent): void {
   const eventTarget = event.target as Element | null;
   const extensionSurface = eventTarget?.closest?.('[data-uf-extension-ui="true"]');
   const interactionShield = eventTarget?.closest?.('[data-uf-interaction-shield="true"]');
-  if (extensionSurface && !interactionShield) {
+  const silentDebugHighlight = eventTarget?.closest?.('[data-uf-silent-highlight]');
+  if (extensionSurface && !interactionShield && !silentDebugHighlight) {
     return;
   }
   const target = markingEngine.previewRowAtPoint?.(event.clientX, event.clientY);
@@ -4300,7 +4249,9 @@ function contentStatus(): Record<string, unknown> {
 }
 
 function markContentClean(): Record<string, unknown> {
-  userToggleCount = 0;
+  // This command records the decision set that the latest AI run consumed. It
+  // is an AI-freshness checkpoint, not permission to rewrite monotonic session
+  // dirt. Only terminal Save/dismissal creates a new clean session.
   cleanMarkingFingerprint = readMarkingDecisionFingerprint();
   return { ok: true, active: markingActive, dirty: isUserMarkingDirty(), tree: "rewrite" };
 }
@@ -4428,8 +4379,12 @@ function createContentRouter() {
         deactivateMarking("silent");
         return { ok: true, initialized: false, tree: "rewrite" };
       },
-      resetContentMain: () => interactionShieldAuthorityActive
-        ? { ok: resetMarking(), initialized: true, tree: "rewrite" }
+      resetContentMain: async (payload) => interactionShieldAuthorityActive
+        ? {
+            ok: await resetMarking(selectorSetFrom(payloadObject(payload))),
+            initialized: true,
+            tree: "rewrite",
+          }
         : {
           ok: false,
           initialized: false,

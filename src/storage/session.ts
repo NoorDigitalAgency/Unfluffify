@@ -32,8 +32,8 @@ export function discardSessionDraft(session: SessionDraft): SessionDraft {
   };
 }
 
-export function replaceBaselineFromSave(session: SessionDraft, saved: ConfigSnapshot): SessionDraft {
-  const parsed = ConfigSnapshotSchema.parse(saved);
+export function replaceBaselineFromLoad(session: SessionDraft, loaded: ConfigSnapshot): SessionDraft {
+  const parsed = ConfigSnapshotSchema.parse(loaded);
   return {
     baseline: cloneSnapshot(parsed),
     draft: cloneSnapshot(parsed),

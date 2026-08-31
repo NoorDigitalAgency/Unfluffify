@@ -407,85 +407,80 @@ async (page) => {
     );
     scenarioEvidence.contentBoot = { contentReady, activation, markingTargetPoint, markingTargetHit };
 
-    await check("marking-right-click-commits-canonical-action", async () => {
+    await check("marking-right-click-preserves-native-context-menu", async () => {
       const before = await contentCall(contentPage, "snapshot");
-      const targetPoint = await physicalClick(contentPage, "#p18-mark-target", "right");
-      await contentPage.waitForSelector('[data-uf-marking-menu="true"]', { state: "visible" });
-      const menu = await contentCall(contentPage, "menuSnapshot");
-      assertion(menu.role === "menu" && menu.connected, "Physical right-click did not open the shipping marking menu", menu);
-      assertion(
-        JSON.stringify(menu.actions.map((action) => action.id)) === JSON.stringify(["include", "exclude", "widen", "clear"]),
-        "Canonical marking action order drifted",
-        menu,
-      );
-      const targetXpath = "/html[1]/body[1]/main[1]/article[1]";
-      const beforeTargetRow = before.status?.data?.contentRows?.find((row) => row.xpath === targetXpath);
-      const exclude = menu.actions.find((action) => action.id === "exclude");
-      assertion(beforeTargetRow?.classification === "included", "Canonical corpus target was not initially included", {
-        targetXpath,
-        beforeTargetRow,
-      });
-      assertion(exclude && exclude.label === "Exclude" && !exclude.disabled, "Canonical Exclude action was not enabled", menu);
-      await contentPage.locator('[data-uf-marking-menu-action="exclude"]').click();
-      await contentPage.waitForSelector('[data-uf-marking-menu="true"]', { state: "hidden" });
-      const after = await waitForContentSnapshot(
-        contentPage,
-        (snapshot) => snapshot.status?.data?.dirty === true && snapshot.status?.data?.markedCount === 1,
-      );
-      const afterTargetRow = after.status?.data?.contentRows?.find((row) => row.xpath === targetXpath);
-      assertion(after.status?.data?.active === true && after.status?.data?.dirty === true, "Canonical action did not update the real content controller", after.status);
-      assertion(after.status.data.markedCount === 1, "One physical menu action did not commit exactly once", after.status);
-      assertion(afterTargetRow?.classification === "excluded", "Canonical Exclude action did not change the exact target row", {
-        targetXpath,
-        beforeTargetRow,
-        afterTargetRow,
-      });
-      assertion(after.reportedFacts.some((frame) => frame.payload?.sensation?.reason === "marking-toggle"), "Canonical marking fact was not emitted", after.reportedFacts);
-      return { targetPoint, targetXpath, beforeTargetRow, menu, afterTargetRow, after };
-    });
-
-    await check("marking-menu-dismissal-preserves-marking-interaction", async () => {
-      const firstPoint = await physicalClick(contentPage, "#p18-mark-target", "right");
-      await contentPage.waitForSelector('[data-uf-marking-menu="true"]', { state: "visible" });
-      const firstMenu = await contentPage.$('[data-uf-marking-menu="true"]');
-      const first = await contentCall(contentPage, "menuSnapshot");
-      const replacementPoint = await physicalClick(contentPage, "#p18-second-mark-target", "right");
-      await contentPage.waitForFunction(() => document.querySelectorAll('[data-uf-marking-menu="true"]').length === 1);
-      const firstConnectedAfterReplace = await firstMenu.evaluate((element) => element.isConnected);
-      const replacement = await contentCall(contentPage, "menuSnapshot");
-      assertion(!firstConnectedAfterReplace, "Second physical right-click did not retire the previous menu DOM", { first, replacement });
-      assertion(replacement && replacement.rect.top !== first.rect.top, "Replacement menu did not target the second physical point", { first, replacement });
-
-      const beforeDismissal = await contentCall(contentPage, "snapshot");
-      const pageClicksBefore = beforeDismissal.pageState.clicks;
-      const markedBeforeDismissal = beforeDismissal.status?.data?.markedCount;
-      const rowsBeforeDismissal = beforeDismissal.status?.data?.contentRows;
-      const markingFactsBeforeDismissal = beforeDismissal.reportedFacts.filter(
+      const contextMenusBefore = before.pageState.contextMenus;
+      const markingFactsBefore = before.reportedFacts.filter(
         (frame) => frame.payload?.sensation?.reason === "marking-toggle",
       ).length;
-      const dismissalPoint = await physicalClick(contentPage, "#p18-page-action");
-      await contentPage.waitForSelector('[data-uf-marking-menu="true"]', { state: "hidden" });
-      const afterDismissal = await contentCall(contentPage, "snapshot");
-      assertion(afterDismissal.pageState.clicks === pageClicksBefore, "Outside-dismissal click leaked into the inspected page", { pageClicksBefore, afterDismissal });
-      assertion(afterDismissal.markingMenuCount === 0, "Outside pointer did not dismiss the content menu", afterDismissal);
+      const targetPoint = await physicalClick(contentPage, "#p18-mark-target", "right");
+      await contentPage.waitForFunction(
+        (count) => window.__p18PageState.contextMenus === count + 1,
+        contextMenusBefore,
+      );
+      await contentPage.keyboard.press("Escape");
+      const after = await contentCall(contentPage, "snapshot");
+      const markingFactsAfter = after.reportedFacts.filter(
+        (frame) => frame.payload?.sensation?.reason === "marking-toggle",
+      ).length;
+      assertion(after.pageState.contextMenuDefaultPrevented === false, "Extension prevented the native context-menu event", after.pageState);
+      assertion(after.pageState.contextMenuAuthoredTarget === "primary", "Native context menu was not opened over the intended authored target", after.pageState);
+      assertion(after.markingMenuCount === 0, "Extension rendered a custom marking context menu", after);
       assertion(
-        afterDismissal.status?.data?.markedCount === markedBeforeDismissal &&
-        JSON.stringify(afterDismissal.status?.data?.contentRows) === JSON.stringify(rowsBeforeDismissal) &&
-        afterDismissal.reportedFacts.filter(
-          (frame) => frame.payload?.sensation?.reason === "marking-toggle",
-        ).length === markingFactsBeforeDismissal,
-        "Outside-dismissal click leaked into a canonical marking action",
+        after.status?.data?.dirty === before.status?.data?.dirty &&
+        after.status?.data?.markedCount === before.status?.data?.markedCount &&
+        JSON.stringify(after.status?.data?.contentRows) === JSON.stringify(before.status?.data?.contentRows) &&
+        markingFactsAfter === markingFactsBefore,
+        "Right-click mutated the marking session",
+        { before, after },
+      );
+      return { targetPoint, before, after };
+    });
+
+    await check("native-context-menu-dismissal-preserves-marking-interaction", async () => {
+      const beforeDismissal = await contentCall(contentPage, "snapshot");
+      const contextMenusBefore = beforeDismissal.pageState.contextMenus;
+      const dismissalPoint = await physicalClick(contentPage, "#p18-second-mark-target", "right");
+      await contentPage.waitForFunction(
+        (count) => window.__p18PageState.contextMenus === count + 1,
+        contextMenusBefore,
+      );
+      await contentPage.keyboard.press("Escape");
+      const afterDismissal = await contentCall(contentPage, "snapshot");
+      assertion(afterDismissal.pageState.contextMenuDefaultPrevented === false, "Dismissed native menu came from a prevented context-menu event", afterDismissal.pageState);
+      assertion(afterDismissal.pageState.contextMenuAuthoredTarget === "replacement", "Dismissed native menu did not target the second authored element", afterDismissal.pageState);
+      assertion(afterDismissal.markingMenuCount === 0, "A custom marking menu remained after native-menu dismissal", afterDismissal);
+      assertion(
+        afterDismissal.status?.data?.markedCount === beforeDismissal.status?.data?.markedCount &&
+        JSON.stringify(afterDismissal.status?.data?.contentRows) === JSON.stringify(beforeDismissal.status?.data?.contentRows),
+        "Native-menu dismissal changed canonical marking rows",
         { beforeDismissal, afterDismissal },
       );
 
+      const targetXpath = "/html[1]/body[1]/main[1]/article[2]";
       const markedBefore = afterDismissal.status?.data?.markedCount;
-      const resumedPoint = await physicalClick(contentPage, "#p18-second-mark-target", "left", ["Shift"]);
+      const markingFactsBefore = afterDismissal.reportedFacts.filter(
+        (frame) => frame.payload?.sensation?.reason === "marking-toggle",
+      ).length;
+      const resumedPoint = await physicalClick(contentPage, "#p18-second-mark-target", "left");
       const afterInteraction = await waitForContentSnapshot(
         contentPage,
         (snapshot) => snapshot.status?.data?.markedCount === markedBefore + 1,
       );
-      assertion(afterInteraction.status.data.active === true && afterInteraction.status.data.markedCount === markedBefore + 1, "Marking interaction did not resume after menu dismissal", { markedBefore, afterInteraction });
-      return { firstPoint, replacementPoint, dismissalPoint, resumedPoint, first, firstConnectedAfterReplace, replacement, pageClicksBefore, afterDismissal, afterInteraction };
+      const targetRow = afterInteraction.status?.data?.contentRows?.find((row) => row.xpath === targetXpath);
+      const markingFactsAfter = afterInteraction.reportedFacts.filter(
+        (frame) => frame.payload?.sensation?.reason === "marking-toggle",
+      ).length;
+      assertion(
+        afterInteraction.status.data.active === true &&
+        afterInteraction.status.data.dirty === true &&
+        afterInteraction.status.data.markedCount === markedBefore + 1 &&
+        targetRow?.classification === "excluded" &&
+        markingFactsAfter === markingFactsBefore + 1,
+        "Plain marking interaction did not resume exactly once after native-menu dismissal",
+        { markedBefore, targetXpath, targetRow, afterInteraction },
+      );
+      return { dismissalPoint, resumedPoint, beforeDismissal, afterDismissal, targetXpath, targetRow, afterInteraction };
     });
 
     // Replacement and manual dismissal stay on native browser time. The exact

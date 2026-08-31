@@ -1848,59 +1848,60 @@ export function stablePreparedMarkingTargetAuthority(initial, confirmation) {
   );
 }
 
-export function preparedMarkingContextIsClean(actions) {
-  const byAction = new Map((Array.isArray(actions) ? actions : []).map((action) => [action?.action, action]));
-  return byAction.get("include")?.disabled === false &&
-    byAction.get("exclude")?.disabled === false &&
-    byAction.get("widen")?.disabled === true &&
-    byAction.get("clear")?.disabled === true;
+const NATIVE_CONTEXT_PROBE_KEY = "__unfluffifyP25NativeContextProbeV1";
+
+async function armNativeContextMenuProbe(session) {
+  const token = crypto.randomUUID();
+  await session.evaluate(`(() => {
+    const key = ${JSON.stringify(NATIVE_CONTEXT_PROBE_KEY)};
+    const token = ${JSON.stringify(token)};
+    window[key] = {
+      token,
+      eventObserved: false,
+      defaultPrevented: null,
+      atPerformanceMs: null,
+      extensionMenuCount: 0,
+    };
+    document.addEventListener('contextmenu', (event) => {
+      const state = window[key];
+      if (!state || state.token !== token) return;
+      state.eventObserved = true;
+      state.defaultPrevented = event.defaultPrevented;
+      state.atPerformanceMs = performance.now();
+      state.extensionMenuCount = document.querySelectorAll('[data-uf-marking-menu="true"]').length;
+    }, { capture: false, once: true });
+  })()`);
+  return token;
 }
 
-export function preparedMarkingContextCanBeCleared(actions) {
-  const clear = (Array.isArray(actions) ? actions : [])
-    .find((action) => action?.action === "clear");
-  return clear?.disabled === false;
-}
-
-async function waitForVisibleMarkingContextMenu(session, timeoutMs = 1_500) {
+async function waitForNativeContextMenuEvidence(session, token, timeoutMs = 1_500) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const observed = await session.evaluate(`(() => ({
-      atPerformanceMs: performance.now(),
-      actions: [...document.querySelectorAll('[data-uf-marking-menu-action], [role="menu"] button')].map((button) => ({
-        action: button.getAttribute('data-uf-marking-menu-action') || null,
-        label: button.textContent?.trim() || '',
-        disabled: Boolean(button.disabled),
-      })),
-    }))()`);
-    if (observed.actions.length > 0) return observed;
+    const observed = await session.evaluate(`(() => {
+      const state = window[${JSON.stringify(NATIVE_CONTEXT_PROBE_KEY)}];
+      if (!state || state.token !== ${JSON.stringify(token)}) return null;
+      return {
+        eventObserved: state.eventObserved === true,
+        defaultPrevented: state.defaultPrevented,
+        atPerformanceMs: state.atPerformanceMs,
+        extensionMenuCount: document.querySelectorAll('[data-uf-marking-menu="true"]').length,
+      };
+    })()`);
+    if (observed?.eventObserved === true) return observed;
     await waitForPresentationOpportunity(session);
   }
-  return { atPerformanceMs: null, actions: [] };
+  return {
+    eventObserved: false,
+    defaultPrevented: null,
+    atPerformanceMs: null,
+    extensionMenuCount: null,
+  };
 }
 
-async function dismissMarkingContextMenu(session) {
+async function dismissNativeContextMenu(session) {
   await session.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
   await session.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 });
-  const deadline = Date.now() + 500;
-  while (Date.now() < deadline) {
-    const menuOpen = await session.evaluate(`(() => [...document.querySelectorAll('[data-uf-marking-menu="true"]')].some((element) => {
-      const style = getComputedStyle(element);
-      const rect = element.getBoundingClientRect();
-      return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity || '1') > 0 && rect.width > 0 && rect.height > 0;
-    }))()`);
-    if (!menuOpen) return;
-    await waitForPresentationOpportunity(session);
-  }
-  throw new Error("Marking context menu did not dismiss after trusted Escape input");
-}
-
-async function preparedMarkingContextAuthority(session, target) {
-  await refreshPreparedMarkingTargetPoint(session, target);
-  await dispatchPhysicalGesture(session, target, { button: "right" });
-  const observed = await waitForVisibleMarkingContextMenu(session);
-  await dismissMarkingContextMenu(session);
-  return observed.actions;
+  await waitForPresentationOpportunity(session, { frameCount: 2 });
 }
 
 function markingTargetRejectionReason(authority) {
@@ -1997,89 +1998,6 @@ async function searchCleanMarkingTarget(session, options = {}) {
     }
     const confirmation = await markingTargetAuthority(session, initialAuthority.target);
     if (stablePreparedMarkingTargetAuthority(initialAuthority, confirmation)) {
-      // Overlay rows are presentation evidence, not the canonical input
-      // authority. An explicit owner can be retained while its overlay is
-      // temporarily unpainted; prove the same physical point through the real
-      // context-menu capability resolver before calling the target clean.
-      let contextMenu = null;
-      if (options.requireContextAuthority === true) {
-        contextMenu = await preparedMarkingContextAuthority(session, confirmation.target);
-        if (!preparedMarkingContextIsClean(contextMenu)) {
-          if (
-            options.allowContextPreclean === true &&
-            preparedMarkingContextCanBeCleared(contextMenu)
-          ) {
-            const inputDispatchedAtEpochMs = Date.now();
-            const dispatchLatencyMs = await dispatchPhysicalGesture(
-              session,
-              confirmation.target,
-              {},
-            );
-            await waitForPresentationOpportunity(session, { frameCount: 2 });
-            const afterContextMenu = await preparedMarkingContextAuthority(
-              session,
-              confirmation.target,
-            );
-            if (preparedMarkingContextIsClean(afterContextMenu)) {
-              // Clearing a configured ancestor can change the legacy C-TGT-4
-              // outcome for the same physical point. Re-prove both modifiers
-              // after that mutation so an exact toggleable boundary is not
-              // misreported as a stale ancestor widen (or vice versa).
-              const cleanInitialAuthority = await markingTargetAuthority(
-                session,
-                confirmation.target,
-              );
-              const cleanConfirmation = cleanInitialAuthority.target
-                ? await markingTargetAuthority(session, cleanInitialAuthority.target)
-                : cleanInitialAuthority;
-              if (!stablePreparedMarkingTargetAuthority(cleanInitialAuthority, cleanConfirmation)) {
-                reject("context-preclean-authority-unstable", confirmation.target, {
-                  beforeShiftedOwnerXpath: confirmation.shiftedOwnerXpath,
-                  afterShiftedOwnerXpath: cleanConfirmation.shiftedOwnerXpath,
-                });
-                skippedXpaths.push(target.xpath);
-                continue;
-              }
-              return {
-                target: {
-                  ...cleanConfirmation.target,
-                  includedOwnerXpath: cleanConfirmation.includedOwnerXpath,
-                  shiftedOwnerXpath: cleanConfirmation.shiftedOwnerXpath,
-                  selectionAttempt: attempts,
-                  selectionSweep: sweep,
-                  precleaned: true,
-                },
-                diagnostics: {
-                  attempts,
-                  sweeps: sweep,
-                  durationMs: Date.now() - startedAt,
-                  rejectedCounts,
-                  lastRejections,
-                  contextMenu: afterContextMenu,
-                  preclean: {
-                    trustedPhysicalInput: true,
-                    inputDispatchedAtEpochMs,
-                    dispatchLatencyMs,
-                    beforeContextMenu: contextMenu,
-                    afterContextMenu,
-                    beforeShiftedOwnerXpath: confirmation.shiftedOwnerXpath,
-                    afterShiftedOwnerXpath: cleanConfirmation.shiftedOwnerXpath,
-                  },
-                },
-              };
-            }
-            reject("context-preclean-failed", confirmation.target, {
-              contextMenu,
-              afterContextMenu,
-            });
-            skippedXpaths.push(target.xpath);
-            continue;
-          }
-          reject("context-not-clean", confirmation.target, { contextMenu });
-          skippedXpaths.push(target.xpath);
-          continue;
-        }
-      }
       return {
         target: {
           ...confirmation.target,
@@ -2094,7 +2012,6 @@ async function searchCleanMarkingTarget(session, options = {}) {
           durationMs: Date.now() - startedAt,
           rejectedCounts,
           lastRejections,
-          ...(contextMenu ? { contextMenu } : {}),
         },
       };
     }
@@ -2272,7 +2189,6 @@ function markingDelta(before, after) {
 }
 
 function markingAssertion(id, before, after, targetDelta, expectedOwnerXpath = null) {
-  if (id === "plain-no-create") return { noTargetMutation: targetDelta.created.length === 0 && targetDelta.removed.length === 0 && targetDelta.changed.length === 0 };
   if (id === "shift-expand") {
     const shifted = after.targetOwned.find((record) =>
       record.kind === "explicit-exclusion" &&
@@ -2286,11 +2202,12 @@ function markingAssertion(id, before, after, targetDelta, expectedOwnerXpath = n
       expectedOwnerXpath,
     };
   }
-  const expectedKind = id.includes("include") ? "explicit-inclusion" : "explicit-exclusion";
-  if (id === "alt-include") {
+  if (id === "plain-exclude" || id === "alt-include") {
+    const expectedKind = id === "plain-exclude" ? "explicit-exclusion" : "explicit-inclusion";
     const included = after.targetOwned.find((record) => record.kind === expectedKind);
     return { kind: included?.kind ?? null, ownerXpath: included?.ownerXpath ?? null, ownerRelation: included?.ownerRelation ?? null };
   }
+  const expectedKind = id === "plain-exclude-unmark" ? "explicit-exclusion" : "explicit-inclusion";
   const priorOwners = before.targetOwned.filter((record) => record.kind === expectedKind);
   return {
     removedExactOwner: priorOwners.some((prior) => !after.canonical.some((record) => record.ownerXpath === prior.ownerXpath && record.kind === prior.kind)),
@@ -2343,9 +2260,10 @@ async function waitForGestureAcknowledgement(
       assertion.ownerXpath === expectedAcknowledgementXpath &&
       (assertion.ownerRelation === "exact" ||
         (assertion.ownerRelation === "ancestor" && assertion.breadthIncreased === true));
-    const correct = id === "plain-no-create" ? assertion.noTargetMutation === true
+    const correct = id === "plain-exclude"
+      ? assertion.kind === "explicit-exclusion" && assertion.ownerRelation === "exact"
       : id === "shift-expand" ? shiftContractSatisfied
-      : id === "alt-include" ? assertion.kind === "explicit-inclusion" && assertion.ownerRelation === "exact"
+        : id === "alt-include" ? assertion.kind === "explicit-inclusion" && assertion.ownerRelation === "exact"
           : id.includes("unmark") ? assertion.removedExactOwner === true && assertion.remainingTargetOwned === 0
             : false;
     const paintCorrect = Boolean(
@@ -2353,7 +2271,7 @@ async function waitForGestureAcknowledgement(
       interactionAcknowledgement.ownerXpath === expectedAcknowledgementXpath &&
       (id === "alt-include"
         ? interactionAcknowledgement.kind === "explicit-inclusion" && interactionAcknowledgement.ownerRelation === "exact"
-        : id === "shift-expand" || id === "plain-exact-unmark"
+        : id === "plain-exclude" || id === "plain-exclude-unmark" || id === "shift-expand"
           ? interactionAcknowledgement.kind === "explicit-exclusion"
           : id === "plain-include-unmark"
             ? interactionAcknowledgement.kind === "explicit-inclusion"
@@ -2437,9 +2355,7 @@ export async function probeMarkingGestures(session, preparedTarget = null, optio
     const before = await session.evaluate(markingDecisionExpression(target));
     const inputStartedAt = await session.evaluate("performance.now()");
     const dispatchLatencyMs = await dispatchPhysicalGesture(session, target, gesture);
-    const acknowledgement = id === "context-menu"
-      ? null
-      : await waitForGestureAcknowledgement(
+    const acknowledgement = await waitForGestureAcknowledgement(
         session,
         target,
         before,
@@ -2457,7 +2373,7 @@ export async function probeMarkingGestures(session, preparedTarget = null, optio
       acknowledgementLatencyMs: acknowledgement?.acknowledgementLatencyMs ?? null,
       acknowledged: acknowledgement?.acknowledged ?? false,
       dispatchLatencyMs,
-      settleTimeoutMs: id === "context-menu" ? 1_500 : 1_500,
+      settleTimeoutMs: 1_500,
       changed: beforeFingerprint !== afterFingerprint,
       beforeFingerprint,
       afterFingerprint,
@@ -2476,50 +2392,57 @@ export async function probeMarkingGestures(session, preparedTarget = null, optio
     operations.push(operation);
     return operation;
   };
-  await operate("plain-no-create", {});
-  const shiftOperation = await operate("shift-expand", { shift: true }, target.shiftedOwnerXpath);
-  const expandedOwnerXpath = shiftOperation.interactionAcknowledgement?.ownerXpath ?? target.shiftedOwnerXpath;
-  await operate("plain-exact-unmark", {}, expandedOwnerXpath);
+  await operate("plain-exclude", {}, target.xpath);
+  await operate("plain-exclude-unmark", {}, target.xpath);
   await operate("alt-include", { alt: true }, target.includedOwnerXpath ?? target.xpath);
-  const requireContextMenu = options.requireContextMenu === true;
-  const shiftedHoverOwner = requireContextMenu ? await resolveShiftedHoverOwner(session, target) : null;
-  let contextMenu = [];
-  if (requireContextMenu) {
+  const requireNativeContextMenu = options.requireNativeContextMenu === true;
+  let nativeContextMenu = null;
+  if (requireNativeContextMenu) {
+    await refreshPreparedMarkingTargetPoint(session, target);
+    const before = await session.evaluate(markingDecisionExpression(target));
     const contextStartedAt = await session.evaluate("performance.now()");
-    const contextOperation = await operate("context-menu", { button: "right" });
-    const contextObservation = await waitForVisibleMarkingContextMenu(session);
-    contextMenu = contextObservation.actions;
-    const contextAcknowledgedAt = contextObservation.atPerformanceMs;
-    contextOperation.acknowledged = contextMenu.length > 0;
-    contextOperation.acknowledgementLatencyMs = contextAcknowledgedAt === null ? null : Math.max(0, contextAcknowledgedAt - contextStartedAt);
-    contextOperation.latencyMs = contextOperation.acknowledgementLatencyMs;
-    await dismissMarkingContextMenu(session);
-    await waitForPresentationOpportunity(session, { frameCount: 2 });
+    const token = await armNativeContextMenuProbe(session);
+    const dispatchLatencyMs = await dispatchPhysicalGesture(session, target, { button: "right" });
+    nativeContextMenu = await waitForNativeContextMenuEvidence(session, token);
+    await dismissNativeContextMenu(session);
+    const after = await session.evaluate(markingDecisionExpression(target));
+    const targetDelta = markingDelta(before, after);
+    const beforeFingerprint = sha256(JSON.stringify(before.canonical));
+    const afterFingerprint = sha256(JSON.stringify(after.canonical));
+    const acknowledgementLatencyMs = Number.isFinite(nativeContextMenu.atPerformanceMs)
+      ? Math.max(0, nativeContextMenu.atPerformanceMs - contextStartedAt)
+      : null;
+    operations.push({
+      id: "native-context-menu",
+      latencyMs: acknowledgementLatencyMs ?? dispatchLatencyMs,
+      acknowledgementLatencyMs,
+      acknowledged: nativeContextMenu.eventObserved === true,
+      dispatchLatencyMs,
+      settleTimeoutMs: 1_500,
+      changed: beforeFingerprint !== afterFingerprint,
+      beforeFingerprint,
+      afterFingerprint,
+      before,
+      after,
+      targetDelta,
+      assertion: { nativeContextMenu },
+      interactionAcknowledgement: null,
+    });
   }
   await operate("plain-include-unmark", {}, target.includedOwnerXpath ?? target.xpath);
+  await operate("shift-expand", { shift: true }, target.shiftedOwnerXpath);
   const performanceWindowEndedAt = await session.evaluate("performance.now()");
-  // Pinned legacy has no action menu: its contextmenu listener aliases the
-  // legacy toggle. Compare only operations present in both implementations;
-  // retain the rewrite menu latency as separate, non-parity evidence.
-  const sharedOperations = operations.filter((operation) => operation.id !== "context-menu");
-  const contextOperation = operations.find((operation) => operation.id === "context-menu");
+  // Pinned legacy mutates on contextmenu. That behavior is an intentional
+  // non-parity surface, so only the rewrite runs the native-menu assertion.
+  const sharedOperations = operations.filter((operation) => operation.id !== "native-context-menu");
+  const contextOperation = operations.find((operation) => operation.id === "native-context-menu");
   const timing = summarizeTiming(sharedOperations.map((operation) => operation.acknowledgementLatencyMs).filter(Number.isFinite));
   const contextTiming = summarizeTiming([contextOperation?.acknowledgementLatencyMs].filter(Number.isFinite));
-  const contextExpectedDisabled = requireContextMenu ? {
-    include: false,
-    // The independently proven exact explicit include is also the current
-    // exclusion-resolution owner, so Exclude must not create a second mark.
-    exclude: true,
-    widen: !(typeof shiftedHoverOwner === "string" && shiftedHoverOwner !== target.xpath),
-    clear: false,
-  } : {};
   return {
     target,
     operations,
-    contextMenu,
-    contextCandidateEvidence: { shiftedHoverOwner },
-    contextExpectedDisabled,
-    contextContract: requireContextMenu ? "rewrite-action-menu" : "not-present-in-pinned-legacy",
+    nativeContextMenu,
+    contextContract: requireNativeContextMenu ? "native-browser-menu" : "legacy-contextmenu-toggle-not-exercised",
     timing,
     contextTiming,
     performanceWindow: { startedAt: performanceWindowStartedAt, endedAt: performanceWindowEndedAt },

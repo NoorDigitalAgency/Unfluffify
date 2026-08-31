@@ -76,6 +76,23 @@ describe("content signal organ", () => {
     expect(state).toMatchObject({ name: "pre_ai_dirty", priorState: undefined });
   });
 
+  it("keeps marking dirt monotonic through visual undo, running, and reconciliation", () => {
+    let edited = transitionContentState(INITIAL_CONTENT_STATE, signal(1, "marking.enabled"));
+    edited = transitionContentState(edited, signal(2, "markings.changed", { dirty: true }));
+    edited = transitionContentState(edited, signal(3, "markings.changed", { dirty: false }));
+    expect(edited).toMatchObject({ name: "pre_ai_dirty", lastConsumedSeq: 3 });
+
+    let running = transitionContentState(INITIAL_CONTENT_STATE, signal(1, "marking.enabled"));
+    running = transitionContentState(running, signal(2, "run.started", { sessionId: "run-1" }));
+    running = transitionContentState(running, signal(3, "markings.changed", { dirty: false }));
+    expect(running).toMatchObject({ name: "running", runDirtyDuringRun: true });
+
+    let reconciling = transitionContentState(INITIAL_CONTENT_STATE, signal(1, "marking.enabled"));
+    reconciling = transitionContentState(reconciling, signal(2, "reconciliation.started", { reason: "saving" }));
+    reconciling = transitionContentState(reconciling, signal(3, "markings.changed", { dirty: false }));
+    expect(reconciling).toMatchObject({ name: "reconciling", reconciliationDirty: true });
+  });
+
   it("holds interactions during preview exit and restores the exact origin", () => {
     let marking = transitionContentState(INITIAL_CONTENT_STATE, signal(1, "marking.enabled"));
     marking = transitionContentState(marking, signal(2, "run.started", { sessionId: "run-1" }));

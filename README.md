@@ -100,14 +100,14 @@ pnpm orchestrate:property-lock -- --property-url https://example.com/
 - **Content Labeling**: Mark elements as "excluded" to identify fluff (ads, banners, navigation, forms, footers, etc.), including generated default exclusions that render in the ordinary exclude overlay and submit as excluded rows
 - **Page Scoping**: Set a base URL to apply patterns across multiple pages of a site
 - **Silent Highlighting**: Visual overlay showing excluded/included content with customizable colors; silent Preview Contents and Send to Lynx live on this surface, while marking mode has its own AI-fresh Preview Contents check
-- **AI Selector Computation**: Uses AI to suggest which elements should be marked as fluff, always from the stored raw/rendered HTML and XPath evidence for every marked page under the current property
+- **AI Selector Computation**: Uses a property-stateless AI job to suggest which elements should be marked as fluff; every run supplies the complete current property corpus of raw/rendered HTML and XPath evidence, and the temporary job id is only for polling
 - **Device Simulation**: Opens tabs in mobile simulation by default, preserves per-session choices outside marking, and forces mobile simulation while active marking is running
 - **Desktop Preview**: When a property already has AI selectors, a separate popup toggle can switch the current tab into desktop preview while keeping marking disabled
 - **Off-Candidate Previewing**: Same-property pages that are not current Live Page candidates still keep silent highlighting and property-lock visibility, while marking remains unavailable
 - **Off-Candidate Lock Warning**: Editors who remain on a same-property off-candidate page see a 70 second warning before the extension releases the editor role
 - **Cross-Property Cool-Off**: Editors who navigate to a different property keep a 30 second recovery window, with mirrored page/popup warnings, before the previous property's editor role is released
 - **Rendering Mode Detection**: Distinguish between static HTML and JavaScript-rendered content
-- **Data Persistence**: Marking data only lives while marking is enabled — each enable recomputes the page entry fresh from defaults plus CSS/AI-selector influence (wiping any stale draft so the page never starts dirty), and marking is disabled on any navigation or reload regardless of same page or property. Marking edits stay session-local until users run AI and explicitly Save Session or Discard Session; passive observers use backend-saved page data while the active editor uses the local session data, marks both the current candidate and its page-type subsection, and quietly polls Live Page candidates until a changed set needs review
+- **Data Persistence**: Marking data exists only inside an active session. Each enable starts fresh from defaults plus current saved CSS-selector influence; the first successful marking edit makes the session dirty until authoritative Save or approved complete dismissal. Save persists the result, then Load adopts the backend's complete latest shape; Discard and approved dirty navigation/disable remove every local session decision. Run AI retains no property/page corpus or remote draft; its temporary job state exists only to finish the active run
 - **Property Edit Locking**: Coordinates one active marking editor per property with stable page-session ownership, same-user tab handoff, takeover suggestions, immediate eligible-page editor claiming for the current extension session, an editor bootstrap refresh when ownership changes, and passive observer refresh no more than once per minute
 - **Immediate Close Release**: Closing the editor tab releases that property's lock immediately instead of waiting for the normal port-disconnect grace window
 - **Cookie/Consent Management**: Hides consent interfaces before save so hidden textual content is handled by the same submission visibility rules as other invisible text
@@ -204,12 +204,12 @@ pnpm exec vitest run tests/core-visibility.test.ts tests/core-motion-pause.test.
 ## How to Use
 
 1. **Enable on a Page**: Click the Unfluffify icon → Set a **Base URL** → Click **Enable on this tab**
-2. **Mark Content**: Hover over page elements to see highlights, click to toggle the nearest exclusion. Hold **Shift** to create a broader 052c-style exclusion boundary; a plain click can remove that exact widened mark. Shallow generic page wrappers are intentionally skipped. Hold **Alt** to explicitly include eligible content—including already implicit content and mixed direct-text ancestors.
+2. **Mark Content**: Hover any visible eligible mutable target and click to toggle implicit inclusion, explicit exclusion, or explicit inclusion. Hold **Shift** to move between an individual target and an eligible broader boundary; hold **Alt** for individual explicit inclusion (Alt wins over Shift, including mixed-text parent/child targeting). Expanded exclusions rehydrate their descendants when removed. Hidden targets never paint or accept marking interaction, Meta/Ctrl have no marking role, and right-click always opens the native browser menu.
 3. **Interact With Page UI**: Hold **Space** to let clicks reach accordions, tabs, menus, and other page controls, then release to keep marking
 4. **View Markings**: Use the popup to see lists of excluded/included elements
 5. **Use Selector List**: Manage exclusion selectors directly from the popup
-6. **Navigate**: Go to other pages under the base URL to see inferred patterns
-7. **Run AI, Then Save or Discard**: After marking changes, run AI content detection, then save the full session or discard it before exiting marking
+6. **Navigate**: Clean sessions leave directly. Dirty full-page and same-document path/query navigation asks before discarding the active session; cancelling keeps the URL and markings unchanged. Fragment-only movement stays in the same session.
+7. **Run AI, Then Save or Discard**: After marking changes, run the stateless whole-property AI calculation. Save commits once and then performs a distinct authoritative Load before entering silent mode; Discard retains nothing locally or remotely.
 
 Page-save reconciliation states are generally non-blocking for preparation, loading, calculation, saving, and retry messaging. The editor-role activation preparation (`editor_preparing`) is the explicit exception and is blocking so reveal/freeze setup cannot be interrupted by user input.
 
@@ -220,7 +220,7 @@ Page-save reconciliation states are generally non-blocking for preparation, load
 Visual overlay showing page content classification:
 - **Excluded** (highlighted in one color) - Marked as fluff
 - **Included** (optional highlight) - Marked as meaningful content
-- **Consent handling** - Blocking cookie/consent UI is hidden and excluded from markings, preview rows, AI HTML, and saved payload artifacts
+- **Consent handling** - Blocking cookie/consent UI stays hidden and non-interactive. Its hidden textual page content receives truthful exclusion coverage in the AI payload unless immutable/excluded ancestry already covers it; extension-owned UI remains absent
 
 ### Motion Stability
 
@@ -228,7 +228,7 @@ When a tab acquires the editor role, Unfluffify runs one content-reveal sweep fo
 
 ### AI Selectors
 
-The extension can compute AI-suggested selectors to automatically identify similar fluff content. Starting a run immediately shows the busy spinner/countdown and pauses marking edits before saved-page backfills, XPath refinement, and payload construction begin. If the current page has unsaved local marking changes, the run first captures that page into the local stored snapshot so the AI request still uses stored evidence only. The popup checks async run status every 5 seconds while users wait, then users can verify and apply the suggestions. Saving is intentionally blocked until the latest local marking session has been processed by AI. Silent Preview Contents always reads the latest stored selector set for the property; marking mode exposes its own Preview Contents action only after the AI run is fresh for the current markings. Send to Lynx stays on the silent-highlighting surface while marking stays focused on current-page editing.
+The extension can compute AI-suggested selectors to automatically identify similar fluff content. The AI endpoint retains no property/page corpus: each run sends one self-contained corpus containing every candidate page for the property, its applicable static/rendered HTML and rows, the immutable-selector list, and the current page's active-session projection. Its temporary session id is only an asynchronous status/result handle. Starting a run immediately shows the busy spinner/countdown and pauses marking edits before corpus construction begins. The popup checks async run status every 5 seconds while users wait, then users can verify the suggestions. Saving is intentionally blocked until the latest local marking session has been processed by AI; successful Save persists the result and a distinct Load adopts the complete newest backend shape. Silent Preview Contents always reads the latest authoritative selector set for the property; marking mode exposes its own Preview Contents action only after the AI run is fresh for the current markings. Send to Lynx stays on the silent-highlighting surface while marking stays focused on current-page editing.
 
 ### Base URLs
 
@@ -241,7 +241,7 @@ A base URL defines the scope for pattern inference. For example:
 
 Opening Unfluffify on a supported page enables mobile simulation (412x960) by default so marking and AI-submission visibility match the mobile extraction contract. Every fresh tab session opened through the extension starts in that mobile simulation mode, including when the side panel is already open and you switch to a new tab. Outside active marking, the simulation choice remains a per-session setting that users can disable from the popup and that the extension will not silently re-enable until the tab session state is cleared. During an active marking session, the editor tab forces mobile simulation back on and keeps the popup device toggle unavailable until marking is disabled. Navigation, reload, unregister/reload cleanup, and Render Mode inspection must preserve the current session choice when marking is not active.
 
-When AI selectors already exist for the current property, the popup also shows a separate `Preview in desktop mode` checkbox. That choice persists for the tab lifecycle, switches the page into desktop emulation, keeps silent previewing available, and disables marking entry until the checkbox is turned off again. If DevTools tears down emulation while desktop preview is on, the extension clears desktop preview and restores mobile emulation for the tab.
+When AI selectors already exist for the current property, the popup also shows a separate `Preview in desktop mode` checkbox. That choice persists for the tab lifecycle, switches the page into desktop emulation, and keeps silent previewing available. Enabling marking remains available: the serialized transition first forces the editor to mobile emulation and only then activates marking, while retaining the desktop preference so clean disable restores desktop silent preview. If DevTools tears down emulation while desktop preview is on, the extension clears desktop preview and restores mobile emulation for the tab.
 
 ## Architecture Notes
 

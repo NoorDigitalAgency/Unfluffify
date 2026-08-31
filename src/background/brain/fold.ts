@@ -32,6 +32,7 @@ export function fold(prevFacts: TabFacts | null, sensation: BrainSensation): Tab
   const markingExited = prev.markingEnabled === true && parsed.facts.markingEnabled === false;
   const saved = (parsed.facts.savedSeq ?? prev.savedSeq ?? 0) > (prev.savedSeq ?? 0);
   const discarded = (parsed.facts.discardedSeq ?? prev.discardedSeq ?? 0) > (prev.discardedSeq ?? 0);
+  const sessionEnded = pageUrlChanged || markingExited || saved || discarded;
   const becameDirty = (parsed.facts.markingToggleSeq ?? 0) > (prev.markingToggleSeq ?? 0) ||
     parsed.facts.runPhase === "running" ||
     parsed.facts.runPhase === "completed" ||
@@ -50,7 +51,11 @@ export function fold(prevFacts: TabFacts | null, sensation: BrainSensation): Tab
     markingToggleSeq: pageUrlChanged
       ? parsed.facts.markingToggleSeq ?? 0
       : parsed.facts.markingToggleSeq ?? prev.markingToggleSeq,
-    runPhase: pageUrlChanged ? parsed.facts.runPhase ?? "idle" : parsed.facts.runPhase ?? prev.runPhase,
+    runPhase: sessionEnded ? "idle" : parsed.facts.runPhase ?? prev.runPhase,
+    runSessionId: sessionEnded ? undefined : parsed.facts.runSessionId ?? prev.runSessionId,
+    runDeadlineAt: sessionEnded ? undefined : parsed.facts.runDeadlineAt ?? prev.runDeadlineAt,
+    runAiSessionId: sessionEnded ? undefined : parsed.facts.runAiSessionId ?? prev.runAiSessionId,
+    runSelectors: sessionEnded ? undefined : parsed.facts.runSelectors ?? prev.runSelectors,
     previewActive: pageUrlChanged ? false : parsed.facts.previewActive ?? prev.previewActive,
     previewExitRequested: pageUrlChanged
       ? false

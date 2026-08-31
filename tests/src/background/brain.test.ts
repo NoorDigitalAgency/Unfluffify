@@ -129,7 +129,13 @@ describe("P3 background brain", () => {
       tabId: 1,
       source: "popup",
       reason: "ai-run-completed",
-      facts: { tabId: 1, runPhase: "completed" },
+      facts: {
+        tabId: 1,
+        runPhase: "completed",
+        runSessionId: "client-run-1",
+        runAiSessionId: "backend-run-1",
+        runSelectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+      },
     });
     expect(facts.hasUnsavedWork).toBe(true);
     facts = fold(facts, {
@@ -139,6 +145,10 @@ describe("P3 background brain", () => {
       facts: { tabId: 1, discardedSeq: 1 },
     });
     expect(facts.hasUnsavedWork).toBe(false);
+    expect(facts).toMatchObject({ runPhase: "idle" });
+    expect(facts.runSessionId).toBeUndefined();
+    expect(facts.runAiSessionId).toBeUndefined();
+    expect(facts.runSelectors).toBeUndefined();
 
     facts = fold(facts, {
       tabId: 1,

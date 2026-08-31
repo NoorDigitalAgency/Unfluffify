@@ -271,8 +271,34 @@ export function createRewriteBackgroundServices(input: Readonly<{
     pageKey: string;
     startedAt: number;
     deadlineAt: number;
+    continuationGeneration: number;
   }>;
   const aiContinuations = new Map<string, Promise<Awaited<ReturnType<typeof pollAiJob>>>>();
+  const aiContinuationGenerationByTab = new Map<number, number>();
+  const currentAiContinuationGeneration = (tabId: number): number =>
+    aiContinuationGenerationByTab.get(tabId) ?? 0;
+  const aiContinuationIsCurrent = (scope: DurableAiScope): boolean =>
+    currentAiContinuationGeneration(scope.tabId) === scope.continuationGeneration;
+  const persistAiRunRecord = async (
+    scope: DurableAiScope,
+    record: Omit<Parameters<typeof runRecordRepo.save>[0],
+      "sessionId" | "tabId" | "clientRunId" | "editorSessionId" | "environmentKey" | "siteId" | "pageKey" | "startedAt">,
+    options?: Parameters<typeof runRecordRepo.save>[1],
+  ): Promise<boolean> => {
+    if (!aiContinuationIsCurrent(scope)) {
+      return false;
+    }
+    const { continuationGeneration: _continuationGeneration, ...persistedScope } = scope;
+    await runRecordRepo.save({ ...persistedScope, ...record }, options);
+    return aiContinuationIsCurrent(scope);
+  };
+  const retireAiRunForTab = async (tabId: number): Promise<void> => {
+    aiContinuationGenerationByTab.set(tabId, currentAiContinuationGeneration(tabId) + 1);
+    const latest = await runRecordRepo.loadLatestForTab(tabId);
+    if (latest.ok && latest.value) {
+      await runRecordRepo.clear(latest.value.sessionId);
+    }
+  };
   const continueAiJob = (scope: DurableAiScope) => {
     const existing = aiContinuations.get(scope.sessionId);
     if (existing) {
@@ -284,27 +310,25 @@ export function createRewriteBackgroundServices(input: Readonly<{
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       getStatus: (sessionId) => getAiRunStatus(transport, sessionId, { deadlineAt: scope.deadlineAt }),
       getResult: (sessionId) => getAiRunResult(transport, sessionId, { deadlineAt: scope.deadlineAt }),
-      heartbeat: (state) => runRecordRepo.save({
-        ...scope,
-        sessionId: state.sessionId,
-        phase: "running",
-        updatedAt: state.updatedAt,
-        deadlineAt: state.deadlineAt,
-      }),
+      heartbeat: async (state) => {
+        await persistAiRunRecord(scope, {
+          phase: "running",
+          updatedAt: state.updatedAt,
+          deadlineAt: state.deadlineAt,
+        });
+      },
       acquireComputeLock: async () => () => undefined,
     }, { timeoutMs: remainingMs }).then(async (polled) => {
       if (polled.status === "fresh") {
         const selectors = SelectorSetSchema.parse(polled.selectors);
-        await runRecordRepo.save({
-          ...scope,
+        await persistAiRunRecord(scope, {
           phase: "fresh",
           updatedAt: Date.now(),
           selectors,
         });
         return { ...polled, selectors };
       }
-      await runRecordRepo.save({
-        ...scope,
+      await persistAiRunRecord(scope, {
         phase: "failed",
         updatedAt: Date.now(),
         error: polled.reason,
@@ -313,8 +337,7 @@ export function createRewriteBackgroundServices(input: Readonly<{
       });
       return polled;
     }).catch(async (_error: unknown) => {
-      await runRecordRepo.save({
-        ...scope,
+      await persistAiRunRecord(scope, {
         phase: "failed",
         updatedAt: Date.now(),
         error: "continuation_transport_error",
@@ -420,34 +443,6 @@ export function createRewriteBackgroundServices(input: Readonly<{
             updatedAt: new Date().toISOString(),
           });
           return { renderMode: keptRenderMode, source: "local" as const };
-        });
-      },
-      /** A validated successful save response atomically replaces the durable
-       * background baseline. Unexpected shrink is adopted but leaves a durable
-       * warning that closes subsequent mutations. */
-      applyBackendSave(environmentKey: string, siteId: number, snapshot: ConfigSnapshot) {
-        return withPropertyOperation(environmentKey, siteId, async () => {
-          const stored = await configRepo.load(environmentKey, siteId);
-          const adoption = assessAuthoritativeSnapshot(
-            stored.ok ? stored.value : null,
-            snapshot,
-            { environmentKey, siteId },
-          );
-          await configRepo.save(adoption.snapshot);
-          await localPropertyRepo.save({
-            environmentKey,
-            siteId,
-            backendConfigPresent: true,
-            ...(adoption.integrityWarning ? {
-              integrityWarning: {
-                ...adoption.integrityWarning,
-                removedPageKeys: [...adoption.integrityWarning.removedPageKeys],
-                detectedAt: new Date().toISOString(),
-              },
-            } : {}),
-            updatedAt: new Date().toISOString(),
-          });
-          return adoption;
         });
       },
       /** Writes require readable, clean local integrity facts. Reads remain
@@ -576,13 +571,28 @@ export function createRewriteBackgroundServices(input: Readonly<{
           pageKey: context.pageKey,
           startedAt,
           deadlineAt,
+          continuationGeneration: currentAiContinuationGeneration(context.tabId),
         };
-        await runRecordRepo.save({
-          ...recordScope,
+        const initialRecordCurrent = await persistAiRunRecord(recordScope, {
           phase: "running",
           updatedAt: startedAt,
         }, { makeLatest: true });
+        if (!initialRecordCurrent) {
+          return {
+            status: "error" as const,
+            failureStage: "start" as const,
+            reason: "session_retired",
+          };
+        }
         const polled = await continueAiJob(recordScope);
+        if (!aiContinuationIsCurrent(recordScope)) {
+          return {
+            status: "error" as const,
+            sessionId: started.sessionId,
+            failureStage: "result" as const,
+            reason: "session_retired",
+          };
+        }
         if (polled.status === "fresh") {
           return {
             status: "ok" as const,
@@ -642,6 +652,7 @@ export function createRewriteBackgroundServices(input: Readonly<{
             pageKey: record.pageKey,
             startedAt: record.startedAt,
             deadlineAt: record.deadlineAt,
+            continuationGeneration: currentAiContinuationGeneration(scope.tabId),
           }).catch(() => undefined);
           return { status: "running" as const, ...common };
         }
@@ -653,6 +664,7 @@ export function createRewriteBackgroundServices(input: Readonly<{
           reason: record.reason,
         };
       },
+      retireAiRunForTab,
     },
     accounts: {
       /** Whether a token is stored at all. Answered from the settings store
