@@ -4,7 +4,10 @@ import { createRenderEmulationRuntime } from "../../../src/background/render-emu
 
 const REAL_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
 
-function fakeDebugger(options: Readonly<{ keepDocumentIdentityStale?: boolean }> = {}) {
+function fakeDebugger(options: Readonly<{
+  keepDocumentIdentityStale?: boolean;
+  mobileInnerViewportOffset?: Readonly<{ width: number; height: number }>;
+}> = {}) {
   const sent: Array<{ method: string; params?: Record<string, unknown> }> = [];
   const attaches: number[] = [];
   const detaches: number[] = [];
@@ -117,11 +120,16 @@ function fakeDebugger(options: Readonly<{ keepDocumentIdentityStale?: boolean }>
           if (expression.includes("__unfluffifyEmulationProof")) {
             const measuredWidth = mismatchedProofsRemaining > 0 ? width + 1 : width;
             mismatchedProofsRemaining = Math.max(0, mismatchedProofsRemaining - 1);
+            const mobileInnerOffset = media.pointerCoarse ? options.mobileInnerViewportOffset : undefined;
             callback?.({
               result: {
                 value: {
-                  innerWidth: measuredWidth,
-                  innerHeight: height,
+                  innerWidth: measuredWidth + (mobileInnerOffset?.width ?? 0),
+                  innerHeight: height + (mobileInnerOffset?.height ?? 0),
+                  documentClientWidth: measuredWidth,
+                  documentClientHeight: height,
+                  visualViewportWidth: measuredWidth,
+                  visualViewportHeight: height,
                   devicePixelRatio,
                   visualViewportScale,
                   maxTouchPoints,
@@ -217,6 +225,26 @@ describe("render emulation runtime", () => {
       call.method === "Runtime.evaluate" &&
       String(call.params?.expression ?? "").includes("requestAnimationFrame")
     )).toHaveLength(2);
+  });
+
+  it("accepts an exact mobile visual viewport when Chrome inflates window.inner dimensions", async () => {
+    const debuggerApi = fakeDebugger({
+      mobileInnerViewportOffset: { width: 12, height: 28 },
+    });
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+    });
+
+    await expect(runtime.apply(7, "mobile", 1, false)).resolves.toMatchObject({
+      mode: "mobile",
+      width: 412,
+      height: 960,
+      active: true,
+      identityStale: false,
+    });
+    expect(debuggerApi.sent.filter((call) => call.method === "Emulation.setDeviceMetricsOverride"))
+      .toHaveLength(1);
   });
 
   it("waits through a bounded multi-frame layout transition without rewriting again", async () => {
@@ -533,6 +561,10 @@ describe("render emulation runtime", () => {
               value: {
                 innerWidth: width,
                 innerHeight: height,
+                documentClientWidth: width,
+                documentClientHeight: height,
+                visualViewportWidth: width,
+                visualViewportHeight: height,
                 devicePixelRatio: 1,
                 visualViewportScale: 1,
                 maxTouchPoints,

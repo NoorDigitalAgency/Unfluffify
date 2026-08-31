@@ -452,6 +452,10 @@ describe("rewrite background startup", () => {
                 value: {
                   innerWidth: 412,
                   innerHeight: 960,
+                  documentClientWidth: 412,
+                  documentClientHeight: 960,
+                  visualViewportWidth: 412,
+                  visualViewportHeight: 960,
                   devicePixelRatio: 1,
                   visualViewportScale: 1,
                   maxTouchPoints: 1,

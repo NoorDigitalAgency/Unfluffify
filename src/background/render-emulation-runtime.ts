@@ -28,6 +28,10 @@ export type VerifiedEmulationState = EmulationState & Readonly<{
 type MeasuredEmulationPosture = Readonly<{
   innerWidth: number;
   innerHeight: number;
+  documentClientWidth: number;
+  documentClientHeight: number;
+  visualViewportWidth: number;
+  visualViewportHeight: number;
   devicePixelRatio: number;
   visualViewportScale: number;
   maxTouchPoints: number;
@@ -46,6 +50,10 @@ const EMULATION_PROOF_EXPRESSION = `(() => ({
   __unfluffifyEmulationProof: true,
   innerWidth: window.innerWidth,
   innerHeight: window.innerHeight,
+  documentClientWidth: document.documentElement?.clientWidth ?? window.innerWidth,
+  documentClientHeight: document.documentElement?.clientHeight ?? window.innerHeight,
+  visualViewportWidth: window.visualViewport?.width ?? window.innerWidth,
+  visualViewportHeight: window.visualViewport?.height ?? window.innerHeight,
   devicePixelRatio: window.devicePixelRatio,
   visualViewportScale: window.visualViewport?.scale ?? 1,
   maxTouchPoints: navigator.maxTouchPoints,
@@ -74,12 +82,20 @@ function measuredEmulationPosture(value: unknown): MeasuredEmulationPosture | nu
   const candidate = value as Record<string, unknown>;
   const innerWidth = finiteNumber(candidate.innerWidth);
   const innerHeight = finiteNumber(candidate.innerHeight);
+  const documentClientWidth = finiteNumber(candidate.documentClientWidth);
+  const documentClientHeight = finiteNumber(candidate.documentClientHeight);
+  const visualViewportWidth = finiteNumber(candidate.visualViewportWidth);
+  const visualViewportHeight = finiteNumber(candidate.visualViewportHeight);
   const devicePixelRatio = finiteNumber(candidate.devicePixelRatio);
   const visualViewportScale = finiteNumber(candidate.visualViewportScale);
   const maxTouchPoints = finiteNumber(candidate.maxTouchPoints);
   if (
     innerWidth === null ||
     innerHeight === null ||
+    documentClientWidth === null ||
+    documentClientHeight === null ||
+    visualViewportWidth === null ||
+    visualViewportHeight === null ||
     devicePixelRatio === null ||
     visualViewportScale === null ||
     maxTouchPoints === null ||
@@ -103,6 +119,10 @@ function measuredEmulationPosture(value: unknown): MeasuredEmulationPosture | nu
   return {
     innerWidth,
     innerHeight,
+    documentClientWidth,
+    documentClientHeight,
+    visualViewportWidth,
+    visualViewportHeight,
     devicePixelRatio,
     visualViewportScale,
     maxTouchPoints,
@@ -126,9 +146,13 @@ function proveEmulationPosture(
   if (!measured) {
     return "proof_unavailable";
   }
-  if (measured.innerWidth !== state.width || measured.innerHeight !== state.height) {
-    return "viewport_mismatch";
-  }
+  const viewportMatches = state.mode === "mobile"
+    ? measured.visualViewportWidth === state.width &&
+      measured.visualViewportHeight === state.height &&
+      measured.documentClientWidth === state.width &&
+      measured.documentClientHeight === state.height
+    : measured.innerWidth === state.width && measured.innerHeight === state.height;
+  if (!viewportMatches) return "viewport_mismatch";
   if (Math.abs(measured.devicePixelRatio - 1) > 0.001) {
     return "device_pixel_ratio_mismatch";
   }
