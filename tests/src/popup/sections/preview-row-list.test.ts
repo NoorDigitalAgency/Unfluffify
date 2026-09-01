@@ -124,28 +124,65 @@ describe("focused Preview row section", () => {
     });
   });
 
-  it("retains an unresolvable technical row but disables activation with a specific reason", () => {
+  it("omits unavailable rows from production and debug UI, ordinals, and counts", () => {
+    const projection = {
+      ...PROJECTION,
+      rows: [
+        {
+          ...PROJECTION.rows[0],
+          id: "hidden-footer",
+          classification: "excluded" as const,
+          text: "Hidden consent footer",
+          target: { state: "unavailable" as const, reason: "no-rendered-box" as const },
+        },
+        {
+          ...PROJECTION.rows[0],
+          id: "visible-content",
+          text: "Visible content",
+          target: { state: "available" as const },
+        },
+      ],
+    };
+    for (const debug of [false, true]) {
+      const markup = renderToStaticMarkup(createElement(PreviewRowList, {
+        projection,
+        debug,
+        hoveredRowId: null,
+        focusedRowOccurrence: 0,
+        interactionReady: true,
+      }));
+
+      expect(markup).not.toContain("Hidden consent footer");
+      expect(markup).not.toContain("Target has no visible page area");
+      expect(markup).not.toContain("hidden-footer");
+      expect(markup).toContain("Visible content");
+      expect(markup).toContain('aria-label="1. Visible content. Included"');
+      expect(markup).toContain('aria-posinset="1"');
+      expect(markup).toContain('aria-setsize="1"');
+    }
+  });
+
+  it("uses the ordinary empty state when every received row is unavailable", () => {
     const projection = {
       ...PROJECTION,
       rows: [{
         ...PROJECTION.rows[0],
-        classification: "excluded" as const,
-        text: "footer",
-        target: { state: "unavailable" as const, reason: "no-rendered-box" as const },
+        text: "Hidden modal",
+        target: { state: "unavailable" as const, reason: "not-visible" as const },
       }],
     };
     const markup = renderToStaticMarkup(createElement(PreviewRowList, {
       projection,
-      debug: false,
+      debug: true,
       hoveredRowId: null,
       focusedRowOccurrence: 0,
       interactionReady: true,
     }));
 
-    expect(markup).toContain("footer");
-    expect(markup).toContain("Target has no visible page area");
-    expect(markup).toContain("disabled=\"\"");
-    expect(markup).toContain("preview-sidebar__item--unavailable");
+    expect(markup).toContain("No visible content detected");
+    expect(markup).not.toContain("Hidden modal");
+    expect(markup).not.toContain("Target is not currently visible");
+    expect(markup).not.toContain("preview-sidebar__item-button");
   });
 
   it("keeps otherwise targetable rows inert until the content organ acknowledges Preview", () => {

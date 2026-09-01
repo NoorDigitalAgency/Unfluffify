@@ -2,7 +2,7 @@ import React from "react";
 
 import type { PreviewProjection } from "../../domain/schema/preview";
 import { isRovingFocusKey, resolveRovingFocusIndex } from "../../ui/roving-focus";
-import { projectPreviewRow } from "../preview-classification";
+import { isPreviewRowUserVisible, projectPreviewRow } from "../preview-classification";
 
 export const PREVIEW_CLASSIFICATION_LABEL: Readonly<Record<string, string>> = {
   included: "Included",
@@ -112,21 +112,24 @@ export const PreviewRowList = React.memo(function PreviewRowList({
   const rowButtons = React.useRef(new Map<string, HTMLButtonElement>());
   const handledFocusOccurrence = React.useRef<string | null>(null);
   const programmaticWindowStart = React.useRef<number | null>(null);
+  const projectedRows = React.useMemo(() => (
+    projection?.rows.filter(isPreviewRowUserVisible) ?? []
+  ), [projection]);
   const rowIndex = React.useMemo(() => new Map(
-    (projection?.rows ?? []).map((row, index) => [row.id, index] as const),
-  ), [projection]);
+    projectedRows.map((row, index) => [row.id, index] as const),
+  ), [projectedRows]);
   const targetableRows = React.useMemo(() => (
-    projection?.rows.map((row) => projectPreviewRow(row, false).targetable) ?? []
-  ), [projection]);
+    projectedRows.map((row) => projectPreviewRow(row, false).targetable)
+  ), [projectedRows]);
   const requestedFocusRowId = keyboardFocusedRowId ?? focusedRowId;
   const focusedIndex = requestedFocusRowId === null ? undefined : rowIndex.get(requestedFocusRowId);
 
   React.useEffect(() => {
     setWindowStart((current) => Math.min(
       current,
-      Math.max(0, (projection?.rows.length ?? 0) - PREVIEW_WINDOW_SIZE),
+      Math.max(0, projectedRows.length - PREVIEW_WINDOW_SIZE),
     ));
-  }, [projection]);
+  }, [projectedRows.length]);
   React.useEffect(() => {
     setKeyboardFocusedRowId(null);
   }, [focusedRowId, focusedRowOccurrence, projection?.projectionId]);
@@ -147,7 +150,7 @@ export const PreviewRowList = React.memo(function PreviewRowList({
     const viewport = viewportRef.current;
     const plan = planPreviewRowFocus({
       index: focusedIndex,
-      rowCount: projection.rows.length,
+      rowCount: projectedRows.length,
       rowHeight,
       viewportHeight: Math.max(rowHeight, viewport?.clientHeight ?? rowHeight),
       scrollTop: viewport?.scrollTop ?? 0,
@@ -169,16 +172,16 @@ export const PreviewRowList = React.memo(function PreviewRowList({
       }
     }
     handledFocusOccurrence.current = occurrence;
-  }, [focusedIndex, focusedRowOccurrence, keyboardFocusedRowId, projection, requestedFocusRowId, rowHeight, windowStart]);
+  }, [focusedIndex, focusedRowOccurrence, keyboardFocusedRowId, projectedRows.length, projection, requestedFocusRowId, rowHeight, windowStart]);
 
   if (!projection) {
     return <p className="preview-sidebar__empty" role="status">{pending ? "Preparing content list…" : "Content list unavailable"}</p>;
   }
-  if (projection.rows.length === 0) {
+  if (projectedRows.length === 0) {
     return <p className="preview-sidebar__empty">No visible content detected</p>;
   }
-  const windowEnd = Math.min(projection.rows.length, windowStart + PREVIEW_WINDOW_SIZE);
-  const visibleRows = projection.rows.slice(windowStart, windowEnd);
+  const windowEnd = Math.min(projectedRows.length, windowStart + PREVIEW_WINDOW_SIZE);
+  const visibleRows = projectedRows.slice(windowStart, windowEnd);
   return (
     <div
       ref={viewportRef}
@@ -187,7 +190,7 @@ export const PreviewRowList = React.memo(function PreviewRowList({
         const next = Math.max(
           0,
           Math.min(
-            Math.max(0, projection.rows.length - PREVIEW_WINDOW_SIZE),
+            Math.max(0, projectedRows.length - PREVIEW_WINDOW_SIZE),
             Math.floor(event.currentTarget.scrollTop / rowHeight) - PREVIEW_WINDOW_OVERSCAN,
           ),
         );
@@ -199,7 +202,7 @@ export const PreviewRowList = React.memo(function PreviewRowList({
         setWindowStart((current) => current === next ? current : next);
       }}
     >
-    <ul className="preview-sidebar__list" aria-setsize={projection.rows.length}>
+    <ul className="preview-sidebar__list" aria-setsize={projectedRows.length}>
       {windowStart > 0 ? (
         <li className="preview-sidebar__virtual-spacer" aria-hidden="true" style={{ height: windowStart * rowHeight }} />
       ) : null}
@@ -232,7 +235,7 @@ export const PreviewRowList = React.memo(function PreviewRowList({
             key={display.id}
             className={`preview-sidebar__item preview-sidebar__item--${tone} ${display.targetable && interactionReady ? "" : "preview-sidebar__item--unavailable"} ${hoveredRowId === display.id || requestedFocusRowId === display.id ? "preview-sidebar__item--active" : ""}`}
             aria-posinset={index + 1}
-            aria-setsize={projection.rows.length}
+            aria-setsize={projectedRows.length}
             style={{ minHeight: rowHeight - 5 }}
             {...(debugEnabled ? {
               "data-preview-row-debug": "true",
@@ -256,7 +259,7 @@ export const PreviewRowList = React.memo(function PreviewRowList({
               onKeyDown={(event) => {
                 if (!isRovingFocusKey(event.key)) return;
                 const targetIndex = resolveRovingFocusIndex(event.key, index, targetableRows);
-                const target = targetIndex === null ? null : projection.rows[targetIndex];
+                const target = targetIndex === null ? null : projectedRows[targetIndex];
                 if (!target) return;
                 event.preventDefault();
                 event.stopPropagation();
@@ -288,8 +291,8 @@ export const PreviewRowList = React.memo(function PreviewRowList({
           </li>
         );
       })}
-      {windowEnd < projection.rows.length ? (
-        <li className="preview-sidebar__virtual-spacer" aria-hidden="true" style={{ height: (projection.rows.length - windowEnd) * rowHeight }} />
+      {windowEnd < projectedRows.length ? (
+        <li className="preview-sidebar__virtual-spacer" aria-hidden="true" style={{ height: (projectedRows.length - windowEnd) * rowHeight }} />
       ) : null}
     </ul>
     </div>

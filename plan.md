@@ -3221,3 +3221,135 @@ authorized by this remediation or its browser acceptance.
 8. `el02-r17-headed-acne` → 7
 9. `el02-r17-candidate-matrix` → 8
 10. `el02-r17-conformance` → 9
+
+# EL-02-R18 — Keep hidden decisions payload-only and Preview strictly visible
+
+## 1. Entering expert-check finding — hidden Content List leakage
+
+R17's render boundaries, Silent annotation language, ownership label, and
+fit-to-viewport debugger emulation passed focused, full, and headed Acne
+acceptance. The same headed run exposed a new release blocker in the Content
+List: consent-suppressed and otherwise unpaintable targets were retained as
+visible disabled rows such as `Target has no visible page area`.
+
+That behavior violates the approved marking/payload contract. An element that
+is hidden, clipped, covered, detached, zero-box, or otherwise visually
+unavailable must not appear in Marking, Silent highlighting, Preview
+annotations, or Content List. Its absence from user presentation must not erase
+its payload decision: otherwise mutable hidden content is emitted as an
+effective explicit exclusion, and an explicit inclusion that later becomes
+hidden remains an explicit inclusion. Immutable selectors remain the separate
+AI-only selector list and immutable descendants remain omitted.
+
+No AI request, Save, takeover, Lynx publication, release, or deployment is
+authorized by this remediation or its browser acceptance.
+
+## 2. Root contract
+
+1. Preview is a user-presentation projection, not the submission ledger. A row
+   is eligible for Preview only while its exact element is connected,
+   renderable, visually visible, scroll-reachable, and paint-reachable when it
+   intersects the viewport.
+2. The content-owned projection is the primary authority and omits unavailable
+   targets before exposing row text, classifications, focus identities, list
+   counts, or Silent Preview annotations.
+3. The popup independently rejects any unavailable row received from an older,
+   stale, or racing content generation. Hidden rows never consume ordinals,
+   virtual-list height, accessible-set counts, focus navigation, debug detail,
+   or disabled explanatory UI.
+4. Preview filtering never mutates canonical marks or `EvaluationResult`. AI
+   snapshot construction continues to use the independent submission
+   evaluation and full sanitized static/dynamic HTML, not Preview rows.
+5. An otherwise mutable hidden occurrence with owned direct text remains an
+   effective explicit exclusion in `renderedXPaths`. A previously explicit
+   inclusion remains explicit when it later becomes hidden. Immutable roots and
+   descendants and descendants covered by the shallowest expanded exclusion
+   remain omitted according to the approved payload contract.
+6. Consent suppression remains continuous. Suppressed DOM and its valid payload
+   coverage remain available to submission, while no suppressed target is
+   exposed through any user-facing marking or Preview surface.
+
+## 3. Implementation plan
+
+### EL-02-R18-01 — Filter unavailable targets at the content projection boundary
+
+1. In `buildPreviewProjection`, calculate live target availability before
+   materializing a row and omit every unavailable occurrence.
+2. Continue assigning the same projection occurrence/revision semantics to the
+   resulting visible corpus. Preview annotations, two-way targeting, counts,
+   and list rows all consume this one filtered identity set.
+3. Keep activation and emphasis live-availability checks as race fences even
+   for rows that were visible when projected.
+
+### EL-02-R18-02 — Add popup defense without exposing hidden diagnostics
+
+1. Add a pure user-visibility predicate for Preview rows and filter the adopted
+   list before row indexing, virtualization, focus planning, accessible counts,
+   debug projection, and rendering.
+2. Preserve the existing content-organ readiness gate for otherwise visible
+   rows, but render no disabled hidden row and no hidden-target reason in either
+   production or debug UI.
+3. If all received rows are unavailable, show the ordinary `No visible content
+   detected` empty state.
+
+### EL-02-R18-03 — Prove UI/payload separation
+
+1. Replace tests that deliberately exposed clipped, covered, off-canvas, and
+   zero-box technical rows with assertions that they are absent from Preview
+   and cannot be emphasized or activated.
+2. Extend the consent integration proof so the same suppressed element is
+   absent from Preview while its sanitized HTML and explicit exclusion remain
+   in the submission snapshot.
+3. Prove an explicit inclusion that becomes hidden is absent from Preview and
+   all paint, yet survives unchanged in submission rows.
+4. Add popup production/debug regressions with mixed visible/unavailable input,
+   exact visible ordinals and `aria-setsize`, bounded virtualization, and no
+   unavailable text, reason, button, or focus target.
+
+### EL-02-R18-04 — Gates, publish, and resumed headed acceptance
+
+1. Run focused domain, marking-engine, popup Preview, and entrypoint tests;
+   `pnpm check`; `pnpm verify`; production/debug builds; clean P17; and the full
+   unchanged-threshold P25 composite.
+2. Review the exact R18 diff, commit, push, refresh the code graph, and prove
+   exact upstream synchronization before browser acceptance.
+3. Restart repository live-browser and repeat the no-egress Acne Content List
+   workflow. Require zero hidden consent/menu/modal rows, exact visible list/
+   page annotation identity, working two-way targeting, continuous suppression,
+   and no regression in 412×960/1920×1080 full-screen fit.
+4. Resume the remaining safe candidate matrix only after Acne passes. External
+   property locks fail closed and no prohibited request is attempted.
+
+## 4. Acceptance criteria
+
+- `EL02-R18-AC-01` No target whose current status is `unavailable` is present in
+  the content Preview projection or Preview annotation renderer input.
+- `EL02-R18-AC-02` The popup independently omits unavailable rows from all
+  production/debug rendering, ordinals, counts, virtualization, and focus.
+- `EL02-R18-AC-03` Consent-suppressed hidden content remains absent from every
+  user-facing surface while its sanitized HTML and effective explicit exclusion
+  remain in the AI snapshot.
+- `EL02-R18-AC-04` A mutable explicit inclusion that becomes hidden remains an
+  explicit inclusion in submission and remains wholly absent from UI paint and
+  Content List.
+- `EL02-R18-AC-05` Immutable and expanded-exclusion descendant omission,
+  separate immutable-selector delivery, full-page HTML coverage, and all other
+  approved marking/payload semantics remain unchanged.
+- `EL02-R18-AC-06` Visible Preview rows retain semantic buttons, exact
+  accessible names, keyboard/pointer emphasis, page/list two-way activation,
+  and source-occurrence fences.
+- `EL02-R18-AC-07` Focused/full/build/P17/P25 gates pass on synchronized source
+  with unchanged thresholds.
+- `EL02-R18-AC-08` Fresh headed Acne acceptance records zero AI, Save, takeover,
+  final-publication, release, and deployment attempts.
+
+## 5. Run-plan todo order
+
+1. `el02-r18-content-projection` → 0
+2. `el02-r18-popup-defense` → 1
+3. `el02-r18-payload-separation` → 2
+4. `el02-r18-focused-full-gates` → 3
+5. `el02-r18-review-push` → 4
+6. `el02-r18-headed-acne` → 5
+7. `el02-r18-candidate-matrix` → 6
+8. `el02-r18-conformance` → 7

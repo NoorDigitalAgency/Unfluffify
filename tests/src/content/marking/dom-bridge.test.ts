@@ -1336,7 +1336,7 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
-  it("keeps clipped and overflow-clipped technical rows but never advertises a visible route", () => {
+  it("omits clipped and overflow-clipped technical rows from Preview", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
     const clipped = new FakeElement("A", rect(0, 0, 20, 10), "Skip to footer");
@@ -1362,14 +1362,12 @@ describe("P6 DOM bridge", () => {
       inclusionSelectors: [],
       exclusionSelectors: ["a", "span"],
     });
-    expect(projection.rows.find((row) => row.text === "Skip to footer")?.target)
-      .toEqual({ state: "unavailable", reason: "not-visible" });
-    expect(projection.rows.find((row) => row.text === "Screen-reader status")?.target)
-      .toEqual({ state: "unavailable", reason: "not-visible" });
+    expect(projection.rows.some((row) => row.text === "Skip to footer")).toBe(false);
+    expect(projection.rows.some((row) => row.text === "Screen-reader status")).toBe(false);
     engine.dispose();
   });
 
-  it("keeps an in-viewport covered row but disables its unpaintable Preview route", () => {
+  it("omits an in-viewport covered row from Preview", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
     const target = new FakeElement("P", rect(10, 20, 160, 24), "Covered target");
@@ -1386,13 +1384,7 @@ describe("P6 DOM bridge", () => {
       inclusionSelectors: ["p"],
       exclusionSelectors: [],
     });
-    const row = projection.rows.find((candidate) => candidate.text === "Covered target");
-
-    expect(row).toMatchObject({
-      classification: "explicit-included",
-      target: { state: "unavailable", reason: "not-visible" },
-    });
-    expect(engine.activatePreviewRow(projection.projectionId, row!.id)).toBe(false);
+    expect(projection.rows.some((candidate) => candidate.text === "Covered target")).toBe(false);
     engine.dispose();
   });
 
@@ -1536,10 +1528,7 @@ describe("P6 DOM bridge", () => {
       xpath: "/main[1]/p[2]",
       classification: "excluded",
     });
-    expect(projection.rows.find((row) => row.text === "Prepended decoy")).toMatchObject({
-      xpath: "/main[1]/p[1]",
-      classification: "undetected",
-    });
+    expect(projection.rows.some((row) => row.text === "Prepended decoy")).toBe(false);
     engine.dispose();
   });
 
@@ -1705,7 +1694,7 @@ describe("P6 DOM bridge", () => {
     expect(doc.documentElement.scrollTop).toBe(520);
   });
 
-  it("retains an off-document technical row without promising an unreachable Preview route", () => {
+  it("omits an off-document technical row from Preview", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, -200, 300, 900));
     const hiddenMenuTarget = new FakeElement("P", rect(100, -320, 25, 24), "Off-canvas item");
@@ -1723,18 +1712,11 @@ describe("P6 DOM bridge", () => {
       inclusionSelectors: [],
       exclusionSelectors: ["p"],
     });
-    const row = projection.rows.find((candidate) => candidate.text === "Off-canvas item");
-
-    expect(row).toMatchObject({
-      classification: "excluded",
-      target: { state: "unavailable", reason: "not-visible" },
-    });
-    expect(engine.emphasizePreviewRow(projection.projectionId, row!.id, true)).toBe(false);
-    expect(engine.activatePreviewRow(projection.projectionId, row!.id)).toBe(false);
+    expect(projection.rows.some((candidate) => candidate.text === "Off-canvas item")).toBe(false);
     expect(scrollIntoView).not.toHaveBeenCalled();
   });
 
-  it("retains a zero-box technical row while rejecting untruthful focus and activation", () => {
+  it("omits a zero-box technical row from Preview", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 900));
     const footer = new FakeElement("FOOTER", rect(0, 640, 300, 20), "Footer landmark");
@@ -1755,14 +1737,7 @@ describe("P6 DOM bridge", () => {
       inclusionSelectors: [],
       exclusionSelectors: ["footer"],
     });
-    const row = projection.rows.find((candidate) => candidate.text === "Footer landmark");
-
-    expect(row).toMatchObject({
-      classification: "excluded",
-      target: { state: "unavailable", reason: "no-rendered-box" },
-    });
-    expect(engine.emphasizePreviewRow(projection.projectionId, row!.id, true)).toBe(false);
-    expect(engine.activatePreviewRow(projection.projectionId, row!.id)).toBe(false);
+    expect(projection.rows.some((candidate) => candidate.text === "Footer landmark")).toBe(false);
     expect(scrollIntoView).not.toHaveBeenCalled();
   });
 
@@ -2942,6 +2917,25 @@ describe("P6 DOM bridge", () => {
     engine.refresh();
     engine.renderReadOnly();
     expect(overlays()).toEqual([]);
+    expect(engine.rows()).toContainEqual({
+      xpath: "/main[1]/p[1]",
+      excluded: false,
+      explicit: true,
+    });
+    const projection = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: [],
+      exclusionSelectors: [],
+    });
+    expect(projection.rows.some((row) => row.text === "Retained content")).toBe(false);
+    expect(engine.buildSubmission({
+      baseUrl: "https://example.com",
+      renderMode: "rendered",
+      pageUrl: "https://example.com/page",
+    }).pages[0]?.renderedXPaths).toContainEqual({
+      xpath: "/main[1]/p[1]",
+      excluded: false,
+      explicit: true,
+    });
     expect(engine.overlayRoot().children.flatMap((layer) => layer.children).some((overlay) =>
       overlay.className.includes("-ghost")
     )).toBe(false);
@@ -2966,6 +2960,19 @@ describe("P6 DOM bridge", () => {
     engine.renderReadOnly();
 
     expect(engine.rows().some((row) => row.xpath === "/main[1]/p[1]" && row.excluded)).toBe(true);
+    expect(engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: [],
+      exclusionSelectors: [],
+    }).rows.some((row) => row.text === "Hidden exclusion")).toBe(false);
+    expect(engine.buildSubmission({
+      baseUrl: "https://example.com",
+      renderMode: "rendered",
+      pageUrl: "https://example.com/page",
+    }).pages[0]?.renderedXPaths).toContainEqual({
+      xpath: "/main[1]/p[1]",
+      excluded: true,
+      explicit: true,
+    });
     expect(engine.overlayRoot().children.flatMap((layer) => layer.children).some((overlay) =>
       overlay.getAttribute("data-uf-overlay-xpath") === "/main[1]/p[1]"
     )).toBe(false);
@@ -5737,6 +5744,10 @@ describe("P6 DOM bridge", () => {
       renderMode: "rendered",
       pageUrl: "https://example.com/page",
     });
+    const projection = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: [],
+      exclusionSelectors: [],
+    });
 
     expect(view.byElement.has(suppressed as unknown as Element)).toBe(true);
     expect(view.byElement.get(suppressed as unknown as Element)?.evaluationNode).toMatchObject({
@@ -5751,8 +5762,15 @@ describe("P6 DOM bridge", () => {
       explicit: true,
     });
     expect(engine.rows()).toContainEqual({ xpath: "/main[1]/p[2]", excluded: false });
+    expect(projection.rows.some((row) => row.text === "Hidden modal copy")).toBe(false);
+    expect(projection.rows.some((row) => row.text === "Page content")).toBe(true);
     expect(captured).toBe('<main><p class="cookie-modal">Hidden modal copy</p><p>Page content</p></main>');
     expect(submission.pages[0]?.renderedHtml).toBe(captured);
+    expect(submission.pages[0]?.renderedXPaths).toContainEqual({
+      xpath: "/main[1]/p[1]",
+      excluded: true,
+      explicit: true,
+    });
     expect(suppressed.attributes).toEqual(before);
   });
 

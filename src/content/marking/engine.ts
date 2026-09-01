@@ -1476,6 +1476,13 @@ export function createMarkingEngine(
       if (!entry) {
         return [];
       }
+      const target = previewTargetStatus(entry.element);
+      if (target.state === "unavailable") {
+        // Preview is a user-visible projection, not the submission ledger.
+        // Hidden/unpaintable decisions remain in store.currentEvaluation() for
+        // AI capture, but must not leak text, ordinals, or annotations into UI.
+        return [];
+      }
       return [{
         id: row.id,
         classification: row.classification,
@@ -1483,7 +1490,7 @@ export function createMarkingEngine(
         xpath: row.xpath,
         ...(row.selector ? { selector: row.selector } : {}),
         shadow: entry.evaluationNode.shadow ?? "light",
-        target: previewTargetStatus(entry.element),
+        target,
       }];
     });
     return {

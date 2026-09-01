@@ -36,6 +36,14 @@ export function previewDebugDetailEnabled(): boolean {
   return popupDebugBuildEnabled();
 }
 
+/** Target unavailability is a presentation fence, never a user-facing Preview
+ * row. Keep this popup-side predicate independent from content projection so an
+ * older or racing generation cannot reintroduce hidden UI; payload decisions
+ * remain owned by the separate content evaluator. */
+export function isPreviewRowUserVisible(row: PreviewRow): boolean {
+  return row.target?.state !== "unavailable";
+}
+
 export function projectPreviewClassification(
   classification: PreviewClassification,
 ): PreviewDisplayClassification {

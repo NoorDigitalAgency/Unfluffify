@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isPreviewRowUserVisible,
   projectPreviewClassification,
   projectPreviewRow,
 } from "../../../src/popup/preview-classification";
@@ -67,7 +68,7 @@ describe("preview classification projection", () => {
     });
   });
 
-  it("projects a public-safe reason for a retained row without renderable geometry", () => {
+  it("identifies an unavailable row for complete UI omission", () => {
     const row = {
       id: "empty-footer",
       classification: "excluded" as const,
@@ -78,6 +79,7 @@ describe("preview classification projection", () => {
       target: { state: "unavailable" as const, reason: "no-rendered-box" as const },
     };
 
+    expect(isPreviewRowUserVisible(row)).toBe(false);
     expect(projectPreviewRow(row, false)).toMatchObject({
       targetable: false,
       targetUnavailableReason: "Target has no visible page area",
