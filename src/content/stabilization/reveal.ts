@@ -37,6 +37,12 @@ export type RevealSkipReason =
   | "midpoint-not-reached"
   | "no-scroll-room"
   | "page-world-session-stale"
+  | "page-world-acquire-timeout"
+  | "page-world-acquire-stale"
+  | "page-world-acquire-unavailable"
+  | "page-world-acquire-failed"
+  | "page-world-command-timeout"
+  | "page-world-command-failed"
   | "post-freeze-not-quiet"
   | "restore-not-reached"
   | "top-not-reached";

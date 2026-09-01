@@ -553,6 +553,17 @@ gating cannot starve Unfluffify's own UI. It locks the current computed values
 of common moving properties such as transforms, offsets, opacity, filters, and
 position edges on detected motion candidates.
 
+Installing or recovering that page-world runtime is a distinct, exact-document
+acknowledgement. Activation allows the cold acquisition up to 15 seconds and
+starts the shorter lifecycle-command deadline only after readiness is proved.
+A runtime installed or proved in the current service worker remains hot: each
+command performs one MAIN-world invocation between exact pre/post document,
+URL, generation, navigation, consent, and terminal authority checks. A lease
+recovered from session storage after a worker restart must probe once before it
+becomes hot. Runtime loss fails the current operation and forgets the poisoned
+lease; only a later operation may install one replacement. There is no
+automatic lifecycle-command retry or success-shaped fallback.
+
 Viewport and scroll-triggered reveal effects are handled as a distinct case. On
 marking enable, before the motion pause starts, the content script stores the
 current scroll offset, temporarily forces instant scroll behavior, samples a

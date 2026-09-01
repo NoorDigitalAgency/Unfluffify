@@ -333,6 +333,18 @@ function pageWorldCommandReply(request: BusFrame): BusFrame {
   });
 }
 
+function pageWorldAcquireReply(request: BusFrame): BusFrame {
+  return replyFrame(request, {
+    status: "ok",
+    result: {
+      ok: true,
+      nonce: "",
+      command: "PROBE",
+      payload: { ready: true },
+    },
+  });
+}
+
 function dispatchPageUrlChanged(
   addListener: { mock: { calls: unknown[][] } },
   pageUrl: string,
@@ -597,6 +609,7 @@ function installMinimalContentDom() {
 
 describe("C4 rewrite content entrypoints", () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.doUnmock("../src/content/stabilization");
     vi.resetModules();
     vi.clearAllMocks();
@@ -2377,14 +2390,212 @@ describe("C4 rewrite content entrypoints", () => {
     expect(createMarkingEngine).not.toHaveBeenCalled();
   });
 
-  it("routes page-world work through the background capability command only", () => {
+  it("routes page-world acquisition and commands through the background capability only", () => {
     const contentSource = readFileSync(
       resolve(REPO_ROOT, "src", "entrypoints", "content-loader.content.ts"),
       "utf8",
     );
+    expect(contentSource).toContain('request(\n    "pageWorld.acquire"');
     expect(contentSource).toContain('request("pageWorld.command"');
+    expect(contentSource).toContain("STABILIZATION_PAGE_ACQUIRE_TIMEOUT_MS = 15_000");
+    expect(contentSource.indexOf("await acquireStabilizationPageRuntime({"))
+      .toBeLessThan(contentSource.indexOf("await reconcilePageWorldSessionAndWait();"));
+    expect(contentSource).toContain('debugStabilizationStage("failed", { reason }, error)');
+    expect(contentSource).not.toContain("Page stabilization failed");
     expect(contentSource).not.toContain("uf-page-bus/1");
     expect(contentSource).not.toContain("window.postMessage");
+  });
+
+  it("lets a cold acquisition exceed the short command deadline before dispatching ARM", async () => {
+    const addListener = vi.fn();
+    const pageUrl = installTestLocation("https://example.com/cold-runtime");
+    const dom = installMinimalContentDom();
+    Object.assign(dom.documentElement, { scrollHeight: 1_000, clientHeight: 1_000 });
+    Object.assign(dom.windowObject, { innerHeight: 1_000, scrollY: 0, scrollTo: vi.fn() });
+    let releaseAcquire: (() => void) | undefined;
+    let acquireRequest: BusFrame | null = null;
+    const commandRequests: TestPageWorldCommand[] = [];
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "page.context") {
+        return managedPageContextReply(message, pageUrl.href);
+      }
+      if (message.name === "signals.pull") {
+        return replyFrame(message, []);
+      }
+      if (message.name === "consent.suppression.register") {
+        return replyFrame(message, { status: "ok" });
+      }
+      if (message.name === "pageWorld.acquire") {
+        acquireRequest = message;
+        return await new Promise<BusFrame>((resolve) => {
+          releaseAcquire = () => resolve(pageWorldAcquireReply(message));
+        });
+      }
+      if (message.name === "pageWorld.command") {
+        commandRequests.push(message.payload as TestPageWorldCommand);
+        return pageWorldCommandReply(message);
+      }
+      return { ok: true };
+    });
+    globalThis.chrome = {
+      runtime: {
+        onMessage: { addListener },
+        sendMessage,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+      },
+    } as unknown as typeof chrome;
+    const engine = {
+      renderMarking: vi.fn(),
+      settlePresentation: vi.fn(async () => undefined),
+      dispose: vi.fn(),
+      rows: vi.fn(() => []),
+      lastInitializationSeededSelectors: vi.fn(() => false),
+    };
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+    vi.doMock("../src/content/marking", () => ({
+      createMarkingEngine: vi.fn(() => engine),
+      installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()),
+    }));
+    mockFastRevealVisit();
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as { main: () => void }).main();
+    await waitForCondition(() => sendMessage.mock.calls.some(
+      ([message]) => (message as BusFrame).name === "page.context"
+    ));
+    const listener = addListener.mock.calls[0]?.[0] as (
+      message: unknown,
+      sender: unknown,
+      sendResponse: (value: unknown) => void,
+    ) => unknown;
+    await applyLockState(listener);
+
+    vi.useFakeTimers();
+    const response = vi.fn();
+    expect(listener(commandFrame("activateContentMain", { pageUrl: pageUrl.href }), {}, response)).toBe(true);
+    for (let index = 0; index < 100 && acquireRequest === null; index += 1) {
+      await Promise.resolve();
+    }
+    expect(acquireRequest).not.toBeNull();
+    expect(commandRequests).toHaveLength(0);
+
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(response).not.toHaveBeenCalled();
+    expect(commandRequests).toHaveLength(0);
+    releaseAcquire?.();
+    for (let index = 0; index < 200 && response.mock.calls.length === 0; index += 1) {
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+    }
+
+    expect(commandRequests[0]?.command).toBe("RECONCILE");
+    expect(commandRequests.some((request) => request.command === "ARM")).toBe(true);
+    expect(response.mock.calls[0]?.[0]).toMatchObject({
+      frameType: "reply",
+      ok: true,
+      payload: {
+        ok: true,
+        data: {
+          ok: true,
+          interactionsReady: true,
+          ritual: { status: "prepared", frozenAtBottom: true },
+        },
+      },
+    });
+  });
+
+  it.each([
+    [
+      "stale",
+      { status: "stale", reason: "document-authority-changed" },
+      "page-visit-stabilization-page-world-acquire-stale",
+    ],
+    [
+      "unavailable",
+      { status: "unavailable", reason: "page-world-install-failed" },
+      "page-visit-stabilization-page-world-acquire-unavailable",
+    ],
+  ] as const)("fails a %s acquisition before dispatching lifecycle commands", async (
+    _case,
+    acquireOutcome,
+    expectedReason,
+  ) => {
+    const addListener = vi.fn();
+    const pageUrl = installTestLocation(`https://example.com/${_case}-runtime`);
+    const dom = installMinimalContentDom();
+    Object.assign(dom.documentElement, { scrollHeight: 1_000, clientHeight: 1_000 });
+    Object.assign(dom.windowObject, { innerHeight: 1_000, scrollY: 0, scrollTo: vi.fn() });
+    const commandRequests: TestPageWorldCommand[] = [];
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "page.context") {
+        return managedPageContextReply(message, pageUrl.href);
+      }
+      if (message.name === "signals.pull") {
+        return replyFrame(message, []);
+      }
+      if (message.name === "consent.suppression.register") {
+        return replyFrame(message, { status: "ok" });
+      }
+      if (message.name === "pageWorld.acquire") {
+        return replyFrame(message, acquireOutcome);
+      }
+      if (message.name === "pageWorld.command") {
+        commandRequests.push(message.payload as TestPageWorldCommand);
+        return pageWorldCommandReply(message);
+      }
+      return { ok: true };
+    });
+    globalThis.chrome = {
+      runtime: {
+        onMessage: { addListener },
+        sendMessage,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+      },
+    } as unknown as typeof chrome;
+    const createMarkingEngine = vi.fn();
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+    vi.doMock("../src/content/marking", () => ({
+      createMarkingEngine,
+      installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()),
+    }));
+    mockFastRevealVisit();
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as { main: () => void }).main();
+    await waitForCondition(() => sendMessage.mock.calls.some(
+      ([message]) => (message as BusFrame).name === "page.context"
+    ));
+    const listener = addListener.mock.calls[0]?.[0] as (
+      message: unknown,
+      sender: unknown,
+      sendResponse: (value: unknown) => void,
+    ) => unknown;
+    await applyLockState(listener);
+
+    const response = await dispatchContentCommand(listener, "activateContentMain", {
+      pageUrl: pageUrl.href,
+    });
+
+    expect(response).toMatchObject({
+      ok: true,
+      data: {
+        ok: false,
+        interactionsReady: false,
+        interactionsReason: expectedReason,
+        reason: expectedReason,
+        ritual: {
+          status: "failed",
+          reason: expectedReason,
+          frozenAtBottom: false,
+        },
+      },
+    });
+    expect(commandRequests).toHaveLength(0);
+    expect(createMarkingEngine).not.toHaveBeenCalled();
   });
 
   it("sweeps a managed non-candidate before render-mode gates and re-sweeps late insertions", async () => {
@@ -2604,6 +2815,9 @@ describe("C4 rewrite content entrypoints", () => {
     const sendMessage = vi.fn(async (message: BusFrame) => {
       if (message.name === "page.context") {
         return managedPageContextReply(message, pageUrl.href);
+      }
+      if (message.name === "pageWorld.acquire") {
+        return pageWorldAcquireReply(message);
       }
       if (message.name === "pageWorld.command") {
         const command = message.payload as TestPageWorldCommand;
@@ -2832,6 +3046,11 @@ describe("C4 rewrite content entrypoints", () => {
       command: "RECONCILE",
       sessionNonce: undefined,
     }));
+    const pageWorldFrames = sendMessage.mock.calls.map(([frame]) => frame as BusFrame)
+      .filter((frame) => frame.name === "pageWorld.acquire" || frame.name === "pageWorld.command");
+    expect(pageWorldFrames.filter((frame) => frame.name === "pageWorld.acquire")).toHaveLength(1);
+    expect(pageWorldFrames.findIndex((frame) => frame.name === "pageWorld.acquire"))
+      .toBeLessThan(pageWorldFrames.findIndex((frame) => frame.name === "pageWorld.command"));
     expect(pageWorldRequests()).toContainEqual(expect.objectContaining({
       command: "ARM",
       sessionNonce: undefined,
@@ -3521,6 +3740,9 @@ describe("C4 rewrite content entrypoints", () => {
       }
       if (message.name === "shield.posture.current") {
         return replyFrame(message, { status: "unavailable", reason: "document-unbound" });
+      }
+      if (message.name === "pageWorld.acquire") {
+        return pageWorldAcquireReply(message);
       }
       if (message.name === "pageWorld.command") {
         const command = message.payload as TestPageWorldCommand;

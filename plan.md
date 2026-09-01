@@ -1980,3 +1980,183 @@ AI, marking, payload, consent, selector, and publication contract.
 7. `el02-r10-headed-dpj` → 6
 8. `el02-r10-candidate-matrix` → 7
 9. `el02-r10-conformance` → 8
+
+# EL-02-R11 — Pre-acquired page-world capability and hot-command proof
+
+## 1. Entering conformance finding
+
+R10 is rejected by exact-source headed evidence. Commit
+`09e5c69bad63aa6f105e080d5ef5f769e91c4612` passed `pnpm verify` (147 files,
+1,567 tests), production/debug builds, P17 19/19, and clean aggregate P25 with
+all seven children. A fresh guarded DPJ run then passed preflight and both
+Render Inspection modes but failed the first marking activation after about
+11.2 seconds. The publication fence recorded zero Save or publication attempts.
+
+The R10 authority hypothesis was falsified. A non-editing raw `preparePageVisit`
+reproduced `page-visit-stabilization-failed` while an external editor lock was
+left untouched. Isolated-world console evidence identified exact page-world
+timeouts: the first occurrence timed out `ARM`; later incomplete occurrences
+timed out `SET_LAZY_LOADING_SUPPRESSED` and `RECONCILE`. In contrast, eight
+ordinary MAIN-world executions took 0.7–2.2 ms, and the already-installed exact
+capability completed direct probe/reconcile/arm/destroy in 1–2 ms and lazy lock
+in 12.7 ms. The page runtime and Chrome injection are healthy after acquisition;
+the defect is that the first background-mediated capability acquisition is
+inside the same three-second deadline as the lifecycle command, and every hot
+command redundantly re-probes the installed lease.
+
+After the diagnostic browser restarted, DPJ reported `Locked by
+rojan.gh@noordigital.com`. No Take over action was used. The read-only
+preparation and timing probes do not require editor authority and performed no
+Save, AI, or publication mutation.
+
+## 2. Decisions
+
+- Capability installation/recovery and lifecycle command execution are distinct
+  acknowledgements with distinct bounded deadlines. A ritual explicitly acquires
+  the exact current-document runtime before starting the short command deadline.
+- A lease installed and proved by the current worker is trusted only inside that
+  worker and exact identity. It does not need a probe before every command.
+  A lease restored from `storage.session` after worker restart is unproved and
+  must pass one exact-document probe before becoming memory-proved.
+- Command execution retains authorization immediately before invocation and
+  rechecks it after invocation. Navigation, generation, document, URL, consent,
+  and terminal fences are unchanged; no page-visible transport returns.
+- A command remains self-healing when callers omit explicit acquisition: it may
+  install or recover the exact lease once, then invoke. It must not issue a
+  redundant probe for an already proved in-memory lease.
+- No retry loop, synthetic success, threshold relaxation, Save, Load, AI corpus,
+  selector, marking, consent, or publication change is permitted.
+- Known acquisition/command timeout outcomes receive phase-specific, safe
+  operator copy. Raw exception detail remains debug-only.
+
+## 3. Implementation phases
+
+### EL-02-R11-01 — Proven in-memory lease lifecycle
+
+**Files:** `src/background/page-world-capability-runtime.ts`,
+`tests/src/background/page-world-capability-runtime.test.ts`.
+
+1. Distinguish leases loaded from current-worker memory from leases recovered
+   from session storage.
+2. Probe a recovered lease exactly once; mark it proved only after the exact
+   identity remains authorized. Install a replacement when recovery proof fails.
+3. Let an exact proved in-memory lease skip the probe. Keep one pre-invocation
+   and one post-invocation authority proof around every command.
+4. Prove a cold command installs once and invokes once, consecutive hot commands
+   each perform one command invocation and zero probes, a restarted worker probes
+   once, stale identity executes nothing, and concurrent acquire/command remains
+   serialized.
+
+### EL-02-R11-02 — Separate acquisition acknowledgement
+
+**Files:** `src/entrypoints/content-loader.content.ts`,
+`tests/c4-content-entrypoint.test.ts`, page-world lifecycle tests.
+
+1. Add a bounded exact-current-page acquisition helper using the existing typed
+   `pageWorld.acquire` command and a dedicated 15-second installation/recovery
+   deadline.
+2. At the start of `runActivationStabilization`, after authority and identity
+   capture but before `RECONCILE`, await acquisition and fail closed on stale,
+   unavailable, timeout, navigation, or lifecycle change.
+3. Start the existing short command deadline only after acquisition is proved.
+   Keep the longer `SET_MOTION_PAUSED` and terminal-destroy bounds unchanged.
+4. Add delayed-cold-acquire coverage proving an installation that exceeds three
+   seconds does not make the following ARM fail, plus stale and unavailable
+   acquisition coverage proving no lifecycle command runs.
+
+### EL-02-R11-03 — Truthful failure evidence
+
+**Files:** `src/entrypoints/content-loader.content.ts`, `src/popup/copy.ts`,
+relevant content/copy tests and knowledge documents.
+
+1. Preserve an internal acquisition-versus-command failure token through the
+   ritual outcome instead of collapsing every exception to a generic
+   stabilization failure.
+2. Map only the known safe token families to actionable page-preparation copy;
+   retain unknown-token and exception sanitization.
+3. Record debug-only acquisition start/acknowledged/rejected and command phase so
+   future evidence identifies the failing boundary without monkeypatching.
+
+### EL-02-R11-04 — Gates and exact headed proof
+
+1. Run focused capability/content/copy tests, `pnpm check`, `pnpm verify`,
+   production/debug builds, P17, and clean full P25.
+2. Review, commit, push, and launch the exact clean production bundle with the
+   repository `live-browser` skill.
+3. Once DPJ editor authority is naturally available, rerun the guarded workflow
+   with no activation retry. Require both inspection modes, first activation,
+   prepared bottom-frozen ritual, every remaining workflow stage, and zero Save
+   or publication attempts.
+4. Continue the remaining externally available candidate matrix. Never take over
+   an external lock; classify it as external when it does not clear naturally.
+
+## 4. Acceptance criteria
+
+- `EL02-R11-AC-01` Cold exact-document capability installation/recovery has its
+  own bounded acknowledgement and cannot consume the following command's
+  three-second deadline.
+- `EL02-R11-AC-02` Every proved hot command performs one MAIN-world command
+  invocation with no redundant probe; a restarted worker probes exactly once.
+- `EL02-R11-AC-03` Pre/post identity authorization remains fail-closed across
+  navigation, generation, URL, consent terminalization, and runtime loss.
+- `EL02-R11-AC-04` Acquisition and command failures remain phase-distinguishable
+  in debug evidence and actionable but sanitized in production.
+- `EL02-R11-AC-05` Focused/full/build/P17/P25 gates pass on the pushed source,
+  and fresh DPJ first activation passes without a retry and with zero
+  Save/publication attempts.
+- `EL02-R11-AC-06` Save still writes one current page, authoritative Load fully
+  replaces local state, and every stateless AI call still carries the complete
+  property page/HTML corpus.
+
+## 5. Todo chain
+
+1. `el02-r11-proven-lease-runtime`
+2. `el02-r11-explicit-acquire` → 1
+3. `el02-r11-failure-evidence-copy` → 2
+4. `el02-r11-focused-regressions` → 3
+5. `el02-r11-full-gates` → 4
+6. `el02-r11-review-push` → 5
+7. `el02-r11-headed-dpj` → 6
+8. `el02-r11-candidate-matrix` → 7
+9. `el02-r11-conformance` → 8
+
+## 6. Implementation checkpoint — prepublication
+
+R11 now separates exact-document runtime acquisition from lifecycle commands.
+The background retains one in-memory proof per exact hot lease, probes a lease
+recovered after worker restart exactly once, executes each hot command once
+between pre/post authority checks, and keeps stale leases discoverable for the
+ordered terminal cleanup owner. Definite unavailable, retired, or rejected
+endpoints fail the current action and are forgotten so only a later action may
+install a replacement. The content ritual performs a bounded 15-second
+`pageWorld.acquire` before the first short `RECONCILE`/`ARM` deadline and carries
+typed acquisition-versus-command reasons through to safe popup copy. Raw errors
+and lifecycle stages are debug-only; the production bundle contains none of the
+new debug/error strings.
+
+Current exact-worktree evidence:
+
+- Focused capability/content/copy suite: 3 files, 44 tests, all PASS.
+- `pnpm check`: PASS.
+- `pnpm verify`: 147 files and 1,575 tests PASS; production build and all seven
+  generated-manifest checks PASS.
+- `pnpm build:debug`: PASS; debug lifecycle evidence retained while the
+  production build proves it absent.
+- P17 smoke: 19/19 PASS.
+- Dirty-source P25 preflight: all seven P14/P15/P16/P17/P18/P20/P23 children
+  PASS. This is regression evidence only, not the required clean-source seal.
+- Codebase graph refresh/search remains externally unavailable because the MCP
+  transport closes on every call; targeted source/test inspection was used as
+  the documented fallback.
+
+No Save, Load, AI-corpus, selector, marking, consent, endpoint, permission, or
+publication owner changed. Save remains the only backend write, persists one
+current page plus the property-wide selectors, and supplies no local authority;
+the distinct subsequent Load complete-replaces local property state. Every AI
+request remains stateless and carries the complete property page/HTML corpus.
+No Save, takeover, Lynx publication, release, or deployment was attempted.
+
+Still pending before R11 conformance: clean committed full P25, normal push and
+`0/0` proof, exact production headed DPJ first activation with no retry once its
+editor lock is naturally available, the remaining eligible candidate matrix,
+and independent criterion-by-criterion adjudication.

@@ -97,6 +97,18 @@ describe("per-layer property-lock copy", () => {
       .toBe("The page is still binding to this property. Retry; if it persists, refresh the page.");
     expect(resolvePopupOperatorDetail("consent-registration-failed"))
       .toBe("Consent protection could not be restored for this page. Refresh the page and retry.");
+    expect(resolvePopupOperatorDetail("page-visit-stabilization-page-world-acquire-timeout"))
+      .toBe("Page preparation timed out while connecting to this document. Retry; if it persists, refresh the page.");
+    expect(resolvePopupOperatorDetail("page-visit-stabilization-page-world-acquire-stale"))
+      .toBe("The document changed during page preparation. Retry on the current page.");
+    expect(resolvePopupOperatorDetail("page-visit-stabilization-page-world-acquire-unavailable"))
+      .toBe("Page preparation could not connect to this document. Refresh the page and retry.");
+    expect(resolvePopupOperatorDetail("page-visit-stabilization-page-world-acquire-failed"))
+      .toBe("Page preparation could not connect to this document. Refresh the page and retry.");
+    expect(resolvePopupOperatorDetail("page-visit-stabilization-page-world-command-timeout"))
+      .toBe("Page preparation did not finish in time. Retry; if it persists, refresh the page.");
+    expect(resolvePopupOperatorDetail("page-visit-stabilization-page-world-command-failed"))
+      .toBe("Page preparation could not finish safely. Refresh the page and retry.");
     expect(resolvePopupBlockedReasonCopy("unknown_internal_state"))
       .toBe("The requested action is temporarily unavailable.");
     expect(resolvePopupOperatorDetail("TypeError: Cannot read properties of undefined\n at run (main.ts:4:2)"))

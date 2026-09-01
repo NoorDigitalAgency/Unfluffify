@@ -127,8 +127,20 @@ export function createPageWorldCapabilityRuntime(input: Readonly<{
   randomHex?: (bytes: number) => string;
 }>) {
   const leases = new Map<number, StoredLease>();
+  // Session storage proves only that this worker inherited an exact lease
+  // description. The MAIN-world endpoint itself is proved once after recovery;
+  // leases installed or successfully probed by this worker stay hot until an
+  // identity boundary or explicit retirement forgets them.
+  const provedLeaseTabs = new Set<number>();
   const operations = new Map<number, Promise<unknown>>();
   const makeRandomHex = input.randomHex ?? randomHex;
+
+  const readyProof = (): PageWorldCommandResult => ({
+    ok: true,
+    nonce: "",
+    command: "PROBE",
+    payload: { ready: true },
+  });
 
   const withTabOperation = <T>(tabId: number, operation: () => Promise<T>): Promise<T> => {
     const previous = operations.get(tabId) ?? Promise.resolve();
@@ -199,12 +211,14 @@ export function createPageWorldCapabilityRuntime(input: Readonly<{
 
   const persist = async (lease: StoredLease): Promise<void> => {
     leases.set(lease.identity.tabId, lease);
+    provedLeaseTabs.add(lease.identity.tabId);
     await Promise.resolve(input.storage?.set({ [storageKey(lease.identity.tabId)]: lease }))
       .catch(() => undefined);
   };
 
   const forget = async (tabId: number): Promise<void> => {
     leases.delete(tabId);
+    provedLeaseTabs.delete(tabId);
     await Promise.resolve(input.storage?.remove(storageKey(tabId))).catch(() => undefined);
   };
 
@@ -222,24 +236,37 @@ export function createPageWorldCapabilityRuntime(input: Readonly<{
     await forget(lease.identity.tabId);
   };
 
-  const acquireUnlocked = async (
+  type ResolvedLease =
+    | Readonly<{ status: "ok"; lease: StoredLease; result: PageWorldCommandResult }>
+    | Exclude<PageWorldCapabilityOutcome, Readonly<{ status: "ok"; result: PageWorldCommandResult }>>;
+
+  const provedExactLease = (identity: PageWorldDocumentIdentity): StoredLease | null => {
+    const lease = leases.get(identity.tabId);
+    return lease && provedLeaseTabs.has(identity.tabId) && sameIdentity(lease.identity, identity)
+      ? lease
+      : null;
+  };
+
+  /** Resolve or install the exact lease after the caller has established
+   * document authority. This helper deliberately does not authorize on its own:
+   * acquire and command place their proofs around the precise operation they
+   * own, avoiding four repeated browser/storage round trips per hot command. */
+  const resolveLeaseUnlocked = async (
     identity: PageWorldDocumentIdentity,
-  ): Promise<PageWorldCapabilityOutcome> => {
-    if (!await input.authorize(identity)) {
-      return { status: "stale", reason: "document-authority-changed" };
-    }
+  ): Promise<ResolvedLease> => {
     const existing = await load(identity.tabId);
     if (existing && sameIdentity(existing.identity, identity)) {
+      if (provedLeaseTabs.has(identity.tabId)) {
+        return { status: "ok", lease: existing, result: readyProof() };
+      }
       const proof = await invoke(existing, { kind: "probe" }).catch(() => null);
-      if (proof?.ok && proof.payload?.ready === true && await input.authorize(identity)) {
-        return { status: "ok", result: proof };
+      if (proof?.ok && proof.payload?.ready === true) {
+        provedLeaseTabs.add(identity.tabId);
+        return { status: "ok", lease: existing, result: proof };
       }
       await retireLease(existing);
     } else if (existing) {
       await retireLease(existing);
-    }
-    if (!await input.authorize(identity)) {
-      return { status: "stale", reason: "document-authority-changed" };
     }
     const lease: StoredLease = {
       version: 1,
@@ -258,12 +285,30 @@ export function createPageWorldCapabilityRuntime(input: Readonly<{
         reason: installed?.failure?.code ?? "page-world-install-failed",
       };
     }
+    await persist(lease);
+    return { status: "ok", lease, result: installed };
+  };
+
+  const acquireUnlocked = async (
+    identity: PageWorldDocumentIdentity,
+  ): Promise<PageWorldCapabilityOutcome> => {
     if (!await input.authorize(identity)) {
-      await retireLease(lease);
       return { status: "stale", reason: "document-authority-changed" };
     }
-    await persist(lease);
-    return { status: "ok", result: installed };
+    const hotLease = provedExactLease(identity);
+    const resolved = hotLease
+      ? { status: "ok" as const, lease: hotLease, result: readyProof() }
+      : await resolveLeaseUnlocked(identity);
+    if (resolved.status !== "ok") return resolved;
+    if (!await input.authorize(identity)) {
+      // This acquisition may have installed the endpoint after its initial
+      // authority proof. Retire that exact endpoint now; otherwise a terminal
+      // retirement already queued behind this operation would find no lease and
+      // leave page-world state orphaned in the still-live document.
+      await retireLease(resolved.lease);
+      return { status: "stale", reason: "document-authority-changed" };
+    }
+    return { status: "ok", result: resolved.result };
   };
 
   return {
@@ -275,17 +320,48 @@ export function createPageWorldCapabilityRuntime(input: Readonly<{
       request: PageWorldRequest,
     ): Promise<PageWorldCapabilityOutcome> {
       return withTabOperation(identity.tabId, async () => {
-        const acquired = await acquireUnlocked(identity);
-        if (acquired.status !== "ok") return acquired;
-        const lease = await load(identity.tabId);
-        if (!lease || !sameIdentity(lease.identity, identity) || !await input.authorize(identity)) {
+        let lease = provedExactLease(identity);
+        if (!lease) {
+          if (!await input.authorize(identity)) {
+            return { status: "stale" as const, reason: "document-authority-changed" };
+          }
+          const resolved = await resolveLeaseUnlocked(identity);
+          if (resolved.status !== "ok") return resolved;
+          lease = resolved.lease;
+        }
+        // A recovered/installed resolution can yield while navigation commits.
+        // This is the exact pre-invocation authority fence for both cold and hot
+        // paths; the matching post-invocation fence remains below.
+        if (!await input.authorize(identity)) {
+          // Do not execute even a cleanup invocation after a failed command
+          // admission proof. Keep the lease discoverable so the navigation or
+          // terminal owner queued for this tab can retire it in order.
           return { status: "stale" as const, reason: "document-authority-changed" };
         }
         const result = await invoke(lease, { kind: "command", request }).catch(() => null);
         if (!result) {
+          // A transport/injection failure does not prove the endpoint is dead.
+          // Make it unproved so the next authorized action probes once, while
+          // retaining the lease for an already-queued terminal retirement.
+          provedLeaseTabs.delete(identity.tabId);
           return { status: "unavailable" as const, reason: "page-world-command-failed" };
         }
+        if (
+          !result.ok &&
+          (result.failure?.code === "PAGE_RUNTIME_UNAVAILABLE" ||
+            result.failure?.code === "PAGE_RUNTIME_RETIRED" ||
+            result.failure?.code === "PAGE_CAPABILITY_REJECTED")
+        ) {
+          // The current action remains failed. Forget only the poisoned local
+          // lease so a later explicit acquisition/action can install one exact
+          // replacement instead of probing or invoking the dead endpoint again.
+          await forget(identity.tabId);
+        }
         if (!await input.authorize(identity)) {
+          // The command already completed, so return no success. Retaining a
+          // non-poisoned lease lets the authority owner retire any state the
+          // command may have installed; definite dead/rejected leases above
+          // have already been forgotten because they cannot be retired.
           return { status: "stale" as const, reason: "document-authority-changed" };
         }
         return { status: "ok" as const, result };

@@ -56,6 +56,12 @@ const POPUP_BLOCKED_REASON_COPY: Readonly<Record<string, string>> = {
   "session-blocked": "The current session is temporarily unavailable.",
   "property-authority-unavailable": "The page is still binding to this property. Retry; if it persists, refresh the page.",
   "consent-registration-failed": "Consent protection could not be restored for this page. Refresh the page and retry.",
+  "page-visit-stabilization-page-world-acquire-timeout": "Page preparation timed out while connecting to this document. Retry; if it persists, refresh the page.",
+  "page-visit-stabilization-page-world-acquire-stale": "The document changed during page preparation. Retry on the current page.",
+  "page-visit-stabilization-page-world-acquire-unavailable": "Page preparation could not connect to this document. Refresh the page and retry.",
+  "page-visit-stabilization-page-world-acquire-failed": "Page preparation could not connect to this document. Refresh the page and retry.",
+  "page-visit-stabilization-page-world-command-timeout": "Page preparation did not finish in time. Retry; if it persists, refresh the page.",
+  "page-visit-stabilization-page-world-command-failed": "Page preparation could not finish safely. Refresh the page and retry.",
 };
 
 export function resolvePopupBlockedReasonCopy(reason: string): string {

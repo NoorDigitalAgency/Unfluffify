@@ -907,22 +907,121 @@ type StabilizationPageCommand =
   | "SET_MOTION_PAUSED"
   | "SET_NAVIGATION_GUARD"
   | "DESTROY";
+type StabilizationFailureReason =
+  | "page-world-acquire-timeout"
+  | "page-world-acquire-stale"
+  | "page-world-acquire-unavailable"
+  | "page-world-acquire-failed"
+  | "page-world-command-timeout"
+  | "page-world-command-failed";
 type StabilizationPageCommandError = Error & Readonly<{
   command: StabilizationPageCommand;
   requestNonce: string;
+  reason: StabilizationFailureReason;
+}>;
+type StabilizationPageAcquireError = Error & Readonly<{
+  phase: "acquire";
+  reason: StabilizationFailureReason;
 }>;
 let stabilizationPageRequestSequence = 0;
+const STABILIZATION_PAGE_ACQUIRE_TIMEOUT_MS = 15_000;
+
+function debugStabilizationStage(
+  stage: string,
+  detail: Readonly<Record<string, unknown>> = {},
+  error?: unknown,
+): void {
+  const debugBuild = typeof __UF_DEBUG_BUILD__ !== "undefined" && __UF_DEBUG_BUILD__;
+  if (debugBuild) {
+    const evidence = { stage, ...detail };
+    if (error === undefined) {
+      console.debug("[Unfluffify][rewrite] Stabilization lifecycle", evidence);
+    } else {
+      console.error("[Unfluffify][rewrite] Stabilization lifecycle", evidence, error);
+    }
+  }
+}
 
 function stabilizationCommandError(
   command: StabilizationPageCommand,
   requestNonce: string,
   message: string,
+  reason: StabilizationFailureReason = "page-world-command-failed",
 ): StabilizationPageCommandError {
-  return Object.assign(new Error(message), { command, requestNonce });
+  return Object.assign(new Error(message), { command, requestNonce, reason });
 }
 
 function stabilizationCommandTimeout(command: StabilizationPageCommand): number {
   return command === "SET_MOTION_PAUSED" ? 15_000 : command === "DESTROY" ? 5_000 : 3_000;
+}
+
+function stabilizationFailureReason(error: unknown): StabilizationFailureReason {
+  if (error && typeof error === "object" && "reason" in error) {
+    const reason = (error as { reason?: unknown }).reason;
+    if (
+      reason === "page-world-acquire-timeout" ||
+      reason === "page-world-acquire-stale" ||
+      reason === "page-world-acquire-unavailable" ||
+      reason === "page-world-acquire-failed" ||
+      reason === "page-world-command-timeout" ||
+      reason === "page-world-command-failed"
+    ) {
+      return reason;
+    }
+  }
+  return "page-world-command-failed";
+}
+
+async function acquireStabilizationPageRuntime(input: Readonly<{
+  pageUrl: string;
+  lifecycleGeneration: number;
+  routeGeneration: number;
+}>): Promise<void> {
+  debugStabilizationStage("acquire-started", { pageUrl: input.pageUrl });
+  const response = await getContentBus().request(
+    "pageWorld.acquire",
+    { pageUrl: input.pageUrl },
+    { target: "background", timeoutMs: STABILIZATION_PAGE_ACQUIRE_TIMEOUT_MS },
+  );
+  const current = input.lifecycleGeneration === contentLifecycleGeneration &&
+    input.routeGeneration === documentLifecycleGeneration &&
+    interactionShieldAuthorityActive &&
+    sameDocumentPageUrl(input.pageUrl, currentPageUrl());
+  if (!current) {
+    debugStabilizationStage("acquire-rejected", { reason: "page-world-acquire-stale" });
+    throw Object.assign(new Error("Page-world acquisition became stale"), {
+      phase: "acquire" as const,
+      reason: "page-world-acquire-stale" as const,
+    }) satisfies StabilizationPageAcquireError;
+  }
+  if (!response.ok) {
+    const reason: StabilizationFailureReason = response.failure.code === "REQUEST_TIMEOUT"
+      ? "page-world-acquire-timeout"
+      : "page-world-acquire-failed";
+    debugStabilizationStage("acquire-rejected", { reason });
+    throw Object.assign(new Error(response.failure.message), {
+      phase: "acquire" as const,
+      reason,
+    }) satisfies StabilizationPageAcquireError;
+  }
+  if (
+    response.data.status !== "ok" ||
+    response.data.result.ok !== true ||
+    response.data.result.payload?.ready !== true
+  ) {
+    const reason: StabilizationFailureReason = response.data.status === "stale"
+      ? "page-world-acquire-stale"
+      : "page-world-acquire-unavailable";
+    const detail = response.data.status === "ok"
+      ? response.data.result.failure?.message ?? "Page-world runtime did not acknowledge readiness"
+      : response.data.reason;
+    debugStabilizationStage("acquire-rejected", { reason });
+    throw Object.assign(new Error(detail), {
+      phase: "acquire" as const,
+      reason,
+    }) satisfies StabilizationPageAcquireError;
+  }
+  debugStabilizationStage("acquire-acknowledged", { pageUrl: input.pageUrl });
 }
 
 async function requestStabilizationPageCommand(
@@ -932,6 +1031,7 @@ async function requestStabilizationPageCommand(
 ): Promise<{ nonce: string; payload: Record<string, unknown> }> {
   stabilizationPageRequestSequence += 1;
   const nonce = `rewrite-stabilization-${Date.now()}-${stabilizationPageRequestSequence}`;
+  debugStabilizationStage("command-started", { command, nonce });
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   const timeout = new Promise<never>((_resolve, reject) => {
     timeoutHandle = setTimeout(() => {
@@ -939,6 +1039,7 @@ async function requestStabilizationPageCommand(
         command,
         nonce,
         `Page-world command timed out: ${command}`,
+        "page-world-command-timeout",
       ));
     }, stabilizationCommandTimeout(command));
   });
@@ -954,18 +1055,29 @@ async function requestStabilizationPageCommand(
       timeout,
     ]);
     if (!response.ok) {
-      throw stabilizationCommandError(command, nonce, response.failure.message);
+      const reason: StabilizationFailureReason = response.failure.code === "REQUEST_TIMEOUT"
+        ? "page-world-command-timeout"
+        : "page-world-command-failed";
+      debugStabilizationStage("command-rejected", { command, nonce, reason });
+      throw stabilizationCommandError(command, nonce, response.failure.message, reason);
     }
     if (response.data.status !== "ok") {
+      debugStabilizationStage("command-rejected", { command, nonce, reason: response.data.reason });
       throw stabilizationCommandError(command, nonce, `Page-world command unavailable: ${response.data.reason}`);
     }
     if (!response.data.result.ok) {
+      debugStabilizationStage("command-rejected", {
+        command,
+        nonce,
+        reason: response.data.result.failure?.code ?? "page-world-command-failed",
+      });
       throw stabilizationCommandError(
         command,
         nonce,
         response.data.result.failure?.message ?? `Page-world command failed: ${command}`,
       );
     }
+    debugStabilizationStage("command-acknowledged", { command, nonce });
     return {
       nonce,
       payload: response.data.result.payload ?? {},
@@ -1242,6 +1354,11 @@ async function runActivationStabilization(pageUrl: string): Promise<RevealRunRes
       }
       const lifecycleGeneration = contentLifecycleGeneration;
       const routeGeneration = documentLifecycleGeneration;
+      await acquireStabilizationPageRuntime({
+        pageUrl,
+        lifecycleGeneration,
+        routeGeneration,
+      });
       spaGuard.arm(pageUrl);
       await reconcilePageWorldSessionAndWait();
       pageInspectionActive = true;
@@ -1512,7 +1629,7 @@ async function runActivationStabilization(pageUrl: string): Promise<RevealRunRes
         const cleanupNonce = attemptedPageWorldSessionNonce || pageWorldSessionNonce || requestNonce;
         if (cleanupNonce) {
           await destroyPageWorldSessionAndWait(cleanupNonce).catch((cleanupError: unknown) => {
-            console.error("[Unfluffify][rewrite] Unable to reconcile failed page-world posture", cleanupError);
+            debugStabilizationStage("cleanup-rejected", { cleanupNonce }, cleanupError);
           });
         }
         throw error;
@@ -1528,8 +1645,16 @@ async function runActivationStabilization(pageUrl: string): Promise<RevealRunRes
       }
     }, { scopeStrength: 1 });
   } catch (error) {
-    console.error("[Unfluffify][rewrite] Page stabilization failed", error);
-    return null;
+    const reason = stabilizationFailureReason(error);
+    // The operator receives only the typed safe reason. Raw exception detail is
+    // intentionally retained in debug builds and absent from production logs.
+    debugStabilizationStage("failed", { reason }, error);
+    return {
+      skipped: true,
+      lazyExpansions: 0,
+      frozenAtBottom: false,
+      reason,
+    };
   }
 }
 
@@ -1635,7 +1760,7 @@ function schedulePageWorldDestroyRetry(nonce: string): void {
     pageWorldDestroyRetryHandle = null;
     pageWorldDestroyRetryAttempt += 1;
     void destroyPageWorldSessionAndWait(nonce).catch((error: unknown) => {
-      console.error("[Unfluffify][rewrite] Page-world teardown retry remains pending", error);
+      debugStabilizationStage("teardown-retry-rejected", { nonce }, error);
     });
   }, delay);
 }
@@ -1717,7 +1842,7 @@ async function destroyPageWorldSessionAndWait(explicitNonce = ""): Promise<void>
 function destroyPageWorldSession(): Promise<void> {
   const teardown = destroyPageWorldSessionAndWait();
   void teardown.catch((error: unknown) => {
-    console.error("[Unfluffify][rewrite] Unable to confirm page-world teardown", error);
+    debugStabilizationStage("teardown-rejected", {}, error);
   });
   return teardown;
 }

@@ -144,6 +144,7 @@ describe("document-bound page-world capability runtime", () => {
       target: { tabId: 7, documentIds: ["document-a"] },
       world: "MAIN",
     });
+    expect(test.executeScript).toHaveBeenCalledTimes(1);
     expect(JSON.stringify([first, second])).not.toContain("__uf_");
     expect(JSON.stringify([first, second])).not.toContain("c".repeat(64));
   });
@@ -168,6 +169,111 @@ describe("document-bound page-world capability runtime", () => {
     )).toBe(true);
   });
 
+  it("invokes each hot command once without a redundant capability probe", async () => {
+    const test = harness();
+    const authorize = vi.fn(async () => true);
+    const runtime = createPageWorldCapabilityRuntime({
+      executeScript: test.executeScript,
+      storage: test.storage,
+      authorize,
+      randomHex: (bytes) => "1".repeat(bytes * 2),
+    });
+    await runtime.acquire(identity());
+    test.executeScript.mockClear();
+    authorize.mockClear();
+
+    await expect(runtime.command(identity(), { nonce: "hot-arm", command: "ARM", payload: {} }))
+      .resolves.toMatchObject({ status: "ok", result: { command: "ARM", nonce: "hot-arm" } });
+    expect(test.executeScript).toHaveBeenCalledTimes(1);
+    expect(test.executeScript.mock.calls[0]?.[0].args[2]).toMatchObject({
+      kind: "command",
+      request: { command: "ARM", nonce: "hot-arm" },
+    });
+    expect(authorize).toHaveBeenCalledTimes(2);
+
+    test.executeScript.mockClear();
+    authorize.mockClear();
+    await expect(runtime.command(identity(), {
+      nonce: "hot-destroy",
+      sessionNonce: "hot-arm",
+      command: "DESTROY",
+      payload: {},
+    })).resolves.toMatchObject({ status: "ok", result: { command: "DESTROY", nonce: "hot-destroy" } });
+    expect(test.executeScript).toHaveBeenCalledTimes(1);
+    expect(test.executeScript.mock.calls[0]?.[0].args[2]).toMatchObject({ kind: "command" });
+    expect(authorize).toHaveBeenCalledTimes(2);
+  });
+
+  it("probes a recovered worker lease once, then keeps subsequent commands hot", async () => {
+    const test = harness();
+    const options = {
+      executeScript: test.executeScript,
+      storage: test.storage,
+      authorize: vi.fn(async () => true),
+      randomHex: (bytes: number) => "2".repeat(bytes * 2),
+    };
+    const firstWorker = createPageWorldCapabilityRuntime(options);
+    await firstWorker.acquire(identity());
+    const restartedWorker = createPageWorldCapabilityRuntime(options);
+    test.executeScript.mockClear();
+    options.authorize.mockClear();
+
+    await expect(restartedWorker.command(identity(), {
+      nonce: "recovered-arm",
+      command: "ARM",
+      payload: {},
+    })).resolves.toMatchObject({ status: "ok", result: { command: "ARM" } });
+    expect(test.executeScript).toHaveBeenCalledTimes(2);
+    expect(test.executeScript.mock.calls.map(([injection]) =>
+      (injection.args[2] as { kind?: string }).kind)).toEqual(["probe", "command"]);
+
+    test.executeScript.mockClear();
+    options.authorize.mockClear();
+    await expect(restartedWorker.command(identity(), {
+      nonce: "recovered-destroy",
+      sessionNonce: "recovered-arm",
+      command: "DESTROY",
+      payload: {},
+    })).resolves.toMatchObject({ status: "ok", result: { command: "DESTROY" } });
+    expect(test.executeScript).toHaveBeenCalledTimes(1);
+    expect(test.executeScript.mock.calls[0]?.[0].args[2]).toMatchObject({ kind: "command" });
+    expect(options.authorize).toHaveBeenCalledTimes(2);
+  });
+
+  it("forgets a poisoned hot lease so only a later action installs its replacement", async () => {
+    const test = harness();
+    const runtime = createPageWorldCapabilityRuntime({
+      executeScript: test.executeScript,
+      storage: test.storage,
+      authorize: async () => true,
+      randomHex: (bytes) => "3".repeat(bytes * 2),
+    });
+    await runtime.acquire(identity());
+    test.documents.delete("document-a");
+
+    await expect(runtime.command(identity(), {
+      nonce: "missing-runtime",
+      command: "ARM",
+      payload: {},
+    })).resolves.toMatchObject({
+      status: "ok",
+      result: { ok: false, failure: { code: "PAGE_RUNTIME_UNAVAILABLE" } },
+    });
+    expect(test.stored.size).toBe(0);
+    const installCountAfterFailure = test.executeScript.mock.calls.filter(
+      ([injection]) => injection.args.length === 2,
+    ).length;
+
+    await expect(runtime.command(identity(), {
+      nonce: "replacement-runtime",
+      command: "ARM",
+      payload: {},
+    })).resolves.toMatchObject({ status: "ok", result: { ok: true, command: "ARM" } });
+    expect(test.executeScript.mock.calls.filter(
+      ([injection]) => injection.args.length === 2,
+    )).toHaveLength(installCountAfterFailure + 1);
+  });
+
   it("serializes a command behind acquire and rejects a stale generation before execution", async () => {
     const test = harness();
     let current = identity();
@@ -189,6 +295,55 @@ describe("document-bound page-world capability runtime", () => {
     await expect(runtime.command(identity(), { nonce: "stale", command: "DESTROY", payload: {} }))
       .resolves.toEqual({ status: "stale", reason: "document-authority-changed" });
     expect(test.executeScript).toHaveBeenCalledTimes(commandCount);
+    expect(test.stored.size).toBe(1);
+
+    await runtime.retireTab(7);
+    expect(test.documents.get("document-a")?.retired).toBe(true);
+    expect(test.stored.size).toBe(0);
+  });
+
+  it("withholds command success after a post-invocation authority loss and preserves cleanup", async () => {
+    const test = harness();
+    let authorizeCalls = 0;
+    let loseAuthority = false;
+    const runtime = createPageWorldCapabilityRuntime({
+      executeScript: test.executeScript,
+      storage: test.storage,
+      authorize: async () => !loseAuthority || ++authorizeCalls === 1,
+      randomHex: (bytes) => "4".repeat(bytes * 2),
+    });
+    await runtime.acquire(identity());
+    authorizeCalls = 0;
+    loseAuthority = true;
+    test.executeScript.mockClear();
+
+    await expect(runtime.command(identity(), { nonce: "post-stale", command: "ARM", payload: {} }))
+      .resolves.toEqual({ status: "stale", reason: "document-authority-changed" });
+    expect(test.executeScript).toHaveBeenCalledTimes(1);
+    expect(test.documents.get("document-a")?.armedNonce).toBe("post-stale");
+    expect(test.stored.size).toBe(1);
+
+    await runtime.retireTab(7);
+    expect(test.documents.get("document-a")?.retired).toBe(true);
+    expect(test.stored.size).toBe(0);
+  });
+
+  it("retires a capability installed across an acquisition authority loss", async () => {
+    const test = harness();
+    let authorizeCalls = 0;
+    const runtime = createPageWorldCapabilityRuntime({
+      executeScript: test.executeScript,
+      storage: test.storage,
+      authorize: async () => ++authorizeCalls === 1,
+      randomHex: (bytes) => "5".repeat(bytes * 2),
+    });
+
+    await expect(runtime.acquire(identity())).resolves.toEqual({
+      status: "stale",
+      reason: "document-authority-changed",
+    });
+    expect(test.documents.get("document-a")?.retired).toBe(true);
+    expect(test.stored.size).toBe(0);
   });
 
   it("retires and forgets the lease on the terminal tab boundary", async () => {
