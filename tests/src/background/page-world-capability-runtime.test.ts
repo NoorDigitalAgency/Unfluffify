@@ -115,6 +115,7 @@ describe("document-bound page-world capability runtime", () => {
       executeScript: test.executeScript,
       storage: test.storage,
       authorize: async () => false,
+      retain: () => false,
       randomHex: (bytes) => "a".repeat(bytes * 2),
     });
 
@@ -132,6 +133,7 @@ describe("document-bound page-world capability runtime", () => {
       executeScript: test.executeScript,
       storage: test.storage,
       authorize: async () => true,
+      retain: () => true,
       randomHex: (bytes) => (bytes === 16 ? "b" : "c").repeat(bytes * 2),
     });
 
@@ -155,6 +157,7 @@ describe("document-bound page-world capability runtime", () => {
       executeScript: test.executeScript,
       storage: test.storage,
       authorize: async () => true,
+      retain: () => true,
       randomHex: (bytes: number) => "d".repeat(bytes * 2),
     };
     const firstWorker = createPageWorldCapabilityRuntime(options);
@@ -172,15 +175,19 @@ describe("document-bound page-world capability runtime", () => {
   it("invokes each hot command once without a redundant capability probe", async () => {
     const test = harness();
     const authorize = vi.fn(async () => true);
+    const retain = vi.fn(() => true);
     const runtime = createPageWorldCapabilityRuntime({
       executeScript: test.executeScript,
       storage: test.storage,
       authorize,
+      retain,
       randomHex: (bytes) => "1".repeat(bytes * 2),
     });
     await runtime.acquire(identity());
     test.executeScript.mockClear();
     authorize.mockClear();
+    retain.mockClear();
+    authorize.mockRejectedValue(new Error("hot commands must not await physical authority"));
 
     await expect(runtime.command(identity(), { nonce: "hot-arm", command: "ARM", payload: {} }))
       .resolves.toMatchObject({ status: "ok", result: { command: "ARM", nonce: "hot-arm" } });
@@ -189,10 +196,12 @@ describe("document-bound page-world capability runtime", () => {
       kind: "command",
       request: { command: "ARM", nonce: "hot-arm" },
     });
-    expect(authorize).toHaveBeenCalledTimes(2);
+    expect(authorize).not.toHaveBeenCalled();
+    expect(retain).toHaveBeenCalledTimes(2);
 
     test.executeScript.mockClear();
     authorize.mockClear();
+    retain.mockClear();
     await expect(runtime.command(identity(), {
       nonce: "hot-destroy",
       sessionNonce: "hot-arm",
@@ -201,7 +210,8 @@ describe("document-bound page-world capability runtime", () => {
     })).resolves.toMatchObject({ status: "ok", result: { command: "DESTROY", nonce: "hot-destroy" } });
     expect(test.executeScript).toHaveBeenCalledTimes(1);
     expect(test.executeScript.mock.calls[0]?.[0].args[2]).toMatchObject({ kind: "command" });
-    expect(authorize).toHaveBeenCalledTimes(2);
+    expect(authorize).not.toHaveBeenCalled();
+    expect(retain).toHaveBeenCalledTimes(2);
   });
 
   it("probes a recovered worker lease once, then keeps subsequent commands hot", async () => {
@@ -210,6 +220,7 @@ describe("document-bound page-world capability runtime", () => {
       executeScript: test.executeScript,
       storage: test.storage,
       authorize: vi.fn(async () => true),
+      retain: vi.fn(() => true),
       randomHex: (bytes: number) => "2".repeat(bytes * 2),
     };
     const firstWorker = createPageWorldCapabilityRuntime(options);
@@ -217,6 +228,7 @@ describe("document-bound page-world capability runtime", () => {
     const restartedWorker = createPageWorldCapabilityRuntime(options);
     test.executeScript.mockClear();
     options.authorize.mockClear();
+    options.retain.mockClear();
 
     await expect(restartedWorker.command(identity(), {
       nonce: "recovered-arm",
@@ -226,9 +238,12 @@ describe("document-bound page-world capability runtime", () => {
     expect(test.executeScript).toHaveBeenCalledTimes(2);
     expect(test.executeScript.mock.calls.map(([injection]) =>
       (injection.args[2] as { kind?: string }).kind)).toEqual(["probe", "command"]);
+    expect(options.authorize).toHaveBeenCalledTimes(1);
+    expect(options.retain).toHaveBeenCalledTimes(2);
 
     test.executeScript.mockClear();
     options.authorize.mockClear();
+    options.retain.mockClear();
     await expect(restartedWorker.command(identity(), {
       nonce: "recovered-destroy",
       sessionNonce: "recovered-arm",
@@ -237,7 +252,8 @@ describe("document-bound page-world capability runtime", () => {
     })).resolves.toMatchObject({ status: "ok", result: { command: "DESTROY" } });
     expect(test.executeScript).toHaveBeenCalledTimes(1);
     expect(test.executeScript.mock.calls[0]?.[0].args[2]).toMatchObject({ kind: "command" });
-    expect(options.authorize).toHaveBeenCalledTimes(2);
+    expect(options.authorize).not.toHaveBeenCalled();
+    expect(options.retain).toHaveBeenCalledTimes(2);
   });
 
   it("forgets a poisoned hot lease so only a later action installs its replacement", async () => {
@@ -246,6 +262,7 @@ describe("document-bound page-world capability runtime", () => {
       executeScript: test.executeScript,
       storage: test.storage,
       authorize: async () => true,
+      retain: () => true,
       randomHex: (bytes) => "3".repeat(bytes * 2),
     });
     await runtime.acquire(identity());
@@ -281,6 +298,7 @@ describe("document-bound page-world capability runtime", () => {
       executeScript: test.executeScript,
       storage: test.storage,
       authorize: async (candidate) => JSON.stringify(candidate) === JSON.stringify(current),
+      retain: (candidate) => JSON.stringify(candidate) === JSON.stringify(current),
       randomHex: (bytes) => "e".repeat(bytes * 2),
     });
     await runtime.acquire(current);
@@ -304,16 +322,17 @@ describe("document-bound page-world capability runtime", () => {
 
   it("withholds command success after a post-invocation authority loss and preserves cleanup", async () => {
     const test = harness();
-    let authorizeCalls = 0;
+    let retainCalls = 0;
     let loseAuthority = false;
     const runtime = createPageWorldCapabilityRuntime({
       executeScript: test.executeScript,
       storage: test.storage,
-      authorize: async () => !loseAuthority || ++authorizeCalls === 1,
+      authorize: async () => true,
+      retain: () => !loseAuthority || ++retainCalls === 1,
       randomHex: (bytes) => "4".repeat(bytes * 2),
     });
     await runtime.acquire(identity());
-    authorizeCalls = 0;
+    retainCalls = 0;
     loseAuthority = true;
     test.executeScript.mockClear();
 
@@ -335,6 +354,7 @@ describe("document-bound page-world capability runtime", () => {
       executeScript: test.executeScript,
       storage: test.storage,
       authorize: async () => ++authorizeCalls === 1,
+      retain: () => true,
       randomHex: (bytes) => "5".repeat(bytes * 2),
     });
 
@@ -352,6 +372,7 @@ describe("document-bound page-world capability runtime", () => {
       executeScript: test.executeScript,
       storage: test.storage,
       authorize: async () => true,
+      retain: () => true,
       randomHex: (bytes) => "f".repeat(bytes * 2),
     });
     await runtime.acquire(identity());

@@ -2341,3 +2341,236 @@ This is a clarification of the locked contract, not authorization to change an
 endpoint or payload schema. Its focused startup regression proves that Save
 emits one current-page mutation and exposes no response configuration, while
 the following fresh Load supplies the only adopted shape.
+
+## 2. Entering conformance findings — exact fresh DPJ evidence
+
+R12 commit `d1e3de04a5faad51d76837cf801b8fec3ef3acdd` and the final
+authority-contract commit `dafba50a25c23b801c87c031616791ec9e8ae164` pass
+their automated gates and are synchronized with `origin/re-write`. A fresh
+repository-managed headed DPJ run then reproduced the first-page ritual failure
+without Save, AI, takeover, publication, release, or deployment.
+
+Debug-only lifecycle evidence split the failing hot `ARM` occurrence into its
+actual owners:
+
+- exact acquisition completed and the immediately preceding hot `RECONCILE`
+  completed in 6 ms;
+- `ARM` pre-authorization completed in 5 ms;
+- the one exact-document MAIN-world `ARM` invocation completed successfully in
+  1,016 ms;
+- the post-invocation `webNavigation.getFrame` proof then waited 3,027 ms;
+- content's unchanged three-second command deadline expired during that final
+  proof, queued `DESTROY`, and reported `page-world-command-timeout`, although
+  `ARM` had already succeeded in the correct document;
+- the background finally settled the `ARM` operation after 4,050 ms.
+
+The later official activation stage passed only after the failed automatic
+occurrence had cleared and a new preparation occurrence could run. It therefore
+does not satisfy the first-occurrence/no-retry acceptance criterion.
+
+| Finding | Severity | Exact defect and owner |
+| --- | --- | --- |
+| `EL-02-F019` | Critical | A hot page-world command is physically admitted and executed against Chrome's exact `documentIds` target, but success is withheld behind a second asynchronous `webNavigation.getFrame` round trip. A slow post-proof can outlive the caller's command deadline, manufacture a timeout after successful mutation, and start cleanup against a valid exact-document session. |
+| `EL-02-F020` | High | `runPageVisitRitual` returns the same opportunistic page-load promise to a real marking activation. If that in-flight occurrence fails, the user action inherits the failure even when the exact document and editor authority remain current; no activation-strength consolidated follow-up is admitted. |
+| `EL-02-F021` | Critical | Fresh DPJ debug evidence recorded silent selector `store-evaluate` stages of 62.6 s, 90.4 s, and 90.9 s, followed by 6–8 s repeats, while candidate indexing and silent paint stayed at 10–27 ms. `selectorSeedForBridge` serially runs every selector through `Element.matches` for every bridge node, and every identical silent-authority projection unconditionally rebuilds and re-evaluates the store. This is the direct owner of minute-scale silent-highlight and activation latency on dense properties. |
+
+The first cold authorization also exposed a 2,223 ms session-storage read, but
+it remained inside the separate 15-second acquisition phase and did not cause
+this failure. R13 does not hide that evidence or relax either timeout.
+
+## 3. Locked remediation decisions
+
+- Exact Chrome `documentIds` targeting remains the physical execution boundary:
+  a command for document A cannot execute in replacement document B.
+- Full asynchronous authorization remains mandatory before acquiring,
+  recovering, probing, or installing an exact page-world lease. It continues to
+  verify the physical main frame and durable consent tombstone before admitting
+  page-world authority.
+- A proved hot command receives non-yielding pre- and post-invocation retained-
+  authority checks instead of another physical browser/storage round trip. The
+  checks require the same managed authority object/generation, main document,
+  normalized URL, non-pending navigation state, active tab session, and absence
+  of the process-local consent terminal tombstone. Every navigation,
+  unregister, cleanup, and authority replacement updates one of those facts
+  synchronously before asynchronous cleanup begins.
+- If retained authority changes while an invocation is in flight, success is
+  still withheld and the exact lease remains available to the ordered terminal
+  cleanup owner. Runtime loss and poisoned capabilities retain their existing
+  fail-closed behavior.
+- The three-second hot-command deadline is unchanged. R13 removes the proved
+  blocking work rather than accepting slower interaction.
+- Page-load remains an opportunistic single occurrence. A real marking
+  activation that arrives while that occurrence is pending shares a successful
+  result. If it fails while the exact identity and authority remain current,
+  all concurrent activation callers share exactly one stronger follow-up
+  occurrence. Stale identity, deactivation, navigation, or a failed stronger
+  occurrence does not recurse or retry.
+- Activation is acknowledged only after the successful occurrence is fully
+  prepared, bottom-frozen, current, and no curtain owns input. There is no
+  synthetic acknowledgement or success inference.
+- The approved Save → distinct fresh Load replacement contract and stateless
+  whole-property AI corpus contract remain byte-for-byte out of scope, as do
+  endpoint schemas, permissions, marking decisions, selectors, consent
+  suppression behavior, and Lynx publication.
+- Selector seeding preserves exact ordered selector attribution, document-scoped
+  `:scope` behavior, open-shadow element semantics, invalid-selector isolation,
+  exclusion-first/inclusion-wins precedence, and the resulting canonical rows.
+  It may compile bounded comma groups so a non-matching element performs one
+  selector-engine call per group rather than one call per selector; an exact
+  positive group is then resolved in original order.
+- Reapplying the same selector set to the same clean bridge generation is an
+  idempotent projection, not new authority work. The engine may reuse that
+  exact selector-derived store/index. Any bridge generation change, selector
+  change, user toggle/clear, or non-selector refresh invalidates the reuse key.
+
+## 4. Implementation phases
+
+### EL-02-R13-01 — Exact retained-authority hot path
+
+**Files:** `src/background/page-world-capability-runtime.ts`,
+`src/background/index.ts`, and
+`tests/src/background/page-world-capability-runtime.test.ts`.
+
+1. Split the capability runtime's authority input into an asynchronous physical
+   admission proof and a synchronous retained-authority predicate.
+2. Keep physical authorization around lease acquisition/recovery/installation.
+   For a proved hot command, run retained-authority checks immediately before
+   and after its one exact-document MAIN-world invocation, with no
+   `getFrame`/session-storage wait in the hot response path.
+3. Preserve generation, URL, main-document, navigation-pending, consent
+   terminal, tab termination, poisoned-runtime, and ordered-retirement fences.
+4. Retain debug-only phase timing so live evidence can prove which owner ran;
+   production builds must not expose diagnostic lifecycle copy.
+5. Add regressions proving hot commands do not call the asynchronous authority
+   provider, recovered/cold leases still do, pre/post retained-authority loss
+   withholds success, and one exact `documentIds` invocation remains the only
+   page mutation.
+
+### EL-02-R13-02 — Activation-strength occurrence consolidation
+
+**Files:** `src/entrypoints/content-loader.content.ts` and
+`tests/c4-content-entrypoint.test.ts`.
+
+1. Give pending page-visit occurrences an explicit request strength while
+   preserving exact document/URL/lifecycle identity.
+2. Let marking activation reuse a successful pending page-load occurrence. If
+   the weaker occurrence rejects while identity and editor/shield authority are
+   still current, schedule one stronger activation occurrence and share it
+   across all concurrent activation callers.
+3. Do not follow up stale, navigated, deactivated, or already activation-
+   strength failures. Clear every pending/follow-up owner on both fulfillment
+   and rejection.
+4. Add deterministic tests for successful join, weak-failure → one successful
+   follow-up, concurrent caller coalescing, stale identity rejection, and no
+   unbounded retry.
+
+### EL-02-R13-03 — Bounded idempotent selector projection
+
+**Files:** `src/content/marking/engine.ts` and
+`tests/src/content/marking/dom-bridge.test.ts`.
+
+1. Compile each ordered inclusion/exclusion selector list into bounded valid
+   selector groups once per seed transaction. Test the combined group for each
+   bridge element and resolve individual selector attribution only for a
+   positive group; preserve the narrow owner-document `:scope` compatibility
+   proof and per-selector invalid isolation.
+2. Track an exact selector-projection key containing selector order/content,
+   bridge generation, and clean selector-derived state. Make an identical
+   silent projection a no-op for seeding/evaluation/indexing while still
+   allowing the caller's current render/posture acknowledgement.
+3. Invalidate the key on structural/presentation bridge adoption, explicit
+   toggle/clear, selector change, and every refresh that is not itself seeded
+   by that exact selector set.
+4. Split debug timing so selector matching and store evaluation are separately
+   visible. Add operation-count regressions over a dense synthetic bridge,
+   duplicate-projection no-op tests, invalid/`:scope`/shadow/precedence parity,
+   and mutation invalidation tests.
+
+### EL-02-R13-04 — Automated and headed acceptance
+
+1. Run focused capability/content regressions and `pnpm check`, followed by
+   `pnpm verify`, production/debug builds, P17, and clean full P25.
+2. Review only intended source/test/plan changes, commit, push normally, refresh
+   the code graph, and prove clean ahead/behind `0/0`.
+3. Launch the exact production commit through repository `live-browser` on DPJ.
+   From a fresh document, exercise the automatic ritual and the first real
+   activation without a retry. Require one successful `ARM`, no timeout-driven
+   `DESTROY`, prepared bottom freeze, responsive marking, correct mobile
+   posture, and clean restoration/discard behavior.
+4. Re-run both Render Inspection modes and the applicable safe P25 workflow
+   stages with the publication guard active. Do not run AI with live HTML unless
+   the operator separately authorizes that payload egress; do not Save or
+   publish.
+5. Resume the remaining externally available candidate matrix and perform an
+   independent cumulative expert-check. Any failed criterion opens R14; only a
+   complete pass can approve the rewrite.
+
+## 5. Acceptance criteria
+
+- `EL02-R13-AC-01` A proved hot command performs one exact-document MAIN-world
+  invocation and zero asynchronous physical authorization calls in its response
+  path; the separate acquire/recovery path retains full physical authorization.
+- `EL02-R13-AC-02` Pre- and post-invocation retained-authority loss across
+  generation, URL, main document, pending navigation, consent terminalization,
+  or tab cleanup withholds success and preserves ordered retirement.
+- `EL02-R13-AC-03` The reproduced DPJ `ARM` acknowledgement completes within
+  the unchanged three-second command deadline even when a later physical
+  `getFrame` call would be starved; no timeout cleanup is emitted after a
+  successful command.
+- `EL02-R13-AC-04` A real activation joining a successful weaker occurrence
+  performs no duplicate ritual. A failed weaker occurrence produces exactly
+  one shared stronger follow-up, while stale or stronger failures produce none.
+- `EL02-R13-AC-05` Marking activation is acknowledged only after an exact
+  prepared/current/bottom-frozen terminal with input released and no curtain.
+- `EL02-R13-AC-06` Selector projection preserves exact classifications and
+  selector attribution while reducing negative matching from
+  elements × selectors to elements × bounded groups; an identical clean
+  selector/bridge projection performs no second seed/evaluation/index pass.
+- `EL02-R13-AC-07` Fresh headed DPJ has no multi-second selector-match,
+  store-evaluate, candidate-index, or silent-render stage, and silent
+  highlighting becomes interactive within its established one-second bound.
+- `EL02-R13-AC-08` Focused/full/build/P17/P25 gates pass on synchronized source,
+  and fresh headed DPJ first activation passes without retry, Save, AI,
+  takeover, or publication.
+- `EL02-R13-AC-09` Save still commits exactly one current page plus property-
+  wide selectors, its response remains acknowledgement-only, the distinct
+  authoritative Load completely replaces local state, and every stateless AI
+  call still carries the full newest loaded property page/HTML corpus with the
+  live current-page occurrence overlaid once.
+
+## 6. Todo chain
+
+1. `el02-r13-retained-authority-runtime`
+2. `el02-r13-activation-followup` → 1
+3. `el02-r13-selector-projection-hotpath` → 2
+4. `el02-r13-focused-regressions` → 3
+5. `el02-r13-full-gates` → 4
+6. `el02-r13-review-push` → 5
+7. `el02-r13-headed-dpj` → 6
+8. `el02-r13-candidate-matrix` → 7
+9. `el02-r13-conformance` → 8
+
+## 7. Implementation checkpoint — 2026-09-01
+
+- `EL-02-R13-01` is implemented. Proved hot commands now use synchronous
+  retained-authority fences around one exact-document invocation; cold and
+  recovered acquisition retain physical frame and durable consent proof. The
+  pre-commit review additionally separated cold candidate admission from hot
+  retained authority: an awakened MV3 worker may reconstruct only missing
+  navigation facts from an exact physical frame proof, while known pending or
+  mismatched facts still fail closed. Its startup regression proves the first
+  installation succeeds and the following hot command performs no frame read.
+- `EL-02-R13-02` is implemented. A failed weaker page-load occurrence admits
+  exactly one current activation-strength follow-up shared by concurrent
+  callers; the deterministic race regression passes.
+- `EL-02-R13-03` is implemented. Selector parsing is isolated once, negative
+  matching uses bounded ordered groups, a per-bridge seed is reused, and an
+  identical clean projection skips seed/store/index work. Toggle, clear,
+  selector changes, and bridge refreshes invalidate the appropriate shortcut.
+- Focused evidence is green: the final four-suite R13 run passes `205/205`, the
+  dense 200-node/97-selector corpus stays below 1,000 `Element.matches` calls,
+  and `pnpm check` passes. The uninterrupted full `pnpm verify` passes all
+  `1,582/1,582` tests, the production build, and all `7/7` manifest checks; the
+  debug build also passes. Clean-source P14/P17/P25, review/push, fresh headed
+  DPJ evidence, the remaining candidate matrix, and cumulative conformance
+  remain open under `EL-02-R13-04`.

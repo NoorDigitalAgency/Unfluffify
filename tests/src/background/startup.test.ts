@@ -708,6 +708,201 @@ describe("rewrite background startup", () => {
     });
   });
 
+  it("reconstructs cold-worker page-world authority once and retains the hot command fence", async () => {
+    const addMessageListener = vi.fn();
+    const originalFetch = globalThis.fetch;
+    const sessionValues: Record<string, unknown> = {};
+    const sessionStorage = {
+      get: vi.fn(async (key: string) => ({ [key]: sessionValues[key] })),
+      set: vi.fn(async (values: Record<string, unknown>) => {
+        Object.assign(sessionValues, values);
+      }),
+      remove: vi.fn(async (key: string) => {
+        delete sessionValues[key];
+      }),
+    };
+    const getFrame = vi.fn((
+      _details: { tabId: number; frameId: number },
+      callback: (details: { documentId: string; url: string }) => void,
+    ) => {
+      callback({
+        documentId: "document-cold-77",
+        url: "https://shop.example.com/detail",
+      });
+    });
+    const executeScript = vi.fn(async (injection: Readonly<{
+      target: Readonly<{ tabId: number; documentIds: string[] }>;
+      args: unknown[];
+    }>) => {
+      const invocation = injection.args[2] as Readonly<{
+        kind?: string;
+        request?: Readonly<{ nonce?: string; command?: string }>;
+      }> | undefined;
+      return [{
+        frameId: 0,
+        documentId: "document-cold-77",
+        result: invocation?.kind === "command"
+          ? {
+              ok: true,
+              nonce: invocation.request?.nonce ?? "",
+              command: invocation.request?.command ?? "",
+              payload: { sessionNonce: "cold-session" },
+            }
+          : {
+              ok: true,
+              nonce: "",
+              command: "PROBE",
+              payload: { ready: true },
+            },
+      }];
+    });
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/api/account/login")) {
+        return new Response(JSON.stringify({ token: "jwt-cold-worker" }), { status: 200 });
+      }
+      if (url.endsWith("/context")) {
+        return new Response(JSON.stringify({
+          status: "managed_candidate",
+          environmentKey: "a.example.com",
+          siteId: 4821,
+          baseUrl: "https://shop.example.com",
+          pageKey: "/detail",
+          pageTypes: [{
+            pageType: "detail",
+            pages: [{ pageKey: "/detail", wordsCount: 100 }],
+          }],
+          membershipFingerprint: "membership-cold",
+          assignmentFingerprint: "assignment-cold",
+          conflicts: [],
+          upstreamCode: null,
+        }), { status: 200 });
+      }
+      if (url.endsWith("/load")) {
+        return new Response(JSON.stringify({
+          version: 2,
+          environmentKey: "a.example.com",
+          baseUrl: "https://shop.example.com",
+          siteId: 4821,
+          propertyRevision: 1,
+          feedRevision: 1,
+          membershipFingerprint: "membership-cold",
+          assignmentFingerprint: "assignment-cold",
+          renderMode: "rendered",
+          renderModeUpdatedAt: "2026-09-01T08:00:00Z",
+          selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+          selectorsUpdatedAt: "2026-09-01T08:00:00Z",
+          submittedSelectorsFingerprint: "selectors-cold",
+          pages: {},
+          reconciliation: {
+            revision: 1,
+            feedFingerprint: "feed-cold",
+            removedPageKeys: [],
+            relabelledPages: [],
+          },
+        }), { status: 200 });
+      }
+      return new Response("{}", { status: 500 });
+    }) as typeof fetch;
+    globalThis.chrome = {
+      runtime: {
+        sendMessage: vi.fn(),
+        onMessage: { addListener: addMessageListener },
+      },
+      storage: { session: sessionStorage },
+      scripting: { executeScript },
+      webNavigation: {
+        getFrame,
+        onBeforeNavigate: { addListener: vi.fn() },
+        onCommitted: { addListener: vi.fn() },
+        onHistoryStateUpdated: { addListener: vi.fn() },
+        onReferenceFragmentUpdated: { addListener: vi.fn() },
+        onErrorOccurred: { addListener: vi.fn() },
+      },
+      action: { onClicked: { addListener: vi.fn() } },
+      alarms: {
+        create: vi.fn(),
+        clear: vi.fn(),
+        onAlarm: { addListener: vi.fn() },
+      },
+    } as unknown as typeof chrome;
+
+    try {
+      const { startRewriteBackground } = await import("../../../src/background/index");
+      startRewriteBackground();
+      const listener = addMessageListener.mock.calls[0]?.[0] as (
+        frame: BusFrame,
+        sender: unknown,
+        sendResponse: (reply: BusFrame) => void,
+      ) => boolean;
+      let popupSeq = 0;
+      let contentSeq = 0;
+      const request = (
+        name: string,
+        payload: unknown,
+        source: "popup" | "content" = "popup",
+      ): Promise<BusFrame> => new Promise((resolve) => {
+        const seq = source === "popup" ? ++popupSeq : ++contentSeq;
+        const sourceInstance = source === "popup"
+          ? "popup:cold-worker-test"
+          : "tab:77:frame:0:document:document-cold-77:content:cold-worker-test";
+        const keepOpen = listener({
+          kind: "uf-bus/1",
+          frameType: "request",
+          id: `${source}-${name}-${seq}`,
+          seq,
+          name,
+          source,
+          sourceInstance,
+          target: "background",
+          payload,
+        }, source === "popup"
+          ? {}
+          : { tab: { id: 77 }, frameId: 0, documentId: "document-cold-77" }, resolve);
+        expect(keepOpen).toBe(true);
+      });
+
+      await request("settings.save", {
+        configEndpoint: "https://config.example.com",
+        stageBase: "a.example.com",
+      });
+      await request("accounts.login", { email: "editor@example.com", password: "pw" });
+      await expect(request("page.context", {
+        tabId: 77,
+        pageUrl: "https://shop.example.com/detail",
+      }, "content")).resolves.toMatchObject({
+        ok: true,
+        payload: {
+          status: "managed_candidate",
+          consentSuppressionAllowed: true,
+        },
+      });
+
+      expect(executeScript).toHaveBeenCalledTimes(1);
+      expect(executeScript.mock.calls[0]?.[0]).toMatchObject({
+        target: { tabId: 77, documentIds: ["document-cold-77"] },
+        world: "MAIN",
+      });
+      const physicalQueriesAfterAcquisition = getFrame.mock.calls.length;
+      await expect(request("pageWorld.command", {
+        pageUrl: "https://shop.example.com/detail",
+        nonce: "cold-arm-1",
+        command: "ARM",
+        payload: {},
+      }, "content")).resolves.toMatchObject({
+        ok: true,
+        payload: {
+          status: "ok",
+          result: { ok: true, nonce: "cold-arm-1", command: "ARM" },
+        },
+      });
+      expect(getFrame).toHaveBeenCalledTimes(physicalQueriesAfterAcquisition);
+      expect(executeScript).toHaveBeenCalledTimes(2);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("retains a JWT for normalized formatting edits and clears it for a backend change", async () => {
     const addMessageListener = vi.fn();
     globalThis.chrome = {

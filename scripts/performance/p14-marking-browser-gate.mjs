@@ -865,7 +865,7 @@ function validateRewriteActivation(runs) {
     .filter((runItem) => runItem.runtime === "rewrite")
     .map((runItem) => {
       const expected = runItem.mode === "silent"
-        ? ["bridge", "store-evaluate", "candidate-index", "silent-render"]
+        ? ["bridge", "selector-match", "store-evaluate", "candidate-index", "silent-render"]
         : ["bridge", "store-evaluate", "candidate-index", "marking-render", "silent-render"];
       const actual = runItem.activation.stages;
       return {

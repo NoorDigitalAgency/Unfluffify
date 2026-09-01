@@ -215,10 +215,14 @@ type PageVisitRitualOutcome = PageVisitRitualIdentity & Readonly<{
   lazyExpansions: number;
   frozenAtBottom: boolean;
 }>;
-type PendingPageVisitRitual = Readonly<{
+type PageVisitRitualCause = "page-load" | "render-mode-established" | "marking-activation";
+type PageVisitRitualStrength = 1 | 2;
+type PendingPageVisitRitual = {
   identity: PageVisitRitualIdentity;
+  strength: PageVisitRitualStrength;
   promise: Promise<PageVisitRitualOutcome>;
-}>;
+  strongerFollowup: Promise<PageVisitRitualOutcome> | null;
+};
 /** One successful exact-document occurrence and one joinable in-flight
  * occurrence. URL strings alone are insufficient because a reload can replace
  * the document while retaining the same address. */
@@ -3341,8 +3345,49 @@ async function executePageVisitRitual(
 
 /** Runs the ritual once for the exact current document and returns the shared
  * occurrence promise to every page-load, preparation, or activation caller. */
-function runPageVisitRitual(pageUrl: string, cause: string): Promise<PageVisitRitualOutcome> {
+function pageVisitRitualStrength(cause: PageVisitRitualCause): PageVisitRitualStrength {
+  return cause === "marking-activation" ? 2 : 1;
+}
+
+function pageVisitRitualOutcomeIsReusable(
+  outcome: PageVisitRitualOutcome,
+  identity: PageVisitRitualIdentity,
+): boolean {
+  return outcome.status === "prepared" &&
+    samePageVisitRitualIdentity(outcome, identity) &&
+    pageVisitRitualIdentityIsCurrent(identity) &&
+    pageWorldSessionNonce !== "" &&
+    freezeController.isPaused();
+}
+
+function startPageVisitRitual(
+  identity: PageVisitRitualIdentity,
+  cause: PageVisitRitualCause,
+  strength: PageVisitRitualStrength,
+): Promise<PageVisitRitualOutcome> {
+  const promise = executePageVisitRitual(identity, cause);
+  const pending: PendingPageVisitRitual = {
+    identity,
+    strength,
+    promise,
+    strongerFollowup: null,
+  };
+  pendingPageVisitRitual = pending;
+  const clear = (): void => {
+    if (pendingPageVisitRitual === pending) {
+      pendingPageVisitRitual = null;
+    }
+  };
+  void promise.then(clear, clear);
+  return promise;
+}
+
+function runPageVisitRitual(
+  pageUrl: string,
+  cause: PageVisitRitualCause,
+): Promise<PageVisitRitualOutcome> {
   const identity = pageVisitRitualIdentity(pageUrl);
+  const strength = pageVisitRitualStrength(cause);
   const matchingPreparedRitual = completedPageVisitRitual?.status === "prepared" &&
     samePageVisitRitualIdentity(completedPageVisitRitual, identity)
     ? completedPageVisitRitual
@@ -3368,24 +3413,49 @@ function runPageVisitRitual(pageUrl: string, cause: string): Promise<PageVisitRi
     completedPageVisitRitual = null;
     revealController.resetForPresentationLeaseLoss();
   }
-  if (pendingPageVisitRitual && samePageVisitRitualIdentity(pendingPageVisitRitual.identity, identity)) {
-    return pendingPageVisitRitual.promise;
+  const pending = pendingPageVisitRitual;
+  if (pending && samePageVisitRitualIdentity(pending.identity, identity)) {
+    if (strength <= pending.strength) {
+      return pending.promise;
+    }
+    if (!pending.strongerFollowup) {
+      debugStabilizationStage("ritual-followup-scheduled", {
+        cause,
+        fromStrength: pending.strength,
+        toStrength: strength,
+      });
+      pending.strongerFollowup = pending.promise.then((outcome) => {
+        if (pageVisitRitualOutcomeIsReusable(outcome, identity)) {
+          debugStabilizationStage("ritual-followup-reused", { cause });
+          return outcome;
+        }
+        if (
+          !pageVisitRitualIdentityIsCurrent(identity) ||
+          !interactionShieldAuthorityActive
+        ) {
+          debugStabilizationStage("ritual-followup-rejected", {
+            cause,
+            reason: "identity-or-authority-changed",
+          });
+          return outcome;
+        }
+        // The weaker physical occurrence has terminalized and cleaned its exact
+        // lease. Admit one stronger occurrence directly; every concurrent real
+        // activation shares this wrapper or the pending stronger occurrence.
+        if (pendingPageVisitRitual === pending) {
+          pendingPageVisitRitual = null;
+        }
+        const current = pendingPageVisitRitual;
+        if (current && samePageVisitRitualIdentity(current.identity, identity)) {
+          return current.promise;
+        }
+        debugStabilizationStage("ritual-followup-started", { cause });
+        return startPageVisitRitual(identity, cause, strength);
+      });
+    }
+    return pending.strongerFollowup;
   }
-  const promise = executePageVisitRitual(identity, cause);
-  pendingPageVisitRitual = { identity, promise };
-  void promise.then(
-    () => {
-      if (pendingPageVisitRitual?.promise === promise) {
-        pendingPageVisitRitual = null;
-      }
-    },
-    () => {
-      if (pendingPageVisitRitual?.promise === promise) {
-        pendingPageVisitRitual = null;
-      }
-    },
-  );
-  return promise;
+  return startPageVisitRitual(identity, cause, strength);
 }
 
 function applyContentLockState(payload: unknown): Record<string, unknown> {

@@ -136,7 +136,10 @@ export async function invokePageWorldCapability(
 export function createPageWorldCapabilityRuntime(input: Readonly<{
   executeScript?: ExecuteScript;
   storage?: SessionStorage;
+  /** Physical/durable admission for lease acquisition or recovery. */
   authorize(identity: PageWorldDocumentIdentity): Promise<boolean>;
+  /** Non-yielding exact-identity fence around an already-proved hot command. */
+  retain(identity: PageWorldDocumentIdentity): boolean;
   randomHex?: (bytes: number) => string;
 }>) {
   const leases = new Map<number, StoredLease>();
@@ -228,6 +231,43 @@ export function createPageWorldCapabilityRuntime(input: Readonly<{
         phase,
         durationMs: Date.now() - startedAt,
         result: summarize(result),
+      });
+      return result;
+    } catch (error) {
+      debugPageWorldStage("phase-rejected", {
+        tabId: identity.tabId,
+        sequence,
+        label: operationLabel,
+        phase,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  };
+
+  const runTracedRetainedPhase = (
+    identity: PageWorldDocumentIdentity,
+    sequence: number,
+    operationLabel: string,
+    phase: "pre-retain" | "post-retain",
+  ): boolean => {
+    const startedAt = Date.now();
+    debugPageWorldStage("phase-started", {
+      tabId: identity.tabId,
+      sequence,
+      label: operationLabel,
+      phase,
+    });
+    try {
+      const result = input.retain(identity);
+      debugPageWorldStage("phase-settled", {
+        tabId: identity.tabId,
+        sequence,
+        label: operationLabel,
+        phase,
+        durationMs: Date.now() - startedAt,
+        result,
       });
       return result;
     } catch (error) {
@@ -435,16 +475,16 @@ export function createPageWorldCapabilityRuntime(input: Readonly<{
           if (resolved.status !== "ok") return resolved;
           lease = resolved.lease;
         }
-        // A recovered/installed resolution can yield while navigation commits.
-        // This is the exact pre-invocation authority fence for both cold and hot
-        // paths; the matching post-invocation fence remains below.
-        const admitted = await runTracedPhase(
+        // Chrome executes against the exact documentIds target. Once a lease is
+        // physically admitted/proved, the hot path must not wait on another
+        // browser/storage round trip: navigation, terminal consent, and managed
+        // generation owners synchronously invalidate retained authority before
+        // their ordered asynchronous cleanup begins.
+        const admitted = runTracedRetainedPhase(
           identity,
           sequence,
           operationLabel,
-          "pre-authorize",
-          () => input.authorize(identity),
-          (result) => result,
+          "pre-retain",
         );
         if (!admitted) {
           // Do not execute even a cleanup invocation after a failed command
@@ -480,13 +520,11 @@ export function createPageWorldCapabilityRuntime(input: Readonly<{
           // replacement instead of probing or invoking the dead endpoint again.
           await forget(identity.tabId);
         }
-        const retained = await runTracedPhase(
+        const retained = runTracedRetainedPhase(
           identity,
           sequence,
           operationLabel,
-          "post-authorize",
-          () => input.authorize(identity),
-          (outcome) => outcome,
+          "post-retain",
         );
         if (!retained) {
           // The command already completed, so return no success. Retaining a

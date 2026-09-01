@@ -657,6 +657,66 @@ export function startRewriteBackground(): void {
     managedPageWorldAuthorityByTab.set(tabId, authority);
     return authority;
   };
+  type ManagedPageWorldAuthorityCheck = Readonly<{
+    retained: true;
+    authority: ManagedPageWorldAuthority;
+  }> | Readonly<{
+    retained: false;
+    reason: string;
+  }>;
+  const candidateManagedPageWorldAuthority = (
+    identity: PageWorldDocumentIdentity,
+  ): ManagedPageWorldAuthorityCheck => {
+    if (tabTerminations.has(identity.tabId)) {
+      return { retained: false, reason: "tab-terminating" };
+    }
+    const authority = managedPageWorldAuthorityByTab.get(identity.tabId);
+    if (!authority || !(
+      authority.documentId === identity.documentId &&
+      authority.pageUrl === identity.pageUrl &&
+      authority.generation === identity.generation
+    )) {
+      return { retained: false, reason: "managed-authority-mismatch" };
+    }
+    const navigation = mainNavigationByTab.get(identity.tabId);
+    if (
+      navigation?.pending ||
+      (navigation?.pageUrl !== null &&
+        navigation?.pageUrl !== undefined &&
+        navigation.pageUrl !== identity.pageUrl)
+    ) {
+      return { retained: false, reason: "navigation-mismatch" };
+    }
+    const mainDocument = mainDocumentByTab.get(identity.tabId);
+    if (typeof mainDocument === "string" && mainDocument !== identity.documentId) {
+      return { retained: false, reason: "main-document-mismatch" };
+    }
+    // A durable tombstone is proved during asynchronous admission. Every
+    // terminal write first updates this process-local map synchronously, so a
+    // hot command cannot cross unregister/cleanup while storage.session settles.
+    if (consentSuppressionFallback.has(identity.tabId)) {
+      return { retained: false, reason: "consent-suppression-disabled" };
+    }
+    return { retained: true, authority };
+  };
+  const retainedManagedPageWorldAuthority = (
+    identity: PageWorldDocumentIdentity,
+  ): ManagedPageWorldAuthorityCheck => {
+    const candidate = candidateManagedPageWorldAuthority(identity);
+    if (!candidate.retained) {
+      return candidate;
+    }
+    const navigation = mainNavigationByTab.get(identity.tabId);
+    if (
+      !navigation ||
+      navigation.pending ||
+      navigation.pageUrl !== identity.pageUrl ||
+      mainDocumentByTab.get(identity.tabId) !== identity.documentId
+    ) {
+      return { retained: false, reason: "navigation-mismatch" };
+    }
+    return candidate;
+  };
   let pageWorldAuthorizationSequence = 0;
   const pageWorld = createPageWorldCapabilityRuntime({
     executeScript: api.scripting?.executeScript,
@@ -687,24 +747,11 @@ export function startRewriteBackground(): void {
         sequence,
         generation: identity.generation,
       });
-      if (tabTerminations.has(identity.tabId)) {
-        return finish(false, "tab-terminating");
+      const candidateBeforeFrame = candidateManagedPageWorldAuthority(identity);
+      if (!candidateBeforeFrame.retained) {
+        return finish(false, candidateBeforeFrame.reason);
       }
-      const authority = managedPageWorldAuthorityByTab.get(identity.tabId);
-      if (!authority || !(
-        authority.documentId === identity.documentId &&
-        authority.pageUrl === identity.pageUrl &&
-        authority.generation === identity.generation
-      )) {
-        return finish(false, "managed-authority-mismatch");
-      }
-      const navigation = mainNavigationByTab.get(identity.tabId);
-      if (navigation?.pending || (
-        navigation?.pageUrl !== null &&
-        navigation?.pageUrl !== identity.pageUrl
-      )) {
-        return finish(false, "navigation-mismatch");
-      }
+      const authority = candidateBeforeFrame.authority;
       const frameStartedAt = Date.now();
       const frame = await queryMainFrame(identity.tabId);
       const frameDurationMs = Date.now() - frameStartedAt;
@@ -713,6 +760,33 @@ export function startRewriteBackground(): void {
         frame.pageUrl !== identity.pageUrl
       ) {
         return finish(false, "main-frame-mismatch", { frameDurationMs });
+      }
+      const candidateAfterFrame = candidateManagedPageWorldAuthority(identity);
+      if (!candidateAfterFrame.retained || candidateAfterFrame.authority !== authority) {
+        return finish(
+          false,
+          candidateAfterFrame.retained ? "managed-authority-changed" : candidateAfterFrame.reason,
+          { frameDurationMs },
+        );
+      }
+      // A cold MV3 worker can physically prove the exact frame before it has an
+      // in-memory webNavigation observation. Hydrate only missing facts from
+      // that proof; any concurrently observed navigation remains authoritative.
+      const navigationAfterFrame = mainNavigationByTab.get(identity.tabId);
+      if (!navigationAfterFrame) {
+        mainNavigationByTab.set(identity.tabId, {
+          epoch: 0,
+          pending: false,
+          pageUrl: frame.pageUrl,
+        });
+      } else if (!navigationAfterFrame.pending && navigationAfterFrame.pageUrl === null) {
+        mainNavigationByTab.set(identity.tabId, {
+          ...navigationAfterFrame,
+          pageUrl: frame.pageUrl,
+        });
+      }
+      if (mainDocumentByTab.get(identity.tabId) === null || !mainDocumentByTab.has(identity.tabId)) {
+        observeMainDocument(identity.tabId, frame.documentId, frame.pageUrl);
       }
       const consentStartedAt = Date.now();
       const suppressionDisabled = await consentSuppressionDisabled(identity.tabId);
@@ -723,13 +797,28 @@ export function startRewriteBackground(): void {
           consentDurationMs,
         });
       }
+      const retainedAfterFrame = retainedManagedPageWorldAuthority(identity);
       return finish(
-        managedPageWorldAuthorityByTab.get(identity.tabId) === authority,
-        managedPageWorldAuthorityByTab.get(identity.tabId) === authority
+        retainedAfterFrame.retained && retainedAfterFrame.authority === authority,
+        retainedAfterFrame.retained && retainedAfterFrame.authority === authority
           ? "authorized"
-          : "managed-authority-changed",
+          : retainedAfterFrame.retained
+            ? "managed-authority-changed"
+            : retainedAfterFrame.reason,
         { frameDurationMs, consentDurationMs },
       );
+    },
+    retain(identity) {
+      const startedAt = Date.now();
+      const retained = retainedManagedPageWorldAuthority(identity);
+      reportPageWorldAuthorizationStage("retained", {
+        tabId: identity.tabId,
+        generation: identity.generation,
+        retained: retained.retained,
+        reason: retained.retained ? "retained" : retained.reason,
+        durationMs: Date.now() - startedAt,
+      });
+      return retained.retained;
     },
   });
   const retireManagedPageWorldAuthority = (tabId: number): void => {

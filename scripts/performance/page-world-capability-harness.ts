@@ -194,6 +194,12 @@ export function createGatePageWorldCapabilityHarness(options: HarnessOptions) {
         && candidate.generation === generation
         && candidate.pageUrl === options.currentPageUrl();
     },
+    retain(candidate) {
+      return candidate.tabId === options.tabId
+        && candidate.documentId === options.documentId
+        && candidate.generation === generation
+        && candidate.pageUrl === options.currentPageUrl();
+    },
   });
 
   return {

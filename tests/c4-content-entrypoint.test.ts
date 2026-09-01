@@ -2506,6 +2506,131 @@ describe("C4 rewrite content entrypoints", () => {
     });
   });
 
+  it("runs one shared activation-strength follow-up after a pending page-load ritual fails", async () => {
+    const addListener = vi.fn();
+    const pageUrl = installTestLocation("https://example.com/activation-followup");
+    const dom = installMinimalContentDom();
+    Object.assign(dom.documentElement, { scrollHeight: 1_000, clientHeight: 1_000 });
+    Object.assign(dom.windowObject, { innerHeight: 1_000, scrollY: 0, scrollTo: vi.fn() });
+    let releaseFirstArm: (() => void) | undefined;
+    let armCount = 0;
+    const commandRequests: TestPageWorldCommand[] = [];
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "page.context") {
+        const reply = managedPageContextReply(message, pageUrl.href);
+        return {
+          ...reply,
+          payload: {
+            ...(reply.payload as Record<string, unknown>),
+            renderModeSet: true,
+          },
+        } satisfies BusFrame;
+      }
+      if (message.name === "signals.pull") {
+        return replyFrame(message, []);
+      }
+      if (message.name === "consent.suppression.register") {
+        return replyFrame(message, { status: "ok" });
+      }
+      if (message.name === "pageWorld.acquire") {
+        return pageWorldAcquireReply(message);
+      }
+      if (message.name === "pageWorld.command") {
+        const command = message.payload as TestPageWorldCommand;
+        commandRequests.push(command);
+        if (command.command === "ARM") {
+          armCount += 1;
+          if (armCount === 1) {
+            return await new Promise<BusFrame>((resolve) => {
+              releaseFirstArm = () => resolve(replyFrame(message, {
+                status: "unavailable",
+                reason: "injected-first-arm-failure",
+              }));
+            });
+          }
+        }
+        return pageWorldCommandReply(message);
+      }
+      return { ok: true };
+    });
+    globalThis.chrome = {
+      runtime: {
+        onMessage: { addListener },
+        sendMessage,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+      },
+    } as unknown as typeof chrome;
+    const engine = {
+      renderMarking: vi.fn(),
+      settlePresentation: vi.fn(async () => undefined),
+      dispose: vi.fn(),
+      rows: vi.fn(() => []),
+      lastInitializationSeededSelectors: vi.fn(() => false),
+    };
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+    vi.doMock("../src/content/marking", () => ({
+      createMarkingEngine: vi.fn(() => engine),
+      installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()),
+    }));
+    mockFastRevealVisit();
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as { main: () => void }).main();
+    await waitForCondition(() => sendMessage.mock.calls.some(
+      ([message]) => (message as BusFrame).name === "page.context"
+    ));
+    const listener = addListener.mock.calls[0]?.[0] as (
+      message: unknown,
+      sender: unknown,
+      sendResponse: (value: unknown) => void,
+    ) => unknown;
+    await applyLockState(listener);
+    await waitForCondition(() => releaseFirstArm !== undefined);
+    expect(releaseFirstArm).toBeTypeOf("function");
+
+    const firstResponse = vi.fn();
+    const secondResponse = vi.fn();
+    expect(listener(commandFrame("activateContentMain", {
+      pageUrl: pageUrl.href,
+    }), {}, firstResponse)).toBe(true);
+    expect(listener(commandFrame("activateContentMain", {
+      pageUrl: pageUrl.href,
+    }), {}, secondResponse)).toBe(true);
+    releaseFirstArm?.();
+    await waitForCondition(
+      () => firstResponse.mock.calls.length > 0 && secondResponse.mock.calls.length > 0,
+      2_000,
+    );
+    const firstReply = firstResponse.mock.calls.at(-1)?.[0] as BusFrame;
+    const secondReply = secondResponse.mock.calls.at(-1)?.[0] as BusFrame;
+    expect(firstReply).toMatchObject({ frameType: "reply", ok: true });
+    expect(secondReply).toMatchObject({ frameType: "reply", ok: true });
+    const first = firstReply.payload as { ok: boolean; data?: unknown };
+    const second = secondReply.payload as { ok: boolean; data?: unknown };
+
+    expect(first).toMatchObject({
+      ok: true,
+      data: {
+        ok: true,
+        interactionsReady: true,
+        ritual: { status: "prepared", frozenAtBottom: true },
+      },
+    });
+    expect(second).toMatchObject({
+      ok: true,
+      data: {
+        ok: true,
+        interactionsReady: true,
+        ritual: { status: "prepared", frozenAtBottom: true },
+      },
+    });
+    expect(armCount).toBe(2);
+    expect(commandRequests.filter((request) => request.command === "RECONCILE")).toHaveLength(2);
+    expect(commandRequests.filter((request) => request.command === "DESTROY")).toHaveLength(1);
+  });
+
   it.each([
     [
       "stale",

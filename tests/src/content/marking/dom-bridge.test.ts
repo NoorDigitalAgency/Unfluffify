@@ -137,10 +137,13 @@ class FakeElement {
   }
 
   matches(selector: string): boolean {
-    if (selector.startsWith(".")) {
-      return this.className.split(/\s+/).includes(selector.slice(1));
-    }
-    return selector.toLowerCase() === this.tagName.toLowerCase();
+    return selector.split(",").some((candidate) => {
+      const normalized = candidate.trim();
+      if (normalized.startsWith(".")) {
+        return this.className.split(/\s+/).includes(normalized.slice(1));
+      }
+      return normalized.toLowerCase() === this.tagName.toLowerCase();
+    });
   }
 
   assignedNodes(): FakeElement[] {
@@ -2315,7 +2318,7 @@ describe("P6 DOM bridge", () => {
     expect(renderer.createRenderer).toHaveBeenCalledTimes(1);
     expect(renderer.markingRender).toHaveBeenCalledTimes(1);
     expect(renderer.silentRender).not.toHaveBeenCalled();
-    expect(stages).toEqual(["bridge", "store-evaluate", "candidate-index", "marking-render"]);
+    expect(stages).toEqual(["bridge", "selector-match", "store-evaluate", "candidate-index", "marking-render"]);
     expect(engine.lastInitializationSeededSelectors()).toBe(true);
 
     const selectorBox = engine.overlayRoot().children
@@ -2327,7 +2330,102 @@ describe("P6 DOM bridge", () => {
       excluded: false,
       explicit: true,
     });
+
     engine.dispose();
+  });
+
+  it("invalidates an identical selector projection after a mutable edit or bridge refresh", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 200));
+    const paragraph = new FakeElement("P", rect(10, 10, 120, 20), "Mutable content");
+    root.ownerDocument = doc;
+    paragraph.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(paragraph);
+    doc.hits = [paragraph, root];
+    const selectors = { inclusionSelectors: ["p"], exclusionSelectors: [] };
+    const stages: string[] = [];
+    const engine = createMarkingEngine(root as unknown as Element, {
+      selectors,
+      instrumentation: { onWorkStage: (stage) => stages.push(stage) },
+    });
+
+    stages.length = 0;
+    expect(engine.replaceSelectors(selectors)).toBe(true);
+    expect(stages).toEqual([]);
+
+    const target = engine.resolveAtPoint(20, 15, "exclude", false);
+    expect(target?.xpath).toBe("/main[1]/p[1]");
+    expect(engine.toggle(target!, "exclude")).toBe(true);
+    stages.length = 0;
+    expect(engine.replaceSelectors(selectors)).toBe(true);
+    // The DOM and selector match cache remain valid, but the edited marking
+    // store and candidate projection must be replaced atomically.
+    expect(stages).toEqual(["store-evaluate", "candidate-index"]);
+
+    const clearTarget = engine.resolveAtPoint(20, 15, "exclude", false);
+    expect(clearTarget?.xpath).toBe("/main[1]/p[1]");
+    expect(engine.clear(clearTarget!)).toBe(true);
+    stages.length = 0;
+    expect(engine.replaceSelectors(selectors)).toBe(true);
+    expect(stages).toEqual(["store-evaluate", "candidate-index"]);
+
+    stages.length = 0;
+    expect(engine.refresh({ selectors })).toBe(true);
+    expect(stages).toEqual(["bridge", "selector-match", "store-evaluate", "candidate-index"]);
+    stages.length = 0;
+    expect(engine.replaceSelectors(selectors)).toBe(true);
+    expect(stages).toEqual(["store-evaluate", "candidate-index"]);
+    engine.dispose();
+  });
+
+  it("bounds dense selector matching with ordered groups and isolates invalid selectors", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 600, 4_500));
+    root.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    let selected: FakeElement | null = null;
+    for (let index = 0; index < 200; index += 1) {
+      const paragraph = new FakeElement("P", rect(0, index * 22, 300, 20), `Row ${index}`);
+      paragraph.ownerDocument = doc;
+      if (index === 199) {
+        paragraph.className = "selector-95";
+        selected = paragraph;
+      }
+      root.appendChild(paragraph);
+    }
+    const bridge = createDomBridgeView(root as unknown as Element);
+    const originalMatches = FakeElement.prototype.matches;
+    const matches = vi.spyOn(FakeElement.prototype, "matches").mockImplementation(function (
+      this: FakeElement,
+      selector: string,
+    ) {
+      if (selector === "[invalid-selector") {
+        throw new Error("invalid selector");
+      }
+      return originalMatches.call(this, selector);
+    });
+    const inclusionSelectors = [
+      "[invalid-selector",
+      ...Array.from({ length: 96 }, (_, index) => `.selector-${index}`),
+    ];
+
+    const engine = createMarkingEngine(root as unknown as Element, {
+      selectors: { inclusionSelectors, exclusionSelectors: [] },
+      instrumentation: { createBridge: () => bridge },
+    });
+
+    expect(matches.mock.calls.length).toBeLessThan(1_000);
+    expect(selected).not.toBeNull();
+    expect(engine.rows()).toContainEqual({
+      xpath: "/main[1]/p[200]",
+      excluded: false,
+      explicit: true,
+    });
+    engine.dispose();
+    matches.mockRestore();
   });
 
   it("preserves document-scoped selector semantics without adding an initialization pass", () => {
@@ -2366,7 +2464,7 @@ describe("P6 DOM bridge", () => {
     expect(querySelectorAll).toHaveBeenCalledWith(":scope > body > main");
     expect(createBridge).toHaveBeenCalledTimes(1);
     expect(renderer.markingRender).toHaveBeenCalledTimes(1);
-    expect(stages).toEqual(["bridge", "store-evaluate", "candidate-index", "marking-render"]);
+    expect(stages).toEqual(["bridge", "selector-match", "store-evaluate", "candidate-index", "marking-render"]);
     expect(engine.rows()).toContainEqual({
       xpath: "/main[1]",
       excluded: false,
@@ -2402,7 +2500,7 @@ describe("P6 DOM bridge", () => {
     expect(renderer.createRenderer).toHaveBeenCalledTimes(1);
     expect(renderer.markingRender).not.toHaveBeenCalled();
     expect(renderer.silentRender).toHaveBeenCalledTimes(1);
-    expect(stages).toEqual(["bridge", "store-evaluate", "candidate-index", "silent-render"]);
+    expect(stages).toEqual(["bridge", "selector-match", "store-evaluate", "candidate-index", "silent-render"]);
     expect(engine.lastInitializationSeededSelectors()).toBe(true);
     engine.dispose();
   });
@@ -2433,10 +2531,25 @@ describe("P6 DOM bridge", () => {
 
     expect(createBridge).toHaveBeenCalledTimes(1);
     expect(renderer.createRenderer).toHaveBeenCalledTimes(1);
-    expect(stages).toEqual(["store-evaluate", "candidate-index", "silent-render"]);
+    expect(stages).toEqual(["selector-match", "store-evaluate", "candidate-index", "silent-render"]);
     expect(engine.rows()).toContainEqual({
       xpath: "/main[1]/p[1]",
       excluded: false,
+      explicit: true,
+    });
+
+    stages.length = 0;
+    expect(engine.replaceSelectors({ inclusionSelectors: ["p"], exclusionSelectors: [] })).toBe(true);
+    engine.renderSilentHighlights();
+    expect(stages).toEqual(["silent-render"]);
+    expect(renderer.silentRender).toHaveBeenCalledTimes(2);
+
+    stages.length = 0;
+    expect(engine.replaceSelectors({ inclusionSelectors: [], exclusionSelectors: ["p"] })).toBe(true);
+    expect(stages).toEqual(["selector-match", "store-evaluate", "candidate-index"]);
+    expect(engine.rows()).toContainEqual({
+      xpath: "/main[1]/p[1]",
+      excluded: true,
       explicit: true,
     });
     engine.dispose();

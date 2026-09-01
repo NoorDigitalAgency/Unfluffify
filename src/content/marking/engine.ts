@@ -586,6 +586,7 @@ function geometryForElement(element: Element): VisibilityGeometry {
 
 export type MarkingEngineWorkStage =
   | "bridge"
+  | "selector-match"
   | "store-evaluate"
   | "candidate-index"
   | "marking-render"
@@ -712,6 +713,65 @@ type BridgeSelectorSeed = Readonly<{
   matches: PreviewSelectorMatchContext;
 }>;
 
+const SELECTOR_MATCH_GROUP_SIZE = 32;
+const SELECTOR_MATCH_GROUP_MAX_LENGTH = 4_096;
+
+type ElementSelectorGroup = Readonly<{
+  selectors: readonly string[];
+  combined: string;
+}>;
+
+function selectorSetFingerprint(selectors: SelectorSet | null | undefined): string {
+  return JSON.stringify([
+    selectors?.inclusionSelectors ?? [],
+    selectors?.exclusionSelectors ?? [],
+  ]);
+}
+
+function compileElementSelectorGroups(
+  representative: Element | undefined,
+  candidates: readonly string[],
+): readonly ElementSelectorGroup[] {
+  if (!representative?.matches || candidates.length === 0) {
+    return [];
+  }
+  const valid: string[] = [];
+  for (const selector of candidates) {
+    try {
+      // Parse every selector once. This isolates invalid selectors before they
+      // can poison a comma group and replaces the former per-element throw path.
+      representative.matches(selector);
+      valid.push(selector);
+    } catch {
+      // One invalid or realm-specific selector must not block the valid set.
+    }
+  }
+  const groups: ElementSelectorGroup[] = [];
+  let selectors: string[] = [];
+  let combinedLength = 0;
+  const flush = (): void => {
+    if (selectors.length === 0) {
+      return;
+    }
+    groups.push({ selectors, combined: selectors.join(",") });
+    selectors = [];
+    combinedLength = 0;
+  };
+  for (const selector of valid) {
+    const nextLength = combinedLength + (selectors.length > 0 ? 1 : 0) + selector.length;
+    if (
+      selectors.length >= SELECTOR_MATCH_GROUP_SIZE ||
+      (selectors.length > 0 && nextLength > SELECTOR_MATCH_GROUP_MAX_LENGTH)
+    ) {
+      flush();
+    }
+    selectors.push(selector);
+    combinedLength += (selectors.length > 1 ? 1 : 0) + selector.length;
+  }
+  flush();
+  return groups;
+}
+
 function selectorSeedForBridge(
   bridge: DomBridgeView,
   selectors: SelectorSet | null | undefined,
@@ -731,6 +791,7 @@ function selectorSeedForBridge(
   const includeXpaths: string[] = [];
   const inclusionSelectorByKey = new Map<string, string>();
   const exclusionSelectorByKey = new Map<string, string>();
+  const representative = bridge.byXpath.values().next().value?.element;
   const documentMatches = (candidates: readonly string[]): Map<Element, string> => {
     const matches = new Map<Element, string>();
     const ownerDocument = bridge.byXpath.values().next().value?.element.ownerDocument;
@@ -761,34 +822,49 @@ function selectorSeedForBridge(
   };
   const documentExcludeMatches = documentMatches(selectors.exclusionSelectors);
   const documentIncludeMatches = documentMatches(selectors.inclusionSelectors);
+  const exclusionGroups = compileElementSelectorGroups(representative, selectors.exclusionSelectors);
+  const inclusionGroups = compileElementSelectorGroups(representative, selectors.inclusionSelectors);
   const matchesAny = (
     element: Element,
-    candidates: readonly string[],
+    groups: readonly ElementSelectorGroup[],
     scopedDocumentMatches: ReadonlyMap<Element, string>,
   ): string | undefined => {
     const scopedSelector = scopedDocumentMatches.get(element);
     if (scopedSelector) {
       return scopedSelector;
     }
-    for (const selector of candidates) {
+    for (const group of groups) {
+      let groupMatches: boolean;
       try {
-        if (element.matches?.(selector)) {
-          return selector;
-        }
+        groupMatches = element.matches?.(group.combined) === true;
       } catch {
-        // One invalid or realm-specific selector must not block the remaining
-        // selector set or the initialization transaction.
+        // A browser-specific combined-selector limit must not change selector
+        // semantics. Drill into this bounded group as the compatibility path.
+        groupMatches = true;
+      }
+      if (!groupMatches) {
+        continue;
+      }
+      for (const selector of group.selectors) {
+        try {
+          if (element.matches?.(selector)) {
+            return selector;
+          }
+        } catch {
+          // Validation is best-effort across realms; isolate a selector that
+          // becomes invalid for this exact element and continue in order.
+        }
       }
     }
     return undefined;
   };
   for (const [xpath, entry] of bridge.byXpath) {
-    const exclusionSelector = matchesAny(entry.element, selectors.exclusionSelectors, documentExcludeMatches);
+    const exclusionSelector = matchesAny(entry.element, exclusionGroups, documentExcludeMatches);
     if (exclusionSelector) {
       excludeXpaths.push(xpath);
       exclusionSelectorByKey.set(entry.evaluationNode.key, exclusionSelector);
     }
-    const inclusionSelector = matchesAny(entry.element, selectors.inclusionSelectors, documentIncludeMatches);
+    const inclusionSelector = matchesAny(entry.element, inclusionGroups, documentIncludeMatches);
     if (inclusionSelector) {
       includeXpaths.push(xpath);
       inclusionSelectorByKey.set(entry.evaluationNode.key, inclusionSelector);
@@ -809,9 +885,10 @@ function initialMarksForBridge(
   bridge: DomBridgeView,
   previousMarks: CanonicalMarkSet,
   selectors: SelectorSet | null | undefined,
+  resolvedSeed?: BridgeSelectorSeed,
 ): Readonly<{ marks: CanonicalMarkSet; selectorsSeeded: boolean }> {
   const defaults = mergeDefaultExclusions(bridge.root, previousMarks);
-  const seed = selectorSeedForBridge(bridge, selectors);
+  const seed = resolvedSeed ?? selectorSeedForBridge(bridge, selectors);
   return {
     // applySelectorSeed applies exclusions first and inclusions second, preserving
     // the established include-wins rule when both groups match one element.
@@ -914,9 +991,51 @@ export function createMarkingEngine(
   };
   beginWorkCycle();
   let bridge: DomBridgeView = buildBridge();
-  const initial = initialMarksForBridge(bridge, { rows: [] }, options.selectors);
+  let selectorSeedCache: Readonly<{
+    bridge: DomBridgeView;
+    fingerprint: string;
+    seed: BridgeSelectorSeed;
+  }> | null = null;
+  const resolveSelectorSeed = (
+    selectors: SelectorSet | null | undefined,
+  ): BridgeSelectorSeed => {
+    const fingerprint = selectorSetFingerprint(selectors);
+    if (
+      selectorSeedCache?.bridge === bridge &&
+      selectorSeedCache.fingerprint === fingerprint
+    ) {
+      return selectorSeedCache.seed;
+    }
+    const seed = selectorSeedForBridge(bridge, selectors);
+    selectorSeedCache = { bridge, fingerprint, seed };
+    if (
+      (selectors?.inclusionSelectors.length ?? 0) > 0 ||
+      (selectors?.exclusionSelectors.length ?? 0) > 0
+    ) {
+      reportWorkStage("selector-match");
+    }
+    return seed;
+  };
+  const initial = initialMarksForBridge(
+    bridge,
+    { rows: [] },
+    options.selectors,
+    resolveSelectorSeed(options.selectors),
+  );
   let lastInitializationSeededSelectors = initial.selectorsSeeded;
   let store = createMarkingStore({ root: bridge.root }, initial.marks);
+  let selectorProjectionIdentity: Readonly<{
+    bridge: DomBridgeView;
+    fingerprint: string;
+    selectorsSeeded: boolean;
+  }> | null = {
+    bridge,
+    fingerprint: selectorSetFingerprint(options.selectors),
+    selectorsSeeded: initial.selectorsSeeded,
+  };
+  const invalidateSelectorProjection = (): void => {
+    selectorProjectionIdentity = null;
+  };
   reportWorkStage("store-evaluate");
   const renderer = (instrumentation?.createRenderer ?? createOverlayRenderer)({
     document: rootElement.ownerDocument,
@@ -1272,7 +1391,7 @@ export function createMarkingEngine(
       previewTextMetadata = buildPreviewTextMetadata(rootElement);
       previewTextMetadataCurrent = true;
     }
-    const seed = selectorSeedForBridge(bridge, selectors);
+    const seed = resolveSelectorSeed(selectors);
     const defaults = mergeDefaultExclusions(bridge.root, { rows: [] });
     const marks = seed.seeded ? applySelectorSeed(defaults, seed) : defaults;
     const evaluated = evaluatePreview(marks, { root: bridge.root }, seed.matches);
@@ -1433,8 +1552,14 @@ export function createMarkingEngine(
     beginWorkCycle();
     hoverResolution = null;
     const previousMarks = store.canonicalSet();
+    invalidateSelectorProjection();
     bridge = buildBridge();
-    const next = initialMarksForBridge(bridge, previousMarks, refreshOptions.selectors);
+    const next = initialMarksForBridge(
+      bridge,
+      previousMarks,
+      refreshOptions.selectors,
+      resolveSelectorSeed(refreshOptions.selectors),
+    );
     lastInitializationSeededSelectors = next.selectorsSeeded;
     store = createMarkingStore({ root: bridge.root }, next.marks);
     reportWorkStage("store-evaluate");
@@ -1452,22 +1577,41 @@ export function createMarkingEngine(
   };
 
   const replaceSelectorMarks = (selectors: SelectorSet | null): boolean => {
+    const fingerprint = selectorSetFingerprint(selectors);
+    if (
+      selectorProjectionIdentity?.bridge === bridge &&
+      selectorProjectionIdentity.fingerprint === fingerprint
+    ) {
+      lastInitializationSeededSelectors = selectorProjectionIdentity.selectorsSeeded;
+      return selectorProjectionIdentity.selectorsSeeded;
+    }
     cancelProgressiveStructuralRefresh();
     const progressiveGeometryCancelled = cancelProgressiveGeometryRender();
     cancelDeferredBranchRender();
     beginWorkCycle();
     hoverResolution = null;
+    invalidateSelectorProjection();
     // A silent authoritative projection replaces the prior session's marks; it
     // must not inherit user edits. The DOM bridge, element identities, preview
     // metadata, widening topology and intersection subscriptions are still
     // current, however, so rebuilding all of them only adds latency and GC.
-    const next = initialMarksForBridge(bridge, { rows: [] }, selectors);
+    const next = initialMarksForBridge(
+      bridge,
+      { rows: [] },
+      selectors,
+      resolveSelectorSeed(selectors),
+    );
     lastInitializationSeededSelectors = next.selectorsSeeded;
     store = createMarkingStore({ root: bridge.root }, next.marks);
     reportWorkStage("store-evaluate");
     const evaluation = store.currentEvaluation();
     candidateByXpath = buildCandidateIndex(bridge.root, evaluation.overlay, store.canonicalSet().rows);
     reportWorkStage("candidate-index");
+    selectorProjectionIdentity = {
+      bridge,
+      fingerprint,
+      selectorsSeeded: next.selectorsSeeded,
+    };
     refreshCurrentPreviewProjection();
     reconcilePreviewEmphasis();
     if (progressiveGeometryCancelled) {
@@ -1770,6 +1914,7 @@ type DeferredBranchRenderChunk = Readonly<{
     const bridgeChanged = refreshed.view !== bridge;
     if (bridgeChanged) {
       const previousMarks = store.canonicalSet();
+      invalidateSelectorProjection();
       bridge = refreshed.view;
       const next = initialMarksForBridge(bridge, previousMarks, undefined);
       store = createMarkingStore({ root: bridge.root }, next.marks);
@@ -1872,6 +2017,7 @@ type DeferredBranchRenderChunk = Readonly<{
       progressiveStructuralRefreshHandle = handle || null;
     };
     const adoptCapturedBridge = (nextBridge: DomBridgeView): void => {
+      invalidateSelectorProjection();
       bridge = nextBridge;
       const next = initialMarksForBridge(bridge, previousMarks, undefined);
       lastInitializationSeededSelectors = next.selectorsSeeded;
@@ -3072,6 +3218,7 @@ type DeferredBranchRenderChunk = Readonly<{
       try {
         renderer.acknowledge(current.element, current.node.xpath, mode);
         const toggled = store.toggle(current.node, mode);
+        invalidateSelectorProjection();
         // Mark-only changes do not alter the bridge topology. Retain the
         // document-scale candidate index; resolveAtPoint hydrates the tiny
         // composed hit path from the current canonical/evaluation state.
@@ -3105,6 +3252,7 @@ type DeferredBranchRenderChunk = Readonly<{
         if (!cleared) {
           return false;
         }
+        invalidateSelectorProjection();
         // Clearing a row changes dynamic classification only, not candidate
         // ancestry or markability topology. See the path hydration above.
         interactiveMarkingRendered = true;
