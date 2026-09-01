@@ -2321,3 +2321,23 @@ No Save, Load request, AI run, takeover, publication, release, or deployment was
 performed by R12 validation. The existing R11 headed session proved first
 activation and zero Save/publication attempts; a fresh exact-commit browser run
 remains required after review, commit, push, and clean P25.
+
+# EL-02-R13 — Final backend authority lock and activation diagnosis
+
+## 1. Final operator authority clarification — 2026-09-01
+
+The operator reconfirmed the persistence boundary before the next expert-loop
+slice. The configuration backend is the durable property/page owner. Save
+commits exactly the current page plus property-wide selectors; its response is
+acknowledgement only and must never become local configuration. A separate
+fresh Load fetches the backend's newest complete shape and atomically replaces
+local configuration, preserving or reconciling no active-session, draft,
+cached pre-Save, or pre-Load state. Non-authoritative Load failure is not a
+replacement. The AI endpoint remains completely stateless: every call receives
+the entire newest loaded property corpus, with the live current-page occurrence
+overlaid once, and no previous job or request contributes memory.
+
+This is a clarification of the locked contract, not authorization to change an
+endpoint or payload schema. Its focused startup regression proves that Save
+emits one current-page mutation and exposes no response configuration, while
+the following fresh Load supplies the only adopted shape.

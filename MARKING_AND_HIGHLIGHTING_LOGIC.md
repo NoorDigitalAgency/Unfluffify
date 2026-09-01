@@ -59,11 +59,15 @@ output is not sufficient if it alters the rules below.
   markings. Completion restores interactive marking; failure restores the same
   dirty session. Save ends the session only after authoritative success.
 - Save persists exactly the authorized current-page result plus the domain-wide
-  selectors to the backend. A distinct Load then fetches the backend's latest
-  complete property shape and replaces local configuration atomically. Once
-  that Load succeeds, the active mutable session is destroyed: no session row,
-  selector suggestion, draft, or pre-Load snapshot is merged into or preserved
-  beside the loaded shape. A failed Save
+  selectors to the backend. Its response is a commit acknowledgement only: it
+  is never interpreted as configuration data. A distinct fresh Load then asks
+  the backend for its latest complete property shape and replaces local
+  configuration atomically with that response. Once that Load succeeds, the
+  backend-loaded shape is the only retained local configuration authority and
+  the active mutable session is destroyed: no session row, selector suggestion,
+  draft, cached pre-Save value, or pre-Load snapshot is merged into or preserved
+  beside it. There is therefore no local draft to reconcile after a successful
+  Load. A failed Save
   leaves the session intact. Silent highlighting after Save reflects the loaded
   authoritative selectors, and the next enable starts fresh from them.
 
@@ -120,12 +124,17 @@ output is not sufficient if it alters the rules below.
   still given truthful extraction coverage: when hidden/suppressed and not
   already covered by immutable or excluded ancestry, it is represented as an
   effective exclusion rather than silently becoming included.
-- The AI endpoint persists nothing about a property or its pages. Its returned
-  session id is only an ephemeral asynchronous-job polling handle. Every run sends one self-contained corpus
+- The configuration backend, not the AI endpoint, persists saved property/page
+  data. The AI endpoint persists nothing about a property or its pages. Its
+  returned session id is only an ephemeral asynchronous-job polling handle.
+  Every run sends one self-contained corpus
   containing every candidate page for the property, its applicable static and/or
   rendered HTML, its rows/ancestor coverage, the separate immutable selectors,
-  and the active current-page session projection. The endpoint returns one
-  domain-wide selector set and cannot reuse any input from an earlier run.
+  and the active current-page session projection. Persisted non-current pages
+  are sourced from the newest complete shape obtained through Load; the live
+  current-page occurrence replaces its saved occurrence for that request. The
+  endpoint returns one domain-wide selector set and cannot reuse any input from
+  an earlier run.
 - Save, not Run AI, is the remote persistence boundary. After Save succeeds,
   Load adopts the complete newest backend shape locally. Discard or an abandoned
   AI run leaves no remote draft.
@@ -881,15 +890,21 @@ construction run only after that visible feedback has had a chance to paint, so
 large saved-page payloads cannot make the click look ignored. Async run status
 polling uses a five-second cadence while the run is active.
 
-The AI endpoint is stateless with respect to property/page data. Its asynchronous
+The configuration backend persists the property/page corpus; the AI endpoint is
+stateless with respect to that data. Its asynchronous
 session id is only a temporary status/result polling handle, not retained property
 state. Every run sends the complete property corpus at once: every candidate
 page, its static and/or rendered HTML according to render
 mode, its submission rows and coverage, the separate immutable-selector list,
 and the active current-page session projection. Other pages come from the
-latest authoritative loaded property shape. The endpoint persists no property corpus or draft and
+latest complete backend shape obtained by Load, with the live current-page
+occurrence replacing the saved occurrence. The endpoint persists no property
+corpus or draft and
 returns one domain-wide selector set. Save subsequently persists the accepted
-property/page result; Load adopts the backend's latest complete shape.
+current-page result and domain-wide selectors to the configuration backend;
+its response is commit-only. A distinct fresh Load atomically replaces local
+configuration with the backend's latest complete shape, retaining no local
+overlay or pre-Load state.
 
 ## Shadow DOM
 

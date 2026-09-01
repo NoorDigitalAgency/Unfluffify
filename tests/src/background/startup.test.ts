@@ -1060,7 +1060,7 @@ describe("rewrite background startup", () => {
     }
   });
 
-  it("rejects a stale fence then treats accepted Save as commit-only before remote Load", async () => {
+  it("treats accepted Save as commit-only and fresh Load as the sole local authority", async () => {
     const addMessageListener = vi.fn();
     const listeners = new Map<string, Array<(event: { data?: unknown }) => void>>();
     const socketFrames: string[] = [];
@@ -1315,6 +1315,14 @@ describe("rewrite background startup", () => {
       });
       expect((accepted as { payload?: Record<string, unknown> }).payload).not.toHaveProperty("config");
       expect(saveRequests).toHaveLength(1);
+      expect(saveRequests[0]?.body).toMatchObject({
+        page: {
+          pageKey: "/page",
+          renderedHtml: "<html><main>saved</main></html>",
+        },
+        selectors: { inclusionSelectors: ["article"], exclusionSelectors: [] },
+      });
+      expect(saveRequests[0]?.body).not.toHaveProperty("pages");
 
       await expect(call("config.load", { siteId: 42 })).resolves.toMatchObject({
         ok: true,

@@ -35,10 +35,14 @@
 The contract shares the frame: mark meaningful content, emit XPath rows +
 rendered/static HTML, send to the AI for site-wide CSS-selector synthesis. It
 adds concrete transport facts: heavy HTML/payloads go via storage/cache keys
-(transfer-payload store), not multi-hop runtime messages; an AI run uses the
-**stored multi-page property corpus** (every saved page under the base URL), not
-just the current tab — only the active current page may be refreshed live before
-the request. [MHL §AI Selector Integration, §knowledge AI Submission Rules]
+(transfer-payload store), not multi-hop runtime messages; the configuration
+backend durably owns the saved corpus, while the AI endpoint is stateless. Every
+AI run uses the **complete latest backend-loaded multi-page property corpus**
+(every saved page under the base URL) and replaces only the current page's saved
+occurrence with its live projection. Save is commit-only; its distinct following
+Load atomically replaces local configuration with the newest complete backend
+shape and preserves no local draft or pre-Load overlay. [MHL §AI Selector
+Integration, §knowledge AI Submission Rules]
 
 ---
 
