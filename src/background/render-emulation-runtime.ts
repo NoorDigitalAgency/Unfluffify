@@ -207,9 +207,11 @@ function physicalViewportFits(
 }
 
 type Debuggee = Readonly<{ tabId?: number }>;
+type DebugTargetInfo = Readonly<{ tabId?: number; attached?: boolean }>;
 type DebuggerApi = Readonly<{
   attach(target: Debuggee, version: string, callback?: () => void): Promise<void> | void;
   detach(target: Debuggee, callback?: () => void): Promise<void> | void;
+  getTargets?(callback?: (targets?: readonly DebugTargetInfo[]) => void): Promise<readonly DebugTargetInfo[]> | void;
   sendCommand(target: Debuggee, method: string, params?: Record<string, unknown>, callback?: (result?: unknown) => void): Promise<unknown> | void;
   onDetach?: Readonly<{ addListener(listener: (source: Debuggee, reason?: string) => void): void }>;
 }>;
@@ -566,6 +568,42 @@ export function createRenderEmulationRuntime(input: Readonly<{
       );
     }
   };
+  /**
+   * `onDetach` is the immediate authority when Chrome/user/DevTools terminates
+   * our session. Chromium intentionally does not emit it when the extension
+   * itself calls debugger.detach(), though, and a missed host event must not let
+   * a cached scale-only proof preserve dimensions while touch/media/UA have
+   * already fallen back. getTargets is browser-owned and does not schedule work
+   * in the inspected document, so it is safe on the hot pre-capture path.
+   */
+  const debuggerAttachmentIsCurrent = async (tabId: number): Promise<boolean> => {
+    const getTargets = input.debuggerApi?.getTargets;
+    if (!getTargets) {
+      return attachedTabs.has(tabId);
+    }
+    try {
+      const targets = await invokeBrowserApi<readonly DebugTargetInfo[]>(
+        () => getTargets.call(input.debuggerApi),
+        (callback) => getTargets.call(input.debuggerApi, callback),
+        "Debugger target read",
+      );
+      const attached = targets?.some((target) =>
+        target.tabId === tabId && target.attached === true) === true;
+      if (attached) {
+        attachedTabs.add(tabId);
+      } else {
+        attachedTabs.delete(tabId);
+        realUserAgents.delete(tabId);
+        verifiedPostures.delete(tabId);
+      }
+      return attached;
+    } catch {
+      // A transient enumeration failure is not evidence that Chrome discarded
+      // the posture. The next refit/current check retries, while a real browser
+      // detach still has the synchronous onDetach fence above.
+      return attachedTabs.has(tabId);
+    }
+  };
   const sendEmulationCommand = async (
     tabId: number,
     method: string,
@@ -906,8 +944,10 @@ export function createRenderEmulationRuntime(input: Readonly<{
     allowExpansion: boolean,
   ): Promise<VerifiedEmulationState | null> => {
     if (!postureIsCurrent(tabId, held)) return null;
+    const attachmentCurrent = await debuggerAttachmentIsCurrent(tabId);
+    if (!postureIsCurrent(tabId, held)) return null;
     const verified = verifiedPostures.get(tabId);
-    if (!verified || verified.mode !== held.mode) {
+    if (!attachmentCurrent || !verified || verified.mode !== held.mode) {
       await executeReassertPosture(tabId, held);
       return verifiedPostures.get(tabId) ?? null;
     }
@@ -1028,16 +1068,20 @@ export function createRenderEmulationRuntime(input: Readonly<{
         if (!held || !verified || held.mode !== mode) {
           return null;
         }
+        if (!await debuggerAttachmentIsCurrent(tabId)) {
+          return executeReassertPosture(tabId, held).then(() =>
+            verifiedPostures.get(tabId) ?? null);
+        }
         const fittedScale = await fittedScaleFor(tabId, mode, maximumScale, verified.scale);
         if (Math.abs(fittedScale - verified.scale) > 0.001) {
           return executeRefitPosture(tabId, held, true);
         }
         // `verifiedPostures` is populated only after a complete proof and is
-        // invalidated synchronously on navigation, detach, transition, refit
-        // failure, and cold-worker recreation. A hot popup check therefore does
-        // not need to block on the page's main thread; tabs.get above is the only
-        // read required to catch physical clipping. This is the responsive path
-        // used immediately before AI capture.
+        // invalidated synchronously on navigation, browser-owned detach,
+        // transition, refit failure, and cold-worker recreation. The getTargets
+        // check above also catches a silent attachment loss without touching the
+        // page's main thread; tabs.get catches physical clipping. This remains
+        // the responsive path used immediately before AI capture.
         if (!postureIsCurrent(tabId, held)) {
           verifiedPostures.delete(tabId);
           return null;

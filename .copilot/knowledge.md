@@ -682,7 +682,13 @@ painted" decision from the replaced document.
   preference clamp, not a physical-safety floor: final fit may go as low as a
   positive protocol-safe scale so `deviceWidth * scale <= tabWidth` and
   `deviceHeight * scale <= tabHeight`. Exact proof includes those two physical
-  inequalities as well as the simulated viewport/identity/input proof.
+  inequalities as well as the simulated viewport/identity/input proof. Chrome's
+  browser-owned `debugger.onDetach` event is the immediate cancel/DevTools fence.
+  `chrome.debugger.getTargets` is also checked on refit/current: Chromium does
+  not emit `onDetach` for the owning extension's voluntary detach, so target
+  truth must independently invalidate cached viewport/UA/touch/media proof and
+  force a complete held-posture reapply. A healthy target check is browser
+  metadata only and must not add CDP commands or touch the page main thread.
 - Same-property pages that are no longer current Live Page candidates still keep silent highlighting and property-lock visibility for that property. Only marking entry is blocked there; the popup should not collapse the whole page UI just because the page is off-candidate.
 - USER-SPECIFIED reveal/freeze + consent + silent-highlight CONTRACT (2026-07-01; target behavior — current code has open gaps tracked as QA round #2 in `.copilot/lifecycle-resume-plan.md`, findings #4/#6/#7/#8):
   - Cookie-consent removal runs on ALL property pages (candidate or not), always/end-to-end, decoupled from reveal/freeze and candidacy — so users cannot click consent buttons that mutate the DOM.

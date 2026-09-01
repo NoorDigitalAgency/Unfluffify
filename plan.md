@@ -3515,3 +3515,39 @@ authorized by this remediation or its browser acceptance.
 7. `el02-r19-headed-acne` → 6
 8. `el02-r19-candidate-matrix` → 7
 9. `el02-r19-conformance` → 8
+
+## 6. R19 execution evidence — 2026-09-01
+
+- The desired posture is now durable per tab in `chrome.storage.session`, and
+  every transition is revision/epoch fenced before CDP mutation. Cold-worker
+  desktop restoration, rollback, teardown, and stale-write regressions pass.
+- The physical safety fit uses both axes and may fall below 0.25. Same-mode
+  resize work is immediate on shrink, trailing on expansion, coalesced, and
+  metrics-only when the complete debugger posture remains authoritative.
+- A live acceptance probe found one additional half-posture edge: Chromium does
+  not emit `chrome.debugger.onDetach` when the owning extension voluntarily
+  detaches. Browser-owned detach/cancel still uses the immediate event path, but
+  a silently missing attachment could leave a cached scale proof after touch,
+  media, and UA overrides had fallen away. `chrome.debugger.getTargets` is now
+  the independent, page-scheduler-free authority on refit/current checks; a
+  disagreement invalidates all cached proof and reapplies the complete held
+  posture. The hot healthy path still emits zero CDP commands.
+- Full verification passes: 148/148 files, 1,614/1,614 tests, production WXT
+  build, and 7/7 manifest assertions. The six sandbox-only failures were exact
+  `listen EPERM` loopback restrictions; the required outside-sandbox rerun is
+  fully green.
+- Fresh repository `live-browser` Acne evidence proves exact mobile 412×960 and
+  desktop 1920×1080 identities. A frame probe around deliberate attachment loss
+  observed desktop native fallback for two 16 ms samples and exact desktop at
+  60 ms with no mobile frame; mobile observed one native sample at 39 ms,
+  viewport recovery at 60 ms, and complete touch/coarse identity at 64 ms.
+  Five rapid shrink/grow reversals produced one uninterrupted 412×960,
+  touch-enabled run across all 30 samples.
+- With the physical tab only 570×445, `captureVisibleTab` returned the complete
+  824×1920 mobile device buffer and complete 3840×2160 desktop buffer (host DPR
+  2), proving the bottom and right device edges remain present rather than
+  clipped. No AI request, Save, takeover, Lynx publication, release, or
+  deployment was attempted.
+- Remaining: commit/push this final authority fence, refresh the code graph,
+  repeat safe representative-candidate checks, then issue the cumulative R19
+  and next expert-check verdict.

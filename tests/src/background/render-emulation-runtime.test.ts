@@ -24,6 +24,7 @@ function fakeDebugger(options: Readonly<{
   let overrideUserAgent = REAL_UA;
   let mismatchedProofsRemaining = 0;
   let rejectedAttachesRemaining = 0;
+  let attached = false;
   let media = {
     pointerCoarse: false,
     pointerFine: true,
@@ -40,6 +41,25 @@ function fakeDebugger(options: Readonly<{
     started(): void;
     setCallback(callback: ((result?: unknown) => void) | undefined): void;
   }> | null = null;
+  const dropOverrides = () => {
+    width = 1920;
+    height = 1080;
+    devicePixelRatio = 1;
+    visualViewportScale = 1;
+    maxTouchPoints = 0;
+    documentUserAgent = REAL_UA;
+    overrideUserAgent = REAL_UA;
+    media = {
+      pointerCoarse: false,
+      pointerFine: true,
+      hoverNone: false,
+      hoverHover: true,
+      anyPointerCoarse: false,
+      anyPointerFine: true,
+      anyHoverNone: false,
+      anyHoverHover: true,
+    };
+  };
   return {
     sent,
     attaches,
@@ -53,7 +73,13 @@ function fakeDebugger(options: Readonly<{
     rejectNextAttaches(count: number) {
       rejectedAttachesRemaining = count;
     },
+    loseAttachmentSilently() {
+      attached = false;
+      dropOverrides();
+    },
     detach(tabId: number, reason?: string) {
+      attached = false;
+      dropOverrides();
       onDetach?.({ tabId }, reason);
     },
     deferNextCommand(method: string) {
@@ -85,11 +111,17 @@ function fakeDebugger(options: Readonly<{
           rejectedAttachesRemaining -= 1;
           return Promise.reject(new Error("Debugger is temporarily unavailable"));
         }
+        attached = true;
         callback?.();
       },
       detach(target: { tabId?: number }, callback?: () => void) {
         detaches.push(target.tabId ?? -1);
+        attached = false;
+        dropOverrides();
         callback?.();
+      },
+      getTargets(callback?: (targets?: readonly { tabId?: number; attached?: boolean }[]) => void) {
+        callback?.([{ tabId: 7, attached }]);
       },
       sendCommand(_target: { tabId?: number }, method: string, params?: Record<string, unknown>, callback?: (result?: unknown) => void) {
         sent.push({ method, params });
@@ -298,6 +330,41 @@ describe("render emulation runtime", () => {
     expect(debuggerApi.sent.some((call) => call.method === "Emulation.setDeviceMetricsOverride"))
       .toBe(false);
     expect(debuggerApi.sent).toEqual([]);
+  });
+
+  it("reasserts the complete posture when browser attachment truth disagrees with the cache", async () => {
+    const debuggerApi = fakeDebugger();
+    const viewport = { width: 900, height: 720, windowId: 4 };
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: {
+        get: vi.fn((_tabId: number, callback?: (tab: typeof viewport) => void) => callback?.(viewport)),
+        reload: vi.fn((_tabId, _options, callback) => callback?.()),
+        sendMessage: vi.fn(),
+      },
+    });
+    await runtime.apply(7, "mobile", 1);
+    debuggerApi.sent.length = 0;
+
+    // Chromium does not emit onDetach for the extension's own detach call. The
+    // browser target list is therefore the independent fence that prevents a
+    // later scale-only refit from accepting a viewport-only half posture.
+    debuggerApi.loseAttachmentSilently();
+
+    await expect(runtime.current(7, "mobile", 1)).resolves.toMatchObject({
+      mode: "mobile",
+      width: 412,
+      height: 960,
+      active: true,
+    });
+    expect(debuggerApi.sent.filter((call) => call.method === "Emulation.setDeviceMetricsOverride"))
+      .toHaveLength(1);
+    expect(debuggerApi.sent.filter((call) => call.method === "Emulation.setTouchEmulationEnabled"))
+      .toHaveLength(1);
+    expect(debuggerApi.sent.filter((call) => call.method === "Emulation.setEmulatedMedia"))
+      .toHaveLength(1);
+    expect(debuggerApi.sent.filter((call) => call.method === "Emulation.setUserAgentOverride"))
+      .toHaveLength(1);
   });
 
   it("re-fits the held mode after committed window bounds without an opposite-mode flash", async () => {
