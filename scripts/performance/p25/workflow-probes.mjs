@@ -749,6 +749,15 @@ export function readableTextsCorrespond(left, right) {
   return common >= 3 && common / Math.min(aTokens.size, bTokens.size) >= 0.75;
 }
 
+/** A selected row is persistent display state and can predate the physical page
+ * click. Only the semantic button becoming document.activeElement proves that
+ * the current inverse-route occurrence reached the popup. Row identity may stay
+ * the same: repeated activation of one page target is a valid new occurrence. */
+export function previewPageFocusCorresponds(state, targetReadableText) {
+  const focused = state?.preview?.domFocusedRow;
+  return Boolean(focused && readableTextsCorrespond(targetReadableText, focused.readableText));
+}
+
 export function validateFullWorkflowEvidence(workflow) {
   const failures = [];
   const requireValue = (condition, reason) => { if (!condition) failures.push(reason); };

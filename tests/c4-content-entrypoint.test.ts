@@ -463,6 +463,28 @@ function managedPageContextReply(request: BusFrame, pageUrl: string): BusFrame {
   });
 }
 
+function unavailablePageContextReply(request: BusFrame, pageUrl: string): BusFrame {
+  return replyFrame(request, {
+    status: "unavailable",
+    generation: 1,
+    observedUrl: pageUrl,
+    draftDisposition: "preserve",
+    environmentKey: null,
+    siteId: null,
+    baseUrl: null,
+    pageKey: null,
+    pageTypes: [],
+    membershipFingerprint: null,
+    assignmentFingerprint: null,
+    conflicts: [],
+    upstreamCode: null,
+    consentSuppressionAllowed: true,
+    renderModeSet: false,
+    todo: { covered: 0, actionable: 0, pageTypes: [] },
+    shieldPosture: { status: "inactive", revision: 0 },
+  });
+}
+
 function adoptedInspectionSession(
   pageUrl: string,
   documentNonce: string,
@@ -1967,6 +1989,152 @@ describe("C4 rewrite content entrypoints", () => {
       "shield.posture.current",
       "shield.posture.clear",
     ]);
+  });
+
+  it("re-probes one transient document-start context before the first managed activation", async () => {
+    mockAlreadyPreparedPageVisit();
+    const addListener = vi.fn();
+    const pageUrl = installTestLocation("https://example.com/replacement");
+    const documentListeners = new Map<string, EventListener>();
+    let contextRequests = 0;
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "page.context") {
+        contextRequests += 1;
+        return contextRequests === 1
+          ? unavailablePageContextReply(message, pageUrl.href)
+          : managedPageContextReply(message, pageUrl.href);
+      }
+      if (message.name === "signals.pull") {
+        return replyFrame(message, []);
+      }
+      return undefined;
+    });
+    globalThis.chrome = {
+      runtime: {
+        onMessage: { addListener },
+        sendMessage,
+        getURL: (path: string) => `chrome-extension://test/${path}`,
+      },
+    } as unknown as typeof chrome;
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        readyState: "complete",
+        documentElement: { nodeType: 1, tagName: "HTML", scrollHeight: 1000, className: "" },
+        addEventListener: vi.fn((type: string, listener: EventListener) => documentListeners.set(type, listener)),
+        removeEventListener: vi.fn((type: string) => documentListeners.delete(type)),
+      },
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        innerHeight: 500,
+        scrollY: 0,
+        scrollTo: vi.fn(),
+        postMessage: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        setInterval: vi.fn(() => 1),
+        clearInterval: vi.fn(),
+      },
+    });
+    const engine = {
+      refresh: vi.fn(),
+      renderMarking: vi.fn(),
+      settlePresentation: vi.fn(async () => undefined),
+      dispose: vi.fn(),
+      rows: vi.fn(() => []),
+      lastInitializationSeededSelectors: vi.fn(() => false),
+    };
+    const createMarkingEngine = vi.fn(() => engine);
+    vi.doMock("wxt/utils/define-content-script", () => ({ defineContentScript: (config: unknown) => config }));
+    vi.doMock("../src/content/marking", () => ({
+      createMarkingEngine,
+      installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()),
+    }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as { main: () => void }).main();
+    await waitForCondition(() => contextRequests === 1);
+    const listener = addListener.mock.calls[0]?.[0] as (
+      message: unknown,
+      sender: unknown,
+      sendResponse: (value: unknown) => void,
+    ) => unknown;
+    await applyLockState(listener);
+
+    await expect(dispatchContentCommand(listener, "activateContentMain")).resolves.toMatchObject({
+      ok: true,
+      data: { ok: true, interactionsReady: true, interactionsReason: "" },
+    });
+    expect(contextRequests).toBe(2);
+    expect(createMarkingEngine).toHaveBeenCalledOnce();
+    expect(documentListeners.has("click")).toBe(true);
+  });
+
+  it("bounds command-time authority recovery to one re-probe", async () => {
+    const addListener = vi.fn();
+    const pageUrl = installTestLocation("https://example.com/replacement");
+    let contextRequests = 0;
+    const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "page.context") {
+        contextRequests += 1;
+        return unavailablePageContextReply(message, pageUrl.href);
+      }
+      if (message.name === "signals.pull") {
+        return replyFrame(message, []);
+      }
+      return undefined;
+    });
+    globalThis.chrome = {
+      runtime: { onMessage: { addListener }, sendMessage },
+    } as unknown as typeof chrome;
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      value: {
+        readyState: "complete",
+        documentElement: { nodeType: 1, tagName: "HTML", scrollHeight: 1000 },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        setInterval: vi.fn(() => 1),
+        clearInterval: vi.fn(),
+      },
+    });
+    const createMarkingEngine = vi.fn();
+    vi.doMock("wxt/utils/define-content-script", () => ({ defineContentScript: (config: unknown) => config }));
+    vi.doMock("../src/content/marking", () => ({
+      createMarkingEngine,
+      installClosedShadowHostInstrumentation: vi.fn(() => vi.fn()),
+    }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as { main: () => void }).main();
+    await waitForCondition(() => contextRequests === 1);
+    const listener = addListener.mock.calls[0]?.[0] as (
+      message: unknown,
+      sender: unknown,
+      sendResponse: (value: unknown) => void,
+    ) => unknown;
+    await applyLockState(listener);
+
+    await expect(dispatchContentCommand(listener, "activateContentMain")).resolves.toEqual({
+      ok: true,
+      data: {
+        ok: false,
+        initialized: false,
+        tree: "rewrite",
+        reason: "property-authority-unavailable",
+      },
+    });
+    expect(contextRequests).toBe(2);
+    expect(createMarkingEngine).not.toHaveBeenCalled();
   });
 
   it("does not revive terminal page authority from an older page-context reply", async () => {

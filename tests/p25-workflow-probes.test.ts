@@ -11,6 +11,7 @@ import {
   physicalActivatePopupControl,
   physicalActivatePreviewPageTarget,
   physicalActivatePreviewRow,
+  previewPageFocusCorresponds,
   popupControlIsActionable,
   popupRecoveryTransitioned,
   proveRequestedRenderMode,
@@ -788,5 +789,33 @@ describe("P25 full workflow fail-closed acceptance", () => {
     const evidence = completeWorkflowEvidence();
     evidence.contentList.rowToPage.targetCorresponds = false;
     expect(validateFullWorkflowEvidence(evidence).failures).toContain("content-list-row-to-page");
+  });
+
+  it("requires actual row-button DOM focus while allowing a repeated same-row occurrence", () => {
+    const repeatedSameRow = {
+      preview: {
+        selectedRow: { name: "561. DPJ Workspace. Excluded", readableText: "DPJ Workspace" },
+        domFocusedRow: { name: "561. DPJ Workspace. Excluded", readableText: "DPJ Workspace" },
+      },
+    };
+    expect(previewPageFocusCorresponds(repeatedSameRow, "DPJ Workspace")).toBe(true);
+    expect(previewPageFocusCorresponds({
+      preview: {
+        selectedRow: repeatedSameRow.preview.selectedRow,
+        domFocusedRow: null,
+      },
+    }, "DPJ Workspace")).toBe(false);
+    expect(previewPageFocusCorresponds({
+      preview: {
+        selectedRow: repeatedSameRow.preview.selectedRow,
+        domFocusedRow: { name: "4. 15 %. Included", readableText: "15 %" },
+      },
+    }, "DPJ Workspace")).toBe(false);
+    expect(previewPageFocusCorresponds({
+      preview: {
+        selectedRow: { name: "4. 15 %. Included", readableText: "15 %" },
+        domFocusedRow: { name: "4. 15 %. Included", readableText: "15 %" },
+      },
+    }, "15 %")).toBe(true);
   });
 });

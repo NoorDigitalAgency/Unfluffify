@@ -93,6 +93,10 @@ describe("per-layer property-lock copy", () => {
       .toBe("Run AI again to update the selectors for the latest markings.");
     expect(resolvePopupBlockedReasonCopy("save-authority-changed"))
       .toBe("Save reconciliation is still finishing.");
+    expect(resolvePopupOperatorDetail("property-authority-unavailable"))
+      .toBe("The page is still binding to this property. Retry; if it persists, refresh the page.");
+    expect(resolvePopupOperatorDetail("consent-registration-failed"))
+      .toBe("Consent protection could not be restored for this page. Refresh the page and retry.");
     expect(resolvePopupBlockedReasonCopy("unknown_internal_state"))
       .toBe("The requested action is temporarily unavailable.");
     expect(resolvePopupOperatorDetail("TypeError: Cannot read properties of undefined\n at run (main.ts:4:2)"))

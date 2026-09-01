@@ -1822,3 +1822,161 @@ that a new focus request was handled.
 5. `el02-r9-headed-dpj` → 4
 6. `el02-r9-candidate-matrix` → 5
 7. `el02-r9-conformance` → 6
+
+# EL-02-R10 — Replacement-document authority acknowledgement and exact inverse-focus proof
+
+## 1. Goal
+
+Remove the nondeterministic first marking-activation refusal after a real
+replacement document and make the headed Content List oracle accept both
+different-row and repeated-same-row page activations only when the semantic row
+button actually owns DOM focus. Preserve every Save→Load, stateless property-wide
+AI, marking, payload, consent, selector, and publication contract.
+
+## 2. Current facts
+
+- A clean production DPJ run on pushed commit
+  `d4ca038ad5dbb72344a3ce3eaeab9b1b87e827fd` passed preflight and both Render
+  Inspection modes, then failed its first desktop-to-mobile marking activation.
+  The panel remained in `Preparing marking` for about 12.6 seconds and returned
+  the production-safe generic copy for an internal refusal. The network guard
+  recorded zero Save and publication attempts.
+- On the same resulting document, once content authority had settled, a second
+  activation passed and returned interaction-ready marking with a prepared,
+  bottom-frozen reveal occurrence. A second clean guarded run also passed every
+  official marking stage. The failure is therefore a startup race, not a DPJ
+  marking-engine or reveal/freeze incompatibility.
+- A replacement content realm first runs `page.context`. A transient response
+  can leave `interactionShieldAuthorityActive` false while
+  `pageContextProbedUrl` remains equal to the current URL. Command-time
+  `resumeConsentSuppression` waits for that first bind but re-probes only when
+  consent registration itself requests one. A managed command can consequently
+  overtake property/shield authority and return `property-authority-unavailable`
+  or `consent-registration-failed` even though the next occurrence succeeds.
+- R9's production code passed direct trusted live probes for both a different
+  row and the same already-selected row after focus was moved to Exit Preview.
+  In both cases the matching semantic button regained DOM focus.
+- The ignored candidate wrapper still rejects a valid repeated-same-row
+  occurrence because it requires a different row name, while also falling back
+  to selected-row state. That oracle can both reject real success and accept a
+  stale selection; the full workflow therefore stopped despite the direct R9
+  proof.
+
+## 3. Decisions
+
+- A managed content command may perform one explicit current-page context
+  re-probe when the completed document-start bind still has no interaction
+  shield authority. It does not retry the user action, cross a lifecycle or URL
+  fence, synthesize authority, or loop on a failing backend.
+- Keep consent lifecycle registration and property/shield authority distinct.
+  The helper still fails closed on a terminal consent lifecycle, changed
+  lifecycle generation, changed page URL, unmanaged result, or a second
+  unavailable authority result.
+- Add actionable production-safe copy for the two command-time authority
+  refusal codes. Debug builds retain the raw internal value.
+- Page-to-row acceptance requires the matching row button in
+  `document.activeElement`. Selected-row state is supporting display state, not
+  occurrence evidence. A same row ID is valid because R9 supplies a monotonic
+  focus occurrence; no different-name requirement remains.
+- Keep the guarded candidate runner's Save/publication fence and exact-source
+  provenance. No acceptance retry may hide an activation refusal.
+
+## 4. Implementation phases
+
+### EL-02-R10-01 — One bounded authority re-probe
+
+**Files:** `src/entrypoints/content-loader.content.ts`,
+`tests/c4-content-entrypoint.test.ts`.
+
+1. After the initial page-context queue and consent resume settle, detect the
+   exact case where the current lifecycle still lacks interaction-shield
+   authority.
+2. Clear only the current page-context probe memo, perform one queued
+   current-page re-probe, and retain all existing lifecycle, route, consent, and
+   page-URL fences.
+3. Let activation, silent transition, and silent-selector commands use that
+   common acknowledgement path. If the second authoritative resolution remains
+   unavailable, return the existing refusal without further retries.
+4. Add regressions for transient-first/managed-second success, two failures
+   remaining failed and bounded, navigation/lifecycle mismatch remaining stale,
+   and an already-authoritative command causing no extra context request.
+
+### EL-02-R10-02 — Actionable refusal copy
+
+**Files:** `src/popup/copy.ts`, `tests/src/lock/copy.test.ts`.
+
+1. Map `property-authority-unavailable` to truthful page-binding recovery copy.
+2. Map `consent-registration-failed` to truthful consent-protection recovery
+   copy.
+3. Preserve generic sanitization for unknown internal tokens and raw diagnostic
+   detail only in debug builds.
+
+### EL-02-R10-03 — Exact inverse-focus acceptance
+
+**Files:** `scripts/performance/p25/workflow-probes.mjs`,
+`tests/p25-workflow-probes.test.ts`, and the ignored live workflow wrapper.
+
+1. Add a reusable predicate that accepts page-to-row routing only when the
+   current `domFocusedRow` corresponds to the physically clicked page target.
+2. Prove a repeated same-row occurrence passes when DOM focus returned after it
+   had moved away; prove selected-only stale state fails; prove a different
+   matching row passes and a mismatched focused row fails.
+3. Use the predicate in the guarded live wrapper and remove its contradictory
+   different-row-name condition and selected-row fallback.
+
+### EL-02-R10-04 — Gates, commit, and clean headed rerun
+
+1. Run focused content, popup-copy, and workflow-probe tests, then `pnpm check`,
+   `pnpm verify`, `pnpm build:debug`, P17 smoke, and a clean full P25 gate.
+2. Review the diff, commit, push, restart `pnpm browser:live` from the exact clean
+   commit, and rerun the guarded DPJ workflow.
+3. Require first-attempt marking activation, all official stages, both distinct
+   and same-row DOM-focus proofs, the remaining safe workflow, and zero Save or
+   publication attempts before continuing the candidate matrix.
+
+## 5. Regression risks
+
+- An unconditional context refresh would reintroduce remote latency on every
+  action. Re-probe only after the existing bind completed without local
+  property/shield authority, and cap it at one occurrence.
+- A stale transient response must not revive authority after navigation,
+  unregister, or property exit. Preserve the existing lifecycle and route
+  generations before and after the queued probe.
+- Using selected state as the focus oracle can accept an event that never
+  arrived. Require DOM focus and readable target correspondence.
+- Requiring a different row ID invalidates R9's explicit repeated-occurrence
+  contract. Treat row identity and interaction occurrence as separate facts.
+- More detailed operator copy must not expose exception text, tokens, URLs,
+  extension IDs, or implementation internals.
+
+## 6. Acceptance criteria
+
+- `EL02-R10-AC-01` A replacement document whose first page-context result lacks
+  property/shield authority gets exactly one current-page re-probe; a managed
+  second result lets the original activation complete without a second click.
+- `EL02-R10-AC-02` Two unavailable results, terminal consent, changed lifecycle,
+  changed route, or changed page URL stay failed and never loop or synthesize
+  authority.
+- `EL02-R10-AC-03` Production reports actionable safe copy for known authority
+  failures and still sanitizes unknown internal/exception detail.
+- `EL02-R10-AC-04` Page-to-row passes only with corresponding semantic-button
+  DOM focus. Both different-row and repeated-same-row occurrences pass; stale
+  selection alone fails.
+- `EL02-R10-AC-05` Focused/full/build/P17/P25 gates pass on the synchronized
+  commit, and a fresh guarded DPJ workflow passes first activation and the full
+  applicable workflow with zero Save/publication attempts.
+- `EL02-R10-AC-06` R10 changes no persistence boundary: Save remains the only
+  backend write, Load completely replaces local property state, and every AI
+  call remains stateless with the complete property page/HTML corpus.
+
+## 7. Todo chain
+
+1. `el02-r10-authority-reprobe`
+2. `el02-r10-refusal-copy` → 1
+3. `el02-r10-focus-oracle` → 2
+4. `el02-r10-focused-regressions` → 3
+5. `el02-r10-full-gates` → 4
+6. `el02-r10-review-push` → 5
+7. `el02-r10-headed-dpj` → 6
+8. `el02-r10-candidate-matrix` → 7
+9. `el02-r10-conformance` → 8

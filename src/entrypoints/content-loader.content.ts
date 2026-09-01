@@ -2863,7 +2863,14 @@ function resumeConsentSuppression(
     if (resumed.status === "rejected") {
       return false;
     }
-    if (resumed.reprobe) {
+    if (resumed.reprobe || !interactionShieldAuthorityActive) {
+      // A replacement document can finish its document-start context bind on a
+      // transient answer. Consent registration may already be current in that
+      // case, so `reprobe` alone is not enough: the first managed command would
+      // otherwise race ahead with no local property/shield authority and only a
+      // second click would work. Re-open exactly this memoized page occurrence
+      // once; resolvePageContext retains the lifecycle, route, URL, terminal
+      // consent, and authoritative managed-property fences.
       pageContextProbedUrl = "";
       await establishPageContext();
     }

@@ -54,6 +54,8 @@ const POPUP_BLOCKED_REASON_COPY: Readonly<Record<string, string>> = {
   "no-saved-selectors": "No saved selectors are available for this page.",
   "not-ready": "The current page is not ready for editing.",
   "session-blocked": "The current session is temporarily unavailable.",
+  "property-authority-unavailable": "The page is still binding to this property. Retry; if it persists, refresh the page.",
+  "consent-registration-failed": "Consent protection could not be restored for this page. Refresh the page and retry.",
 };
 
 export function resolvePopupBlockedReasonCopy(reason: string): string {

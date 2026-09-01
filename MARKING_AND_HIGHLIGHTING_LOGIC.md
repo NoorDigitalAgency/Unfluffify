@@ -998,6 +998,18 @@ Marking and silent-highlight rectangles fade out during scroll, resize, and
 layout churn. Once stable, they reuse/reposition existing geometry when valid or
 recompute when required, then fade back in without waiting for remote refresh.
 
+Content List inverse targeting is acknowledged by DOM focus, not merely by a
+persistent selected-row value. Each accepted page-highlight click carries a new
+popup-local occurrence, so clicking the same highlight again after focus moved
+elsewhere must restore focus to the same semantic row button and is a distinct
+successful interaction.
+
+On a replacement document, a marking or preview command may arrive after the
+initial property probe but before interaction-shield authority is bound. The
+content entrypoint performs at most one exact-current-page context re-probe in
+that case. It proceeds only when that probe establishes authority and otherwise
+fails closed; navigation, URL, lifecycle, and terminal fences are unchanged.
+
 ## Regression Coverage
 
 Focused rule coverage lives in:
