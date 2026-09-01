@@ -2593,9 +2593,11 @@ interaction statement. The approved modifier authority is now exact:
 - **Ctrl** is the sole exclusion-expansion modifier.
 - **Alt** is the sole explicit-inclusion modifier and wins over Ctrl when both
   are held.
-- **Shift has no marking meaning at all.** Shift-held hover and click behave
-  exactly like unmodified hover and click, including on the visible boundary of
-  an expanded exclusion.
+- **Shift has no marking meaning at all.** Shift neither creates nor modifies
+  any marking behavior, including expanded exclusions. Shift-held hover and
+  click are byte-for-byte equivalent to unmodified hover and click on an
+  expanded exclusion's border, interior, removal, and descendant-rehydration
+  paths.
 - Meta has no marking meaning and right-click remains the native browser menu.
 
 Fresh headed Aleris evidence on
@@ -2616,7 +2618,8 @@ than weakening or taking over that lock.
 ## 2. Locked interaction and projection decisions
 
 - The semantic expansion flag is `Ctrl && !Alt`. Shift is never read by the
-  marking subsystem. Ctrl+Alt takes the Alt individual-inclusion path.
+  marking subsystem and has no effect on expanded exclusions. Ctrl+Alt takes
+  the Alt individual-inclusion path.
 - Unmodified input—including input with Shift held—uses the ordinary mutable
   toggle contract. Every visible mutable marking can be hovered and toggled in
   every applicable state.
@@ -2800,3 +2803,130 @@ than weakening or taking over that lock.
   missing or failed child (`acceptance-2026-09-01T10-50-06-308Z.json`). The
   headed Aleris and remaining candidate acceptance rounds remain the next R14
   evidence boundary.
+
+# EL-02-R15 — Frozen Preview selector authority and silent shallow coverage
+
+## 1. Entering expert-check finding — exact headed Aleris contradiction
+
+R14's clean automated gates and literal-boundary interaction repair remain
+valid. The headed Aleris acceptance on
+`/mage-tarm/kapselendoskopi/forberedelser/` proves plain and Shift hover are
+identical, plain and Shift boundary clicks remove the same expanded exclusion
+and rehydrate the same defaults, Ctrl retains exclusion authority, Alt does not
+highlight the expanded boundary, and Ctrl+Alt is identical to Alt.
+
+The same run exposed a new production blocker:
+
+| Finding | Severity | Exact defect and owner |
+| --- | --- | --- |
+| `EL-02-F025` | Critical | Silent presentation paints `/html[1]/body[1]/main[1]/div[2]/div[1]` as `uf-silent-excluded`, while Content List row 10 presents its descendant `.../h1[1]` as Included and row activation focuses that descendant. The saved property configuration contains exclusions and no explicit-inclusion rescue for this branch. `showPreview` calculates the exact silent saved-selector set but discards it; `PopupPreviewController` independently re-derives selectors through a presentation callback and does not freeze selector authority across the preview occurrence or recovery. The painted page and list can therefore project different selector generations. |
+
+No AI request, Save, takeover, Lynx publication, release, or deployment was
+performed. Screenshots and exact DOM evidence were captured before the managed
+live browser was stopped.
+
+## 2. Root contract
+
+1. One Preview occurrence owns one immutable selector snapshot. The opening
+   projection, polling refresh, stale-row recovery, row emphasis, and row
+   activation must all remain fenced to that occurrence and snapshot.
+2. Silent Preview receives the complete selector set loaded from backend
+   configuration. Post-AI Preview receives the current authoritative AI/session
+   selector set. Presentation flags are not allowed to choose a competing
+   selector authority after the origin is known.
+3. A selector exclusion is one shallow Content List boundary. Descendants are
+   absent unless the canonical projection contains an independently valid
+   explicit inclusion. Default, technical, immutable, and merely selector-
+   matched descendants do not become actionable rescue rows.
+4. Selector snapshots are copied at the boundary. Caller mutation, polling,
+   configuration refresh, or a later preview cycle cannot mutate an active
+   occurrence in place.
+
+## 3. Implementation plan
+
+### EL-02-R15-01 — Make selector authority explicit and occurrence-frozen
+
+1. Remove the controller's ambient selector callback as an opening authority.
+2. Require the caller to pass the exact selector snapshot into the opening
+   candidate. Carry a defensive copy on the candidate and adopt it only when
+   that candidate wins its owner/epoch/revision fences.
+3. Retain the adopted snapshot for polling and stale-target recovery within the
+   same Preview occurrence. Clear it on Preview exit and binding replacement.
+4. Make `showPreview` pass the selector set it already resolves from the known
+   silent/post-AI origin. Make restored/open projection refresh pass an explicit
+   origin-derived snapshot only when the controller has no adopted occurrence.
+
+### EL-02-R15-02 — Prove shallow saved-selector projection end to end
+
+1. Add controller regressions proving an explicit opening selector snapshot is
+   transported and remains frozen when the ambient presentation changes.
+2. Strengthen the popup silent-preview integration test so the presentation
+   selector set deliberately disagrees with backend configuration and the
+   `preview.project` request must still carry the backend snapshot on opening
+   and recovery.
+3. Add an Aleris-shaped engine regression proving a saved broad exclusion emits
+   one excluded owner and no default descendants, including after structural
+   refresh.
+4. Keep the valid explicit-inclusion rescue contract and two-way row targeting
+   covered without weakening any P17/P25 catalog or performance threshold.
+
+### EL-02-R15-03 — Gates, publish, and headed conformance
+
+1. Run focused controller, popup-entrypoint, evaluator, and marking-engine tests;
+   then `pnpm check`, `pnpm verify`, production/debug builds, clean P17, and the
+   complete unchanged-threshold P25 composite.
+2. Review, commit, push, and prove exact upstream synchronization before headed
+   acceptance.
+3. Relaunch the exact production commit with repository `live-browser` on the
+   Aleris candidate. Re-prove the modifier matrix and require Content List to
+   show the broad exclusion as one shallow owner with no included descendant or
+   descendant focus target.
+4. Resume DPJ and the remaining safe candidate matrix only after Aleris passes.
+   Any new contradiction opens R16; do not approve by narrowing evidence.
+
+## 4. Acceptance criteria
+
+- `EL02-R15-AC-01` The opening `preview.project` request contains the exact
+  origin-selected selector snapshot; silent mode uses loaded backend authority.
+- `EL02-R15-AC-02` Polling and stale-row recovery reuse the adopted immutable
+  selector snapshot until Preview exits or the binding changes.
+- `EL02-R15-AC-03` An excluded owner suppresses every non-rescued descendant in
+  Content List and in page/list two-way targeting.
+- `EL02-R15-AC-04` Existing explicit-inclusion rescue, revision, race, keyboard,
+  and target-occurrence fences remain green.
+- `EL02-R15-AC-05` Focused/full/build/P17/P25 gates pass on synchronized source
+  with unchanged thresholds.
+- `EL02-R15-AC-06` Fresh headed Aleris evidence passes both the modifier matrix
+  and silent shallow-coverage proof without AI, Save, takeover, publication,
+  release, or deployment.
+
+## 5. Run-plan todo order
+
+1. `el02-r15-selector-authority` → 0
+2. `el02-r15-shallow-regressions` → 1
+3. `el02-r15-full-gates` → 2
+4. `el02-r15-review-push` → 3
+5. `el02-r15-headed-aleris` → 4
+6. `el02-r15-headed-dpj-candidates` → 5
+7. `el02-r15-conformance` → 6
+
+## 6. Implementation checkpoint — 2026-09-01
+
+- The controller no longer owns an ambient selector callback. Each opening
+  candidate carries a defensive copy of the exact origin-selected selectors,
+  and the winning candidate freezes that authority for polling and stale-row
+  recovery until Preview exit or binding replacement.
+- Silent Preview now explicitly uses the loaded backend configuration while
+  post-AI Preview uses the current presentation selectors. The Aleris-shaped
+  regression proves a saved broad exclusion remains one shallow Content List
+  owner before and after structural refresh.
+- The operator's final modifier correction is locked: Shift is entirely inert
+  and has no effect even on expanded exclusions. Runtime hover/click resolution
+  does not read `shiftKey`; the trusted-entrypoint and Aleris-shaped boundary
+  regressions prove the Shift path is identical to unmodified input.
+- Focused preview/popup/marking tests pass `244/244`; `pnpm check` and the full
+  `pnpm verify` pass all `1,591/1,591` tests, the production build, and all
+  `7/7` manifest checks. The debug build passes. Dirty-source P17 passes every
+  one of its `19/19` functional browser checks and rejects only source identity;
+  P25 correctly stops at its required-clean preflight. Exact-commit P17 and P25
+  remain required immediately after the reviewed implementation commit.

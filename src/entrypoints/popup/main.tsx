@@ -148,6 +148,22 @@ function effectivePresentationSelectors(): { inclusionSelectors: string[]; exclu
   };
 }
 
+function previewProjectionSelectors(): { inclusionSelectors: string[]; exclusionSelectors: string[] } {
+  const stateName = store.getState().name;
+  const savedSelectors = currentPropertyConfiguration().selectors;
+  if ((stateName === "silent" || stateName === "silent_preview") && savedSelectors) {
+    return {
+      inclusionSelectors: [...savedSelectors.inclusionSelectors],
+      exclusionSelectors: [...savedSelectors.exclusionSelectors],
+    };
+  }
+  const selectors = store.getPresentation().selectors;
+  return {
+    inclusionSelectors: [...selectors.inclusionSelectors],
+    exclusionSelectors: [...selectors.exclusionSelectors],
+  };
+}
+
 function operatorActionPresentation() {
   const presentation = store.getPresentation();
   let actionPresentation = overlayOperatorActionPresentation(
@@ -206,7 +222,6 @@ function advanceOperatorAction(
 let contentCommandTerminal = false;
 let contentCommandEpoch = 0;
 const previewController = createPopupPreviewController({
-  selectors: effectivePresentationSelectors,
   currentProjection: () => store.getState().previewProjection ?? null,
   setProjection: (projection) => { store.setPreviewProjection(projection); },
   requestProjection: ({ tabId, pageUrl, selectors }) => requestPreviewProjection(tabId, {
@@ -5019,7 +5034,10 @@ async function ensurePreviewProjection(
   if (requestKey === null) {
     return null;
   }
-  return await previewController.project(previewOwner(context, requestKey));
+  return await previewController.project(
+    previewOwner(context, requestKey),
+    previewProjectionSelectors(),
+  );
 }
 
 async function showPreview(existingAction: OperatorActionOccurrence | null = null): Promise<boolean> {
@@ -5069,7 +5087,7 @@ async function showPreview(existingAction: OperatorActionOccurrence | null = nul
   }
   const owner = previewOwner(context, requestKey);
   advanceOperatorAction(action, "rows");
-  const candidate = await previewController.requestCandidate(owner);
+  const candidate = await previewController.requestCandidate(owner, selectors);
   if (!candidate) {
     notifyBoundEvent(binding, "Preview unavailable", "detected content could not be read", "warn");
     render();

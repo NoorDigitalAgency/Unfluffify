@@ -4772,6 +4772,16 @@ describe("rewrite popup entrypoint", () => {
       pageUrl: "https://example.com/page",
       selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
     }));
+    const openingProjectionRequests = tabsSendMessage.mock.calls
+      .map(([, frame]) => frame as BusFrame)
+      .filter((frame) => frame.name === "preview.project");
+    expect(openingProjectionRequests.length).toBeGreaterThanOrEqual(2);
+    for (const request of openingProjectionRequests) {
+      expect(request.payload).toMatchObject({
+        pageUrl: "https://example.com/page",
+        selectors: { inclusionSelectors: ["main"], exclusionSelectors: [".ad"] },
+      });
+    }
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       name: "fact.reported",
       payload: expect.objectContaining({

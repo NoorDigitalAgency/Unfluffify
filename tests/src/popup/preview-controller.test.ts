@@ -57,7 +57,6 @@ function createHarness(overrides: Partial<PopupPreviewControllerPorts> = {}) {
     currentProjection = next;
   });
   const ports: PopupPreviewControllerPorts = {
-    selectors: () => selectors,
     currentProjection: () => currentProjection,
     setProjection,
     requestProjection,
@@ -77,6 +76,7 @@ function createHarness(overrides: Partial<PopupPreviewControllerPorts> = {}) {
     notify,
     onChange,
     setProjection,
+    selectors,
     projection: () => currentProjection,
     setOpen(value: boolean) {
       open = value;
@@ -90,7 +90,7 @@ function createHarness(overrides: Partial<PopupPreviewControllerPorts> = {}) {
 describe("popup Preview controller", () => {
   it("keeps a pre-open projection inert until the Preview fact is authoritative", async () => {
     const harness = createHarness();
-    const candidate = await harness.controller.requestCandidate(OWNER);
+    const candidate = await harness.controller.requestCandidate(OWNER, harness.selectors);
 
     expect(candidate?.projection).toEqual(projection());
     expect(harness.projection()).toBeNull();
@@ -116,7 +116,7 @@ describe("popup Preview controller", () => {
     });
     harness.setOpen(true);
 
-    await expect(harness.controller.project(OWNER)).resolves.toMatchObject({ revision: 2 });
+    await expect(harness.controller.project(OWNER, harness.selectors)).resolves.toMatchObject({ revision: 2 });
     await expect(harness.controller.project(OWNER)).resolves.toMatchObject({ revision: 2 });
     await expect(harness.controller.project(OWNER)).resolves.toMatchObject({ revision: 3 });
     expect(harness.projection()?.revision).toBe(3);
@@ -127,7 +127,7 @@ describe("popup Preview controller", () => {
     const harness = createHarness({
       requestProjection: vi.fn(async () => await pending.promise),
     });
-    const request = harness.controller.requestCandidate(OWNER);
+    const request = harness.controller.requestCandidate(OWNER, harness.selectors);
     harness.controller.bindingChanged();
     harness.setCurrentOwner({ ...OWNER, requestKey: "77:https://example.com/rebound" });
     pending.resolve(projection());
@@ -141,9 +141,9 @@ describe("popup Preview controller", () => {
     const harness = createHarness({
       requestProjection: vi.fn(async () => replies.shift() ?? null),
     });
-    const opening = await harness.controller.requestCandidate(OWNER);
+    const opening = await harness.controller.requestCandidate(OWNER, harness.selectors);
     harness.setOpen(true);
-    await harness.controller.project(OWNER);
+    await harness.controller.project(OWNER, harness.selectors);
 
     expect(opening).not.toBeNull();
     if (opening) {
@@ -161,13 +161,13 @@ describe("popup Preview controller", () => {
       activate: vi.fn(async () => await activation.promise),
     });
     harness.setOpen(true);
-    await harness.controller.project(OWNER);
+    await harness.controller.project(OWNER, harness.selectors);
     const oldActivation = harness.controller.activate(OWNER, "row-stable-1");
     harness.controller.previewClosed();
     harness.setOpen(false);
     harness.setProjection(null);
     harness.setOpen(true);
-    await harness.controller.project(OWNER);
+    await harness.controller.project(OWNER, harness.selectors);
     activation.resolve({ targeted: false });
     await oldActivation;
 
@@ -184,7 +184,7 @@ describe("popup Preview controller", () => {
       emphasize,
     });
     harness.setOpen(true);
-    await harness.controller.project(OWNER);
+    await harness.controller.project(OWNER, harness.selectors);
     harness.setProjection.mockClear();
 
     await harness.controller.hover(OWNER, "row-stable-1", true);
@@ -196,5 +196,44 @@ describe("popup Preview controller", () => {
       rowId: "row-stable-1",
       active: true,
     }));
+  });
+
+  it("freezes the adopted opening selector snapshot across polling and recovery", async () => {
+    const openingSelectors = {
+      inclusionSelectors: [],
+      exclusionSelectors: [".saved-broad-exclusion"],
+    };
+    const laterPresentationSelectors = {
+      inclusionSelectors: ["main h1"],
+      exclusionSelectors: [],
+    };
+    const harness = createHarness({
+      emphasize: vi.fn(async () => ({ targeted: false })),
+    });
+
+    const candidate = await harness.controller.requestCandidate(OWNER, openingSelectors);
+    openingSelectors.exclusionSelectors[0] = ".caller-mutated";
+    harness.setOpen(true);
+    expect(candidate && harness.controller.adoptOpeningCandidate(candidate, OWNER)).not.toBeNull();
+
+    await harness.controller.project(OWNER, laterPresentationSelectors);
+    await harness.controller.hover(OWNER, "row-stable-1", true);
+
+    expect(harness.requestProjection).toHaveBeenCalledTimes(3);
+    for (const [request] of harness.requestProjection.mock.calls.slice(0, 3)) {
+      expect(request.selectors).toEqual({
+        inclusionSelectors: [],
+        exclusionSelectors: [".saved-broad-exclusion"],
+      });
+    }
+
+    harness.controller.previewClosed();
+    harness.setOpen(false);
+    harness.setProjection(null);
+    harness.setOpen(true);
+    await harness.controller.project(OWNER, laterPresentationSelectors);
+
+    expect(harness.requestProjection).toHaveBeenCalledTimes(4);
+    expect(harness.requestProjection.mock.calls[3]?.[0].selectors).toEqual(laterPresentationSelectors);
   });
 });

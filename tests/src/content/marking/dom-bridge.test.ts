@@ -1518,6 +1518,57 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
+  it("projects a saved silent broad exclusion as one shallow owner after structural refresh", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 412, 800));
+    const broad = new FakeElement("SECTION", rect(0, 70, 397, 600), "Patient guide");
+    const heading = new FakeElement("H1", rect(24, 100, 360, 80), "Patient guide heading");
+    const paragraph = new FakeElement("P", rect(24, 200, 360, 80), "Covered copy");
+    broad.className = "saved-broad-exclusion";
+    for (const element of [root, broad, heading, paragraph]) element.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    broad.appendChild(heading);
+    broad.appendChild(paragraph);
+    root.appendChild(broad);
+    const selectors = {
+      inclusionSelectors: [],
+      exclusionSelectors: [".saved-broad-exclusion"],
+    };
+    const engine = createMarkingEngine(root as unknown as Element, { selectors });
+    engine.renderSilentHighlights();
+    const broadXpath = "/main[1]/section[1]";
+    const branchRows = (projection: ReturnType<typeof engine.projectPreview>) =>
+      projection.rows.filter((row) =>
+        row.xpath === broadXpath || row.xpath.startsWith(`${broadXpath}/`)
+      );
+
+    const before = engine.projectPreview("https://www.aleris.se/page", selectors);
+    expect(branchRows(before)).toEqual([
+      expect.objectContaining({
+        xpath: broadXpath,
+        classification: "excluded",
+        selector: ".saved-broad-exclusion",
+      }),
+    ]);
+
+    const lateHeading = new FakeElement("H2", rect(24, 300, 360, 60), "Late covered heading");
+    lateHeading.ownerDocument = doc;
+    broad.appendChild(lateHeading);
+    engine.refresh();
+    const after = engine.projectPreview("https://www.aleris.se/page", selectors);
+
+    expect(after.revision).toBeGreaterThan(before.revision);
+    expect(branchRows(after)).toEqual([
+      expect.objectContaining({
+        xpath: broadXpath,
+        classification: "excluded",
+        selector: ".saved-broad-exclusion",
+      }),
+    ]);
+    engine.dispose();
+  });
+
   it("keeps selector seeding one-shot inside an active clean marking session", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
@@ -5163,7 +5214,7 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
-  it("keeps a painted expanded-exclusion boundary hoverable and toggleable while Shift stays ordinary", () => {
+  it("keeps a painted expanded-exclusion boundary hoverable and toggleable while Shift has no effect", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 412, 3_200));
     const group = new FakeElement("SECTION", rect(0, 0, 412, 2_800));
@@ -5205,9 +5256,10 @@ describe("P6 DOM bridge", () => {
       "/main[1]/section[1]",
     );
 
-    // The content entrypoint maps Shift-held input to this same plain=false
-    // path. Clicking the literal boundary therefore removes the expansion and
-    // rehydrates ordinary descendant defaults; Shift adds no special case.
+    // The content entrypoint maps Shift-held input to this exact plain=false
+    // path. Shift has no effect on an expanded exclusion: clicking its literal
+    // boundary removes it and rehydrates ordinary descendant defaults exactly
+    // as the same click with no modifier keys held.
     expect(engine.toggle(plainBoundary!, "exclude")).toBe(true);
     expect(engine.rows()).not.toContainEqual({
       xpath: "/main[1]/section[1]",

@@ -13,10 +13,10 @@ export type PopupPreviewOwner = Readonly<{
 export type PreviewProjectionCandidate = Readonly<{
   operationEpoch: number;
   projection: PreviewProjection;
+  selectors: PopupSelectorList;
 }>;
 
 export type PopupPreviewControllerPorts = Readonly<{
-  selectors(): PopupSelectorList;
   currentProjection(): PreviewProjection | null;
   setProjection(projection: PreviewProjection | null): void;
   requestProjection(input: Readonly<{
@@ -46,7 +46,10 @@ export type PopupPreviewControllerPorts = Readonly<{
 export type PopupPreviewController = Readonly<{
   bindingChanged(): void;
   previewClosed(): void;
-  requestCandidate(owner: PopupPreviewOwner): Promise<PreviewProjectionCandidate | null>;
+  requestCandidate(
+    owner: PopupPreviewOwner,
+    selectors: PopupSelectorList,
+  ): Promise<PreviewProjectionCandidate | null>;
   adoptCandidate(
     candidate: PreviewProjectionCandidate,
     owner: PopupPreviewOwner,
@@ -55,7 +58,10 @@ export type PopupPreviewController = Readonly<{
     candidate: PreviewProjectionCandidate,
     owner: PopupPreviewOwner,
   ): PreviewProjection | null;
-  project(owner: PopupPreviewOwner): Promise<PreviewProjection | null>;
+  project(
+    owner: PopupPreviewOwner,
+    selectors?: PopupSelectorList,
+  ): Promise<PreviewProjection | null>;
   recover(owner: PopupPreviewOwner, staleProjectionId: string): Promise<void>;
   hover(owner: PopupPreviewOwner, rowId: string, active: boolean): Promise<void>;
   activate(owner: PopupPreviewOwner, rowId: string): Promise<void>;
@@ -72,6 +78,30 @@ export function createPopupPreviewController(
   let requestEpoch = 0;
   let indexedProjection: PreviewProjection | null = null;
   let indexedRowIds = new Set<string>();
+  let adoptedSelectorAuthority: Readonly<{
+    owner: PopupPreviewOwner;
+    selectors: PopupSelectorList;
+  }> | null = null;
+
+  const copySelectors = (selectors: PopupSelectorList): PopupSelectorList => ({
+    inclusionSelectors: [...selectors.inclusionSelectors],
+    exclusionSelectors: [...selectors.exclusionSelectors],
+  });
+
+  const sameOwner = (left: PopupPreviewOwner, right: PopupPreviewOwner): boolean =>
+    left.tabId === right.tabId &&
+    left.requestKey === right.requestKey &&
+    left.pageUrl === right.pageUrl;
+
+  const rememberSelectorAuthority = (
+    owner: PopupPreviewOwner,
+    selectors: PopupSelectorList,
+  ): void => {
+    adoptedSelectorAuthority = {
+      owner: { ...owner },
+      selectors: copySelectors(selectors),
+    };
+  };
 
   const projectionContains = (projection: PreviewProjection, rowId: string): boolean => {
     if (indexedProjection !== projection) {
@@ -85,6 +115,7 @@ export function createPopupPreviewController(
     requestEpoch += 1;
     indexedProjection = null;
     indexedRowIds = new Set();
+    adoptedSelectorAuthority = null;
   };
 
   const targetOccurrenceIsCurrent = (
@@ -100,16 +131,14 @@ export function createPopupPreviewController(
 
   const requestCandidate = async (
     owner: PopupPreviewOwner,
+    selectors: PopupSelectorList,
   ): Promise<PreviewProjectionCandidate | null> => {
     const operationEpoch = ++requestEpoch;
-    const selectors = ports.selectors();
+    const requestedSelectors = copySelectors(selectors);
     const projection = await ports.requestProjection({
       tabId: owner.tabId,
       pageUrl: owner.pageUrl,
-      selectors: {
-        inclusionSelectors: [...selectors.inclusionSelectors],
-        exclusionSelectors: [...selectors.exclusionSelectors],
-      },
+      selectors: copySelectors(requestedSelectors),
     });
     if (
       !projection ||
@@ -119,14 +148,14 @@ export function createPopupPreviewController(
     ) {
       return null;
     }
-    return { operationEpoch, projection };
+    return { operationEpoch, projection, selectors: requestedSelectors };
   };
 
   const adoptCandidate = (
     candidate: PreviewProjectionCandidate,
     owner: PopupPreviewOwner,
   ): PreviewProjection | null => {
-    const { operationEpoch, projection } = candidate;
+    const { operationEpoch, projection, selectors } = candidate;
     if (
       !ports.isOpen() ||
       projection.pageUrl !== owner.pageUrl ||
@@ -141,11 +170,15 @@ export function createPopupPreviewController(
       current.projectionId === projection.projectionId &&
       projection.revision <= current.revision
     ) {
+      if (!adoptedSelectorAuthority || !sameOwner(adoptedSelectorAuthority.owner, owner)) {
+        rememberSelectorAuthority(owner, selectors);
+      }
       return current;
     }
     ports.setProjection(projection);
     indexedProjection = projection;
     indexedRowIds = new Set(projection.rows.map((row) => row.id));
+    rememberSelectorAuthority(owner, selectors);
     return projection;
   };
 
@@ -153,7 +186,7 @@ export function createPopupPreviewController(
     candidate: PreviewProjectionCandidate,
     owner: PopupPreviewOwner,
   ): PreviewProjection | null => {
-    const { operationEpoch, projection } = candidate;
+    const { operationEpoch, projection, selectors } = candidate;
     if (
       projection.pageUrl !== owner.pageUrl ||
       !ports.isCurrent(owner) ||
@@ -167,16 +200,27 @@ export function createPopupPreviewController(
       current.projectionId === projection.projectionId &&
       projection.revision <= current.revision
     ) {
+      rememberSelectorAuthority(owner, selectors);
       return current;
     }
     ports.setProjection(projection);
     indexedProjection = projection;
     indexedRowIds = new Set(projection.rows.map((row) => row.id));
+    rememberSelectorAuthority(owner, selectors);
     return projection;
   };
 
-  const project = async (owner: PopupPreviewOwner): Promise<PreviewProjection | null> => {
-    const candidate = await requestCandidate(owner);
+  const project = async (
+    owner: PopupPreviewOwner,
+    selectors?: PopupSelectorList,
+  ): Promise<PreviewProjection | null> => {
+    const retained = adoptedSelectorAuthority && sameOwner(adoptedSelectorAuthority.owner, owner)
+      ? adoptedSelectorAuthority.selectors
+      : selectors;
+    if (!retained) {
+      return null;
+    }
+    const candidate = await requestCandidate(owner, retained);
     return candidate ? adoptCandidate(candidate, owner) : null;
   };
 

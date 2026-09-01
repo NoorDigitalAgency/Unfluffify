@@ -83,8 +83,9 @@ least:
   restore motion, growth and quiet proof, lazy-loading suppression, no-scroll
   pages, animation/media/SVG/timer suspension, and teardown;
 - marking defaults, eligible targets, hover, the three-state plain toggle,
-  Ctrl breadth, Alt inclusion with Alt-over-Ctrl precedence, fully inert Shift, expanded-boundary
-  rehydration and explicit-inclusion exceptions, native right click, fragments, overlap,
+  Ctrl breadth, Alt inclusion with Alt-over-Ctrl precedence, fully inert Shift
+  with no effect even on expanded exclusions, expanded-boundary rehydration
+  and explicit-inclusion exceptions, native right click, fragments, overlap,
   shadow DOM, hidden state, scroll/resize fade, layer order, borders, cursors,
   accessibility, and interaction latency;
 - Run AI admission, immediate feedback, capture and payload preparation,
@@ -154,8 +155,9 @@ Confirm that:
 - plain input performs the approved implicit-inclusion/explicit-exclusion toggle
   and clears an explicit inclusion to its applicable default; Ctrl breadth and
   Alt inclusion use the approved target, Alt wins over Ctrl, Shift remains
-  identical to plain input in every marking state, expanded ownership
-  rehydrates correctly, and native right click is untouched;
+  identical to plain input in every marking state and has no effect on an
+  expanded exclusion's boundary, interior, removal, or rehydration, expanded
+  ownership rehydrates correctly, and native right click is untouched;
 - every enabled Content List row has a truthful, physically routable target;
 - post-AI edits invalidate dependent actions promptly without waiting for remote
   authority;
