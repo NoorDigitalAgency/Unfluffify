@@ -3548,6 +3548,24 @@ authorized by this remediation or its browser acceptance.
   2), proving the bottom and right device edges remain present rather than
   clipped. No AI request, Save, takeover, Lynx publication, release, or
   deployment was attempted.
-- Remaining: commit/push this final authority fence, refresh the code graph,
-  repeat safe representative-candidate checks, then issue the cumulative R19
-  and next expert-check verdict.
+- The final authority fence is committed/pushed as
+  `0e9f2b277197150791035a0fb7cfaff7cf84996d`; local and upstream are exactly
+  synchronized and the code graph is refreshed at 124,114 nodes / 243,934
+  edges.
+- Tall/dynamic Aleris acceptance retained one exact 412×960/touch/coarse state
+  across 31 frame samples and five resize reversals on a 5,280px document; its
+  complete device capture was 824×1920 and silent attachment-loss recovery was
+  complete at 49 ms.
+- Desktop-heavy 3DPrima acceptance retained one exact 412×960/touch/coarse
+  state with 412px document width across 32 samples and five resize reversals
+  on an 8,333px document; its complete device capture was 824×1920 and
+  attachment-loss recovery was complete at 176 ms on the busier page. Both
+  properties projected unavailable editing controls fail-closed, so no takeover
+  was attempted. AI, Save, Lynx publication, release, and deployment remained
+  at zero.
+- R19 conformance verdict: **PASS**. AC-01 through AC-08 reconcile exactly
+  against source, focused/full/build/P17/P25 gates, synchronized commit identity,
+  and fresh Acne/Aleris/3DPrima browser evidence. The emulation remediation is
+  approved with no unresolved R19 blocker.
+- The expert-loop proceeds to a new independent audit. R19 completion is not, by
+  itself, a claim of whole-product production readiness.
