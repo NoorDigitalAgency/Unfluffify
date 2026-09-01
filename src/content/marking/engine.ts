@@ -936,6 +936,46 @@ function scrollPreviewTargetIntoView(element: Element): () => void {
   };
 }
 
+function copySelectorSet(selectors: SelectorSet | null | undefined): SelectorSet | null {
+  return selectors
+    ? {
+        inclusionSelectors: [...selectors.inclusionSelectors],
+        exclusionSelectors: [...selectors.exclusionSelectors],
+      }
+    : null;
+}
+
+/** Rebinds the decisions owned by a live mutable session through physical
+ * Element identity. Positional XPath is the wire representation, not the
+ * session identity: inserting a same-tag sibling must not move a decision to
+ * the newcomer. Default exclusions are recalculated from the new bridge, while
+ * explicit decisions and a user's exact-boundary unexclude survive only when
+ * their original Element survives. */
+function rebaseMutableSessionMarks(
+  previousBridge: DomBridgeView,
+  nextBridge: DomBridgeView,
+  previousMarks: CanonicalMarkSet,
+): CanonicalMarkSet {
+  const rows: MarkRow[] = [];
+  const seenXpaths = new Set<string>();
+  for (const row of previousMarks.rows) {
+    if (row.explicit !== true && row.excluded) {
+      continue;
+    }
+    const previousEntry = previousBridge.byXpath.get(row.xpath);
+    const nextEntry = previousEntry
+      ? nextBridge.byElement.get(previousEntry.element)
+      : undefined;
+    const xpath = nextEntry?.evaluationNode.xpath;
+    if (!xpath || seenXpaths.has(xpath)) {
+      continue;
+    }
+    rows.push({ ...row, xpath });
+    seenXpaths.add(xpath);
+  }
+  return { rows };
+}
+
 export function createMarkingEngine(
   rootElement: Element,
   options: MarkingEngineInitializationOptions = {},
@@ -1033,6 +1073,8 @@ export function createMarkingEngine(
     fingerprint: selectorSetFingerprint(options.selectors),
     selectorsSeeded: initial.selectorsSeeded,
   };
+  let selectorBaseline = copySelectorSet(options.selectors);
+  let mutableSessionProjectionDirty = false;
   const invalidateSelectorProjection = (): void => {
     selectorProjectionIdentity = null;
   };
@@ -1142,6 +1184,7 @@ export function createMarkingEngine(
   let lastPreviewRequest: Readonly<{ pageUrl: string; selectors: SelectorSet }> | null = null;
   let currentPreviewProjection: PreviewProjection | null = null;
   const invalidateMutableSessionProjection = (): void => {
+    mutableSessionProjectionDirty = true;
     invalidateSelectorProjection();
     // A marking mutation changes the Content List truth even when the popup
     // asks again with the exact same selector set. Drop only the materialized
@@ -1402,17 +1445,30 @@ export function createMarkingEngine(
     }
     const seed = resolveSelectorSeed(selectors);
     const requestedFingerprint = selectorSetFingerprint(selectors);
-    const currentSessionOwnsProjection = selectorProjectionIdentity === null || (
+    const mutableSessionOwnsProjection = interactiveMarkingRendered ||
+      mutableSessionProjectionDirty;
+    const selectorStoreOwnsProjection = (
+      selectorProjectionIdentity !== null &&
       selectorProjectionIdentity.bridge === bridge &&
       selectorProjectionIdentity.fingerprint === requestedFingerprint
     );
-    const marks = currentSessionOwnsProjection
+    const currentStoreOwnsProjection = mutableSessionOwnsProjection || selectorStoreOwnsProjection;
+    const marks = currentStoreOwnsProjection
       ? store.canonicalSet()
       : (() => {
           const defaults = mergeDefaultExclusions(bridge.root, { rows: [] });
           return seed.seeded ? applySelectorSeed(defaults, seed) : defaults;
         })();
-    const evaluated = evaluatePreview(marks, { root: bridge.root }, seed.matches);
+    const evaluated = evaluatePreview(
+      marks,
+      { root: bridge.root },
+      mutableSessionOwnsProjection
+        ? {
+            inclusionSelectorByKey: new Map<string, string>(),
+            exclusionSelectorByKey: new Map<string, string>(),
+          }
+        : seed.matches,
+    );
     const rows: PreviewRow[] = evaluated.flatMap((row) => {
       const entry = bridge.byKey.get(row.id);
       if (!entry) {
@@ -1569,14 +1625,30 @@ export function createMarkingEngine(
     cancelDeferredBranchRender();
     beginWorkCycle();
     hoverResolution = null;
+    const previousBridge = bridge;
     const previousMarks = store.canonicalSet();
+    const selectorsExplicitlyProvided = Object.prototype.hasOwnProperty.call(
+      refreshOptions,
+      "selectors",
+    );
+    if (selectorsExplicitlyProvided) {
+      selectorBaseline = copySelectorSet(refreshOptions.selectors);
+      mutableSessionProjectionDirty = false;
+    }
     invalidateSelectorProjection();
     bridge = buildBridge();
+    const useSelectorBaseline = selectorsExplicitlyProvided || (
+      silentHighlightsArmed && !interactiveMarkingRendered
+    );
+    const selectors = useSelectorBaseline ? selectorBaseline : undefined;
+    const carriedMarks = useSelectorBaseline
+      ? { rows: [] }
+      : rebaseMutableSessionMarks(previousBridge, bridge, previousMarks);
     const next = initialMarksForBridge(
       bridge,
-      previousMarks,
-      refreshOptions.selectors,
-      resolveSelectorSeed(refreshOptions.selectors),
+      carriedMarks,
+      selectors,
+      resolveSelectorSeed(selectors),
     );
     lastInitializationSeededSelectors = next.selectorsSeeded;
     store = createMarkingStore({ root: bridge.root }, next.marks);
@@ -1595,6 +1667,7 @@ export function createMarkingEngine(
   };
 
   const replaceSelectorMarks = (selectors: SelectorSet | null): boolean => {
+    selectorBaseline = copySelectorSet(selectors);
     const fingerprint = selectorSetFingerprint(selectors);
     if (
       selectorProjectionIdentity?.bridge === bridge &&
@@ -1630,6 +1703,7 @@ export function createMarkingEngine(
       fingerprint,
       selectorsSeeded: next.selectorsSeeded,
     };
+    mutableSessionProjectionDirty = false;
     refreshCurrentPreviewProjection();
     reconcilePreviewEmphasis();
     if (progressiveGeometryCancelled) {
@@ -1931,10 +2005,21 @@ type DeferredBranchRenderChunk = Readonly<{
     const deferredBranchCancelled = cancelDeferredBranchRender(false);
     const bridgeChanged = refreshed.view !== bridge;
     if (bridgeChanged) {
+      const previousBridge = bridge;
       const previousMarks = store.canonicalSet();
       invalidateSelectorProjection();
       bridge = refreshed.view;
-      const next = initialMarksForBridge(bridge, previousMarks, undefined);
+      const useSelectorBaseline = silentHighlightsArmed && !interactiveMarkingRendered;
+      const selectors = useSelectorBaseline ? selectorBaseline : undefined;
+      const carriedMarks = useSelectorBaseline
+        ? { rows: [] }
+        : rebaseMutableSessionMarks(previousBridge, bridge, previousMarks);
+      const next = initialMarksForBridge(
+        bridge,
+        carriedMarks,
+        selectors,
+        resolveSelectorSeed(selectors),
+      );
       store = createMarkingStore({ root: bridge.root }, next.marks);
       reportWorkStage("store-evaluate");
     }
@@ -2005,6 +2090,7 @@ type DeferredBranchRenderChunk = Readonly<{
     cancelDeferredBranchRender();
     beginWorkCycle();
     hoverResolution = null;
+    const previousBridge = bridge;
     const previousMarks = store.canonicalSet();
     const cursor: DomBridgeBuildCursor | null = instrumentation?.createBridge
       ? null
@@ -2037,7 +2123,17 @@ type DeferredBranchRenderChunk = Readonly<{
     const adoptCapturedBridge = (nextBridge: DomBridgeView): void => {
       invalidateSelectorProjection();
       bridge = nextBridge;
-      const next = initialMarksForBridge(bridge, previousMarks, undefined);
+      const useSelectorBaseline = silentHighlightsArmed && !interactiveMarkingRendered;
+      const selectors = useSelectorBaseline ? selectorBaseline : undefined;
+      const carriedMarks = useSelectorBaseline
+        ? { rows: [] }
+        : rebaseMutableSessionMarks(previousBridge, bridge, previousMarks);
+      const next = initialMarksForBridge(
+        bridge,
+        carriedMarks,
+        selectors,
+        resolveSelectorSeed(selectors),
+      );
       lastInitializationSeededSelectors = next.selectorsSeeded;
       store = createMarkingStore({ root: bridge.root }, next.marks);
       reportWorkStage("store-evaluate");

@@ -1435,7 +1435,130 @@ describe("P6 DOM bridge", () => {
     const after = engine.projectPreview("https://example.com/page", selectors);
     const rebased = after.rows.find((row) => row.text === "Original target");
     expect(after.revision).toBeGreaterThan(before.revision);
-    expect(rebased).toMatchObject({ id: original!.id, xpath: "/main[1]/p[2]" });
+    expect(rebased).toMatchObject({
+      id: original!.id,
+      xpath: "/main[1]/p[2]",
+      classification: "explicit-included",
+    });
+  });
+
+  it("rebases a dirty mutable decision by Element identity instead of transferring it to a same-XPath decoy", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const target = new FakeElement("P", rect(0, 20, 120, 20), "Marked target");
+    for (const element of [root, target]) element.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(target);
+    doc.hits = [target, root];
+    const engine = createMarkingEngine(root as unknown as Element, { render: true });
+
+    const resolved = engine.resolveAtPoint(20, 25, "exclude", false);
+    expect(resolved?.xpath).toBe("/main[1]/p[1]");
+    expect(engine.toggle(resolved!, "exclude")).toBe(true);
+
+    const decoy = new FakeElement("P", rect(0, 0, 120, 20), "Prepended decoy");
+    decoy.ownerDocument = doc;
+    decoy.parentElement = root;
+    root.children.unshift(decoy);
+    root.childNodes.unshift(decoy);
+    doc.hits = [target, root];
+    engine.refresh({ render: true });
+
+    expect(engine.rows()).toContainEqual({
+      xpath: "/main[1]/p[2]",
+      excluded: true,
+      explicit: true,
+    });
+    expect(engine.rows()).not.toContainEqual({
+      xpath: "/main[1]/p[1]",
+      excluded: true,
+      explicit: true,
+    });
+    const projection = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: [],
+      exclusionSelectors: [],
+    });
+    expect(projection.rows.find((row) => row.text === "Marked target")).toMatchObject({
+      xpath: "/main[1]/p[2]",
+      classification: "excluded",
+    });
+    expect(projection.rows.find((row) => row.text === "Prepended decoy")).toMatchObject({
+      xpath: "/main[1]/p[1]",
+      classification: "undetected",
+    });
+    engine.dispose();
+  });
+
+  it("reapplies silent selector authority after structural mutation without inheriting positional marks", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const original = new FakeElement("P", rect(0, 20, 120, 20), "Original match");
+    for (const element of [root, original]) element.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(original);
+    const selectors = { inclusionSelectors: ["p"], exclusionSelectors: [] };
+    const engine = createMarkingEngine(root as unknown as Element, { selectors });
+    engine.renderSilentHighlights();
+
+    const newcomer = new FakeElement("P", rect(0, 0, 120, 20), "New selector match");
+    newcomer.ownerDocument = doc;
+    newcomer.parentElement = root;
+    root.children.unshift(newcomer);
+    root.childNodes.unshift(newcomer);
+    engine.refresh();
+
+    expect(engine.rows()).toEqual(expect.arrayContaining([
+      { xpath: "/main[1]/p[1]", excluded: false, explicit: true },
+      { xpath: "/main[1]/p[2]", excluded: false, explicit: true },
+    ]));
+    const projection = engine.projectPreview("https://example.com/page", selectors);
+    expect(projection.rows.filter((row) => row.classification === "explicit-included")).toHaveLength(2);
+    engine.dispose();
+  });
+
+  it("keeps selector seeding one-shot inside an active clean marking session", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const original = new FakeElement("P", rect(0, 20, 120, 20), "Seeded at activation");
+    for (const element of [root, original]) element.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(original);
+    const selectors = { inclusionSelectors: ["p"], exclusionSelectors: [] };
+    const engine = createMarkingEngine(root as unknown as Element, {
+      render: true,
+      selectors,
+    });
+
+    const newcomer = new FakeElement("P", rect(0, 0, 120, 20), "Added during marking");
+    newcomer.ownerDocument = doc;
+    newcomer.parentElement = root;
+    root.children.unshift(newcomer);
+    root.childNodes.unshift(newcomer);
+    engine.refresh({ render: true });
+
+    expect(engine.rows()).toContainEqual({
+      xpath: "/main[1]/p[2]",
+      excluded: false,
+      explicit: true,
+    });
+    expect(engine.rows()).not.toContainEqual({
+      xpath: "/main[1]/p[1]",
+      excluded: false,
+      explicit: true,
+    });
+    const projection = engine.projectPreview("https://example.com/page", selectors);
+    expect(projection.rows.find((row) => row.text === "Seeded at activation")).toMatchObject({
+      xpath: "/main[1]/p[2]",
+      classification: "explicit-included",
+    });
+    expect(projection.rows.find((row) => row.text === "Added during marking")).toMatchObject({
+      xpath: "/main[1]/p[1]",
+      classification: "undetected",
+    });
+    engine.dispose();
   });
 
   it("falls back to the root scroller when a storefront ignores scrollIntoView", () => {

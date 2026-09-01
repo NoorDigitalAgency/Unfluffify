@@ -2636,9 +2636,11 @@ than weakening or taking over that lock.
   branch, and creates the descendant exclusion; clicking an explicit-included
   descendant removes only that inclusion and preserves the ancestor.
 - Content List is a projection of the current canonical session whenever that
-  session is newer than selector projection. A clean selector-derived engine
-  may reuse the exact selector seed; a genuinely different projection request
-  may build an isolated selector baseline without mutating session authority.
+  session is newer than selector projection because of an operator mutation.
+  A structural DOM refresh is not such a mutation: active-session decisions
+  rebind through surviving Element identity, while silent mode reapplies its
+  selector authority. A genuinely different projection request may build an
+  isolated selector baseline without mutating either authority.
 - Preview traversal uses the same shallow-boundary rule as submission: an
   excluded ancestor is the one row/target for its covered branch, and covered
   descendants do not appear as included/actionable rows unless a valid explicit
@@ -2776,3 +2778,15 @@ than weakening or taking over that lock.
   budget, activation, mutation-pressure, and input-long-task checks; its only
   rejected criterion is the intentionally dirty source identity, so the clean
   source-identity rerun remains after the review commit.
+- The post-commit clean P14 rerun passes all `192/192` checks, including source
+  identity. P17 then exposed a real structural-reprojection ambiguity: bridge
+  invalidation was being treated as proof that the mutable session owned the
+  Content List. The repair now tracks operator mutation separately, rebases
+  explicit decisions and exact-boundary unexcludes through surviving Element
+  identity, recomputes defaults, and reapplies selector authority only for
+  silent presentation. Focused marking tests pass `157/157`; the final full
+  `pnpm verify` passes `1,589/1,589`, the production build, and `7/7` manifest
+  checks; the debug build also passes. Dirty-source P14 passes all `192/192`
+  semantic/performance checks and dirty-source P17 passes all `19/19` required
+  browser checks; their only rejected criterion is source identity, so clean-
+  source reruns follow the repair commit.
