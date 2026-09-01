@@ -4090,3 +4090,89 @@ authorized by R22 or its browser acceptance.
 7. `el02-r22-headed-acne` -> 6
 8. `el02-r22-candidate-matrix` -> 7
 9. `el02-r22-conformance` -> 8
+
+## 6. Execution evidence and conformance — 2026-09-02
+
+### Source, regressions, and unchanged gates
+
+- Implemented the strict popup physical-height hint, conservative background
+  intersection, two-sample/final-sample transition proof, immediate late-shrink
+  correction, generation-fenced stable growth, durable proven `fittedScale`,
+  and bounded exact-mode debugger reinforcement.
+- Focused R22 coverage passed: eight files, 166/166 tests. Runtime coverage
+  passed: 37/37 tests. Final `pnpm check` passed.
+- The authoritative final `pnpm verify` passed 148/148 files and 1631/1631
+  tests, followed by successful production and debug builds, the clean P17
+  19/19 matrix, and all seven unchanged-threshold P25 children (P14, P15, P16,
+  P17, P18, P20, and P23).
+- Review completed on the exact diff. Commit
+  `1842e66e54975585a28a846f1d3a2779420013a0` was pushed to
+  `origin/re-write`; local and upstream heads were exact before headed
+  acceptance. No generated P17/P25 artifact was committed.
+
+### Fresh repository `live-browser` evidence
+
+All three runs used the repository launcher and production bundle. Observers
+remained detached from the website target while extension-owned emulation was
+active. No AI request, Save, takeover, final Lynx publication, release, or
+deployment was attempted.
+
+- **Acne:** the physical tab was 850×705. Mobile settled at 412×960 with scale
+  `0.734375`; a 705→455 px physical-height shrink was already corrected on the
+  first acknowledged sample to `0.4739583333333333`. Expansion retained the
+  smaller safe scale until stable, then returned to `0.734375`. Across 23 mobile
+  samples there were zero inactive states and zero active-fit violations.
+  Desktop settled at 1920×1080 with scale `0.4427083333333333`; a 850×705→
+  570×455 shrink was already corrected on the first acknowledged sample to
+  `0.296875`, with stable-only return to `0.4427083333333333`. Across 19 desktop
+  samples there were zero inactive states and zero active-fit violations.
+  Deliberate debugger detach recovered exact mobile in 132 ms. Page reload and
+  a terminated/recreated extension worker both recovered exact mobile at the
+  proven safe scale. The Content List retained one projection identity and
+  revision across unchanged probes and exposed semantic, keyboard-focusable
+  rows.
+- **Aleris** `/kirurgi/brack/aderbrack/`: the physical tab was 850×705. Each of
+  the 36-sample mobile and 36-sample desktop resize traces had zero inactive
+  states and zero fit violations. First shrink acknowledgements were exact at
+  mobile `0.4739583333333333` and desktop `0.296875`; both modes remained
+  conservatively underscaled during expansion and grew only after stability.
+  Deliberate detach recovered exact mobile in 35.3 ms. The 67 semantic Content
+  List rows retained one projection identity/revision across three spaced
+  probes; an included row accepted native focus/click activation.
+- **3DPrima** `/se/3d-skrivare-mer/tillverkare/anycubic`: the physical tab was
+  850×705. Each of the 36-sample mobile and 36-sample desktop resize traces had
+  zero inactive states and zero fit violations. First shrink acknowledgements
+  were exact at mobile `0.4739583333333333` and desktop `0.296875`; growth was
+  withheld until stable. Deliberate detach recovered exact mobile in 246.1 ms.
+  The 96 semantic Content List rows retained one projection identity/revision
+  across three spaced probes; an included row accepted native focus/click
+  activation.
+
+### R22 acceptance reconciliation
+
+- `EL02-R22-AC-01` — **PASS.** Exact mode dimensions and both physical-fit
+  inequalities held for every acknowledged headed sample.
+- `EL02-R22-AC-02` — **PASS.** Deterministic stale/missing/late geometry tests
+  prove no oversized initial write; every headed first shrink acknowledgement
+  was already exact and no scale-1 transition occurred.
+- `EL02-R22-AC-03` — **PASS.** Unit coverage plus Acne reload/cold-worker and all
+  three detach traces prove the safe scale and exact held mode survive loss.
+- `EL02-R22-AC-04` — **PASS.** Shrink was immediate; expansion remained capped
+  until generation-fenced stability, with fake-timer command-log coverage for
+  coalescing and cancellation.
+- `EL02-R22-AC-05` — **PASS.** Late physical movement stayed on the scale-only
+  correction path; command-log tests exclude UA, touch, media, page-scale,
+  opposite-mode, and neutral-posture churn.
+- `EL02-R22-AC-06` — **PASS.** Focused lifecycle tests, P16/P20/P23, and fresh
+  popup, mode-switch, resize, reload, detach, worker-recreation, Preview-exit,
+  and launcher-teardown runs preserve one serialized authoritative target.
+- `EL02-R22-AC-07` — **PASS.** Every mandatory focused/full/build/P17/P25 gate
+  passed at unchanged thresholds.
+- `EL02-R22-AC-08` — **PASS.** Acne, Aleris, and 3DPrima headed traces prove
+  complete fit through transition, shrink, stable growth, detach, plus Acne
+  reload/cold-worker recovery, with zero prohibited egress or deployment.
+
+**R22 verdict: APPROVED.** The observed mobile flicker/clipping divergence is
+closed at the extension's acknowledgement boundary. This does not approve the
+whole rewrite for production; the expert-loop continues with the remaining
+cross-feature findings and a fresh independent audit.
