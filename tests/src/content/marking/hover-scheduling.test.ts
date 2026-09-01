@@ -13,7 +13,7 @@ const identity = (
   eventTarget: targetA,
   overlayXpath: "",
   altKey: false,
-  shiftKey: false,
+  ctrlKey: false,
   ...overrides,
 });
 
@@ -31,7 +31,7 @@ describe("marking hover scheduling", () => {
     expect(markingHoverNeedsLeadingPaint(current, identity({ overlayXpath: "/html/body/p" })))
       .toBe(true);
     expect(markingHoverNeedsLeadingPaint(current, identity({ altKey: true }))).toBe(true);
-    expect(markingHoverNeedsLeadingPaint(current, identity({ shiftKey: true }))).toBe(true);
+    expect(markingHoverNeedsLeadingPaint(current, identity({ ctrlKey: true }))).toBe(true);
   });
 
   it("keeps repeated movement inside one semantic boundary frame-coalescible", () => {

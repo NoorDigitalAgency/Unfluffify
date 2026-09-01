@@ -1184,8 +1184,8 @@ describe("P6 DOM bridge", () => {
     doc.pointHits = () => [original, footer];
 
     const selectors = {
-      inclusionSelectors: [],
-      exclusionSelectors: ["footer", "img"],
+      inclusionSelectors: ["footer"],
+      exclusionSelectors: ["img"],
     };
     const engine = createMarkingEngine(footer as unknown as Element, { selectors, render: true });
     const projection = engine.projectPreview("https://example.com/page", selectors);
@@ -2965,6 +2965,9 @@ describe("P6 DOM bridge", () => {
     )).toBe(true);
     expect(renderer.paintedExclusionOwnerAtPoint(20, 15, 8)).toBeNull();
     expect(renderer.paintedExclusionOwnerAtPoint(20, 15, 9)).toBe(xpath);
+    expect(renderer.paintedMutableBoundaryAtPoint(11, 15, 8)).toBeNull();
+    expect(renderer.paintedMutableBoundaryAtPoint(20, 15, 9)).toBeNull();
+    expect(renderer.paintedMutableBoundaryAtPoint(11, 15, 9)).toBe(xpath);
     renderer.dispose();
   });
 
@@ -4968,7 +4971,7 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
-  it("matches the legacy 052c Shift-widening golden fixture", () => {
+  it("matches the legacy 052c widening golden fixture through Ctrl breadth", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 400, 400));
     const broadPlain = new FakeElement("DIV", rect(0, 0, 380, 360), "Outer copy");
@@ -5034,6 +5037,97 @@ describe("P6 DOM bridge", () => {
       excluded: true,
       explicit: true,
     });
+    engine.dispose();
+  });
+
+  it("keeps a painted expanded-exclusion boundary hoverable and toggleable while Shift stays ordinary", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 412, 3_200));
+    const group = new FakeElement("SECTION", rect(0, 0, 412, 2_800));
+    const paragraph = new FakeElement("P", rect(0, 80, 380, 60), "Aleris lead copy");
+    const sibling = new FakeElement("ARTICLE", rect(20, 180, 360, 100), "Aleris sibling copy");
+    for (const element of [root, group, paragraph, sibling]) {
+      element.ownerDocument = doc;
+    }
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    group.appendChild(paragraph);
+    group.appendChild(sibling);
+    root.appendChild(group);
+    // Model the real failure: the descendant wins Chromium's composed hit
+    // stack even at the broad owner's literal painted border.
+    doc.hits = [paragraph, group, root];
+    const renderer = createRendererTestSeam();
+    const engine = createMarkingEngine(root as unknown as Element, {
+      render: true,
+      instrumentation: { createRenderer: renderer.createRenderer },
+    });
+    const expanded = engine.resolveAtPoint(40, 100, "exclude", true);
+    expect(expanded?.xpath).toBe("/main[1]/section[1]");
+    expect(engine.toggle(expanded!, "exclude")).toBe(true);
+
+    const interior = engine.resolveAtPoint(40, 100, "exclude", false);
+    const plainBoundary = engine.resolveAtPoint(1, 100, "exclude", false);
+    const ctrlBoundary = engine.resolveAtPoint(1, 100, "exclude", true);
+    const altAtBoundary = engine.resolveAtPoint(1, 100, "include", false);
+    expect(interior?.xpath).toBe("/main[1]/section[1]/p[1]");
+    expect(plainBoundary?.xpath).toBe("/main[1]/section[1]");
+    expect(ctrlBoundary?.xpath).toBe("/main[1]/section[1]");
+    expect(altAtBoundary?.xpath).toBe("/main[1]/section[1]/p[1]");
+
+    engine.hoverAtPoint(40, 100, "exclude", false);
+    engine.hoverAtPoint(1, 100, "exclude", false);
+    expect(renderer.hoverRender).toHaveBeenLastCalledWith(
+      group as unknown as Element,
+      "/main[1]/section[1]",
+    );
+
+    // The content entrypoint maps Shift-held input to this same plain=false
+    // path. Clicking the literal boundary therefore removes the expansion and
+    // rehydrates ordinary descendant defaults; Shift adds no special case.
+    expect(engine.toggle(plainBoundary!, "exclude")).toBe(true);
+    expect(engine.rows()).not.toContainEqual({
+      xpath: "/main[1]/section[1]",
+      excluded: true,
+      explicit: true,
+    });
+    expect(engine.rows()).toContainEqual({
+      xpath: "/main[1]/section[1]/p[1]",
+      excluded: false,
+    });
+    engine.dispose();
+  });
+
+  it("reprojects the active canonical session after a Ctrl-expanded exclusion", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 412, 800));
+    const group = new FakeElement("SECTION", rect(0, 0, 412, 600));
+    const paragraph = new FakeElement("P", rect(20, 40, 300, 40), "Projected child");
+    const sibling = new FakeElement("ARTICLE", rect(20, 120, 300, 80), "Projected sibling");
+    for (const element of [root, group, paragraph, sibling]) element.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    group.appendChild(paragraph);
+    group.appendChild(sibling);
+    root.appendChild(group);
+    doc.hits = [paragraph, group, root];
+    const engine = createMarkingEngine(root as unknown as Element);
+    const selectors = { inclusionSelectors: [], exclusionSelectors: [] };
+    const before = engine.projectPreview("https://www.aleris.se/", selectors);
+    expect(before.rows.some((row) => row.xpath === "/main[1]/section[1]/p[1]")).toBe(true);
+
+    const expanded = engine.resolveAtPoint(40, 60, "exclude", true);
+    expect(expanded?.xpath).toBe("/main[1]/section[1]");
+    expect(engine.toggle(expanded!, "exclude")).toBe(true);
+    const after = engine.projectPreview("https://www.aleris.se/", selectors);
+
+    expect(after.revision).toBeGreaterThan(before.revision);
+    expect(after.rows).toContainEqual(expect.objectContaining({
+      xpath: "/main[1]/section[1]",
+      classification: "excluded",
+    }));
+    expect(after.rows.some((row) => row.xpath === "/main[1]/section[1]/p[1]")).toBe(false);
+    expect(after.rows.some((row) => row.xpath === "/main[1]/section[1]/article[1]")).toBe(false);
     engine.dispose();
   });
 
@@ -5810,6 +5904,7 @@ describe("P6 DOM bridge", () => {
           ...createOverlayRenderer(options),
           paintedExplicitOwnerAtPoint: () => null,
           paintedExclusionOwnerAtPoint: () => null,
+          paintedMutableBoundaryAtPoint: () => null,
         }),
       },
     });

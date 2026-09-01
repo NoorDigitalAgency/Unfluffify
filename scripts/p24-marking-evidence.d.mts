@@ -27,14 +27,14 @@ export function successfulDecisionChange(
   afterStatus: DecisionStatus | null | undefined,
 ): DecisionChange;
 export function widenedOwnerClearEvidence(
-  beforeShiftStatus: DecisionStatus | null | undefined,
-  afterShiftStatus: DecisionStatus | null | undefined,
+  beforeCtrlStatus: DecisionStatus | null | undefined,
+  afterCtrlStatus: DecisionStatus | null | undefined,
   afterClearStatus: DecisionStatus | null | undefined,
 ): Readonly<{
-  shift: DecisionChange;
+  ctrl: DecisionChange;
   clear: DecisionChange;
-  shiftedOwners: DecisionRow[];
-  removedShiftOwners: DecisionRow[];
+  widenedOwners: DecisionRow[];
+  removedWidenedOwners: DecisionRow[];
   passed: boolean;
 }>;
 export function explicitInclusionEvidence(

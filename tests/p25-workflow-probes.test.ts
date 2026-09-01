@@ -529,7 +529,7 @@ function exactGestureEvidence() {
       { id: "alt-include", acknowledged: true, acknowledgementLatencyMs: 14, assertion: { kind: "explicit-inclusion", ownerRelation: "exact" } },
       { id: "native-context-menu", acknowledged: true, acknowledgementLatencyMs: 15, changed: false, targetDelta: { created: [], removed: [], changed: [] } },
       { id: "plain-include-unmark", acknowledged: true, acknowledgementLatencyMs: 10, assertion: { removedExactOwner: true, remainingTargetOwned: 0 } },
-      { id: "shift-expand", acknowledged: true, acknowledgementLatencyMs: 13, assertion: { kind: "explicit-exclusion", ownerRelation: "ancestor", breadthIncreased: true } },
+      { id: "ctrl-expand", acknowledged: true, acknowledgementLatencyMs: 13, assertion: { kind: "explicit-exclusion", ownerRelation: "ancestor", breadthIncreased: true } },
     ],
     nativeContextMenu: {
       eventObserved: true,
@@ -540,16 +540,16 @@ function exactGestureEvidence() {
 }
 
 describe("P25 exact marking gesture acceptance", () => {
-  it("accepts plain toggles, Alt inclusion, Shift breadth, and native-menu evidence", () => {
+  it("accepts plain toggles, Alt inclusion, Ctrl breadth, and native-menu evidence", () => {
     expect(validateExactMarkingGestureEvidence(exactGestureEvidence())).toEqual({ pass: true, failures: [] });
   });
 
-  it("accepts Shift creation on a meaningful boundary that legacy keeps exact", () => {
+  it("accepts Ctrl creation on a meaningful boundary that the widening ladder keeps exact", () => {
     const evidence = exactGestureEvidence();
     const xpath = "/html[1]/body[1]/main[1]/p[1]";
-    Object.assign(evidence, { target: { xpath, shiftedOwnerXpath: xpath } });
+    Object.assign(evidence, { target: { xpath, expandedOwnerXpath: xpath } });
     evidence.operations[5] = {
-      id: "shift-expand",
+      id: "ctrl-expand",
       acknowledged: true,
       acknowledgementLatencyMs: 13,
       assertion: {
@@ -578,18 +578,18 @@ describe("P25 exact marking gesture acceptance", () => {
   it("rejects an ambient aggregate change on a different target", () => {
     const evidence = exactGestureEvidence();
     evidence.operations[5] = {
-      id: "shift-expand",
+      id: "ctrl-expand",
       changed: true,
       assertion: { kind: "explicit-exclusion", ownerRelation: "unrelated", breadthIncreased: true },
     } as never;
-    expect(validateExactMarkingGestureEvidence(evidence).failures).toContain("shift-expand:not-widened-exclusion");
+    expect(validateExactMarkingGestureEvidence(evidence).failures).toContain("ctrl-expand:not-widened-exclusion");
   });
 
   it("rejects paint-only acknowledgements without settled canonical state", () => {
     const evidence = exactGestureEvidence();
     const ownerXpath = "/main[1]/section[1]";
     evidence.operations[5] = {
-      id: "shift-expand",
+      id: "ctrl-expand",
       acknowledged: true,
       acknowledgementLatencyMs: 18,
       assertion: { kind: null, ownerRelation: null, breadthIncreased: false },
@@ -600,7 +600,7 @@ describe("P25 exact marking gesture acceptance", () => {
       },
     } as never;
     expect(validateExactMarkingGestureEvidence(evidence).failures)
-      .toContain("shift-expand:not-widened-exclusion");
+      .toContain("ctrl-expand:not-widened-exclusion");
   });
 
   it("rejects the right target with the wrong marking kind", () => {
@@ -612,9 +612,9 @@ describe("P25 exact marking gesture acceptance", () => {
     expect(validateExactMarkingGestureEvidence(evidence).failures).toContain("alt-include:not-explicit-inclusion");
   });
 
-  it("rejects fingerprint-only Shift changes and a mutating native right-click", () => {
+  it("rejects fingerprint-only Ctrl changes and a mutating native right-click", () => {
     const evidence = exactGestureEvidence();
-    evidence.operations[5] = { id: "shift-expand", changed: true } as never;
+    evidence.operations[5] = { id: "ctrl-expand", changed: true } as never;
     evidence.operations[3] = {
       id: "native-context-menu",
       acknowledged: true,
@@ -624,7 +624,7 @@ describe("P25 exact marking gesture acceptance", () => {
     } as never;
     const validation = validateExactMarkingGestureEvidence(evidence);
     expect(validation.failures).toEqual(expect.arrayContaining([
-      "shift-expand:not-widened-exclusion",
+      "ctrl-expand:not-widened-exclusion",
       "native-context-menu:marking-mutated",
     ]));
   });

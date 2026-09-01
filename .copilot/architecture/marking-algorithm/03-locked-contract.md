@@ -51,8 +51,8 @@ re-checks paint-reachability when it scrolls in.
   descendant as the explicit exclusion. Clicking the **boundary itself** (no
   descendant wins) unmarks that boundary directly.
 
-### 1.2 Shift = parent/breadth selection
-`Shift+Click` resolution order (restored 052c): **(1)** the clicked element if it
+### 1.2 Ctrl = parent/breadth selection
+`Ctrl+Click` resolution order (restored 052c): **(1)** the clicked element if it
 is a structured group or toggleable boundary, **(2)** nearest structured group
 ancestor, **(3)** nearest toggleable ancestor, **(4)** broadest markable
 ancestor. A **shallow-page-shell guard** rejects generic body-level wrappers with
@@ -99,8 +99,8 @@ markable descendants still fall through as default content.
 ### 2.3 Page-interaction passthrough (the expand-then-mark path) [MHL §Page Interaction Mode]
 Holding `Space` while marking is enabled temporarily lets clicks **pass through
 to the underlying page UI** — for opening accordions, tabs, menus before
-returning to marking or explicit-include work. `Alt` remains include, `Shift`
-remains parent; `Space` is a separate hold. Releasing `Space` / window blur /
+returning to marking or explicit-include work. `Alt` remains include, `Ctrl`
+remains parent, Alt wins Ctrl+Alt, and Shift/Meta are inert; `Space` is a separate hold. Releasing `Space` / window blur /
 visibility change / disabling marking **restores the overlay and redraws
 markings over the page's new posture**. (Silent-highlighting overlays never
 capture clicks, so accordions are directly interactive in passive mode.)
@@ -202,8 +202,8 @@ The freeze/marking boundary is **page content only**; extension UI
 
 The contract doesn't draw an explicit FSM, but its modes compose into one:
 `disabled` (off / temporarily-blocked) · `passthrough` (`Space`) · `include`
-(`Alt`) · `exclude` (default) · with `Shift` an orthogonal breadth modifier on
-include/exclude. Mode is derived from held modifiers; `Space`/blur/visibility/
+(`Alt`) · `exclude` (default) · with `Ctrl && !Alt` an orthogonal breadth modifier
+for exclusions. Shift and Meta are inert. Mode is derived from held modifiers; `Space`/blur/visibility/
 disable restore the overlay and redraw over the new page posture. This matches
 the `01` first-principles FSM (which formalizes states, events, transitions).
 
@@ -220,7 +220,7 @@ the `01` first-principles FSM (which formalizes states, events, transitions).
 - **Q-γ (drill vs reach):** CONFIRMED by the contract — Exclude Mode drills
   (skip excluded ancestors, refine deeper); Include Mode reaches into excluded
   parents.
-- **Q-δ (Shift order):** CONFIRMED — the four-step resolution order above.
+- **Q-δ (Ctrl order):** CORRECTED — the four-step resolution order above; Shift is inert.
 - **Q-ε (closed include boundary):** CONFIRMED — descendants under an active
   include are not targetable until removed.
 - **Q-ζ / Q-η (repaint tiers / settle):** the contract specifies the immediate-

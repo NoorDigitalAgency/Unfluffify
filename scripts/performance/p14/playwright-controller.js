@@ -142,10 +142,10 @@ async (page) => {
         }
         const point = await page.evaluate(() => window.__p14Runtime.point("click-target"));
         await page.mouse.move(4, 4);
-        // Hold Shift through both samples so this gate benchmarks the broader
+        // Hold Ctrl through both samples so this gate benchmarks the broader
         // ancestor-selection path. Plain click also creates an exclusion under
         // the approved contract, but is measured by the exact P25 gesture gate.
-        await page.keyboard.down("Shift");
+        await page.keyboard.down("Control");
         const hoverWindow = await beginInputWindow("markingHover");
         await page.evaluate(() => window.__p14Runtime.armHover());
         await page.mouse.move(point.x, point.y);
@@ -155,7 +155,7 @@ async (page) => {
         const clickWindow = await beginInputWindow("markingClickCommitPaint");
         await page.evaluate(() => window.__p14Runtime.armClick());
         await page.mouse.click(point.x, point.y);
-        await page.keyboard.up("Shift");
+        await page.keyboard.up("Control");
         const clickResult = await page.evaluate(() => window.__p14Runtime.finishClick());
         timings.markingClickCommitPaint = clickResult.durationMs;
         inputLongTasks.push(await finishInputWindow(clickWindow));

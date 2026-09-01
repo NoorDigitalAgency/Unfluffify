@@ -135,12 +135,12 @@ async (page) => {
     }
     return point;
   };
-  const invalidShiftClick = async (target, x, y) => {
-    await target.keyboard.down("Shift");
+  const invalidCtrlClick = async (target, x, y) => {
+    await target.keyboard.down("Control");
     try {
       await target.mouse.click(x, y);
     } finally {
-      await target.keyboard.up("Shift");
+      await target.keyboard.up("Control");
     }
   };
   const waitForPopupEffect = (target) => target.evaluate(() => new Promise((resolve) => {
@@ -509,7 +509,7 @@ async (page) => {
       await waitForContentToastTone(contentPage, "success");
       await contentPage.keyboard.up("Space");
       const contentFirst = await contentCall(contentPage, "snapshot");
-      await invalidShiftClick(contentPage, 1_100, 700);
+      await invalidCtrlClick(contentPage, 1_100, 700);
       await waitForContentToastTone(contentPage, "warning");
       const contentAfterReplace = await contentCall(contentPage, "snapshot");
       assertion(contentFirst.toast?.message === "Page interaction mode", "Content success toast did not use production copy", contentFirst.toast);
@@ -533,7 +533,7 @@ async (page) => {
       );
 
       const priorContentOccurrenceId = contentReplacementEvidence.replacement.id;
-      await invalidShiftClick(contentPage, 1_100, 700);
+      await invalidCtrlClick(contentPage, 1_100, 700);
       await contentPage.waitForFunction(
         (priorId) => {
           const toast = document.querySelector("[data-uf-content-toast=\"true\"]");
@@ -710,7 +710,7 @@ async (page) => {
       contentDeadlines.push({ tone: "success", durationMs: 1_800, observedElapsedMs: contentSuccessElapsed, initial: contentSuccess.toast, beforeDeadline: contentSuccessBefore.toast, atDeadline: contentSuccessAt.toast });
 
       const contentWarningStarted = await contentPage.evaluate(() => performance.now());
-      await invalidShiftClick(contentPage, 1_100, 700);
+      await invalidCtrlClick(contentPage, 1_100, 700);
       await waitForContentToastTone(contentPage, "warning");
       const contentWarning = await contentCall(contentPage, "snapshot");
       await contentPage.waitForTimeout(expectedDurations.warning - 150);

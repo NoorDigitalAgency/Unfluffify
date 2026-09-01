@@ -76,8 +76,8 @@ conflicting older rows in this register. Where this register cites the legacy do
 |----|------|-----|
 | INV-3.1 | **Mode is a pure function of inputs** via one authority (`deriveMarkMode`). Precedence: **`disabled` > `passthrough`(Space) > `include`(Alt) > `exclude`(default)**. `getMarkModeFromEvent` reads `altKey` from the committing event so the mode is race-proof at click time. | CONFIRMED |
 | INV-3.2 | **`disabled`** = not enabled, or no overlay, or temporarily busy-locked (AI run in flight, save/sync reconciliation pending). No target resolution or commits happen in `disabled`. | CONFIRMED |
-| INV-3.3 | **`Shift` is not a mode.** It is an orthogonal breadth modifier resolved separately, active only outside include mode. | CONFIRMED |
-| INV-3.4 | **Latches reset on** window blur, tab visibility change, and navigation — releasing Alt/Shift/Space. The machine holds no mode state beyond these latches; every event re-derives the mode. | CONFIRMED |
+| INV-3.3 | **`Ctrl` is not a mode.** `Ctrl && !Alt` is the orthogonal exclusion-breadth modifier. Alt wins Ctrl+Alt. Shift and Meta are completely inert, including over an expanded-exclusion boundary. | **CORRECTED** |
+| INV-3.4 | **Latches reset on** window blur, tab visibility change, and navigation — releasing Alt/Ctrl/Space. The machine holds no mode state beyond these latches; every event re-derives the mode. | **CORRECTED** |
 
 ### 3.2 Target resolution
 
@@ -97,12 +97,12 @@ conflicting older rows in this register. Where this register cites the legacy do
 | INV-3.16 | **Hit path pierces pointer-events suppression and every retrievable shadow root.** `elementsFromPoint` is extended to surface `pointer-events:none` descendants of the topmost hit whose rects contain the point (deepest-first), and to pierce open plus early-captured closed roots, so hit-transparent header text and retrievable shadow content stay markable. | **CORRECTED** |
 | INV-3.17 | **Paint-reachability gate.** A target must be paint-reachable in the current viewport: responsive alternates that keep measurable boxes but are fully covered by another face/slide/overlay are not separate targets. A miss counts as *reachable* when the topmost page hit is an ancestor and the chain up is pointer-events-suppressed (transparency, not coverage); a genuine foreign overlay reads as covered. | CONFIRMED |
 
-### 3.3 Shift climb rule
+### 3.3 Ctrl climb rule
 
 | ID | Rule | Tag |
 |----|------|-----|
 | INV-3.18 | **A grouping ancestor qualifies as a widen target iff it has ≥2 direct descendants that are themselves eligible widening targets** (each holding multiple textual markable content). The grouping ancestor owns no direct textual markable content itself. | **CORRECTED** — the old "full-width wrapper rejection" is **removed**; a qualifying grouping ancestor qualifies **regardless of width**. |
-| INV-3.19 | **Shift climbs to the broadest qualifying group.** It ascends through successive qualifying grouping ancestors to the broadest that still groups ≥2 eligible targets, and **stops before the first non-qualifying ancestor / page shell** ("one level higher, not any shallower" — never ascend into shells). | **CORRECTED** — width no longer bounds the climb; qualification does. |
+| INV-3.19 | **Ctrl climbs to the broadest qualifying group.** It ascends through successive qualifying grouping ancestors to the broadest that still groups ≥2 eligible targets, and **stops before the first non-qualifying ancestor / page shell** ("one level higher, not any shallower" — never ascend into shells). | **CORRECTED** — width no longer bounds the climb; qualification does. |
 | INV-3.20 | **Ancestor ladder candidates must be self-markable, and the walk hard-stops at `body`/`documentElement`.** The broadest-markable rung only selects an ancestor with direct own text; generic wide wrapper divs (no direct text) are never ladder candidates. Root exclusions are impossible. | CONFIRMED |
 | INV-3.21 | **Descendants-only widen targets need ≥2 markable descendants and face the page-shell rejection at any depth.** A wrapper around a single content piece is not a widen target (excluding the piece directly is equivalent and tighter). Semantic boundaries and direct-text elements keep their exemption. | CONFIRMED |
 
@@ -277,7 +277,7 @@ conflicting older rows in this register. Where this register cites the legacy do
 | Exclusion model | "Implicit exclusion" + default/selector layer as ongoing authority | Clean default baseline, then one-shot simulated selector actions with no retained provenance (INV-2.6/2.7/2.8) |
 | Blank element | Global/config-merge re-derivation re-caught un-excluded elements | Branch-scoped, action-triggered only; un-excluded → implicit content (INV-2.9, INV-4.1/4.4) |
 | Parity audit | `incremental == full` corpus audit + trailing full reconcile | Removed; branch-scoped derivation is the definition of correct (INV-4.5) |
-| Shift widening | Full-width wrapper rejection | Width-independent; qualifies on ≥2 eligible descendants; climb to broadest (INV-3.18/3.19) |
+| Ctrl widening | Full-width wrapper rejection | Width-independent; qualifies on ≥2 eligible descendants; climb to broadest; Shift inert (INV-3.3/3.18/3.19) |
 | Discard | Reverted to saved user-markings draft; disabled marking | Clean computed baseline; marking stays active (INV-6.6) |
 | Lock identity | Frontend sessionStorage client-id + cloned-tab UUID rotation | Backend-issued + backend-rotated identity (INV-9.1/9.2) |
 | Lock timings | Client-owned | Backend-authoritative; client mirrors (INV-9.6) |

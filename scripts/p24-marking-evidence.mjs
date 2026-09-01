@@ -43,18 +43,18 @@ export function successfulDecisionChange(beforeStatus, afterStatus) {
   };
 }
 
-export function widenedOwnerClearEvidence(beforeShiftStatus, afterShiftStatus, afterClearStatus) {
-  const shift = successfulDecisionChange(beforeShiftStatus, afterShiftStatus);
-  const clear = successfulDecisionChange(afterShiftStatus, afterClearStatus);
-  const shiftedOwners = shift.added.filter((row) => row.classification === "excluded");
+export function widenedOwnerClearEvidence(beforeCtrlStatus, afterCtrlStatus, afterClearStatus) {
+  const ctrl = successfulDecisionChange(beforeCtrlStatus, afterCtrlStatus);
+  const clear = successfulDecisionChange(afterCtrlStatus, afterClearStatus);
+  const widenedOwners = ctrl.added.filter((row) => row.classification === "excluded");
   const removedKeys = new Set(clear.removed.map(rowKey));
-  const removedShiftOwners = shiftedOwners.filter((row) => removedKeys.has(rowKey(row)));
+  const removedWidenedOwners = widenedOwners.filter((row) => removedKeys.has(rowKey(row)));
   return {
-    shift,
+    ctrl,
     clear,
-    shiftedOwners,
-    removedShiftOwners,
-    passed: shift.changed && clear.changed && shiftedOwners.length > 0 && removedShiftOwners.length > 0,
+    widenedOwners,
+    removedWidenedOwners,
+    passed: ctrl.changed && clear.changed && widenedOwners.length > 0 && removedWidenedOwners.length > 0,
   };
 }
 

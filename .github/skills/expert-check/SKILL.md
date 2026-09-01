@@ -83,7 +83,7 @@ least:
   restore motion, growth and quiet proof, lazy-loading suppression, no-scroll
   pages, animation/media/SVG/timer suspension, and teardown;
 - marking defaults, eligible targets, hover, the three-state plain toggle,
-  Shift breadth, Alt inclusion with Alt-over-Shift precedence, expanded-boundary
+  Ctrl breadth, Alt inclusion with Alt-over-Ctrl precedence, fully inert Shift, expanded-boundary
   rehydration and explicit-inclusion exceptions, native right click, fragments, overlap,
   shadow DOM, hidden state, scroll/resize fade, layer order, borders, cursors,
   accessibility, and interaction latency;
@@ -152,8 +152,9 @@ Confirm that:
   freeze-authored, automation, or debug artifact leaks into extraction or
   production payloads;
 - plain input performs the approved implicit-inclusion/explicit-exclusion toggle
-  and clears an explicit inclusion to its applicable default; Shift breadth and
-  Alt inclusion use the approved target, Alt wins over Shift, expanded ownership
+  and clears an explicit inclusion to its applicable default; Ctrl breadth and
+  Alt inclusion use the approved target, Alt wins over Ctrl, Shift remains
+  identical to plain input in every marking state, expanded ownership
   rehydrates correctly, and native right click is untouched;
 - every enabled Content List row has a truthful, physically routable target;
 - post-AI edits invalidate dependent actions promptly without waiting for remote

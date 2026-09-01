@@ -3201,14 +3201,16 @@ describe("C4 rewrite content entrypoints", () => {
     const syntheticStopPropagation = vi.fn();
     for (const [type, event] of [
       ["keydown", { code: "AltLeft", key: "Alt", isTrusted: false }],
+      ["keydown", { code: "ControlLeft", key: "Control", isTrusted: false }],
       ["keydown", { code: "ShiftLeft", key: "Shift", isTrusted: false }],
       ["keyup", { code: "AltLeft", key: "Alt", isTrusted: false }],
-      ["mousemove", { clientX: 8, clientY: 9, altKey: true, shiftKey: true, isTrusted: false }],
+      ["mousemove", { clientX: 8, clientY: 9, altKey: true, ctrlKey: true, shiftKey: true, isTrusted: false }],
       ["pointerdown", { clientX: 8, clientY: 9, button: 0, timeStamp: 1, isTrusted: false }],
       ["click", {
         clientX: 8,
         clientY: 9,
         altKey: true,
+        ctrlKey: true,
         shiftKey: true,
         isTrusted: false,
         preventDefault: syntheticPreventDefault,
@@ -3319,6 +3321,7 @@ describe("C4 rewrite content entrypoints", () => {
       clientX: 25,
       clientY: 35,
       altKey: false,
+      ctrlKey: false,
       shiftKey: false,
       isTrusted: true,
     } as unknown as Event);
@@ -3327,6 +3330,7 @@ describe("C4 rewrite content entrypoints", () => {
       clientX: 45,
       clientY: 55,
       altKey: true,
+      ctrlKey: false,
       shiftKey: false,
       target: classificationOverlayTarget,
     } as unknown as Event);
@@ -3345,26 +3349,37 @@ describe("C4 rewrite content entrypoints", () => {
       clientX: 65,
       clientY: 75,
       altKey: false,
+      ctrlKey: false,
       shiftKey: true,
     } as unknown as Event);
-    expect(engine.hoverAtPoint).toHaveBeenLastCalledWith(65, 75, "exclude", true);
+    expect(engine.hoverAtPoint).toHaveBeenLastCalledWith(65, 75, "exclude", false);
     documentListeners.get("mousemove")?.({
       clientX: 75,
       clientY: 85,
       altKey: false,
-      shiftKey: true,
+      ctrlKey: true,
+      shiftKey: false,
     } as unknown as Event);
+    expect(engine.hoverAtPoint).toHaveBeenLastCalledWith(75, 85, "exclude", true);
     documentListeners.get("mousemove")?.({
       clientX: 85,
       clientY: 95,
       altKey: false,
+      ctrlKey: true,
+      shiftKey: true,
+    } as unknown as Event);
+    documentListeners.get("mousemove")?.({
+      clientX: 95,
+      clientY: 105,
+      altKey: false,
+      ctrlKey: true,
       shiftKey: true,
     } as unknown as Event);
     await vi.advanceTimersByTimeAsync(19);
-    expect(engine.hoverAtPoint).toHaveBeenCalledTimes(3);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(engine.hoverAtPoint).toHaveBeenLastCalledWith(85, 95, "exclude", true);
     expect(engine.hoverAtPoint).toHaveBeenCalledTimes(4);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(engine.hoverAtPoint).toHaveBeenLastCalledWith(95, 105, "exclude", true);
+    expect(engine.hoverAtPoint).toHaveBeenCalledTimes(5);
     vi.useRealTimers();
     await dispatchContentCommand(listener, "pauseContentMainInteractions");
     expect(engine.setSuspended).toHaveBeenCalledWith(true);
@@ -3378,7 +3393,8 @@ describe("C4 rewrite content entrypoints", () => {
       clientX: 10,
       clientY: 20,
       altKey: false,
-      shiftKey: true,
+      ctrlKey: true,
+      shiftKey: false,
       isTrusted: true,
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),
@@ -3401,7 +3417,8 @@ describe("C4 rewrite content entrypoints", () => {
       clientX: 15,
       clientY: 25,
       altKey: false,
-      shiftKey: true,
+      ctrlKey: true,
+      shiftKey: false,
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),
     } as unknown as Event);
@@ -3452,15 +3469,18 @@ describe("C4 rewrite content entrypoints", () => {
       clientX: 10,
       clientY: 20,
       altKey: true,
+      ctrlKey: true,
       shiftKey: false,
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),
     } as unknown as Event);
+    expect(engine.resolveAtPoint).toHaveBeenLastCalledWith(10, 20, "include", false);
     documentListeners.get("click")?.({
       clientX: 11,
       clientY: 21,
       altKey: false,
-      shiftKey: true,
+      ctrlKey: true,
+      shiftKey: false,
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),
     } as unknown as Event);
@@ -3501,10 +3521,12 @@ describe("C4 rewrite content entrypoints", () => {
       clientX: 12,
       clientY: 22,
       altKey: false,
-      shiftKey: false,
+      ctrlKey: false,
+      shiftKey: true,
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),
     } as unknown as Event);
+    expect(engine.resolveAtPoint).toHaveBeenLastCalledWith(12, 22, "exclude", false);
     await waitForMockCalls(engine.acknowledge, 4);
     expect(engine.acknowledge).toHaveBeenNthCalledWith(
       4,
@@ -3535,6 +3557,7 @@ describe("C4 rewrite content entrypoints", () => {
       clientX: 1,
       clientY: 2,
       altKey: false,
+      ctrlKey: false,
       shiftKey: false,
       preventDefault: vi.fn(),
       stopPropagation: vi.fn(),

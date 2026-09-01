@@ -751,11 +751,11 @@ describe("P25 frame collector Long Task evidence", () => {
 describe("P25 prepared marking target authority", () => {
   const target = { xpath: "/html[1]/body[1]/main[1]/h1[1]" };
 
-  it("accepts an exact Alt owner, a contractual Shift owner, and a clean final owner set", () => {
+  it("accepts an exact Alt owner, a contractual Ctrl owner, and a clean final owner set", () => {
     expect(preparedMarkingTargetIsUsable({
       target,
       includedOwnerXpath: target.xpath,
-      shiftedOwnerXpath: "/html[1]/body[1]/main[1]",
+      expandedOwnerXpath: "/html[1]/body[1]/main[1]",
       decision: { targetOwned: [] },
     })).toBe(true);
   });
@@ -764,35 +764,35 @@ describe("P25 prepared marking target authority", () => {
     expect(preparedMarkingTargetIsUsable({
       target,
       includedOwnerXpath: target.xpath,
-      shiftedOwnerXpath: target.xpath,
+      expandedOwnerXpath: target.xpath,
       decision: { targetOwned: [] },
     })).toBe(true);
   });
 
-  it("normalizes a related nested physical owner before exact Alt and Shift proof", () => {
+  it("normalizes a related nested physical owner before exact Alt and Ctrl proof", () => {
     const nestedOwnerXpath = `${target.xpath}/a[1]`;
     expect(markingOwnerBelongsToCandidate(target.xpath, nestedOwnerXpath)).toBe(true);
     expect(preparedMarkingTargetIsUsable({
       target: { xpath: nestedOwnerXpath },
       includedOwnerXpath: nestedOwnerXpath,
-      shiftedOwnerXpath: "/html[1]/body[1]/main[1]",
+      expandedOwnerXpath: "/html[1]/body[1]/main[1]",
       decision: { targetOwned: [] },
     })).toBe(true);
     expect(markingOwnerBelongsToCandidate(target.xpath, "/html[1]/body[1]/aside[1]")).toBe(false);
   });
 
-  it("requires the exact Alt owner and contractual Shift owner to survive a second authority observation", () => {
+  it("requires the exact Alt owner and contractual Ctrl owner to survive a second authority observation", () => {
     const initial = {
       target,
       includedOwnerXpath: target.xpath,
-      shiftedOwnerXpath: "/html[1]/body[1]/main[1]",
+      expandedOwnerXpath: "/html[1]/body[1]/main[1]",
       decision: { targetOwned: [] },
     };
 
     expect(stablePreparedMarkingTargetAuthority(initial, { ...initial })).toBe(true);
     expect(stablePreparedMarkingTargetAuthority(initial, {
       ...initial,
-      shiftedOwnerXpath: "/html[1]/body[1]",
+      expandedOwnerXpath: "/html[1]/body[1]",
     })).toBe(false);
     expect(stablePreparedMarkingTargetAuthority(initial, {
       ...initial,
@@ -803,24 +803,24 @@ describe("P25 prepared marking target authority", () => {
   it.each([
     ["late ancestor ownership", target.xpath, "/html[1]/body[1]/main[1]", [{ ownerRelation: "ancestor" }]],
     ["descendant Alt owner", `${target.xpath}/a[1]`, "/html[1]/body[1]/main[1]", []],
-    ["descendant Shift owner", target.xpath, `${target.xpath}/span[1]`, []],
-  ])("rejects %s", (_label, includedOwnerXpath, shiftedOwnerXpath, targetOwned) => {
+    ["descendant Ctrl owner", target.xpath, `${target.xpath}/span[1]`, []],
+  ])("rejects %s", (_label, includedOwnerXpath, expandedOwnerXpath, targetOwned) => {
     expect(preparedMarkingTargetIsUsable({
       target,
       includedOwnerXpath,
-      shiftedOwnerXpath,
+      expandedOwnerXpath,
       decision: { targetOwned },
     })).toBe(false);
   });
 });
 
-describe("P25 settled Shift assertion authority", () => {
+describe("P25 settled Ctrl assertion authority", () => {
   const targetXpath = "/html[1]/body[1]/main[1]/p[1]";
   const target = { targetBreadth: 2 };
   const delta = { created: [], removed: [], changed: [], ambientCreated: [], ambientRemoved: [] };
 
   it("serializes the meaningful exact owner and a genuinely widened ancestor", () => {
-    expect(markingAssertion("shift-expand", {}, {
+    expect(markingAssertion("ctrl-expand", {}, {
       ...target,
       targetOwned: [{
         ownerXpath: targetXpath,
@@ -837,7 +837,7 @@ describe("P25 settled Shift assertion authority", () => {
     });
 
     const ancestorXpath = "/html[1]/body[1]/main[1]";
-    expect(markingAssertion("shift-expand", {}, {
+    expect(markingAssertion("ctrl-expand", {}, {
       ...target,
       targetOwned: [{
         ownerXpath: ancestorXpath,

@@ -163,9 +163,9 @@ pnpm exec vitest run tests/core-visibility.test.ts tests/core-motion-pause.test.
 
 ### Regression Tests (`/tests`)
 
-- **`marking-rules.test.ts`** - Regression coverage for the locked default-exclusion taxonomy, restored toggleable boundary markability, Shift parent-boundary chooser, and duplicate toggle suppression
+- **`marking-rules.test.ts`** - Regression coverage for the locked default-exclusion taxonomy, restored toggleable boundary markability, Ctrl parent-boundary chooser, and duplicate toggle suppression
 - **`submission-rules.test.ts`** - Regression coverage for AI submission roots and content rows: stored excluded rows, hidden textual exclusions, immutable-tag omission, included textual boundaries, and explicit includes
-- **`core-visibility.test.ts`** - Regression coverage for content-side visibility guards (including the MA-1b CSS text-clamp visibility rule and CP6 shadow-DOM enumeration, host-hit paint-reachability, and shadow-piercing target resolution), restored Shift/Alt target promotion, sanitized snapshot XPath alignment, and dynamic style-mutation redraw decisions used by marking and submission
+- **`core-visibility.test.ts`** - Regression coverage for content-side visibility guards (including the MA-1b CSS text-clamp visibility rule and CP6 shadow-DOM enumeration, host-hit paint-reachability, and shadow-piercing target resolution), restored Ctrl/Alt target promotion, sanitized snapshot XPath alignment, and dynamic style-mutation redraw decisions used by marking and submission
 - **`mark-mode-fsm.test.ts`** - Regression coverage for the `deriveMarkMode` marking-interaction FSM authority and its fixed `disabled > passthrough > include > exclude` precedence
 - **`shadow-deep-capture.test.ts`** - Regression coverage for flattening open shadow DOM into the captured HTML as real elements (Googlebot parity): composed order, extension-shadow exclusion, nested shadow recursion, and no `<template shadowrootmode>` wrapper
 - **`shadow-xpath.test.ts`** - Regression coverage for the flattened positional XPath scheme: continuous paths across shadow boundaries, light-child index shift past preceding shadow siblings, composed-tree round-trip resolution, and extension-shadow exclusion
@@ -204,7 +204,7 @@ pnpm exec vitest run tests/core-visibility.test.ts tests/core-motion-pause.test.
 ## How to Use
 
 1. **Enable on a Page**: Click the Unfluffify icon → Set a **Base URL** → Click **Enable on this tab**
-2. **Mark Content**: Hover any visible eligible mutable target and click to toggle implicit inclusion, explicit exclusion, or explicit inclusion. Hold **Shift** to move between an individual target and an eligible broader boundary; hold **Alt** for individual explicit inclusion (Alt wins over Shift, including mixed-text parent/child targeting). Expanded exclusions rehydrate their descendants when removed. Hidden targets never paint or accept marking interaction, Meta/Ctrl have no marking role, and right-click always opens the native browser menu.
+2. **Mark Content**: Hover any visible eligible mutable target and click to toggle implicit inclusion, explicit exclusion, or explicit inclusion. Hold **Ctrl** to move between an individual target and an eligible broader exclusion boundary; hold **Alt** for individual explicit inclusion (Alt wins over Ctrl, including mixed-text parent/child targeting). Expanded exclusions rehydrate their descendants when removed. Hidden targets never paint or accept marking interaction, Shift and Meta have no marking role, and right-click always opens the native browser menu.
 3. **Interact With Page UI**: Hold **Space** to let clicks reach accordions, tabs, menus, and other page controls, then release to keep marking
 4. **View Markings**: Use the popup to see lists of excluded/included elements
 5. **Use Selector List**: Manage exclusion selectors directly from the popup

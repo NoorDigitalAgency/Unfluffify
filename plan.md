@@ -2580,3 +2580,199 @@ this failure. R13 does not hide that evidence or relax either timeout.
   P15, P16, P17, P18, P20, and P23, with no missing or failed gate.
 - Fresh headed DPJ evidence, the remaining candidate matrix, and cumulative
   conformance remain open under `EL-02-R13-04`.
+
+# EL-02-R14 — Ctrl expansion, mutable-boundary ownership, and truthful preview
+
+## 1. Entering expert-check findings — exact Aleris evidence
+
+R13's automated gates and the safe DPJ/Aleris workflow checks remain useful,
+but the operator's close visual review exposed a marking-contract divergence
+that blocks production readiness and supersedes every remaining Shift-based
+interaction statement. The approved modifier authority is now exact:
+
+- **Ctrl** is the sole exclusion-expansion modifier.
+- **Alt** is the sole explicit-inclusion modifier and wins over Ctrl when both
+  are held.
+- **Shift has no marking meaning at all.** Shift-held hover and click behave
+  exactly like unmodified hover and click, including on the visible boundary of
+  an expanded exclusion.
+- Meta has no marking meaning and right-click remains the native browser menu.
+
+Fresh headed Aleris evidence on
+`/mage-tarm/kapselendoskopi/forberedelser/` confirmed two additional failures:
+
+| Finding | Severity | Exact defect and owner |
+| --- | --- | --- |
+| `EL-02-F022` | Critical | The content input pipeline, hover identity, resolver vocabulary, P14/P18/P25 probes, popup copy, README, and expert-check skill all assign expansion to Shift and leave Ctrl inert. This is a complete end-to-end inversion of the approved modifier contract. |
+| `EL-02-F023` | Critical | A painted expanded exclusion is not independently hoverable or toggleable at its literal visible boundary when its composed descendant path is also present. `resolveAtPoint` accepts a painted owner only when that owner is absent from the candidate path, so the 412 px-wide Aleris boundary renders as a permanent red block while hover/click resolve only descendants. |
+| `EL-02-F024` | High | Content List can present descendants covered by the same broad exclusion as included and actionable. Aleris row 28 targeted a paragraph physically contained by `/html[1]/body[1]/main[1]/div[2]/div[1]`, even while that ancestor was the visible exclusion owner. `buildPreviewProjection` reconstructs defaults/selectors instead of using the active canonical session when selector-projection identity has been invalidated, permitting list state to diverge from the marking surface. |
+
+No Save, AI request, takeover, Lynx publication, release, or deployment was
+performed while collecting this evidence. A stale external property lock
+prevented an additional debug projection after the production reproduction;
+R14 therefore requires deterministic Aleris-shaped provenance tests rather
+than weakening or taking over that lock.
+
+## 2. Locked interaction and projection decisions
+
+- The semantic expansion flag is `Ctrl && !Alt`. Shift is never read by the
+  marking subsystem. Ctrl+Alt takes the Alt individual-inclusion path.
+- Unmodified input—including input with Shift held—uses the ordinary mutable
+  toggle contract. Every visible mutable marking can be hovered and toggled in
+  every applicable state.
+- A pointer within the actual painted border band of an exclusion or other
+  explicit mutable decision resolves that exact boundary for unmodified/Ctrl
+  exclusion interaction. The border owner wins even when its descendant is in
+  the native hit path. The interior of an expanded exclusion remains open to
+  ordinary descendant targeting.
+- Alt bypasses expanded-exclusion boundary ownership completely. It paints and
+  toggles only the eligible individual inclusion target, including the approved
+  mixed-text parent/child ladder; immutable ancestry remains absolute.
+- Boundary identity is part of hover reuse. Moving from an expanded boundary's
+  interior to its border (or back) cannot reuse a stale descendant/owner hover,
+  even when `elementsFromPoint` returns the same physical stack.
+- Removing an exact expanded boundary rehydrates descendants from defaults.
+  Clicking an ordinary descendant dissolves the ancestor, rehydrates the
+  branch, and creates the descendant exclusion; clicking an explicit-included
+  descendant removes only that inclusion and preserves the ancestor.
+- Content List is a projection of the current canonical session whenever that
+  session is newer than selector projection. A clean selector-derived engine
+  may reuse the exact selector seed; a genuinely different projection request
+  may build an isolated selector baseline without mutating session authority.
+- Preview traversal uses the same shallow-boundary rule as submission: an
+  excluded ancestor is the one row/target for its covered branch, and covered
+  descendants do not appear as included/actionable rows unless a valid explicit
+  inclusion independently rescues that exact descendant.
+- Hidden/invisible targets remain unpainted and non-interactive. Their already
+  approved payload-only coverage, immutable-selector list, ephemeral session,
+  stateless whole-property AI corpus, Save acknowledgement, and distinct fresh
+  Load complete-replacement contracts remain unchanged.
+
+## 3. Implementation phases
+
+### EL-02-R14-01 — Contract authority and Ctrl input pipeline
+
+1. Replace marking-only Shift state with Ctrl state in the trusted content
+   listener, hover identity, engine parameter names/comments, test runtime, and
+   P14/P18/P25 physical probes. Do not alter Shift+Tab accessibility behavior.
+2. Make every click/hover calculate expansion as `ctrlKey && !altKey`; keydown,
+   keyup, blur, visibility loss, pointer movement, cursor state, leading-paint
+   decisions, deduplication, and acknowledgement must share that value.
+3. Update production copy, README, the normative marking documents, and the
+   repository expert-check skill to say Ctrl expansion, Alt inclusion with
+   Alt-over-Ctrl precedence, Shift inert, Meta inert, and native right-click.
+4. Add trusted-entrypoint regressions for plain, Shift, Ctrl, Alt, Ctrl+Alt,
+   Meta, key transitions without pointer movement, and reset paths.
+
+### EL-02-R14-02 — Literal mutable-boundary hit authority
+
+1. Add a generation-fenced renderer query for the actual painted mutable
+   boundary band. It uses retained fragment geometry and deterministic layer/
+   depth ordering; it never scans canonical owners or treats an expanded
+   boundary's full interior as its boundary.
+2. In exclusion resolution, accept that exact current mutable owner before
+   descendant/widening resolution for both ordinary and Ctrl input. Preserve
+   the existing full-rect owner fallback only for genuine painted coverage
+   where the owner's composed path is absent.
+3. Include boundary-owner identity in hover reuse so border↔interior motion
+   repaints immediately while stable motion inside one semantic target remains
+   frame-coalesced.
+4. Add broad Aleris-shaped and fragmented/overlap tests proving: plain and
+   Shift hover/click the exact boundary; Ctrl toggles the exact boundary; Alt
+   ignores it; interior plain targets a descendant; interior Ctrl widens; and
+   removal/descendant/explicit-inclusion rehydration remains exact.
+
+### EL-02-R14-03 — Canonical Content List shallow coverage
+
+1. Select the current store's canonical marks when the active session has
+   invalidated selector-projection identity; retain the isolated requested-
+   selector baseline only when it represents a different clean authority.
+2. Make preview traversal terminal below excluded or immutable coverage except
+   for a valid explicit inclusion that must be represented independently.
+   Preserve closed-shadow/light-child behavior and selector attribution.
+3. Add evaluator and engine regressions for an Aleris-shaped broad exclusion,
+   active-session expansion, saved selector exclusion, explicit-inclusion
+   rescue, immutable omission, hidden rows, row availability, and two-way
+   routing. No covered descendant may be labeled Included or enabled.
+
+### EL-02-R14-04 — Gates, headed acceptance, and conformance
+
+1. Run focused marking/evaluator/content/popup/P14/P18/P25 tests and `pnpm
+   check`, then `pnpm verify`, production/debug builds, P17, and clean full P25.
+2. Review the exact diff, commit, push normally, refresh the code graph, and
+   prove clean upstream ahead/behind `0/0` before browser acceptance.
+3. Launch the exact production commit through repository `live-browser` on
+   Aleris. With trusted input, prove literal-boundary hover/toggle for plain,
+   Shift, and Ctrl; prove interior descendant behavior; prove Alt and Ctrl+Alt
+   individual inclusion; and prove Content List shallow coverage and two-way
+   routing. Make no AI, Save, takeover, publication, release, or deployment.
+4. Re-run the safe DPJ workflow and resume all externally available candidate
+   pages. Any failed criterion opens R15. Only a complete cumulative
+   expert-check can approve production readiness.
+
+## 4. Acceptance criteria
+
+- `EL02-R14-AC-01` Ctrl alone expands exclusions; Alt alone explicitly includes;
+  Ctrl+Alt equals Alt; Shift and Meta are byte-for-byte equivalent to ordinary
+  marking input in target, hover, mutation, dirt, and payload result.
+- `EL02-R14-AC-02` Every visible mutable boundary, including a viewport-wide
+  expanded exclusion, has a responsive hover and exact toggle. Border and
+  interior resolve differently where required without a document-scale scan.
+- `EL02-R14-AC-03` Exact boundary removal, ordinary descendant drilling,
+  explicit-included descendant clearing, and default rehydration produce the
+  approved canonical rows with no expansion provenance.
+- `EL02-R14-AC-04` Alt never highlights or toggles an expanded boundary as a
+  boundary, immutable descendants remain unavailable, and Ctrl+Alt never enters
+  widening.
+- `EL02-R14-AC-05` Content List and page presentation derive from one current
+  canonical occurrence. An excluded branch contributes one shallow exclusion
+  row; no covered descendant is falsely Included/actionable, except a valid
+  explicit inclusion represented independently.
+- `EL02-R14-AC-06` Existing hover/marking latency, scroll fade/reposition,
+  hidden-geometry, reveal/freeze, consent, payload, session, Save→Load, and
+  stateless AI contracts remain green.
+- `EL02-R14-AC-07` Focused/full/build/P17/P25 gates pass on synchronized source,
+  and fresh headed Aleris plus DPJ acceptance passes without forbidden external
+  mutations.
+
+## 5. Todo chain
+
+1. `el02-r14-contract-ctrl-input`
+2. `el02-r14-boundary-authority` → 1
+3. `el02-r14-preview-shallow-coverage` → 2
+4. `el02-r14-focused-regressions` → 3
+5. `el02-r14-full-gates` → 4
+6. `el02-r14-review-push` → 5
+7. `el02-r14-headed-aleris` → 6
+8. `el02-r14-headed-dpj-candidates` → 7
+9. `el02-r14-conformance` → 8
+
+## 6. Implementation checkpoint — 2026-09-01
+
+- `EL-02-R14-01` is implemented. The trusted input path, hover identity,
+  runtime probes, product copy, normative contract, and expert-check authority
+  now use `Ctrl && !Alt` for exclusion breadth. Alt wins Ctrl+Alt; Shift and
+  Meta are inert. The entrypoint regression proves Shift-held hover/click is
+  dispatched through the exact ordinary-exclusion path.
+- `EL-02-R14-02` is implemented. A generation-fenced, spatially indexed query
+  recognizes only the literal painted mutable border band. That exact boundary
+  owns ordinary/Ctrl exclusion input even when a descendant wins Chromium's
+  composed hit stack; Alt bypasses it, the interior remains descendant-
+  targetable, and boundary identity fences hover reuse. The Aleris-shaped
+  412-pixel-wide regression proves hover, plain/Shift equivalence, Ctrl, Alt,
+  removal, and default rehydration.
+- `EL-02-R14-03` is implemented. A mutated session invalidates the materialized
+  Preview snapshot without adding projection work to the pointer path, and the
+  next Content List request derives from the current canonical store. Excluded
+  branches project one shallow owner plus only an independently valid explicit-
+  inclusion rescue; ordinary, immutable, and technical siblings beneath that
+  coverage are omitted.
+- Focused evidence is green: the nine-suite contract run passes `394/394`, the
+  final evaluator/engine/entrypoint rerun passes `197/197`, JavaScript syntax
+  checks for the updated P24/P25 runners pass, `git diff --check` is clean, and
+  `pnpm check` passes. The unrestricted full `pnpm verify` passes all
+  `1,586/1,586` tests, the production build, and all `7/7` manifest checks; the
+  debug build also passes. The pre-commit P14 run passes all `192/192` semantic,
+  budget, activation, mutation-pressure, and input-long-task checks; its only
+  rejected criterion is the intentionally dirty source identity, so the clean
+  source-identity rerun remains after the review commit.

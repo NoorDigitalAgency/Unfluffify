@@ -35,9 +35,10 @@ or unreachable in a production build, not merely hidden with CSS.
 
 The operator-approved contract in `MARKING_AND_HIGHLIGHTING_LOGIC.md` section
 **Approved session, interaction, and submission authority** supersedes older
-rows in this specification where they conflict. In particular: plain click
-toggles the individual mutable state; Shift changes breadth; Alt owns explicit
-inclusion and wins over Shift; the custom context menu is removed; dirty is
+rows in this specification where they conflict. The operator's 2026-09-01
+modifier correction is part of that authority. In particular: plain click
+toggles the individual mutable state; Ctrl changes breadth; Alt owns explicit
+inclusion and wins over Ctrl; Shift and Meta have no marking meaning; the custom context menu is removed; dirty is
 monotonic after the first successful mutation; unsaved marking state exists only
 inside the active session; hidden UI and payload decisions are separate; the AI
 endpoint is stateless; and Save followed by authoritative Load is the only
@@ -160,7 +161,7 @@ The following rules combine decisions that otherwise appear to overlap:
 | I-18 | Keep publication Hub-owned. Only definitive GraphQL success advances the submitted fingerprint; ambiguous transport yields an explicit unknown outcome under the same idempotency key. |
 | I-19 | Keep one canonical normalized marking-row model for defaults, selector-seeded decisions, and user decisions. |
 | I-20 | Keep a single evaluation source and branch-scoped recomputation for toggles, subject to the selector/default separation in §2. |
-| I-21 | Keep Shift widening independent of width. Qualification and page-shell boundaries, not viewport width alone, determine the broadest valid grouping ancestor. |
+| I-21 | Keep Ctrl widening independent of width. Qualification and page-shell boundaries, not viewport width alone, determine the broadest valid grouping ancestor. |
 | I-22 | Discard resets the current page to a freshly calculated clean baseline; it does not restore a saved or cached draft. |
 | I-23 | A canonical SPA page-key change terminates the old page session and starts a new one. |
 | I-24 | Reload always terminates the current marking session and draft. |
@@ -238,7 +239,7 @@ The following rules combine decisions that otherwise appear to overlap:
 | D-27 | After candidate-navigation confirmation, cancel page-scoped work, remove overlays/freeze/hooks, discard only confirmed uncommitted state, preserve property authority/lock/panel binding, navigate the same tab, start a fresh session, and reapply mobile. Failed navigation restores a usable state and does not unregister the tab. |
 | D-28 | Changing normalized GraphQL endpoint, environment, or backend identity invalidates the stored JWT atomically with the profile change. Authenticated requests remain disabled until a valid token for the new backend is obtained. |
 | D-29 | Restore dynamic extension-action icons for a small state set: unregistered, connecting, active, locked, and error/attention. Plain-language panel status remains authoritative. |
-| D-30 | Do not restore global keyboard shortcuts. Keep only Shift/Alt marking modifiers, press-and-hold Space passthrough, and Escape as a safety exit. Primary actions remain visible and pointer-driven. |
+| D-30 | Do not restore global keyboard shortcuts. Keep Ctrl as the exclusion-breadth modifier, Alt as the explicit-inclusion modifier with Alt-over-Ctrl precedence, press-and-hold Space passthrough, and Escape as a safety exit. Shift and Meta are inert for marking. Primary actions remain visible and pointer-driven. |
 | D-31 | Add React panel recovery: error boundary, detached/corrupted root detection, UI-root recreation, and rehydration from background authority without page reload, lost session, or duplicate subscriptions. |
 | D-32 | Connect scroll locking only to blocking panel operations and modal confirmations. Preserve panel scroll position and unlock on every terminal path. Never lock the inspected page's permitted preview/silent scrolling. |
 
@@ -264,7 +265,7 @@ decision, this row is the more specific authority.
 | N-12 | Make decision-to-test traceability executable. Every referenced automated-evidence path must exist; every decision must map to a decision-specific executable assertion or an explicitly named live/build acceptance check. Repair stale paths and add missing behavior tests rather than satisfying the gate with non-empty prose. |
 | N-13 | After the behavioral corrections above are stable, incrementally extract typed configuration, render-inspection, preview, Todo, maintenance, consent, and transient-surface controllers plus focused React sections. Preserve authority boundaries and behavior; do not perform another big-bang rewrite. |
 | N-14 | Each Preview row is a semantic button inside its list item. Pointer hover and keyboard focus share occurrence emphasis; native Enter/Space activation scrolls to the exact target; clicking a painted page target focuses its exact virtualized row; and the accessible name includes ordinal, readable label, and included/excluded status. While Preview is open, debug XPath rectangles route to that same page-to-row action instead of stealing the click for copy. This direct P20 decision supersedes D-16's earlier pointer-only rule. |
-| N-15 | Superseded 2026-08-31: plain click toggles an individual implicit inclusion, explicit inclusion, or explicit exclusion. Shift changes breadth and may widen to an eligible ancestor; it is not required for an individual exclusion. Alt creates/toggles explicit inclusion and wins over Shift. Expanded-boundary and descendant rehydration follow the locked marking document. |
+| N-15 | Superseded 2026-09-01: plain click toggles an individual implicit inclusion, explicit inclusion, or explicit exclusion. Ctrl changes breadth and may widen to an eligible ancestor; it is not required for an individual exclusion. Alt creates/toggles explicit inclusion and wins over Ctrl. Shift and Meta are completely inert, including over expanded exclusions. Expanded-boundary and descendant rehydration follow the locked marking document. |
 
 ## 7. Conformance definition
 

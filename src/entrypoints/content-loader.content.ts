@@ -3491,12 +3491,12 @@ function ensureMarkingListeners(): void {
     x: number;
     y: number;
     altKey: boolean;
-    shiftKey: boolean;
+    ctrlKey: boolean;
     overlayXpath: string;
     eventTarget: EventTarget | null;
   }> | null = null;
   let hoverFrame = 0;
-  let shiftHeld = false;
+  let ctrlHeld = false;
   let physicalSequence = 0;
   let lastPointerDown: Readonly<{
     id: number;
@@ -3544,11 +3544,11 @@ function ensureMarkingListeners(): void {
     x: number,
     y: number,
     mode: "include" | "exclude",
-    shiftActive: boolean,
+    expansionActive: boolean,
     overlayXpath: string,
   ) => overlayXpath
-    ? markingEngine?.resolveAtPoint(x, y, mode, shiftActive, { overlayXpath }) ?? null
-    : markingEngine?.resolveAtPoint(x, y, mode, shiftActive) ?? null;
+    ? markingEngine?.resolveAtPoint(x, y, mode, expansionActive, { overlayXpath }) ?? null
+    : markingEngine?.resolveAtPoint(x, y, mode, expansionActive) ?? null;
   const physicalIdFor = (event: MouseEvent): number => {
     const down = lastPointerDown;
     if (
@@ -3678,16 +3678,17 @@ function ensureMarkingListeners(): void {
       : pointer.altKey
         ? "include"
         : "exclude";
+    const expansionActive = mode === "exclude" && pointer.ctrlKey;
     if (pointer.overlayXpath) {
       markingEngine.hoverAtPoint(
         pointer.x,
         pointer.y,
         mode,
-        pointer.shiftKey,
+        expansionActive,
         { overlayXpath: pointer.overlayXpath },
       );
     } else {
-      markingEngine.hoverAtPoint(pointer.x, pointer.y, mode, pointer.shiftKey);
+      markingEngine.hoverAtPoint(pointer.x, pointer.y, mode, expansionActive);
     }
   };
   const scheduleHover = (leading = false): void => {
@@ -3735,12 +3736,12 @@ function ensureMarkingListeners(): void {
       event.clientX,
       event.clientY,
       mode,
-      event.shiftKey,
+      event.ctrlKey && !event.altKey,
       overlayXpathFromTarget(event.target),
     );
     reportMarkingGestureStage("resolved", {
       mode,
-      shiftActive: event.shiftKey,
+      expansionActive: event.ctrlKey && !event.altKey,
       targetKey: target?.key ?? null,
       targetXpath: target?.xpath ?? null,
       x: Math.round(event.clientX),
@@ -3783,14 +3784,14 @@ function ensureMarkingListeners(): void {
       altIncludeActive = event.altKey;
       syncMarkingCursor();
     }
-    shiftHeld = event.shiftKey;
+    ctrlHeld = event.ctrlKey;
     const overlayXpath = overlayXpathFromTarget(event.target);
     const eventTarget = event.target ?? null;
     const nextPointer = {
       x: event.clientX,
       y: event.clientY,
       altKey: event.altKey,
-      shiftKey: event.shiftKey,
+      ctrlKey: event.ctrlKey && !event.altKey,
       overlayXpath,
       eventTarget,
     };
@@ -3811,13 +3812,14 @@ function ensureMarkingListeners(): void {
     }
     setAltInclude(event, true);
     setSpacePassthrough(event, true);
-    if (event.key === "Shift") {
-      shiftHeld = true;
+    if (event.key === "Control") {
+      ctrlHeld = true;
     }
     if (lastPointer) {
+      const ctrlKey = ctrlHeld && !altIncludeActive;
       const leading = lastPointer.altKey !== altIncludeActive ||
-        lastPointer.shiftKey !== shiftHeld;
-      lastPointer = { ...lastPointer, altKey: altIncludeActive, shiftKey: shiftHeld };
+        lastPointer.ctrlKey !== ctrlKey;
+      lastPointer = { ...lastPointer, altKey: altIncludeActive, ctrlKey };
       scheduleHover(leading);
     }
   };
@@ -3827,13 +3829,14 @@ function ensureMarkingListeners(): void {
     }
     setAltInclude(event, false);
     setSpacePassthrough(event, false);
-    if (event.key === "Shift") {
-      shiftHeld = false;
+    if (event.key === "Control") {
+      ctrlHeld = false;
     }
     if (lastPointer) {
+      const ctrlKey = ctrlHeld && !altIncludeActive;
       const leading = lastPointer.altKey !== altIncludeActive ||
-        lastPointer.shiftKey !== shiftHeld;
-      lastPointer = { ...lastPointer, altKey: altIncludeActive, shiftKey: shiftHeld };
+        lastPointer.ctrlKey !== ctrlKey;
+      lastPointer = { ...lastPointer, altKey: altIncludeActive, ctrlKey };
       scheduleHover(leading);
     }
   };
@@ -3848,9 +3851,9 @@ function ensureMarkingListeners(): void {
     const refreshNeeded = spacePassthroughActive;
     spacePassthroughActive = false;
     altIncludeActive = false;
-    shiftHeld = false;
+    ctrlHeld = false;
     if (lastPointer) {
-      lastPointer = { ...lastPointer, altKey: false, shiftKey: false };
+      lastPointer = { ...lastPointer, altKey: false, ctrlKey: false };
     }
     syncMarkingCursor();
     if (refreshNeeded) {

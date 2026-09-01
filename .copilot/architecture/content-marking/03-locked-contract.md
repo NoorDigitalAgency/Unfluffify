@@ -75,7 +75,7 @@ The contract's vocabulary maps onto the four categories thus:
 - **Explicit inclusion** = user `Alt`-click; stored in `includeXpaths`, synced as
   an explicit include row; **always submits as included even when hidden or
   nested inside an excluded ancestor.** [MHL §Include Mode, §AI Submission Rows]
-- **Explicit exclusion** = user click (nearest markable target) / `Shift`-click
+- **Explicit exclusion** = user click (nearest markable target) / `Ctrl`-click
   (broader boundary); stored as `{ xpath, excluded: true, explicit: true }`.
   [MHL §Exclude Mode, §Stored Page Entries]
 

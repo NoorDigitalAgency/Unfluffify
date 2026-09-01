@@ -1891,7 +1891,8 @@ approved the consolidated result. `MARKING_AND_HIGHLIGHTING_LOGIC.md` section
 supersedes the older unmark-only/plain-click and custom-context-menu decisions.
 
 Implementation must enforce: three mutable states; plain individual toggle;
-Shift breadth; Alt individual explicit inclusion with Alt-over-Shift precedence;
+Ctrl breadth; Alt individual explicit inclusion with Alt-over-Ctrl precedence;
+Shift and Meta inert, including on expanded-exclusion boundaries;
 expanded-boundary rehydration and explicit-inclusion exceptions; no extension
 context menu; invisible UI targets never paint/interact while preserved explicit
 decisions survive into payloads; synthesized hidden exclusions remain payload-

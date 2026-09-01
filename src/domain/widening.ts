@@ -71,7 +71,7 @@ export function chooseWidenTarget(node: WidenNode, ctx: WideningContext = {}): W
   const isToggleableBoundary = (candidate: WidenNode) =>
     isToggleableDefaultTag(candidate.tagName) && isSelfMarkable(candidate, ctx);
 
-  // C-TGT-4 step 1: Shift on an already meaningful boundary stays there.
+  // C-TGT-4 step 1: Ctrl on an already meaningful boundary stays there.
   if (isStructuredGroup(node) || isToggleableBoundary(node)) {
     return node;
   }

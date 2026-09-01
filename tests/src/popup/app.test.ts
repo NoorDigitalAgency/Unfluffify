@@ -209,8 +209,10 @@ describe("popup App surface", () => {
     expect(markup).toContain('id="unregister-current-tab"');
     expect(markup).not.toMatch(/id="unregister-current-tab"[^>]*disabled/);
     expect(markup).toContain("Click to toggle the highlighted target");
-    expect(markup).toContain("Hold Shift to widen to an eligible ancestor");
+    expect(markup).toContain("Hold Ctrl to widen to an eligible ancestor");
     expect(markup).toContain("Hold Alt to explicitly include the individual target");
+    expect(markup).toContain("Alt wins over Ctrl");
+    expect(markup).toContain("Shift and Meta do not change marking");
     expect(markup).toContain("Right-click opens Chrome&#x27;s normal menu");
     expect(markup).not.toContain("right-click for contextual actions");
     expect(markup).not.toContain("alt-click to include and click to exclude");

@@ -1820,7 +1820,7 @@ async function refreshPreparedMarkingTargetPoint(session, target) {
   Object.assign(target, point);
 }
 
-const shiftedHoverOwnerExpression = `(() => {
+const expandedHoverOwnerExpression = `(() => {
   const overlay = document.querySelector('[data-uf-overlay-hover], [data-layer="hover"] [data-mc-mark-id]');
   if (!(overlay instanceof Element)) return null;
   const direct = overlay.getAttribute('data-uf-overlay-hover');
@@ -1848,18 +1848,18 @@ async function resolveModifiedHoverOwner(session, target, modifier) {
       modifiers: modifier.modifiers,
     });
     await waitForPresentationOpportunity(session, { frameCount: 2 });
-    return await session.evaluate(shiftedHoverOwnerExpression);
+    return await session.evaluate(expandedHoverOwnerExpression);
   } finally {
     await session.send("Input.dispatchKeyEvent", { type: "keyUp", ...modifier, modifiers: 0 });
     await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y, modifiers: 0 });
   }
 }
 
-const resolveShiftedHoverOwner = (session, target) => resolveModifiedHoverOwner(session, target, {
-  key: "Shift",
-  code: "ShiftLeft",
-  windowsVirtualKeyCode: 16,
-  modifiers: 8,
+const resolveCtrlExpandedHoverOwner = (session, target) => resolveModifiedHoverOwner(session, target, {
+  key: "Control",
+  code: "ControlLeft",
+  windowsVirtualKeyCode: 17,
+  modifiers: 2,
 });
 
 const resolveIncludedHoverOwner = (session, target) => resolveModifiedHoverOwner(session, target, {
@@ -1869,16 +1869,16 @@ const resolveIncludedHoverOwner = (session, target) => resolveModifiedHoverOwner
   modifiers: 1,
 });
 
-export function preparedMarkingTargetIsUsable({ target, includedOwnerXpath, shiftedOwnerXpath, decision }) {
-  const shiftedOwnerMatches = Boolean(
+export function preparedMarkingTargetIsUsable({ target, includedOwnerXpath, expandedOwnerXpath, decision }) {
+  const expandedOwnerMatches = Boolean(
     target &&
-    typeof shiftedOwnerXpath === "string" &&
-    (shiftedOwnerXpath === target.xpath || target.xpath.startsWith(`${shiftedOwnerXpath}/`)),
+    typeof expandedOwnerXpath === "string" &&
+    (expandedOwnerXpath === target.xpath || target.xpath.startsWith(`${expandedOwnerXpath}/`)),
   );
   return Boolean(
     target &&
     includedOwnerXpath === target.xpath &&
-    shiftedOwnerMatches &&
+    expandedOwnerMatches &&
     Array.isArray(decision?.targetOwned) &&
     decision.targetOwned.length === 0
   );
@@ -1890,7 +1890,7 @@ export function stablePreparedMarkingTargetAuthority(initial, confirmation) {
     preparedMarkingTargetIsUsable(confirmation) &&
     initial.target?.xpath === confirmation.target?.xpath &&
     initial.includedOwnerXpath === confirmation.includedOwnerXpath &&
-    initial.shiftedOwnerXpath === confirmation.shiftedOwnerXpath
+    initial.expandedOwnerXpath === confirmation.expandedOwnerXpath
   );
 }
 
@@ -1953,11 +1953,11 @@ async function dismissNativeContextMenu(session) {
 function markingTargetRejectionReason(authority) {
   if (!authority.target) return "owner-normalization";
   if (authority.includedOwnerXpath !== authority.target.xpath) return "alt-owner-mismatch";
-  if (typeof authority.shiftedOwnerXpath !== "string") return "shift-owner-missing";
+  if (typeof authority.expandedOwnerXpath !== "string") return "ctrl-owner-missing";
   if (
-    authority.shiftedOwnerXpath !== authority.target.xpath &&
-    !authority.target.xpath.startsWith(`${authority.shiftedOwnerXpath}/`)
-  ) return "shift-owner-not-contractual";
+    authority.expandedOwnerXpath !== authority.target.xpath &&
+    !authority.target.xpath.startsWith(`${authority.expandedOwnerXpath}/`)
+  ) return "ctrl-owner-not-contractual";
   if (!Array.isArray(authority.decision?.targetOwned)) return "owner-decision-missing";
   if (authority.decision.targetOwned.length > 0) return "explicitly-owned";
   return "authority-unstable";
@@ -1966,7 +1966,7 @@ function markingTargetRejectionReason(authority) {
 async function markingTargetAuthority(session, candidate) {
   await ensureMarkingDecisionProbe(session);
   const includedOwnerXpath = await resolveIncludedHoverOwner(session, candidate);
-  const shiftedOwnerXpath = await resolveShiftedHoverOwner(session, candidate);
+  const expandedOwnerXpath = await resolveCtrlExpandedHoverOwner(session, candidate);
   const target = await session.evaluate(normalizeMarkingTargetExpression(candidate, includedOwnerXpath));
   // Modifier preflights and late authoritative reconciliation can change the
   // painted explicit-owner set. Re-prove the candidate only after both
@@ -1975,7 +1975,7 @@ async function markingTargetAuthority(session, candidate) {
   const decision = target
     ? await session.evaluate(markingDecisionExpression(target))
     : null;
-  return { target, includedOwnerXpath, shiftedOwnerXpath, decision };
+  return { target, includedOwnerXpath, expandedOwnerXpath, decision };
 }
 
 async function searchCleanMarkingTarget(session, options = {}) {
@@ -2037,7 +2037,7 @@ async function searchCleanMarkingTarget(session, options = {}) {
     if (!preparedMarkingTargetIsUsable(initialAuthority)) {
       reject(markingTargetRejectionReason(initialAuthority), target, {
         includedOwnerXpath: initialAuthority.includedOwnerXpath,
-        shiftedOwnerXpath: initialAuthority.shiftedOwnerXpath,
+        expandedOwnerXpath: initialAuthority.expandedOwnerXpath,
       });
       skippedXpaths.push(target.xpath);
       continue;
@@ -2048,7 +2048,7 @@ async function searchCleanMarkingTarget(session, options = {}) {
         target: {
           ...confirmation.target,
           includedOwnerXpath: confirmation.includedOwnerXpath,
-          shiftedOwnerXpath: confirmation.shiftedOwnerXpath,
+          expandedOwnerXpath: confirmation.expandedOwnerXpath,
           selectionAttempt: attempts,
           selectionSweep: sweep,
         },
@@ -2063,9 +2063,9 @@ async function searchCleanMarkingTarget(session, options = {}) {
     }
     reject(markingTargetRejectionReason(confirmation), target, {
       includedOwnerXpath: confirmation.includedOwnerXpath,
-      shiftedOwnerXpath: confirmation.shiftedOwnerXpath,
+      expandedOwnerXpath: confirmation.expandedOwnerXpath,
       initialIncludedOwnerXpath: initialAuthority.includedOwnerXpath,
-      initialShiftedOwnerXpath: initialAuthority.shiftedOwnerXpath,
+      initialExpandedOwnerXpath: initialAuthority.expandedOwnerXpath,
     });
     skippedXpaths.push(target.xpath);
   }
@@ -2091,10 +2091,10 @@ export async function prepareMarkingGestureTarget(session, options = {}) {
   return searchCleanMarkingTarget(session, options);
 }
 
-async function dispatchPhysicalGesture(session, target, { shift = false, alt = false, button = "left" }) {
-  const modifiers = (alt ? 1 : 0) | (shift ? 8 : 0);
+async function dispatchPhysicalGesture(session, target, { ctrl = false, alt = false, button = "left" }) {
+  const modifiers = (alt ? 1 : 0) | (ctrl ? 2 : 0);
   const keys = [];
-  if (shift) keys.push({ key: "Shift", code: "ShiftLeft", windowsVirtualKeyCode: 16, modifiers });
+  if (ctrl) keys.push({ key: "Control", code: "ControlLeft", windowsVirtualKeyCode: 17, modifiers });
   if (alt) keys.push({ key: "Alt", code: "AltLeft", windowsVirtualKeyCode: 18, modifiers });
   for (const key of keys) await session.send("Input.dispatchKeyEvent", { type: "keyDown", ...key });
   const started = performance.now();
@@ -2235,16 +2235,16 @@ function markingDelta(before, after) {
 }
 
 export function markingAssertion(id, before, after, targetDelta, expectedOwnerXpath = null) {
-  if (id === "shift-expand") {
-    const shifted = after.targetOwned.find((record) =>
+  if (id === "ctrl-expand") {
+    const expanded = after.targetOwned.find((record) =>
       record.kind === "explicit-exclusion" &&
       (expectedOwnerXpath === null ? record.ownerRelation === "ancestor" : record.ownerXpath === expectedOwnerXpath)
     );
     return {
-      kind: shifted?.kind ?? null,
-      ownerXpath: shifted?.ownerXpath ?? null,
-      ownerRelation: shifted?.ownerRelation ?? null,
-      breadthIncreased: Boolean(shifted && shifted.breadth > after.targetBreadth),
+      kind: expanded?.kind ?? null,
+      ownerXpath: expanded?.ownerXpath ?? null,
+      ownerRelation: expanded?.ownerRelation ?? null,
+      breadthIncreased: Boolean(expanded && expanded.breadth > after.targetBreadth),
       expectedOwnerXpath,
     };
   }
@@ -2302,13 +2302,13 @@ async function waitForGestureAcknowledgement(
     last = await session.evaluate(markingDecisionExpression(target));
     const delta = markingDelta(before, last);
     const assertion = markingAssertion(id, before, last, delta, expectedAcknowledgementXpath);
-    const shiftContractSatisfied = assertion.kind === "explicit-exclusion" &&
+    const ctrlContractSatisfied = assertion.kind === "explicit-exclusion" &&
       assertion.ownerXpath === expectedAcknowledgementXpath &&
       (assertion.ownerRelation === "exact" ||
         (assertion.ownerRelation === "ancestor" && assertion.breadthIncreased === true));
     const correct = id === "plain-exclude"
       ? assertion.kind === "explicit-exclusion" && assertion.ownerRelation === "exact"
-      : id === "shift-expand" ? shiftContractSatisfied
+      : id === "ctrl-expand" ? ctrlContractSatisfied
         : id === "alt-include" ? assertion.kind === "explicit-inclusion" && assertion.ownerRelation === "exact"
           : id.includes("unmark") ? assertion.removedExactOwner === true && assertion.remainingTargetOwned === 0
             : false;
@@ -2317,7 +2317,7 @@ async function waitForGestureAcknowledgement(
       interactionAcknowledgement.ownerXpath === expectedAcknowledgementXpath &&
       (id === "alt-include"
         ? interactionAcknowledgement.kind === "explicit-inclusion" && interactionAcknowledgement.ownerRelation === "exact"
-        : id === "plain-exclude" || id === "plain-exclude-unmark" || id === "shift-expand"
+        : id === "plain-exclude" || id === "plain-exclude-unmark" || id === "ctrl-expand"
           ? interactionAcknowledgement.kind === "explicit-exclusion"
           : id === "plain-include-unmark"
             ? interactionAcknowledgement.kind === "explicit-inclusion"
@@ -2351,7 +2351,7 @@ async function waitForGestureAcknowledgement(
   };
 }
 
-export async function performPhysicalShiftExclusion(session, options = {}) {
+export async function performPhysicalCtrlExclusion(session, options = {}) {
   const target = await selectCleanMarkingTarget(session, options);
   if (!target) throw new Error("No visible non-consent marking target is available for the dirty-state probe");
   await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: target.x, y: target.y });
@@ -2361,16 +2361,16 @@ export async function performPhysicalShiftExclusion(session, options = {}) {
   // Keep an epoch timestamp at the trusted-input boundary so workflow probes
   // do not charge CDP session setup or target preparation to product latency.
   const inputDispatchedAtEpochMs = Date.now();
-  const dispatchLatencyMs = await dispatchPhysicalGesture(session, target, { shift: true });
+  const dispatchLatencyMs = await dispatchPhysicalGesture(session, target, { ctrl: true });
   const acknowledgement = await waitForGestureAcknowledgement(
     session,
     target,
     before,
-    "shift-expand",
+    "ctrl-expand",
     inputStartedAt,
-    target.shiftedOwnerXpath,
+    target.expandedOwnerXpath,
   );
-  if (!acknowledgement.acknowledged) throw new Error(`Shift exclusion did not receive target-keyed acknowledgement: ${JSON.stringify(acknowledgement.assertion)}`);
+  if (!acknowledgement.acknowledged) throw new Error(`Ctrl exclusion did not receive target-keyed acknowledgement: ${JSON.stringify(acknowledgement.assertion)}`);
   return {
     target,
     inputDispatchedAtEpochMs,
@@ -2476,7 +2476,7 @@ export async function probeMarkingGestures(session, preparedTarget = null, optio
     });
   }
   await operate("plain-include-unmark", {}, target.includedOwnerXpath ?? target.xpath);
-  await operate("shift-expand", { shift: true }, target.shiftedOwnerXpath);
+  await operate("ctrl-expand", { ctrl: true }, target.expandedOwnerXpath);
   const performanceWindowEndedAt = await session.evaluate("performance.now()");
   // Pinned legacy mutates on contextmenu. That behavior is an intentional
   // non-parity surface, so only the rewrite runs the native-menu assertion.

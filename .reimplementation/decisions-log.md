@@ -62,18 +62,19 @@ contract and design. It is the provenance for every decision in `plan.md`,
 
 ## T2 — Marking-interaction invariants — LOCKED
 
-- **CONFIRMED:** `deriveMarkMode` precedence `disabled > passthrough(Space) > include(Alt) >
-  exclude(default)`; Shift orthogonal breadth modifier; click reads `event.altKey`;
+- **CORRECTED:** `deriveMarkMode` precedence `disabled > passthrough(Space) > include(Alt) >
+  exclude(default)`; `Ctrl && !Alt` is the orthogonal exclusion-breadth modifier; Alt wins Ctrl+Alt;
+  Shift and Meta are inert; click reads `event.altKey`/`event.ctrlKey`;
   blur/visibility/navigation reset held-modifier latches. Exclude **drills** (nearest self-markable,
   past excluded ancestors); include (Alt) **reaches in** + forms a **closed boundary** + always submits
   included even when hidden/nested; include/exclude mutually exclusive per element; Space passthrough is
   the only path to hidden content. Self-markable = visible ∧ ¬immutable ∧ ¬chrome ∧ (owns-direct-text ∨
   structural-boundary); structural boundary = section/article/card-group/list/table/toggleable-default,
   rejecting shallow shells; hover is O(1).
-- **CORRECTED — Shift widening:** a grouping ancestor qualifies iff it has **≥2 direct descendants that
+- **CORRECTED — Ctrl widening:** a grouping ancestor qualifies iff it has **≥2 direct descendants that
   are themselves eligible widening targets** (each holds multiple textual markable content). It
   qualifies **regardless of width** — the old full-width-wrapper rejection caused false negatives and is
-  removed. The grouping ancestor owns no direct textual markable content itself. Shift **climbs** through
+  removed. The grouping ancestor owns no direct textual markable content itself. Ctrl **climbs** through
   successive qualifying grouping ancestors to the **broadest** that still groups ≥2 eligible targets,
   stopping before the first non-qualifying ancestor / page shell.
 

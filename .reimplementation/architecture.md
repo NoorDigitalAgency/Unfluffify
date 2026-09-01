@@ -78,9 +78,9 @@ src/
 │   ├── schema.ts                  # Zod = SINGLE schema source: types + normalization + runtime validation from one def
 │   ├── taxonomy.ts                # page-type taxonomy + immutable-tag blanket list + toggleable-default tags (all CONTRACT constants)
 │   ├── visibility.ts              # ONE user-visible policy (live isVisible, submission isVisibleForSubmission, silent-highlight retention)
-│   ├── mark-mode.ts               # deriveMarkMode: disabled > passthrough(Space) > include(Alt) > exclude(default); Shift orthogonal
+│   ├── mark-mode.ts               # deriveMarkMode: disabled > passthrough(Space) > include(Alt) > exclude(default); Ctrl breadth, Shift inert
 │   ├── boundary.ts                # self-markable predicate + structural-boundary test (rejects shallow shells / landmarks)
-│   ├── widening.ts                # Shift widening chooser: climb to broadest grouping ancestor with >=2 eligible targets
+│   ├── widening.ts                # Ctrl widening chooser: climb to broadest grouping ancestor with >=2 eligible targets
 │   ├── evaluate.ts                # THE single pure pass: "nearest-marked-ancestor decides each node" -> overlay classes + submission rows
 │   └── marks.ts                   # minimal canonical mark set model (inclusion-centric: implicit/explicit inclusions + unified exceptions)
 │

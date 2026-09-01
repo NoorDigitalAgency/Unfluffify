@@ -48,15 +48,15 @@ describe("P24 canonical marking evidence", () => {
   });
 
   it("passes exact widened-owner clear when the added owner disappears even as the dirty counter rises", () => {
-    const beforeShift = { markedCount: 5, ...status(10, []) };
-    const afterShift = {
+    const beforeCtrl = { markedCount: 5, ...status(10, []) };
+    const afterCtrl = {
       markedCount: 6,
       ...status(11, [{ xpath: "/main/section[2]", classification: "excluded" }]),
     };
     const afterClear = { markedCount: 7, ...status(12, []) };
-    expect(widenedOwnerClearEvidence(beforeShift, afterShift, afterClear)).toMatchObject({
+    expect(widenedOwnerClearEvidence(beforeCtrl, afterCtrl, afterClear)).toMatchObject({
       passed: true,
-      removedShiftOwners: [{ xpath: "/main/section[2]", classification: "excluded" }],
+      removedWidenedOwners: [{ xpath: "/main/section[2]", classification: "excluded" }],
     });
   });
 });

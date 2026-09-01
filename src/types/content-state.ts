@@ -54,7 +54,7 @@ export interface ContentState {
   popupBusyReleaseBy: number;
   altPassThrough: boolean;
   altHeld: boolean;
-  shiftHeld: boolean;
+  ctrlHeld: boolean;
   lastPointer: { x: number; y: number } | null;
   markIdCounter: number;
   markIds: WeakMap<object, number>;

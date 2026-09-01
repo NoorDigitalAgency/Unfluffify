@@ -50,10 +50,29 @@ type PaintedOwnerFragment = Readonly<{
 }>;
 
 const OWNER_INDEX_CELL_SIZE = 64;
+// Classification borders are at most 3 CSS px wide. One extra pixel absorbs
+// fractional layout/device-pixel rounding without turning a broad exclusion's
+// interior into an owner hit target.
+const MUTABLE_BOUNDARY_HIT_INSET = 4;
 
 function pointInRect(rect: RectLike, x: number, y: number): boolean {
   return x >= rect.left && x <= rect.left + rect.width &&
     y >= rect.top && y <= rect.top + rect.height;
+}
+
+function pointInMutableBoundary(rect: RectLike, x: number, y: number): boolean {
+  if (!pointInRect(rect, x, y)) {
+    return false;
+  }
+  const right = rect.left + rect.width;
+  const bottom = rect.top + rect.height;
+  const inset = Math.min(
+    MUTABLE_BOUNDARY_HIT_INSET,
+    Math.max(0, rect.width / 2),
+    Math.max(0, rect.height / 2),
+  );
+  return x - rect.left <= inset || right - x <= inset ||
+    y - rect.top <= inset || bottom - y <= inset;
 }
 
 function ownerCellKey(x: number, y: number): string {
@@ -1331,6 +1350,33 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       }
     },
     pruneInvisibleExclusions,
+    paintedMutableBoundaryAtPoint(
+      x: number,
+      y: number,
+      generation: number,
+      preferredXpath = "",
+    ): string | null {
+      if (scrolling || generation !== ownerIndexGeneration) {
+        return null;
+      }
+      const matches = (ownerFragmentsByCell.get(ownerCellKey(x, y)) ?? [])
+        .filter((fragment) =>
+          (fragment.exclusion || fragment.explicit) &&
+          pointInMutableBoundary(fragment.rect, x, y)
+        );
+      const preferred = preferredXpath
+        ? matches.find((fragment) => fragment.xpath === preferredXpath)
+        : undefined;
+      if (preferred) {
+        return preferred.xpath;
+      }
+      matches.sort((left, right) =>
+        Number(right.explicit) - Number(left.explicit) ||
+        right.paintOrder - left.paintOrder ||
+        right.depth - left.depth
+      );
+      return matches[0]?.xpath ?? null;
+    },
     paintedExclusionOwnerAtPoint(
       x: number,
       y: number,

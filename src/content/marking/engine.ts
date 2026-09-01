@@ -1056,8 +1056,9 @@ export function createMarkingEngine(
     x: number;
     y: number;
     mode: MarkMode;
-    shiftActive: boolean;
+    expansionActive: boolean;
     overlayXpath: string;
+    boundaryOwnerXpath: string | null;
     generation: number;
     node: EvaluationNode | null;
     probeElements: readonly Element[];
@@ -1140,6 +1141,14 @@ export function createMarkingEngine(
   let previewFocusRefreshCycle = 0;
   let lastPreviewRequest: Readonly<{ pageUrl: string; selectors: SelectorSet }> | null = null;
   let currentPreviewProjection: PreviewProjection | null = null;
+  const invalidateMutableSessionProjection = (): void => {
+    invalidateSelectorProjection();
+    // A marking mutation changes the Content List truth even when the popup
+    // asks again with the exact same selector set. Drop only the materialized
+    // projection; the next explicit request rebuilds from the canonical store
+    // without adding document-scale work to the pointer acknowledgement path.
+    currentPreviewProjection = null;
+  };
   let silentEvaluationIndex: SilentEvaluationIndex | null = null;
   const generationByNode = new WeakMap<EvaluationNode, number>();
   const fingerprintByNode = new WeakMap<EvaluationNode, string>();
@@ -1392,8 +1401,17 @@ export function createMarkingEngine(
       previewTextMetadataCurrent = true;
     }
     const seed = resolveSelectorSeed(selectors);
-    const defaults = mergeDefaultExclusions(bridge.root, { rows: [] });
-    const marks = seed.seeded ? applySelectorSeed(defaults, seed) : defaults;
+    const requestedFingerprint = selectorSetFingerprint(selectors);
+    const currentSessionOwnsProjection = selectorProjectionIdentity === null || (
+      selectorProjectionIdentity.bridge === bridge &&
+      selectorProjectionIdentity.fingerprint === requestedFingerprint
+    );
+    const marks = currentSessionOwnsProjection
+      ? store.canonicalSet()
+      : (() => {
+          const defaults = mergeDefaultExclusions(bridge.root, { rows: [] });
+          return seed.seeded ? applySelectorSeed(defaults, seed) : defaults;
+        })();
     const evaluated = evaluatePreview(marks, { root: bridge.root }, seed.matches);
     const rows: PreviewRow[] = evaluated.flatMap((row) => {
       const entry = bridge.byKey.get(row.id);
@@ -3012,7 +3030,7 @@ type DeferredBranchRenderChunk = Readonly<{
       x: number,
       y: number,
       mode: MarkMode,
-      shiftActive = false,
+      expansionActive = false,
       hint?: MarkingPointResolutionHint,
     ): EvaluationNode | null {
       const prefetched = prefetchedPointHits?.x === x && prefetchedPointHits.y === y
@@ -3074,7 +3092,28 @@ type DeferredBranchRenderChunk = Readonly<{
         }
       }
       let resolved = resolveTarget(candidates, mode);
-      if (mode === "exclude" && !shiftActive) {
+      let resolvedFromPaintedBoundary = false;
+      if (mode === "exclude") {
+        const paintedBoundaryXpath = renderer.paintedMutableBoundaryAtPoint(
+          x,
+          y,
+          bridgeGeneration,
+          hint?.overlayXpath,
+        );
+        if (paintedBoundaryXpath) {
+          const paintedBoundary = bridge.byXpath.get(paintedBoundaryXpath)?.evaluationNode;
+          const paintedCandidate = candidatesByXpath.get(paintedBoundaryXpath);
+          if (
+            paintedBoundary &&
+            paintedCandidate &&
+            currentNodeForHint(paintedBoundary.xpath) === paintedBoundary
+          ) {
+            resolved = paintedCandidate;
+            resolvedFromPaintedBoundary = true;
+          }
+        }
+      }
+      if (mode === "exclude" && !expansionActive && !resolvedFromPaintedBoundary) {
         // Preserve the generation-fenced painted-owner fallback for a boundary
         // that is visibly covered by an unrelated stacking-context sibling.
         // When the owner's own composed path is present, however, resolve the
@@ -3106,8 +3145,11 @@ type DeferredBranchRenderChunk = Readonly<{
       if (!resolved) {
         return null;
       }
-      if (shiftActive && mode === "exclude") {
-        // Shift changes target breadth, not the state transition of an exact
+      if (resolvedFromPaintedBoundary) {
+        return bridge.byXpath.get(resolved.xpath)?.evaluationNode ?? null;
+      }
+      if (expansionActive && mode === "exclude") {
+        // Ctrl changes target breadth, not the state transition of an exact
         // mutable boundary. Existing explicit decisions therefore toggle at
         // their own boundary; ordinary targets continue into the widening
         // resolver below.
@@ -3141,7 +3183,7 @@ type DeferredBranchRenderChunk = Readonly<{
             rect.right > 0 && rect.left < viewportWidth &&
             rect.bottom > 0 && rect.top < viewportHeight;
           // A sibling outside the physical viewport cannot influence this
-          // Shift expansion. Reject it before the composed ancestor style walk;
+          // Ctrl expansion. Reject it before the composed ancestor style walk;
           // visible candidates still receive the complete live proof.
           const visible = intersectsViewport && isCurrentlyVisuallyVisible(element, rect);
           liveVisibility.set(node.key, visible);
@@ -3149,7 +3191,7 @@ type DeferredBranchRenderChunk = Readonly<{
         };
         // The widening contract can inspect the same descendant subtree from
         // several overlapping ancestor/group candidates. Resolving every one
-        // recursively made a single Shift hover repeat live visibility and
+        // recursively made a single Ctrl hover repeat live visibility and
         // boundary qualification across large page branches. Keep the proof
         // live for this exact pointer observation, but calculate each subtree
         // count at most once for the resolution.
@@ -3177,7 +3219,7 @@ type DeferredBranchRenderChunk = Readonly<{
           }),
           getTextualMarkableContentCount: liveTextualMarkableContentCount,
         });
-        // Never silently degrade a Shift decision to the exact node when the
+        // Never silently degrade a Ctrl decision to the exact node when the
         // chosen live owner cannot be rebound to this bridge generation.
         return bridge.byKey.get(widened.key)?.evaluationNode ?? null;
       }
@@ -3218,7 +3260,7 @@ type DeferredBranchRenderChunk = Readonly<{
       try {
         renderer.acknowledge(current.element, current.node.xpath, mode);
         const toggled = store.toggle(current.node, mode);
-        invalidateSelectorProjection();
+        invalidateMutableSessionProjection();
         // Mark-only changes do not alter the bridge topology. Retain the
         // document-scale candidate index; resolveAtPoint hydrates the tiny
         // composed hit path from the current canonical/evaluation state.
@@ -3252,7 +3294,7 @@ type DeferredBranchRenderChunk = Readonly<{
         if (!cleared) {
           return false;
         }
-        invalidateSelectorProjection();
+        invalidateMutableSessionProjection();
         // Clearing a row changes dynamic classification only, not candidate
         // ancestry or markability topology. See the path hydration above.
         interactiveMarkingRendered = true;
@@ -3304,7 +3346,7 @@ type DeferredBranchRenderChunk = Readonly<{
       x: number,
       y: number,
       mode: MarkMode = "exclude",
-      shiftActive = false,
+      expansionActive = false,
       hint?: MarkingPointResolutionHint,
     ): void {
       const overlayXpath = hint?.overlayXpath ?? "";
@@ -3312,17 +3354,34 @@ type DeferredBranchRenderChunk = Readonly<{
         hoverResolution?.x === x &&
         hoverResolution.y === y &&
         hoverResolution.mode === mode &&
-        hoverResolution.shiftActive === shiftActive
+        hoverResolution.expansionActive === expansionActive
       ) {
         return;
       }
+      const boundaryOwnerXpath = mode === "exclude"
+        ? renderer.paintedMutableBoundaryAtPoint(x, y, bridgeGeneration, overlayXpath)
+        : null;
       const cachedResolution = hoverResolution;
       const reusable = cachedResolution !== null &&
         cachedResolution.mode === mode &&
-        cachedResolution.shiftActive === shiftActive &&
+        cachedResolution.expansionActive === expansionActive &&
         cachedResolution.generation === bridgeGeneration &&
         (!cachedResolution.node || currentNodeForHint(cachedResolution.node.xpath) === cachedResolution.node);
-      if (reusable && mode === "exclude" && !shiftActive && cachedResolution.node) {
+      if (
+        reusable &&
+        cachedResolution.boundaryOwnerXpath === boundaryOwnerXpath &&
+        boundaryOwnerXpath === cachedResolution.node?.xpath
+      ) {
+        hoverResolution = { ...cachedResolution, x, y, overlayXpath };
+        return;
+      }
+      if (
+        reusable &&
+        cachedResolution.boundaryOwnerXpath === boundaryOwnerXpath &&
+        mode === "exclude" &&
+        !expansionActive &&
+        cachedResolution.node
+      ) {
         const ownerXpath = renderer.paintedExplicitOwnerAtPoint(
           x,
           y,
@@ -3335,18 +3394,23 @@ type DeferredBranchRenderChunk = Readonly<{
         }
       }
       const probeElements = getComposedHitElements(rootElement.ownerDocument, x, y);
-      if (reusable && sameElements(cachedResolution.probeElements, probeElements)) {
+      if (
+        reusable &&
+        cachedResolution.boundaryOwnerXpath === boundaryOwnerXpath &&
+        sameElements(cachedResolution.probeElements, probeElements)
+      ) {
         hoverResolution = { ...cachedResolution, x, y, overlayXpath, probeElements };
         return;
       }
       prefetchedPointHits = { x, y, elements: probeElements };
-      const node = this.resolveAtPoint(x, y, mode, shiftActive, hint);
+      const node = this.resolveAtPoint(x, y, mode, expansionActive, hint);
       hoverResolution = {
         x,
         y,
         mode,
-        shiftActive,
+        expansionActive,
         overlayXpath,
+        boundaryOwnerXpath,
         generation: bridgeGeneration,
         node,
         probeElements,

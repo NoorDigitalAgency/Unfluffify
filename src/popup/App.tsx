@@ -1693,7 +1693,7 @@ export function App({
         </div>
         {presentation.markingRows.length === 0 ? (
           <p className="preview-sidebar__empty">
-            Nothing marked yet. Click to toggle the highlighted target. Hold Shift to widen to an eligible ancestor. Hold Alt to explicitly include the individual target; Alt wins over Shift. Right-click opens Chrome&apos;s normal menu.
+            Nothing marked yet. Click to toggle the highlighted target. Hold Ctrl to widen to an eligible ancestor. Hold Alt to explicitly include the individual target; Alt wins over Ctrl. Shift and Meta do not change marking. Right-click opens Chrome&apos;s normal menu.
           </p>
         ) : (
           <ul className="preview-sidebar__list">

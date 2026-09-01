@@ -80,9 +80,9 @@ output is not sufficient if it alters the rules below.
 - Plain left click toggles an implicit inclusion to explicit exclusion, explicit
   exclusion to implicit inclusion, and explicit inclusion back to its default
   result (or to unmarked when owned by an expanded exclusion).
-- Shift changes exclusion target breadth, not the toggle taxonomy. Its hover may
+- Ctrl changes exclusion target breadth, not the toggle taxonomy. Its hover may
   move between the individual target and the nearest eligible ancestor according
-  to pointer position. Shift-click applies the same state transitions to that
+  to pointer position. Ctrl-click applies the same state transitions to that
   resolved target and can create a widened exclusion.
 - An expanded exclusion owns ordinary descendants. Clicking one removes the
   boundary, rehydrates all descendants from defaults with no expansion
@@ -90,15 +90,16 @@ output is not sufficient if it alters the rules below.
   boundary itself removes it and performs the same rehydration. An explicitly
   included descendant is the exception: clearing it removes only that inclusion
   and leaves the expanded ancestor intact.
-- Alt is individual explicit-inclusion mode and wins over Shift. It toggles
+- Alt is individual explicit-inclusion mode and wins over Ctrl. It toggles
   implicit inclusion to explicit inclusion, explicit exclusion to explicit
   inclusion, and explicit inclusion back to the applicable default/unmarked
   result. It can target a mutable descendant below an expanded exclusion.
   Mixed-text targeting may expose both a textual container and its child up to
   that container; Alt-clicking the child of an explicitly included container
   atomically removes the parent inclusion and includes the child.
-- Immutable descendants can never be explicitly included or excluded. Meta and
-  Ctrl have no marking semantics. The extension does not listen for or suppress
+- Immutable descendants can never be explicitly included or excluded. Shift and
+  Meta have no marking semantics; Shift-held input is exactly ordinary input,
+  including over an expanded-exclusion boundary. The extension does not listen for or suppress
   `contextmenu`; native right click is always preserved.
 - Hover and click consume the same occurrence-fenced target. During scroll,
   resize, or layout churn, overlays fade out; once stable they are repositioned
@@ -326,7 +327,7 @@ descendants, so it can never be a marking target and listing it as immutable was
 redundant.
 
 Plain click toggles an eligible implicit inclusion to explicit exclusion and an
-explicit exclusion back to implicit inclusion. `Shift` changes the resolved
+explicit exclusion back to implicit inclusion. `Ctrl` changes the resolved
 breadth and is required only to widen the target to an eligible ancestor; it is
 not required to create an exclusion on the individual target.
 Include mode is explicit:
@@ -334,7 +335,7 @@ the user holds `Alt` and the selected target is written to the local
 `includeXpaths` list, then synced as an explicit include row in `xpaths`. This
 also applies to eligible content that is currently included implicitly; Alt is
 the operator's way to turn that implicit decision into an explicit one.
-Shift-parent expansion is bounded to content-shaped regions. It may climb
+Ctrl-parent expansion is bounded to content-shaped regions. It may climb
 through wrapper chains to a cohesive section, article, card group, list, table,
 or toggleable default boundary, but it must not select shallow generic page
 shells such as body-level site/app wrappers. Generic ancestors within the first
@@ -620,7 +621,7 @@ from the committing event's `altKey` (race-proof at click time).
   mutable excluded content and toggle explicit inclusion. Hidden content and
   immutable descendants remain non-interactive.
 - `exclude` — the default active mode; plain clicks toggle the individual target
-  while Shift changes target breadth and can resolve a widened ancestor.
+  while Ctrl changes target breadth and can resolve a widened ancestor.
 
 **Mode inputs and precedence.** The mode is derived by fixed precedence:
 
@@ -629,15 +630,16 @@ from the committing event's `altKey` (race-proof at click time).
 3. else `include` if Alt is active;
 4. else `exclude`.
 
-So `disabled > passthrough > include > exclude`. `Shift` is **not** a mode: it is
-an orthogonal breadth modifier resolved separately (`shouldAllowParentMarking`),
-active only outside include mode.
+So `disabled > passthrough > include > exclude`. `Ctrl` is **not** a mode: it is
+an orthogonal breadth modifier resolved separately, active only outside include
+mode. Alt wins over Ctrl. Shift is completely inert and is never read by marking
+target resolution.
 
 **Events (transitions):** enable/disable (popup) and busy/unbusy (brain
 directive) move in and out of `disabled`; Space keydown/keyup toggles the
 passthrough latch; Alt keydown/keyup drives `altActive`; a click commits the
 current mode's action; window blur, tab visibility change, and navigation reset
-the held-modifier latch (releasing Alt/Shift/Space). The machine holds no mode
+the held-modifier latch (releasing Alt/Ctrl/Space). The machine holds no mode
 state of its own beyond these latches — every event re-derives the mode.
 
 ## Target Resolution
@@ -683,7 +685,7 @@ explicitly included descendant is independent: clearing it leaves the widened
 ancestor intact. Overlapping owners follow visible layer/paint order, not XPath
 depth or one broad bounding box.
 
-`Shift+Click` enables parent selection. Under the restored 052c behavior, target
+`Ctrl+Click` enables parent selection. Under the restored 052c behavior, target
 resolution first prefers the clicked element when it is a structured group or
 toggleable boundary, then the nearest structured group ancestor, then the nearest
 toggleable ancestor, then the broadest markable ancestor. The current shallow
@@ -740,7 +742,7 @@ atomic mutation.
 Holding `Space` while marking mode is enabled temporarily lets clicks pass
 through to the underlying page UI. This is for opening accordions, tabs,
 menus, and similar controls before returning to marking or explicit include
-work. `Alt` remains include mode and `Shift` remains parent selection, so page
+work. `Alt` remains include mode and `Ctrl` remains parent selection, so page
 interaction is intentionally a separate hold state. Releasing `Space`, window
 blur, visibility changes, or disabling marking restores the overlay and redraws
 markings over the page's new posture.

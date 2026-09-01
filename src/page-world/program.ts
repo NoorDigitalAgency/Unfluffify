@@ -1986,7 +1986,7 @@ html[data-uf-page-motion-paused="true"] *:not([data-uf-extension-ui="true"]):not
         ) {
           // Marking changes only an extension-owned cursor class on <html>.
           // Re-probing the nested scroll owner for that presentation-only
-          // delta makes every Shift/Alt gesture pay a full-document geometry
+          // delta makes every Ctrl/Alt gesture pay a full-document geometry
           // scan while lazy loading is frozen.
           continue;
         }

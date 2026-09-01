@@ -93,11 +93,11 @@ function stageRows(disposition = { parityEligible: true }) {
 
 function markingGestureEvidence() {
   const targetXpath = "/html[1]/body[1]/main[1]/article[1]/h2[1]";
-  const shiftedOwnerXpath = "/html[1]/body[1]/main[1]/article[1]";
+  const expandedOwnerXpath = "/html[1]/body[1]/main[1]/article[1]";
   const unchangedTargetDelta = { created: [], removed: [], changed: [], ambientCreated: [], ambientRemoved: [] };
   const acknowledged = { acknowledged: true, acknowledgementLatencyMs: 20 };
   return {
-    target: { xpath: targetXpath, shiftedOwnerXpath },
+    target: { xpath: targetXpath, expandedOwnerXpath },
     operations: [
       {
         id: "plain-exclude",
@@ -129,13 +129,13 @@ function markingGestureEvidence() {
         assertion: { removedExactOwner: true, remainingTargetOwned: 0 },
       },
       {
-        id: "shift-expand",
+        id: "ctrl-expand",
         ...acknowledged,
         changed: true,
         assertion: {
           kind: "explicit-exclusion",
           ownerRelation: "ancestor",
-          ownerXpath: shiftedOwnerXpath,
+          ownerXpath: expandedOwnerXpath,
           breadthIncreased: true,
         },
       },

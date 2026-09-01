@@ -30,7 +30,7 @@ note by itself is not decision evidence.
 | I-18 | P5 | `tests/src/lynx/rest.test.ts::publishes only through Hub and accepts only definitive authoritative success` | P11 publication-unknown retry |
 | I-19 | P2 | `tests/golden/ai-snapshot.test.ts::produces byte-stable unified rows and immutable defaults` | P9 marking/output comparison |
 | I-20 | P2 | `tests/src/domain/evaluate.test.ts::recomputes only the toggled branch and preserves sibling overlay entries` | P9 marking scenario |
-| I-21 | P2 | `tests/src/domain/widening.test.ts::qualifies groups by two eligible direct descendants regardless of width` | P11 Shift marking |
+| I-21 | P2 | `tests/src/domain/widening.test.ts::qualifies groups by two eligible direct descendants regardless of width` | P11 Ctrl marking |
 | I-22 | P2 | `tests/src/storage/repositories.test.ts::separates backend baseline from mutable session draft` | P11 Discard flow |
 | I-23 | P6 | `tests/c4-content-entrypoint.test.ts::deactivates active marking on same-document URL changes without popup polling` | P11 SPA change |
 | I-24 | P6 | `tests/src/background/brain.test.ts::folds facts and disables marking on navigation` | P11 reload recovery |
@@ -115,7 +115,7 @@ note by itself is not decision evidence.
 | N-12 | P12 | `tests/decision-traceability.test.ts::validates the complete decision register, executable assertions, and acceptance catalog` | P20 traceability mutation gate |
 | N-13 | P19 | — | `ACCEPT-P19-DECOMPOSITION` |
 | N-14 | P25 | `tests/src/popup/sections/preview-row-list.test.ts::keeps production readable and debug diagnostics section-local`; `tests/p25-workflow-probes.test.ts::correlates preview routes to the activated readable target and rejects an unrelated row`; `tests/p17-browser-preview-contract.test.ts::treats fixture pinning as geometry-only setup before explicit reprojection`; `tests/c4-content-entrypoint.test.ts::registers typed preview rows and retires their hover and bridge across exit and A-to-B navigation` | P25 headed Preview keyboard/focus and two-way emphasis matrix |
-| N-15 | P25 | `tests/src/content/marking/dom-bridge.test.ts::rehydrates an expanded exclusion and excludes its ordinary clicked descendant`; `tests/src/content/marking/dom-bridge.test.ts::resolves an Alt-created explicit inclusion for plain-key unmarking`; `tests/src/content/marking/dom-bridge.test.ts::keeps explicit inclusions plain-clearable while Alt transfers them to descendants`; `tests/src/content/marking/marking.test.ts::allows Alt to create an explicit include for ordinary implicitly-included content`; `tests/src/content/marking/marking.test.ts::plain-clicking an explicitly included expanded descendant removes only that inclusion` | P25 headed plain/Shift/Alt/native-right-click matrix |
+| N-15 | P25 | `tests/src/content/marking/dom-bridge.test.ts::rehydrates an expanded exclusion and excludes its ordinary clicked descendant`; `tests/src/content/marking/dom-bridge.test.ts::resolves an Alt-created explicit inclusion for plain-key unmarking`; `tests/src/content/marking/dom-bridge.test.ts::keeps explicit inclusions plain-clearable while Alt transfers them to descendants`; `tests/src/content/marking/marking.test.ts::allows Alt to create an explicit include for ordinary implicitly-included content`; `tests/src/content/marking/marking.test.ts::plain-clicking an explicitly included expanded descendant removes only that inclusion` | P25 headed plain/Ctrl/Alt/Ctrl+Alt/Shift-inert/native-right-click matrix |
 
 ## Acceptance catalog
 

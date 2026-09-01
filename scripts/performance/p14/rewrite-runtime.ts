@@ -74,7 +74,7 @@ function installMarkingInputs(): () => void {
     x: number;
     y: number;
     altKey: boolean;
-    shiftKey: boolean;
+    ctrlKey: boolean;
     overlayXpath: string;
     eventTarget: EventTarget | null;
   }> | null = null;
@@ -130,7 +130,7 @@ function installMarkingInputs(): () => void {
         lastPointer.x,
         lastPointer.y,
         lastPointer.altKey ? "include" : "exclude",
-        lastPointer.shiftKey,
+        lastPointer.ctrlKey && !lastPointer.altKey,
       );
       // Begin the unchanged two-frame proof at the actual paint mutation. If
       // completion starts it only after the browser-control round trip, that
@@ -143,7 +143,7 @@ function installMarkingInputs(): () => void {
       x: event.clientX,
       y: event.clientY,
       altKey: event.altKey,
-      shiftKey: event.shiftKey,
+      ctrlKey: event.ctrlKey && !event.altKey,
       overlayXpath: "",
       eventTarget: event.target,
     };
@@ -181,7 +181,12 @@ function installMarkingInputs(): () => void {
     const markMode = event.altKey ? "include" : "exclude";
     event.preventDefault();
     event.stopPropagation();
-    const target = engine?.resolveAtPoint(event.clientX, event.clientY, markMode, event.shiftKey);
+    const target = engine?.resolveAtPoint(
+      event.clientX,
+      event.clientY,
+      markMode,
+      event.ctrlKey && !event.altKey,
+    );
     if (target) {
       const physicalId = physicalIdFor(event);
       if (deduper.accept(physicalId, target.xpath, markMode)) {
@@ -328,7 +333,7 @@ const runtime = {
     clock.arm("mousemove");
   },
   async finishHover(): Promise<number> {
-    // Shift hover intentionally previews the widened exclusion boundary, whose
+    // Ctrl hover intentionally previews the widened exclusion boundary, whose
     // XPath can be an ancestor of the physical click target.
     await waitFor(
       () => Boolean(document.querySelector("[data-uf-overlay-hover]")),

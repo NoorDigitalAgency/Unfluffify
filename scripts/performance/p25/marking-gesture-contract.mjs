@@ -1,8 +1,8 @@
 export function validateExactMarkingGestureEvidence(evidence, options = {}) {
   const failures = [];
   const operations = new Map((evidence?.operations ?? []).map((operation) => [operation.id, operation]));
-  const expectedShiftOwnerXpath = evidence?.target?.shiftedOwnerXpath ?? null;
-  const expectedShiftRelation = expectedShiftOwnerXpath && evidence?.target?.xpath === expectedShiftOwnerXpath
+  const expectedCtrlOwnerXpath = evidence?.target?.expandedOwnerXpath ?? null;
+  const expectedCtrlRelation = expectedCtrlOwnerXpath && evidence?.target?.xpath === expectedCtrlOwnerXpath
     ? "exact"
     : "ancestor";
   const requireOperation = (id, predicate, reason) => {
@@ -30,11 +30,11 @@ export function validateExactMarkingGestureEvidence(evidence, options = {}) {
   requireOperation("plain-include-unmark", (value) =>
     value.assertion?.removedExactOwner === true && value.assertion?.remainingTargetOwned === 0,
   "explicit-inclusion-not-removed");
-  requireOperation("shift-expand", (value) =>
+  requireOperation("ctrl-expand", (value) =>
     value.assertion?.kind === "explicit-exclusion" &&
-    value.assertion?.ownerRelation === expectedShiftRelation &&
-    (expectedShiftOwnerXpath === null || value.assertion?.ownerXpath === expectedShiftOwnerXpath) &&
-    (expectedShiftRelation === "exact" || value.assertion?.breadthIncreased === true),
+    value.assertion?.ownerRelation === expectedCtrlRelation &&
+    (expectedCtrlOwnerXpath === null || value.assertion?.ownerXpath === expectedCtrlOwnerXpath) &&
+    (expectedCtrlRelation === "exact" || value.assertion?.breadthIncreased === true),
   "not-widened-exclusion");
 
   if (options.requireNativeContextMenu !== false) {

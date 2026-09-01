@@ -252,6 +252,60 @@ describe("P0 evaluate pass (INV-2.5..INV-2.10, INV-4.1..INV-4.4, INV-5.1..INV-5.
     expect(byId.get("undetected")).not.toHaveProperty("selector");
   });
 
+  it("projects an exclusion as one shallow Content List boundary", () => {
+    const paragraph = leaf("paragraph", "/html[1]/body[1]/section[1]/p[1]");
+    const sibling = leaf("sibling", "/html[1]/body[1]/section[1]/p[2]");
+    const section = node("section", "/html[1]/body[1]/section[1]", [paragraph, sibling], {
+      tagName: "SECTION",
+    });
+    const rows = evaluatePreview(
+      { rows: [{ xpath: section.xpath, excluded: true, explicit: true }] },
+      { root: node("body", "/html[1]/body[1]", [section], { tagName: "BODY" }) },
+      {
+        inclusionSelectorByKey: new Map(),
+        exclusionSelectorByKey: new Map([[section.key, ".excluded-block"]]),
+      },
+    );
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        id: "section",
+        classification: "excluded",
+        selector: ".excluded-block",
+      }),
+    ]);
+  });
+
+  it("surfaces only a valid explicit-inclusion rescue beneath an excluded boundary", () => {
+    const rescued = leaf("rescued", "/html[1]/body[1]/section[1]/p[1]");
+    const covered = leaf("covered", "/html[1]/body[1]/section[1]/p[2]");
+    const immutable = leaf("immutable", "/html[1]/body[1]/section[1]/img[1]", {
+      tagName: "IMG",
+      ownsDirectText: false,
+      immutable: true,
+    });
+    const section = node("section", "/html[1]/body[1]/section[1]", [rescued, covered, immutable], {
+      tagName: "SECTION",
+    });
+    const rows = evaluatePreview(
+      {
+        rows: [
+          { xpath: section.xpath, excluded: true, explicit: true },
+          { xpath: rescued.xpath, excluded: false, explicit: true },
+        ],
+      },
+      { root: node("body", "/html[1]/body[1]", [section], { tagName: "BODY" }) },
+      { inclusionSelectorByKey: new Map(), exclusionSelectorByKey: new Map() },
+    );
+
+    expect(rows).toEqual([
+      expect.objectContaining({ id: "section", classification: "excluded" }),
+      expect.objectContaining({ id: "rescued", classification: "explicit-included" }),
+    ]);
+    expect(rows.some((row) => row.id === "covered")).toBe(false);
+    expect(rows.some((row) => row.id === "immutable")).toBe(false);
+  });
+
   it("keeps accessible light children below a known inaccessible shadow host", () => {
     const light = leaf("light", "/html[1]/body[1]/x-card[1]/p[1]");
     const closed = node("closed", "/html[1]/body[1]/x-card[1]", [light], {

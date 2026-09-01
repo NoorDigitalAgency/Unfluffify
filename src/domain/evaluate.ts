@@ -201,9 +201,27 @@ export function evaluatePreview(
   const evaluation = evaluate(canonicalMarks, domView);
   const submissionByXpath = new Map(evaluation.rows.map((row) => [row.xpath, row]));
   const rows = new Map<string, PreviewEvaluationRow>();
+  const explicitInclusionPath = new Set<string>();
+  for (const row of evaluation.rows) {
+    if (row.excluded || row.explicit !== true) {
+      continue;
+    }
+    let xpath = row.xpath;
+    while (xpath.length > 0) {
+      explicitInclusionPath.add(xpath);
+      const separator = xpath.lastIndexOf("/");
+      if (separator <= 0) {
+        break;
+      }
+      xpath = xpath.slice(0, separator);
+    }
+  }
 
   type Coverage = Readonly<{ kind: "include" | "exclude"; selector: string }>;
   const visit = (node: EvaluationNode, inheritedCoverage: Coverage | undefined): void => {
+    if (inheritedCoverage?.kind === "exclude" && !explicitInclusionPath.has(node.xpath)) {
+      return;
+    }
     // Inclusion wins an exact selector conflict, matching applySelectorSeed.
     const inclusionSelector = matches.inclusionSelectorByKey.get(node.key);
     const exclusionSelector = matches.exclusionSelectorByKey.get(node.key);
@@ -212,8 +230,14 @@ export function evaluatePreview(
       : exclusionSelector
         ? { kind: "exclude", selector: exclusionSelector }
         : undefined;
-    const coverage = ownCoverage ?? inheritedCoverage;
-    const selector = inclusionSelector ?? exclusionSelector ?? coverage?.selector;
+    const submission = submissionByXpath.get(node.xpath);
+    const canonicalCoverage: Coverage | undefined = submission?.excluded
+      ? { kind: "exclude", selector: exclusionSelector ?? "" }
+      : submission?.explicit === true
+        ? { kind: "include", selector: inclusionSelector ?? "" }
+        : undefined;
+    const coverage = ownCoverage ?? canonicalCoverage ?? inheritedCoverage;
+    const selector = (inclusionSelector ?? exclusionSelector ?? coverage?.selector) || undefined;
 
     if (node.closedShadow || node.shadow === "inaccessible-closed") {
       rows.set(node.key, {
@@ -237,13 +261,14 @@ export function evaluatePreview(
       });
       return;
     } else {
-      const submission = submissionByXpath.get(node.xpath);
       if (submission) {
-        const classification: PreviewClassification = submission.excluded || coverage?.kind === "exclude"
+        const classification: PreviewClassification = submission.excluded
           ? "excluded"
-          : inclusionSelector
+          : submission.explicit === true || inclusionSelector
             ? "explicit-included"
-            : coverage?.kind === "include"
+            : coverage?.kind === "exclude"
+              ? "excluded"
+              : coverage?.kind === "include"
               ? "implicit-included"
               : "undetected";
         rows.set(node.key, {
@@ -255,6 +280,13 @@ export function evaluatePreview(
       }
     }
 
+    // An exclusion is a shallow coverage boundary. Traverse only the narrow
+    // ancestor path needed to surface a valid explicit-inclusion rescue; every
+    // other covered descendant is intentionally absent from Content List just
+    // as it is absent from the submission rows.
+    if (coverage?.kind === "exclude" && !explicitInclusionPath.has(node.xpath)) {
+      return;
+    }
     for (const child of node.children ?? []) {
       visit(child, coverage);
     }

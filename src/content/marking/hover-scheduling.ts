@@ -2,7 +2,7 @@ export type MarkingHoverIdentity<TTarget = EventTarget | null> = Readonly<{
   eventTarget: TTarget;
   overlayXpath: string;
   altKey: boolean;
-  shiftKey: boolean;
+  ctrlKey: boolean;
 }>;
 
 /**
@@ -17,5 +17,5 @@ export function markingHoverNeedsLeadingPaint<TTarget>(
     previous.eventTarget !== next.eventTarget ||
     previous.overlayXpath !== next.overlayXpath ||
     previous.altKey !== next.altKey ||
-    previous.shiftKey !== next.shiftKey;
+    previous.ctrlKey !== next.ctrlKey;
 }

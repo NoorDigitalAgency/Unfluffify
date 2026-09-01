@@ -44,7 +44,7 @@ export function resolveTarget(
   // boundary resolves when that boundary is the deepest eligible painted hit;
   // an ordinary descendant resolves independently so the store can remove the
   // ancestor, rehydrate defaults, and exclude the clicked target. Explicit
-  // inclusions remain the one exception handled above: a plain/Shift click on
+  // inclusions remain the one exception handled above: a plain/Ctrl click on
   // their painted branch removes that exact inclusion without disturbing an
   // expanded exclusion ancestor.
   return hitPath.find((hit) => hit.selfMarkable) ?? null;

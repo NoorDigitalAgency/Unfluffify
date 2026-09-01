@@ -45,7 +45,7 @@ import {
   capturePopupState,
   captureScreenshot,
   captureVisualSnapshot,
-  performPhysicalShiftExclusion,
+  performPhysicalCtrlExclusion,
   prepareMarkingGestureTarget,
   probeMarkingGestures,
   probeResize,
@@ -1501,14 +1501,14 @@ async function runMeasuredFullWorkflow({ popup, site, guard, identity, options }
 
   const dirtyEdit = await withSiteSession(
     site,
-    (session) => performPhysicalShiftExclusion(session, markingTargetOptions),
+    (session) => performPhysicalCtrlExclusion(session, markingTargetOptions),
   );
   const freshness = await waitForDirtyFreshnessProjection(popup, dirtyEdit.inputDispatchedAtEpochMs);
   const discard = await runDiscardWorkflow(popup);
 
   const saveEdit = await withSiteSession(
     site,
-    (session) => performPhysicalShiftExclusion(session, markingTargetOptions),
+    (session) => performPhysicalCtrlExclusion(session, markingTargetOptions),
   );
   await waitForDirtyFreshnessProjection(popup, saveEdit.inputDispatchedAtEpochMs);
   const freshAi = await runCurrentAi(popup, guard, options);
