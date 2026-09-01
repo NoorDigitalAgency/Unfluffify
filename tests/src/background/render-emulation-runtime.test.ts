@@ -439,6 +439,59 @@ describe("render emulation runtime", () => {
     }
   });
 
+  it("keeps verification shrink immediate but defers verification growth until geometry is stable", async () => {
+    vi.useFakeTimers();
+    try {
+      const debuggerApi = fakeDebugger();
+      const viewport = { width: 900, height: 720, windowId: 4 };
+      const runtime = createRenderEmulationRuntime({
+        debuggerApi: debuggerApi.api,
+        tabs: {
+          get: vi.fn((_tabId: number, callback?: (tab: typeof viewport) => void) => callback?.(viewport)),
+          reload: vi.fn((_tabId, _options, callback) => callback?.()),
+          sendMessage: vi.fn(),
+        },
+      });
+      await runtime.apply(7, "mobile", 1);
+      debuggerApi.sent.length = 0;
+
+      viewport.height = 480;
+      await expect(runtime.current(7, "mobile", 1)).resolves.toMatchObject({
+        mode: "mobile",
+        scale: 0.5,
+        active: true,
+      });
+      expect(debuggerApi.sent.filter((call) => call.method.startsWith("Emulation.")))
+        .toEqual([expect.objectContaining({
+          method: "Emulation.setDeviceMetricsOverride",
+          params: expect.objectContaining({ width: 412, height: 960, mobile: true, scale: 0.5 }),
+        })]);
+
+      debuggerApi.sent.length = 0;
+      viewport.height = 700;
+      await expect(runtime.current(7, "mobile", 1)).resolves.toMatchObject({
+        mode: "mobile",
+        scale: 0.5,
+        active: true,
+      });
+      expect(debuggerApi.sent).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(119);
+      await flush();
+      expect(debuggerApi.sent).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await flush();
+      expect(debuggerApi.sent.filter((call) => call.method.startsWith("Emulation.")))
+        .toEqual([expect.objectContaining({
+          method: "Emulation.setDeviceMetricsOverride",
+          params: expect.objectContaining({ width: 412, height: 960, mobile: true, scale: 700 / 960 }),
+        })]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("re-establishes the posture when the operator dismisses the debugger", async () => {
     // Detaching drops every override at once — viewport and identity together — so a
     // dismissed debugging banner silently returns the tab to a desktop-shaped page

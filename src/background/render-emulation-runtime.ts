@@ -1074,7 +1074,10 @@ export function createRenderEmulationRuntime(input: Readonly<{
         }
         const fittedScale = await fittedScaleFor(tabId, mode, maximumScale, verified.scale);
         if (Math.abs(fittedScale - verified.scale) > 0.001) {
-          return executeRefitPosture(tabId, held, true);
+          // Verification may discover that physical geometry changed, but it
+          // must not bypass the resize contract. Safety shrink remains
+          // immediate; growth is scheduled after the stable trailing edge.
+          return executeRefitPosture(tabId, held, false);
         }
         // `verifiedPostures` is populated only after a complete proof and is
         // invalidated synchronously on navigation, browser-owned detach,

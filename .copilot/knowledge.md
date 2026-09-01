@@ -744,3 +744,13 @@ painted" decision from the replaced document.
   never leaves stale paint. Authoritative structural/silent renders still remove
   hidden, deleted, and no-longer-canonical nodes; measurable geometry reveals and
   reuses the same node.
+- R20 EMULATION CADENCE: the 500 ms popup poll is a local signal/Preview lane on
+  an unchanged `{tabId,url}` binding. It must call `handleBoundContext` with the
+  binding-change-only policy and must not emit `emulation.current`; initial,
+  replacement, and same-tab-navigation bindings still establish the complete
+  posture, while the 15-second authority lane and explicit operator/preflight
+  paths retain verification. Background `current()` may discover a fitted-scale
+  mismatch, but it must use the ordinary refit path: physical-fit shrink is
+  immediate and growth waits for the stable trailing edge. Never pass
+  `allowExpansion:true` from verification, or a poll/authority collision can
+  visibly expand the device in the middle of a resize burst.

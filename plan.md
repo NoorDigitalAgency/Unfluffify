@@ -3569,3 +3569,148 @@ authorized by this remediation or its browser acceptance.
   approved with no unresolved R19 blocker.
 - The expert-loop proceeds to a new independent audit. R19 completion is not, by
   itself, a claim of whole-product production readiness.
+
+# EL-02-R20 — Keep fast polling local and preserve stable scale convergence
+
+## 1. Entering expert-check finding — `EL-02-F026`
+
+The independent post-R19 audit rejects whole-product production readiness even
+though exact-current automated evidence is clean. Three consecutive P25
+acceptance passes completed on synchronized HEAD
+`8c1d34317646ee9b770d847e31d4647684ae261c`; every P14, P15, P16, P17, P18,
+P20, and P23 child gate passed with clean source identity and clean process
+teardown.
+
+Fresh repository `live-browser` observation on Acne nevertheless proved a
+Medium emulation-stability defect. An unchanged popup emits
+`emulation.current` every approximately 500 ms alongside the intended local
+`signals.pull`. The source path is
+`pollFastSignalsOnce -> handleBoundContext -> ensureSessionEmulation ->
+verifySessionEmulation -> emulation.current`. Background `current()` then reads
+debugger attachment and physical tab authority and permits an immediate scale
+expansion.
+
+The behavior is visible under continuous geometry movement. Starting from a
+settled 500px-tall browser window and mobile scale `0.317708`, the audit grew
+the window through ten 40px steps spaced 80 ms apart. The stable trailing-edge
+contract should have retained the smaller scale until movement ended, but the
+fast authority tick expanded it to `0.526042` at 397 ms while the resize was
+still in progress; it reached the settled `0.734375` at 897 ms. This is the
+reported temporary size/zoom flicker in a deterministic form.
+
+No AI request, Save, takeover, Lynx publication, release, or deployment was
+attempted during this audit or authorized by R20.
+
+## 2. Root contract
+
+1. The 500 ms fast lane is extension-local. On an unchanged binding it may
+   resolve the retained tab, pull brain signals, and maintain an already-open
+   Preview projection; it may not query debugger attachment, physical window
+   authority, configuration, authentication, lock, Todo, inspection, or AI
+   resume state.
+2. Initial binding, replacement-tab binding, and same-tab navigation are not
+   unchanged fast ticks. They must establish the exact held posture before the
+   new binding proceeds. Navigation still clears the obsolete document posture,
+   deactivates the old content session, and applies the intended mode.
+3. The 15-second single-flight authority lane remains the idle posture
+   backstop. Popup creation/recreation, explicit Refresh, render-mode work,
+   marking/preview transitions, AI preflight, navigation, and other operations
+   that require current authority may verify immediately.
+4. Browser window/side-panel geometry events remain the responsive fit signal.
+   Shrink-to-fit is immediate. Scale growth is allowed only after the existing
+   stable trailing interval, regardless of whether the mismatch was discovered
+   by a geometry event, `current()` verification, or a coalesced trailing run.
+5. Browser-owned debugger detach/cancel remains immediate. Independent
+   `chrome.debugger.getTargets()` verification remains authoritative on the
+   slow/current/refit paths and must still restore the complete held identity
+   after silent attachment loss.
+6. Removing redundant verification may not weaken mode serialization, durable
+   posture hydration, popup stale-cache recovery, exact 412x960/1920x1080
+   dimensions, two-axis physical fit, or revision/epoch fencing.
+
+## 3. Implementation plan
+
+### EL-02-R20-01 — Separate unchanged binding from authority verification
+
+1. Give `handleBoundContext` an explicit internal emulation-authority policy.
+   Its default continues to verify the background posture for authority and
+   operator paths; the fast poll requests binding-change-only enforcement.
+2. A binding-change-only call skips `ensureSessionEmulation` only when
+   `bindToTab` reports the exact binding unchanged. Initial binding, a different
+   tab, and same-tab URL/document navigation still perform the full posture
+   sequence.
+3. Keep signal pulling and open-Preview structural maintenance in the fast lane,
+   and keep the existing single-flight/trailing authority scheduler unchanged.
+
+### EL-02-R20-02 — Make all growth obey the stable trailing edge
+
+1. Change the background `current()` mismatch path to request a normal refit,
+   not an expansion-authorized refit. A smaller required scale still applies
+   immediately; a larger fitted scale schedules one stable trailing run.
+2. Preserve full reassertion when attachment truth or posture identity is stale.
+   A missing debugger attachment is not a scale expansion and must continue to
+   restore metrics, page scale, touch, media, and UA immediately.
+3. Preserve per-tab operation serialization and stale held-posture checks at
+   every asynchronous boundary.
+
+### EL-02-R20-03 — Add cadence and convergence regressions
+
+1. Extend popup polling tests so repeated unchanged 500 ms ticks add zero
+   `emulation.current` calls, while a due 15-second authority refresh adds one
+   and remains single-flight.
+2. Retain and strengthen the same-tab navigation proof that a fast observation
+   of a new URL clears and reapplies the target posture.
+3. Add runtime fake-timer coverage showing `current()` applies a safety shrink
+   immediately but defers growth until 120 ms of stable geometry and emits one
+   scale-only metrics write with no UA, touch, media, opposite-mode, or scale-1
+   churn.
+
+### EL-02-R20-04 — Gates, synchronization, and headed proof
+
+1. Run focused popup and emulation-runtime tests, `pnpm check`, `pnpm verify`,
+   production/debug builds, clean P17, and the unchanged-threshold P25
+   acceptance composite.
+2. Review the exact R20 diff, commit, push, refresh the code graph, and prove
+   exact upstream synchronization before browser acceptance.
+3. Restart repository `live-browser` on Acne. Instrument extension-local bus
+   traffic, require zero idle `emulation.current` calls across several fast
+   ticks, repeat the 80 ms stepped slow-resize trace, and prove scale stays at
+   the safe smaller value until the stable trailing edge.
+4. Repeat the no-flicker/full-device proof on Aleris and 3DPrima `/se`; external
+   ownership remains fail-closed and all prohibited request counts remain zero.
+
+## 4. Acceptance criteria
+
+- `EL02-R20-AC-01` Five or more unchanged fast ticks emit `signals.pull` as
+  required but zero additional `emulation.current`, `emulation.apply`, or
+  `emulation.refit` requests.
+- `EL02-R20-AC-02` A due 15-second authority cycle performs at most one posture
+  verification, remains single-flight, and retains the one-load-per-binding
+  configuration contract.
+- `EL02-R20-AC-03` Initial/replacement binding and same-tab navigation establish
+  the intended exact posture; no new document proceeds by relying on the
+  unchanged-binding optimization.
+- `EL02-R20-AC-04` Every scale decrease needed for physical fit is immediate;
+  every scale increase waits for stable trailing geometry and coalesces to one
+  scale-only metrics write.
+- `EL02-R20-AC-05` Verification, geometry, and detach races emit no opposite
+  mode, neutral posture, transient scale 1, or redundant full identity frame.
+- `EL02-R20-AC-06` Silent attachment loss and browser-owned detach still restore
+  the complete exact held mobile/desktop posture with bounded retry.
+- `EL02-R20-AC-07` Focused/full/build/P17/P25 gates pass on synchronized source
+  with unchanged thresholds and no marking, payload, Preview, consent, reveal,
+  render-mode, ownership, or publication regression.
+- `EL02-R20-AC-08` Headed Acne/Aleris/3DPrima evidence proves whole-device fit,
+  stable resize convergence, and zero AI, Save, takeover, final-publication,
+  release, and deployment attempts.
+
+## 5. Run-plan todo order
+
+1. `el02-r20-fast-lane` -> 0
+2. `el02-r20-stable-current` -> 1
+3. `el02-r20-regressions` -> 2
+4. `el02-r20-focused-full-gates` -> 3
+5. `el02-r20-review-push` -> 4
+6. `el02-r20-headed-acne` -> 5
+7. `el02-r20-candidate-matrix` -> 6
+8. `el02-r20-conformance` -> 7

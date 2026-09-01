@@ -1071,7 +1071,12 @@ async function pullSignals(
   });
 }
 
-async function handleBoundContext(context: TargetTabContext): Promise<string> {
+type BoundContextEmulationPolicy = "verify" | "binding-change-only";
+
+async function handleBoundContext(
+  context: TargetTabContext,
+  emulationPolicy: BoundContextEmulationPolicy = "verify",
+): Promise<string> {
   const binding = bindToTab(context);
   if (binding.sameTabNavigation) {
     // Navigation invalidates the prior document posture. Clear it before the
@@ -1082,13 +1087,16 @@ async function handleBoundContext(context: TargetTabContext): Promise<string> {
     await reportPopupFact(context, "navigation-observed", {}, binding.key);
     await pullSignals(context.tabId, binding.key);
   }
-  // Activation, inspection, and marking all continue only after the managed tab
-  // has the correct posture. The background retains it across later reloads and
-  // debugger detach events even when the popup is closed.
-  const active = await ensureSessionEmulation(context).catch(() => false);
-  if (!active) {
-    logEvent("Device emulation failed", "the page is not in mobile simulation", "warn");
-    render();
+  // Activation, inspection, authority refreshes, and every new binding continue
+  // only after the managed tab has the correct posture. An unchanged 500 ms
+  // signal tick is deliberately local: resize/detach observers own immediate
+  // posture repair and the 15-second authority lane is its idle backstop.
+  if (binding.changed || emulationPolicy === "verify") {
+    const active = await ensureSessionEmulation(context).catch(() => false);
+    if (!active) {
+      logEvent("Device emulation failed", "the page is not in mobile simulation", "warn");
+      render();
+    }
   }
   return binding.key;
 }
@@ -1649,7 +1657,7 @@ async function pollFastSignalsOnce(): Promise<void> {
     return;
   }
   const previousBindingKey = boundTabKey;
-  const requestKey = await handleBoundContext(context);
+  const requestKey = await handleBoundContext(context, "binding-change-only");
   if (previousBindingKey !== null && previousBindingKey !== requestKey) {
     // A new document/property binding invalidates the slow-lane cache. Queue a
     // forced authority pass; if one is already running it becomes the one

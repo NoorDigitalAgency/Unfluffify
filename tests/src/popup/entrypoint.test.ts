@@ -1379,6 +1379,8 @@ describe("rewrite popup entrypoint", () => {
       runtime: { ...runtime },
       tabs: { query, sendMessage: makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" })) },
     } as unknown as typeof chrome;
+    const emulationCurrentCalls = () => runtime.sendMessage.mock.calls
+      .filter(([frame]) => frame.name === "emulation.current").length;
 
     try {
       await import("../../../src/entrypoints/popup/main.tsx");
@@ -1396,19 +1398,34 @@ describe("rewrite popup entrypoint", () => {
 
       resolveFirstLock?.(replyFrame(firstLockFrame!, lockPayload));
       await waitFor(() => lockCalls === 2, "one coalesced trailing authority request");
-      await flushEntrypointWork();
+      // Seeing the lock call means the trailing refresh has entered its remote
+      // phase, not that all of its post-lock projection work has completed.
+      // Drain that work before measuring the next independent fast-lane tick.
+      for (let index = 0; index < 5; index += 1) {
+        await flushEntrypointWork();
+      }
       expect(runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "config.load")).toHaveLength(1);
+      const currentCallsAfterTrailingAuthority = emulationCurrentCalls();
 
+      // Once initialization and the coalesced authority request are settled,
+      // repeated 500 ms callbacks are local-only on the unchanged binding.
+      poll();
+      poll();
+      poll();
+      poll();
       poll();
       await flushEntrypointWork();
       expect(lockCalls).toBe(2);
+      expect(emulationCurrentCalls()).toBe(currentCallsAfterTrailingAuthority);
       now += 14_999;
       poll();
       await flushEntrypointWork();
       expect(lockCalls).toBe(2);
+      expect(emulationCurrentCalls()).toBe(currentCallsAfterTrailingAuthority);
       now += 1;
       poll();
       await waitFor(() => lockCalls === 3, "next scheduled authority request");
+      expect(emulationCurrentCalls()).toBe(currentCallsAfterTrailingAuthority + 1);
       expect(runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "config.load")).toHaveLength(1);
     } finally {
       nowSpy.mockRestore();
