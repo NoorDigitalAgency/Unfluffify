@@ -3714,3 +3714,64 @@ attempted during this audit or authorized by R20.
 6. `el02-r20-headed-acne` -> 5
 7. `el02-r20-candidate-matrix` -> 6
 8. `el02-r20-conformance` -> 7
+
+## 6. R20 execution evidence — 2026-09-01
+
+- The unchanged-binding fast lane now calls `handleBoundContext` with an
+  explicit `binding-change-only` policy. All authority, publication, operator,
+  startup, and navigation call sites retain the default verification policy;
+  a changed binding still performs the complete posture sequence before work
+  proceeds.
+- Background `current()` now uses the ordinary refit path. A fitted-scale
+  decrease remains immediate, while an increase returns the verified safe
+  posture and schedules one expansion after the 120 ms stable trailing edge.
+  Missing attachment truth still takes the independent full-reassert path.
+- Focused verification passes 98/98 popup/emulation tests. The new regressions
+  prove five unchanged fast callbacks add zero posture checks, a due authority
+  cycle adds exactly one, navigation still clears/applies, verification shrink
+  is immediate, and verification growth emits one trailing metrics-only write.
+- Required full verification passes outside the filesystem/network sandbox:
+  148/148 files, 1,615/1,615 tests, production build 1.63 MB, debug build
+  1.64 MB, and 7/7 manifest assertions. The sandbox-only run had the known six
+  `listen EPERM 127.0.0.1` denials plus one non-reproducing contended
+  micro-benchmark sample; the unrestricted authoritative rerun is fully green.
+- Clean-source P17 passes 19/19 with complete fixture/browser teardown. The full
+  unchanged-threshold P25 composite passes every P14, P15, P16, P17, P18, P20,
+  and P23 child, with accepted/stable clean source before and after, exact HEAD
+  `bc2b22ebcd9f00cd2b124c3396bd73ca3113224b`, no missing/unexpected child, and
+  clean process teardown.
+- The implementation is committed/pushed as
+  `bc2b22ebcd9f00cd2b124c3396bd73ca3113224b`; local and upstream are exactly
+  synchronized. The refreshed code graph contains 134,811 nodes and 217,270
+  edges.
+- Fresh repository `live-browser` Acne evidence records 11 consecutive 500 ms
+  `signals.pull` messages and zero posture messages in an isolated 5.5-second
+  idle window. The scheduled authority cycle was independently distinguishable
+  by its accompanying account/context requests. During 20 uninterrupted window
+  updates at approximately 40 ms spacing, all 15 in-motion `current()` samples
+  retained mobile scale `0.317708`; the pre-stable sample was unchanged and one
+  post-stable sample reached `0.734375`. The page remained exact 412x960,
+  touch/coarse Googlebot, non-overflowing, and the full capture was 824x1920 at
+  host DPR 2. A deliberate silent detach restored the complete identity in
+  126 ms.
+- Aleris records 11 local ticks and zero posture messages in 5.5 seconds. Its
+  20 resize completions had a maximum 47 ms gap; all 30 in-motion samples kept
+  scale `0.317708`, then one settled expansion reached `0.734375`. Its 5,280px
+  page remained exact 412x960/touch/coarse with a full 824x1920 capture.
+- 3DPrima `/se` records the same 11/zero idle cadence. Its 20 completions had a
+  maximum 48 ms gap; all 45 in-motion samples kept scale `0.317708`, followed by
+  one settled `0.734375` expansion. `screen`, `outer`, `visualViewport`, root
+  client, and body client dimensions remained exact 412x960 and the full
+  capture was 824x1920 over an 8,333px page. Chrome exposed page-authored
+  `innerWidth` inflation to 424px from hidden/fixed modal and carousel geometry,
+  but it was not horizontally scrollable, no extension-owned node contributed,
+  and the country/consent modal remained suppressed and non-interactive.
+- Aleris and 3DPrima editing controls remained fail-closed under external
+  ownership. Across all headed checks, AI, Save, takeover, Lynx publication,
+  release, and deployment attempts remained zero.
+- R20 conformance verdict: **PASS**. AC-01 through AC-08 reconcile exactly
+  against the implementation, focused/full/build/P17/P25 evidence, synchronized
+  source identity, and fresh cross-property headed proof. `EL-02-F026` is
+  closed with no unresolved R20 blocker.
+- The expert-loop proceeds to another independent audit. R20 closure does not,
+  by itself, assert whole-product production readiness.
