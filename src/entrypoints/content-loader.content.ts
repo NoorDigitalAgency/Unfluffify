@@ -935,9 +935,9 @@ function debugStabilizationStage(
   if (debugBuild) {
     const evidence = { stage, ...detail };
     if (error === undefined) {
-      console.debug("[Unfluffify][rewrite] Stabilization lifecycle", evidence);
+      console.debug("[Unfluffify][rewrite] Stabilization lifecycle", JSON.stringify(evidence));
     } else {
-      console.error("[Unfluffify][rewrite] Stabilization lifecycle", evidence, error);
+      console.error("[Unfluffify][rewrite] Stabilization lifecycle", JSON.stringify(evidence), error);
     }
   }
 }
@@ -1608,6 +1608,12 @@ async function runActivationStabilization(pageUrl: string): Promise<RevealRunRes
             lastContentSurfaceSignature = "";
             renderContentSurface();
           },
+        });
+        debugStabilizationStage("reveal-terminal", {
+          skipped: result.skipped,
+          frozenAtBottom: result.frozenAtBottom,
+          lazyExpansions: result.lazyExpansions,
+          reason: result.reason ?? "",
         });
         if (isStale() || !result.frozenAtBottom) {
           await destroyPageWorldSessionAndWait();
@@ -3267,6 +3273,7 @@ async function executePageVisitRitual(
   identity: PageVisitRitualIdentity,
   cause: string,
 ): Promise<PageVisitRitualOutcome> {
+  debugStabilizationStage("ritual-started", { cause, pageUrl: identity.pageUrl });
   const ready = await waitForPageWalkReadiness(identity);
   if (!ready || !pageVisitRitualIdentityIsCurrent(identity)) {
     return {
@@ -3308,11 +3315,21 @@ async function executePageVisitRitual(
       frozenAtBottom: true,
     };
     completedPageVisitRitual = outcome;
+    debugStabilizationStage("ritual-prepared", {
+      cause,
+      lazyExpansions: outcome.lazyExpansions,
+      reason: outcome.reason,
+    });
     console.debug(`[Unfluffify][rewrite] Page-visit reveal/freeze prepared (${cause})`);
     return outcome;
   }
   console.debug(`[Unfluffify][rewrite] Page-visit reveal/freeze skipped (${cause}) — attempt kept`);
   const stabilizationReason = result.reason ?? "skipped";
+  debugStabilizationStage("ritual-rejected", {
+    cause,
+    reason: stabilizationReason,
+    lazyExpansions: result.lazyExpansions,
+  });
   return {
     ...identity,
     status: "failed",

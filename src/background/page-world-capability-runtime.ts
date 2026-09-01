@@ -48,6 +48,19 @@ type StoredLease = Readonly<{
 
 const STORAGE_PREFIX = "uf:page-world-capability:";
 
+function debugPageWorldStage(
+  stage: string,
+  detail: Readonly<Record<string, unknown>> = {},
+): void {
+  const debugBuild = typeof __UF_DEBUG_BUILD__ !== "undefined" && __UF_DEBUG_BUILD__;
+  if (debugBuild) {
+    console.debug(
+      "[Unfluffify][page-world-capability] Lifecycle",
+      JSON.stringify({ stage, ...detail }),
+    );
+  }
+}
+
 function storageKey(tabId: number): string {
   return `${STORAGE_PREFIX}${tabId}`;
 }
@@ -133,6 +146,7 @@ export function createPageWorldCapabilityRuntime(input: Readonly<{
   // identity boundary or explicit retirement forgets them.
   const provedLeaseTabs = new Set<number>();
   const operations = new Map<number, Promise<unknown>>();
+  let operationSequence = 0;
   const makeRandomHex = input.randomHex ?? randomHex;
 
   const readyProof = (): PageWorldCommandResult => ({
@@ -142,15 +156,91 @@ export function createPageWorldCapabilityRuntime(input: Readonly<{
     payload: { ready: true },
   });
 
-  const withTabOperation = <T>(tabId: number, operation: () => Promise<T>): Promise<T> => {
+  const withTabOperation = <T>(
+    tabId: number,
+    label: string,
+    operation: (sequence: number) => Promise<T>,
+  ): Promise<T> => {
+    operationSequence += 1;
+    const sequence = operationSequence;
+    const queuedAt = Date.now();
+    const queuedBehindPrior = operations.has(tabId);
+    debugPageWorldStage("queued", { tabId, sequence, label, queuedBehindPrior });
     const previous = operations.get(tabId) ?? Promise.resolve();
-    const next = previous.then(operation, operation);
+    const run = async (): Promise<T> => {
+      const startedAt = Date.now();
+      debugPageWorldStage("started", {
+        tabId,
+        sequence,
+        label,
+        queueWaitMs: startedAt - queuedAt,
+      });
+      try {
+        const result = await operation(sequence);
+        debugPageWorldStage("settled", {
+          tabId,
+          sequence,
+          label,
+          durationMs: Date.now() - startedAt,
+        });
+        return result;
+      } catch (error) {
+        debugPageWorldStage("rejected", {
+          tabId,
+          sequence,
+          label,
+          durationMs: Date.now() - startedAt,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    };
+    const next = previous.then(run, run);
     const tail = next.then(() => undefined, () => undefined);
     operations.set(tabId, tail);
     void tail.finally(() => {
       if (operations.get(tabId) === tail) operations.delete(tabId);
     });
     return next;
+  };
+
+  const runTracedPhase = async <T>(
+    identity: PageWorldDocumentIdentity,
+    sequence: number,
+    operationLabel: string,
+    phase: string,
+    operation: () => Promise<T>,
+    summarize: (result: T) => unknown = () => undefined,
+  ): Promise<T> => {
+    const startedAt = Date.now();
+    debugPageWorldStage("phase-started", {
+      tabId: identity.tabId,
+      sequence,
+      label: operationLabel,
+      phase,
+    });
+    try {
+      const result = await operation();
+      debugPageWorldStage("phase-settled", {
+        tabId: identity.tabId,
+        sequence,
+        label: operationLabel,
+        phase,
+        durationMs: Date.now() - startedAt,
+        result: summarize(result),
+      });
+      return result;
+    } catch (error) {
+      debugPageWorldStage("phase-rejected", {
+        tabId: identity.tabId,
+        sequence,
+        label: operationLabel,
+        phase,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   };
 
   const execute = async <T>(
@@ -313,32 +403,65 @@ export function createPageWorldCapabilityRuntime(input: Readonly<{
 
   return {
     acquire(identity: PageWorldDocumentIdentity): Promise<PageWorldCapabilityOutcome> {
-      return withTabOperation(identity.tabId, () => acquireUnlocked(identity));
+      return withTabOperation(identity.tabId, "acquire", () => acquireUnlocked(identity));
     },
     command(
       identity: PageWorldDocumentIdentity,
       request: PageWorldRequest,
     ): Promise<PageWorldCapabilityOutcome> {
-      return withTabOperation(identity.tabId, async () => {
+      const operationLabel = `command:${request.command}`;
+      return withTabOperation(identity.tabId, operationLabel, async (sequence) => {
         let lease = provedExactLease(identity);
         if (!lease) {
-          if (!await input.authorize(identity)) {
+          const authorized = await runTracedPhase(
+            identity,
+            sequence,
+            operationLabel,
+            "resolve-authorize",
+            () => input.authorize(identity),
+            (result) => result,
+          );
+          if (!authorized) {
             return { status: "stale" as const, reason: "document-authority-changed" };
           }
-          const resolved = await resolveLeaseUnlocked(identity);
+          const resolved = await runTracedPhase(
+            identity,
+            sequence,
+            operationLabel,
+            "resolve-lease",
+            () => resolveLeaseUnlocked(identity),
+            (result) => result.status,
+          );
           if (resolved.status !== "ok") return resolved;
           lease = resolved.lease;
         }
         // A recovered/installed resolution can yield while navigation commits.
         // This is the exact pre-invocation authority fence for both cold and hot
         // paths; the matching post-invocation fence remains below.
-        if (!await input.authorize(identity)) {
+        const admitted = await runTracedPhase(
+          identity,
+          sequence,
+          operationLabel,
+          "pre-authorize",
+          () => input.authorize(identity),
+          (result) => result,
+        );
+        if (!admitted) {
           // Do not execute even a cleanup invocation after a failed command
           // admission proof. Keep the lease discoverable so the navigation or
           // terminal owner queued for this tab can retire it in order.
           return { status: "stale" as const, reason: "document-authority-changed" };
         }
-        const result = await invoke(lease, { kind: "command", request }).catch(() => null);
+        const result = await runTracedPhase(
+          identity,
+          sequence,
+          operationLabel,
+          "invoke",
+          () => invoke(lease, { kind: "command", request }).catch(() => null),
+          (outcome) => outcome
+            ? { ok: outcome.ok, failureCode: outcome.failure?.code ?? null }
+            : null,
+        );
         if (!result) {
           // A transport/injection failure does not prove the endpoint is dead.
           // Make it unproved so the next authorized action probes once, while
@@ -357,7 +480,15 @@ export function createPageWorldCapabilityRuntime(input: Readonly<{
           // replacement instead of probing or invoking the dead endpoint again.
           await forget(identity.tabId);
         }
-        if (!await input.authorize(identity)) {
+        const retained = await runTracedPhase(
+          identity,
+          sequence,
+          operationLabel,
+          "post-authorize",
+          () => input.authorize(identity),
+          (outcome) => outcome,
+        );
+        if (!retained) {
           // The command already completed, so return no success. Retaining a
           // non-poisoned lease lets the authority owner retire any state the
           // command may have installed; definite dead/rejected leases above
@@ -368,7 +499,7 @@ export function createPageWorldCapabilityRuntime(input: Readonly<{
       });
     },
     retireTab(tabId: number): Promise<void> {
-      return withTabOperation(tabId, async () => {
+      return withTabOperation(tabId, "retire", async () => {
         const lease = await load(tabId);
         if (lease) await retireLease(lease);
         else await forget(tabId);

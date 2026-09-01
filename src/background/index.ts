@@ -139,6 +139,18 @@ function reportRenderInspectionFallbackStage(
   }
 }
 
+function reportPageWorldAuthorizationStage(
+  stage: string,
+  detail: Readonly<Record<string, unknown>>,
+): void {
+  if (__UF_DEBUG_BUILD__) {
+    console.debug(
+      "[Unfluffify][page-world-authority] Lifecycle",
+      JSON.stringify({ stage, ...detail }),
+    );
+  }
+}
+
 function reportActionOpenFailure(error: unknown): void {
   console.error("[Unfluffify][rewrite] Unable to open side panel", error);
 }
@@ -645,34 +657,78 @@ export function startRewriteBackground(): void {
     managedPageWorldAuthorityByTab.set(tabId, authority);
     return authority;
   };
+  let pageWorldAuthorizationSequence = 0;
   const pageWorld = createPageWorldCapabilityRuntime({
     executeScript: api.scripting?.executeScript,
     storage: api.storage?.session as unknown as Parameters<
       typeof createPageWorldCapabilityRuntime
     >[0]["storage"],
     async authorize(identity) {
-      if (tabTerminations.has(identity.tabId)) return false;
+      pageWorldAuthorizationSequence += 1;
+      const sequence = pageWorldAuthorizationSequence;
+      const startedAt = Date.now();
+      const finish = (
+        authorized: boolean,
+        reason: string,
+        detail: Readonly<Record<string, unknown>> = {},
+      ): boolean => {
+        reportPageWorldAuthorizationStage("settled", {
+          tabId: identity.tabId,
+          sequence,
+          authorized,
+          reason,
+          durationMs: Date.now() - startedAt,
+          ...detail,
+        });
+        return authorized;
+      };
+      reportPageWorldAuthorizationStage("started", {
+        tabId: identity.tabId,
+        sequence,
+        generation: identity.generation,
+      });
+      if (tabTerminations.has(identity.tabId)) {
+        return finish(false, "tab-terminating");
+      }
       const authority = managedPageWorldAuthorityByTab.get(identity.tabId);
       if (!authority || !(
         authority.documentId === identity.documentId &&
         authority.pageUrl === identity.pageUrl &&
         authority.generation === identity.generation
       )) {
-        return false;
+        return finish(false, "managed-authority-mismatch");
       }
       const navigation = mainNavigationByTab.get(identity.tabId);
       if (navigation?.pending || (
         navigation?.pageUrl !== null &&
         navigation?.pageUrl !== identity.pageUrl
       )) {
-        return false;
+        return finish(false, "navigation-mismatch");
       }
+      const frameStartedAt = Date.now();
       const frame = await queryMainFrame(identity.tabId);
-      return Boolean(
-        frame?.documentId === identity.documentId &&
-        frame.pageUrl === identity.pageUrl &&
-        !await consentSuppressionDisabled(identity.tabId) &&
+      const frameDurationMs = Date.now() - frameStartedAt;
+      if (
+        frame?.documentId !== identity.documentId ||
+        frame.pageUrl !== identity.pageUrl
+      ) {
+        return finish(false, "main-frame-mismatch", { frameDurationMs });
+      }
+      const consentStartedAt = Date.now();
+      const suppressionDisabled = await consentSuppressionDisabled(identity.tabId);
+      const consentDurationMs = Date.now() - consentStartedAt;
+      if (suppressionDisabled) {
+        return finish(false, "consent-suppression-disabled", {
+          frameDurationMs,
+          consentDurationMs,
+        });
+      }
+      return finish(
         managedPageWorldAuthorityByTab.get(identity.tabId) === authority,
+        managedPageWorldAuthorityByTab.get(identity.tabId) === authority
+          ? "authorized"
+          : "managed-authority-changed",
+        { frameDurationMs, consentDurationMs },
       );
     },
   });

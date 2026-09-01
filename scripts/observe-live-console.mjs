@@ -38,11 +38,11 @@ function renderArg(arg) {
   if (!arg) return "";
   if (arg.type === "string") return arg.value;
   if ("value" in arg && arg.value !== undefined) return JSON.stringify(arg.value);
-  if (arg.description) return arg.description;
   if (arg.preview) {
     const props = (arg.preview.properties || []).map((p) => `${p.name}: ${p.value}`).join(", ");
     return `${arg.preview.description || arg.className || "Object"}{ ${props} }`;
   }
+  if (arg.description) return arg.description;
   return arg.className || arg.subtype || arg.type || "";
 }
 
