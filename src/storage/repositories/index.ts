@@ -6,3 +6,4 @@ export * from "./run-records";
 export * from "./render-inspection";
 export * from "./shield-posture";
 export * from "./tab-state";
+export * from "./emulation-posture";

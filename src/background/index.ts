@@ -14,6 +14,11 @@ import {
   type LockBrowserApi,
 } from "./lock-browser-lifecycle";
 import { connectionSettingsOf, replaceConnectionProfile } from "../storage/settings";
+import {
+  createEmulationPostureRepo,
+  createMemoryStore,
+  type KeyValueStore,
+} from "../storage";
 import { getBrowserRuntimeLastError, getInstalledBrowserApi } from "../common/browser";
 import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
@@ -47,6 +52,12 @@ export { createRewriteBrain } from "./rewrite-brain";
 type RewriteSidePanelApi = Readonly<{
   setOptions?: (options: { tabId?: number; path: string; enabled: boolean }) => Promise<void> | void;
   open?: (options: { tabId: number }) => Promise<void> | void;
+  onOpened?: Readonly<{
+    addListener(listener: (info: Readonly<{ tabId?: number; windowId?: number }>) => void): void;
+  }>;
+  onClosed?: Readonly<{
+    addListener(listener: (info: Readonly<{ tabId?: number; windowId?: number }>) => void): void;
+  }>;
 }>;
 
 type InstalledBrowserApi = NonNullable<ReturnType<typeof getInstalledBrowserApi>>;
@@ -177,6 +188,23 @@ export function startRewriteBackground(): void {
   }
   rewriteBackgroundStarted = true;
   const services = createRewriteBackgroundServices();
+  const sessionArea = api.storage?.session;
+  const emulationPostureStore: KeyValueStore = sessionArea ? {
+    async get(key) {
+      const stored = await sessionArea.get(key);
+      return stored?.[key];
+    },
+    async set(key, value) {
+      await sessionArea.set({ [key]: value });
+    },
+    async remove(key) {
+      await sessionArea.remove(key);
+    },
+    async clear() {
+      // The repository owns one namespaced key and never requests a broad
+      // session clear; clearing unrelated tab/session authority is forbidden.
+    },
+  } : createMemoryStore();
   const offscreenDocuments = createOffscreenDocumentOwner(api as OffscreenDocumentApi);
   const transferPayloads = createTransferPayloadStore();
   const actionIcons = createActionIconController(api.action);
@@ -904,9 +932,16 @@ export function startRewriteBackground(): void {
     debuggerApi: api.debugger,
     tabs: api.tabs,
     windows: api.windows,
+    postureRepo: createEmulationPostureRepo(emulationPostureStore),
     onDebuggerDetached(tabId) {
       renderInspectionDetachHandler?.(tabId);
     },
+  });
+  api.sidePanel?.onOpened?.addListener((info) => {
+    if (typeof info.tabId === "number") void renderEmulation.refit(info.tabId);
+  });
+  api.sidePanel?.onClosed?.addListener((info) => {
+    if (typeof info.tabId === "number") void renderEmulation.refit(info.tabId);
   });
   const pageContextRuntime = createPageContextRuntime({
     currentEnvironmentKey: services.lynx.currentEnvironmentKey,
@@ -1492,8 +1527,16 @@ export function startRewriteBackground(): void {
         request.allowReload === true,
       );
     }));
+  bus.onCommand("emulation.current", async (request) => {
+    if (await consentSuppressionDisabled(request.tabId)) return null;
+    return await renderEmulation.current(request.tabId, request.mode, request.scale);
+  });
   bus.onCommand("emulation.clear", async (request) => {
     await renderEmulation.clear(request.tabId);
+    return { status: "ok" as const };
+  });
+  bus.onCommand("emulation.refit", async (request) => {
+    await renderEmulation.refit(request.tabId);
     return { status: "ok" as const };
   });
   /** Render-mode knowledge is presentation data, not property classification.
@@ -1688,6 +1731,7 @@ export function startRewriteBackground(): void {
     // knows this is a managed property tab, so establish the standing mobile
     // posture here. An explicit desktop preview is a held override and remains
     // untouched until the popup turns it off or marking begins.
+    await renderEmulation.hydrate(tabId);
     const emulationDecision = managedEmulationDecision({
       recognized: consentSuppressionAllowed &&
         tabId > 0 &&

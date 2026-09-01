@@ -3353,3 +3353,165 @@ authorized by this remediation or its browser acceptance.
 6. `el02-r18-headed-acne` → 5
 7. `el02-r18-candidate-matrix` → 6
 8. `el02-r18-conformance` → 7
+
+# EL-02-R19 — Make debugger posture durable, continuously fitted, and flicker-free
+
+## 1. Entering expert-check findings — emulation authority and physical fit
+
+R18's hidden-content projection passed its focused, full, and headed Acne
+acceptance, but cumulative production readiness is rejected. Headed evidence
+and a rewrite-versus-legacy source audit confirmed that the simulated device can
+briefly change mode or scale and can become larger than the physical tab after
+the side panel or browser viewport changes. The lower or right portion of the
+device can consequently be unreachable even though the emulated CSS viewport
+still reports the correct 412×960 or 1920×1080 dimensions.
+
+The debugger implementation is the correct rendering authority, but its desired
+posture currently exists only in background-process memory, the popup can trust
+an independent stale cache, viewport refits observe browser-window bounds but
+not side-panel geometry, and the final safety fit is clamped to a 0.25 minimum.
+A Manifest V3 worker restart, popup reopen, debugger detach, or tab-viewport
+change can therefore expose an intermediate default/opposite posture or a
+clipped device. This round repairs that root authority rather than masking the
+flash in page CSS.
+
+No AI request, Save, takeover, Lynx publication, release, or deployment is
+authorized by this remediation or its browser acceptance.
+
+## 2. Root contract
+
+1. Chrome debugger device emulation remains the sole authority for mobile and
+   desktop simulation. Mobile is exactly 412×960; desktop is exactly 1920×1080;
+   DPR, touch, pointer/media, user-agent, and page-scale contracts remain exact.
+2. Each managed tab has one durable desired posture containing the mode,
+   maximum requested scale, and monotonically fenced revision. It is persisted
+   in `chrome.storage.session` before the first transition write and hydrated
+   before any cold worker decides a default. Explicit clear/tab removal is the
+   only normal path that forgets it.
+3. The background posture is authoritative. Popup state is a projection and
+   must query/verify the background even when its local cache appears exact.
+   Worker restart, popup close/reopen, navigation, polling, or restoration may
+   never substitute mobile for a held desktop posture or vice versa.
+4. The physical visible tab rectangle, including side-panel occupancy, is the
+   fit boundary. At all settled points,
+   `deviceWidth * deviceScaleFactor <= tabWidth` and
+   `deviceHeight * deviceScaleFactor <= tabHeight`; both the bottom and right
+   device edges remain visible and interactive.
+5. The user preference scale is bounded normally, but the final safety fit may
+   go below the preference minimum when required by the physical tab. It must
+   remain positive and protocol-safe and may never be rounded upward into
+   clipping.
+6. Browser-window bounds, side-panel open/close, popup viewport resize, tab
+   activation/navigation, debugger detach, and a low-frequency verification
+   backstop all request a coalesced refit. Shrink-to-fit is immediate; expansion
+   waits for a short stable trailing edge so resize bursts do not produce scale
+   oscillation.
+7. A same-mode refit changes only device metrics scale when identity, input,
+   touch, media, and dimensions already prove exact. It preserves the target
+   revision and never clears emulation, writes the opposite mode, writes a
+   neutral viewport, or transiently writes scale 1.
+8. If the user or another debugger detaches the extension, the exact held mode
+   is immediately reasserted with bounded retry. A stale transition, hydration,
+   resize event, or retry may not become the final writer after a newer revision.
+
+## 3. Implementation plan
+
+### EL-02-R19-01 — Persist and hydrate the authoritative tab posture
+
+1. Add a typed session repository for per-tab emulation posture with schema
+   validation, revision fencing, list/clear support, and explicit test seams.
+2. Persist a transition's intended posture before CDP mutation, adopt it only
+   after proof, restore the prior record on a failed transition, and remove it
+   on explicit clear or tab teardown.
+3. Hydrate tab posture before page-context decisions, detach recovery, and
+   background current-state responses. Never use the mobile fallback while a
+   durable desktop record exists.
+
+### EL-02-R19-02 — Separate transition, verification, and scale-only refit
+
+1. Split full posture writes from same-mode refits. Refit obtains `tabs.get`
+   dimensions, computes an unclipped two-axis safety scale, and writes only
+   `Emulation.setDeviceMetricsOverride` when the proven posture is otherwise
+   exact.
+2. Add per-tab refit coalescing with immediate shrink and stable trailing
+   expansion. Collapse side-panel/window resize bursts and reject stale work at
+   every await boundary using the posture revision/epoch.
+3. Extend proof to validate the physical fit inequality in addition to CDP
+   dimensions, scale, page scale, identity, media, and touch state.
+
+### EL-02-R19-03 — Make every UI lifecycle project background authority
+
+1. Add internal typed `current` and `refit` messaging outcomes. A popup-local
+   applied mode can optimize rendering but cannot bypass background
+   verification.
+2. Observe popup/side-panel viewport changes with a coalesced refit request;
+   feature-detect background side-panel open/close events and retain browser-
+   window bounds as an independent trigger.
+3. Keep desktop-preview preference and marking transitions serialized through
+   the background target. Startup, reload, navigation, failed activation,
+   disable, and popup reopen must preserve or deliberately change exactly one
+   target without an intermediate mode.
+
+### EL-02-R19-04 — Add deterministic cold-start, resize, and no-flicker proofs
+
+1. Add storage-repository and runtime regressions for cold hydration, durable
+   desktop/mobile restoration, failed-transition rollback, tab removal, and
+   stale revision rejection.
+2. Cover short/narrow physical viewports below the previous 0.25 floor,
+   side-panel open/close/resize, resize bursts, immediate shrink, trailing
+   expansion, scale-only CDP writes, and exact bottom/right fit inequalities.
+3. Cover popup stale-cache/current verification and concurrent poll,
+   navigation, detach, and resize races. Assert the command log contains no
+   opposite-mode, neutral, scale-1, or redundant full-posture frame.
+
+### EL-02-R19-05 — Gates, publish, and headed acceptance
+
+1. Run focused storage, emulation-runtime, policy, messaging, popup-entrypoint,
+   startup, and stabilization tests; then `pnpm check`, `pnpm verify`, both
+   builds, clean P17, and the full unchanged-threshold P25 composite.
+2. Review the exact R19 diff, commit, push, refresh the code graph, and prove
+   exact upstream synchronization before browser acceptance.
+3. Restart repository live-browser on Acne. Cycle mobile and desktop repeatedly,
+   resize the browser and side panel, close/reopen the popup, reload/navigate,
+   and cancel debugger ownership. Sample frames and CDP command history to prove
+   the held mode never flashes or changes size incorrectly and the entire device
+   remains visible and interactive.
+4. Repeat the safe fit/no-flicker proof on one desktop-dominant and one tall or
+   dynamic candidate before resuming the remaining zero-egress matrix. External
+   locks fail closed and prohibited requests remain at zero.
+
+## 4. Acceptance criteria
+
+- `EL02-R19-AC-01` A cold background or popup restart hydrates and reapplies the
+  exact durable mobile/desktop posture before any fallback decision.
+- `EL02-R19-AC-02` Every settled mobile frame is 412×960 and every settled
+  desktop frame is 1920×1080, with both physical fit inequalities satisfied,
+  including physical viewports that require a scale below 0.25.
+- `EL02-R19-AC-03` Side-panel and browser resize bursts never expose a clipped,
+  neutral, opposite-mode, or scale-1 frame; shrinking is protected immediately
+  and growth converges once stable.
+- `EL02-R19-AC-04` Exact same-mode refits issue at most one coalesced metrics
+  write and do not churn UA, touch, media, page scale, or reload the document.
+- `EL02-R19-AC-05` Popup caches cannot suppress authority verification, and all
+  session transitions preserve a single serialized background target.
+- `EL02-R19-AC-06` Debugger detach/cancel, transient ownership refusal,
+  navigation, polling, and stale async work restore only the held target with
+  bounded retry and revision fencing.
+- `EL02-R19-AC-07` Focused/full/build/P17/P25 gates pass on synchronized source
+  with unchanged thresholds and no marking, payload, Preview, consent, reveal,
+  or ownership regression.
+- `EL02-R19-AC-08` Fresh headed acceptance proves whole-device visibility at the
+  bottom-right edge and records zero AI, Save, takeover, final-publication,
+  release, and deployment attempts.
+
+## 5. Run-plan todo order
+
+1. `el02-r19-durable-posture` → 0
+2. `el02-r19-viewport-refit` → 1
+3. `el02-r19-popup-authority` → 2
+4. `el02-r19-regressions` → 3
+5. `el02-r19-full-gates` → 4
+6. `el02-r19-review-push` → 5
+7. `el02-r19-headed-acne` → 6
+8. `el02-r19-candidate-matrix` → 7
+9. `el02-r19-conformance` → 8

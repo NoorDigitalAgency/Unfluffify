@@ -129,6 +129,7 @@ const EmulationStateResponseSchema = z.object({
   reloadRequired: z.boolean().optional(),
   failureReason: z.enum([
     "viewport_mismatch",
+    "physical_fit_mismatch",
     "device_pixel_ratio_mismatch",
     "page_scale_mismatch",
     "touch_mismatch",
@@ -459,7 +460,19 @@ export const applicationContract = defineContract({
       request: EmulationApplyRequestSchema,
       response: EmulationStateResponseSchema,
     },
+    "emulation.current": {
+      request: EmulationApplyRequestSchema.pick({
+        tabId: true,
+        mode: true,
+        scale: true,
+      }),
+      response: EmulationStateResponseSchema.nullable(),
+    },
     "emulation.clear": {
+      request: z.object({ tabId: z.number().int().positive() }),
+      response: z.object({ status: z.literal("ok") }),
+    },
+    "emulation.refit": {
       request: z.object({ tabId: z.number().int().positive() }),
       response: z.object({ status: z.literal("ok") }),
     },

@@ -47,7 +47,11 @@ export function fitDeviceScale(
     return cappedMaximum;
   }
   const preset = DEVICE_EMULATION_PRESETS[mode];
-  return clampDeviceScale(Math.min(
+  // The preference clamp protects normal UI input, but it is not a physical
+  // safety boundary. A short/narrow tab can genuinely need less than 0.25 to
+  // keep the complete simulated screen visible. Never round that fit upward
+  // into clipping; CDP accepts a positive fractional view scale.
+  return Math.max(0.01, Math.min(
     cappedMaximum,
     available.width / preset.width,
     available.height / preset.height,
@@ -138,9 +142,19 @@ export async function applyEmulationViaCdp(
   client: CdpClient,
   mode: EmulationMode,
   scale: number,
-  options: Readonly<{ realUserAgent?: string }> = {},
+  options: Readonly<{
+    realUserAgent?: string;
+    physicalSafetyScale?: boolean;
+  }> = {},
 ): Promise<EmulationState> {
-  const state = applyEmulation(mode, scale);
+  const state = options.physicalSafetyScale
+    ? {
+        mode,
+        ...DEVICE_EMULATION_PRESETS[mode],
+        scale: Math.max(0.01, Math.min(DEVICE_SCALE_LIMITS.max, scale)),
+        active: true,
+      }
+    : applyEmulation(mode, scale);
   await client.send("Emulation.setDeviceMetricsOverride", {
     width: state.width,
     height: state.height,

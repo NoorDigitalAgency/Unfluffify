@@ -7,10 +7,15 @@ import {
   type EmulationMode,
   type EmulationState,
 } from "../content/stabilization";
-import { DEVICE_SCALE_DEFAULTS } from "../domain/constants";
+import { DEVICE_EMULATION_PRESETS, DEVICE_SCALE_DEFAULTS } from "../domain/constants";
+import type {
+  EmulationPostureRecord,
+  EmulationPostureRepo,
+} from "../storage/repositories/emulation-posture";
 
 export type EmulationFailureReason =
   | "viewport_mismatch"
+  | "physical_fit_mismatch"
   | "device_pixel_ratio_mismatch"
   | "page_scale_mismatch"
   | "touch_mismatch"
@@ -192,6 +197,15 @@ function proveEmulationPosture(
   return measured.userAgent === intendedUserAgent ? null : "identity_mismatch";
 }
 
+function physicalViewportFits(
+  state: Pick<EmulationState, "width" | "height" | "scale">,
+  viewport: Readonly<{ width: number; height: number }> | null,
+): boolean {
+  if (!viewport) return true;
+  return state.width * state.scale <= viewport.width + 0.5 &&
+    state.height * state.scale <= viewport.height + 0.5;
+}
+
 type Debuggee = Readonly<{ tabId?: number }>;
 type DebuggerApi = Readonly<{
   attach(target: Debuggee, version: string, callback?: () => void): Promise<void> | void;
@@ -282,6 +296,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
   debuggerApi?: DebuggerApi;
   tabs?: TabsApi;
   windows?: WindowsApi;
+  postureRepo?: EmulationPostureRepo;
   onDebuggerDetached?: (tabId: number, reason?: string) => void;
   apiTimeoutMs?: number;
   apiMode?: "callback" | "promise";
@@ -301,7 +316,12 @@ export function createRenderEmulationRuntime(input: Readonly<{
         operation,
       )
     : callbackToPromise(invokeCallback, apiTimeoutMs, operation);
-  type HeldPosture = Readonly<{ mode: EmulationMode; scale: number; epoch: number }>;
+  type HeldPosture = Readonly<{
+    mode: EmulationMode;
+    scale: number;
+    revision: number;
+    epoch: number;
+  }>;
   const attachedTabs = new Set<number>();
   const emulationOperations = new Map<number, Promise<void>>();
   const withEmulationOperation = <T>(tabId: number, operation: () => Promise<T>): Promise<T> => {
@@ -328,8 +348,15 @@ export function createRenderEmulationRuntime(input: Readonly<{
   const tabWindowIds = new Map<number, number>();
   const reassertRetryTimers = new Map<number, ReturnType<typeof setTimeout>>();
   const reassertRetryAttempts = new Map<number, number>();
+  const refitTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  const refitQueued = new Set<number>();
+  const refitTrailing = new Set<number>();
   const REASSERT_RETRY_DELAYS_MS = [100, 250, 500, 1_000, 2_000, 5_000] as const;
+  const REFIT_SETTLE_MS = 120;
   const postureEpochs = new Map<number, number>();
+  const postureRevisions = new Map<number, number>();
+  const hydratedTabs = new Set<number>();
+  const hydrationOperations = new Map<number, Promise<HeldPosture | undefined>>();
   const nextPostureEpoch = (tabId: number): number => {
     const epoch = (postureEpochs.get(tabId) ?? 0) + 1;
     postureEpochs.set(tabId, epoch);
@@ -337,6 +364,72 @@ export function createRenderEmulationRuntime(input: Readonly<{
   };
   const postureIsCurrent = (tabId: number, held: HeldPosture): boolean =>
     heldPostures.get(tabId) === held && postureEpochs.get(tabId) === held.epoch;
+  const nextPostureRevision = (tabId: number): number => {
+    const revision = (postureRevisions.get(tabId) ?? 0) + 1;
+    postureRevisions.set(tabId, revision);
+    return revision;
+  };
+  const recordFor = (tabId: number, held: HeldPosture): EmulationPostureRecord => ({
+    tabId,
+    mode: held.mode,
+    maximumScale: held.scale,
+    revision: held.revision,
+  });
+  const adoptDurableRecord = (
+    record: EmulationPostureRecord,
+    expectedEpoch: number,
+  ): HeldPosture | undefined => {
+    const tabId = record.tabId;
+    postureRevisions.set(tabId, Math.max(postureRevisions.get(tabId) ?? 0, record.revision));
+    if (heldPostures.has(tabId) || (postureEpochs.get(tabId) ?? 0) !== expectedEpoch) {
+      return heldPostures.get(tabId);
+    }
+    const held: HeldPosture = {
+      mode: record.mode,
+      scale: record.maximumScale,
+      revision: record.revision,
+      epoch: nextPostureEpoch(tabId),
+    };
+    heldPostures.set(tabId, held);
+    return held;
+  };
+  const hydratePosture = (tabId: number): Promise<HeldPosture | undefined> => {
+    const held = heldPostures.get(tabId);
+    if (held || hydratedTabs.has(tabId) || !input.postureRepo) {
+      hydratedTabs.add(tabId);
+      return Promise.resolve(held);
+    }
+    const existing = hydrationOperations.get(tabId);
+    if (existing) return existing;
+    const expectedEpoch = postureEpochs.get(tabId) ?? 0;
+    const hydration = input.postureRepo.load(tabId).then((stored) => {
+      hydratedTabs.add(tabId);
+      if (!stored.ok || !stored.value) return heldPostures.get(tabId);
+      return adoptDurableRecord(stored.value, expectedEpoch);
+    }).catch(() => {
+      hydratedTabs.add(tabId);
+      return heldPostures.get(tabId);
+    }).finally(() => {
+      hydrationOperations.delete(tabId);
+    });
+    hydrationOperations.set(tabId, hydration);
+    return hydration;
+  };
+  const persistPosture = async (tabId: number, held: HeldPosture): Promise<void> => {
+    if (!input.postureRepo || !postureIsCurrent(tabId, held)) return;
+    await input.postureRepo.save(recordFor(tabId, held));
+    if (!postureIsCurrent(tabId, held)) {
+      const current = heldPostures.get(tabId);
+      if (current) await input.postureRepo.save(recordFor(tabId, current));
+    }
+  };
+  const clearRefitTimer = (tabId: number): void => {
+    const timer = refitTimers.get(tabId);
+    if (timer !== undefined) clearTimeout(timer);
+    refitTimers.delete(tabId);
+    refitQueued.delete(tabId);
+    refitTrailing.delete(tabId);
+  };
   const cancelReassertRetry = (tabId: number): void => {
     const timer = reassertRetryTimers.get(tabId);
     if (timer !== undefined) {
@@ -347,6 +440,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
   };
   const releasePosture = (tabId: number): void => {
     cancelReassertRetry(tabId);
+    clearRefitTimer(tabId);
     nextPostureEpoch(tabId);
     heldPostures.delete(tabId);
     verifiedPostures.delete(tabId);
@@ -405,7 +499,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
   // simulation, not permission to forget the product posture. Reassert it just
   // like Chrome's explicit `canceled_by_user` detach; only a dead target is
   // terminal.
-  const TERMINAL_DETACH_REASONS = new Set(["target_closed", "target_crashed"]);
+  const TERMINAL_DETACH_REASONS = new Set(["target_closed"]);
   input.debuggerApi?.onDetach?.addListener((source, reason) => {
     const tabId = source.tabId;
     if (typeof tabId !== "number") {
@@ -415,16 +509,19 @@ export function createRenderEmulationRuntime(input: Readonly<{
     attachedTabs.delete(tabId);
     realUserAgents.delete(tabId);
     verifiedPostures.delete(tabId);
-    const held = heldPostures.get(tabId);
-    if (!held || (reason && TERMINAL_DETACH_REASONS.has(reason))) {
+    if (reason && TERMINAL_DETACH_REASONS.has(reason)) {
       releasePosture(tabId);
+      hydratedTabs.add(tabId);
+      void input.postureRepo?.clear(tabId).catch(() => undefined);
       return;
     }
     // Detaching drops every override at once — viewport, identity, the lot — so a
     // dismissed debugging banner silently returns the tab to a desktop-shaped page
     // the operator is still marking against. Re-establish it rather than waiting
     // for the next thing that happens to re-apply.
-    void reassertPosture(tabId, held);
+    void hydratePosture(tabId).then((held) => {
+      if (held) void reassertPosture(tabId, held);
+    });
   });
   const targetFor = (tabId: number): Debuggee => ({ tabId });
   const attach = async (tabId: number): Promise<void> => {
@@ -563,6 +660,24 @@ export function createRenderEmulationRuntime(input: Readonly<{
       returnByValue: true,
     });
   };
+  const proveCurrentPosture = async (
+    tabId: number,
+    state: EmulationState,
+    intendedUserAgent: string,
+  ): Promise<Readonly<{
+    measured: MeasuredEmulationPosture | null;
+    failureReason: EmulationFailureReason | null;
+  }>> => {
+    const measured = await measurePosture(tabId);
+    const documentFailure = proveEmulationPosture(state, measured, intendedUserAgent);
+    if (documentFailure !== null) return { measured, failureReason: documentFailure };
+    return {
+      measured,
+      failureReason: physicalViewportFits(state, await visibleTabViewport(tabId))
+        ? null
+        : "physical_fit_mismatch",
+    };
+  };
   const writePosture = async (
     tabId: number,
     held: HeldPosture,
@@ -595,9 +710,52 @@ export function createRenderEmulationRuntime(input: Readonly<{
       },
       held.mode,
       scale,
-      { realUserAgent },
+      { realUserAgent, physicalSafetyScale: true },
     );
     return state;
+  };
+  const writeScaleOnlyRefit = async (
+    tabId: number,
+    held: HeldPosture,
+    prior: VerifiedEmulationState,
+    scale: number,
+  ): Promise<VerifiedEmulationState> => {
+    if (!postureIsCurrent(tabId, held)) {
+      throw new Error("Emulation posture was released");
+    }
+    const preset = DEVICE_EMULATION_PRESETS[held.mode];
+    await sendEmulationCommand(tabId, "Emulation.setDeviceMetricsOverride", {
+      width: preset.width,
+      height: preset.height,
+      deviceScaleFactor: 1,
+      mobile: held.mode === "mobile",
+      scale,
+    });
+    if (!postureIsCurrent(tabId, held)) {
+      throw new Error("Emulation posture was released");
+    }
+    const state: VerifiedEmulationState = {
+      ...prior,
+      mode: held.mode,
+      width: preset.width,
+      height: preset.height,
+      scale,
+      active: true,
+      identityStale: false,
+    };
+    const realUserAgent = await realUserAgentFor(tabId);
+    let failureReason: EmulationFailureReason | null = null;
+    for (let frame = 0; frame < 3 && postureIsCurrent(tabId, held); frame += 1) {
+      const proof = await proveCurrentPosture(
+        tabId,
+        state,
+        intendedUserAgentFor(held.mode, realUserAgent),
+      );
+      failureReason = proof.failureReason;
+      if (failureReason === null) return state;
+      await waitForBrowserFrame(tabId).catch(() => undefined);
+    }
+    throw new Error(`Emulation refit proof failed: ${failureReason ?? "proof_unavailable"}`);
   };
   const writeAndProvePosture = async (
     tabId: number,
@@ -609,12 +767,13 @@ export function createRenderEmulationRuntime(input: Readonly<{
     failureReason: EmulationFailureReason | null;
   }>> => {
     let state = await writePosture(tabId, held, realUserAgent);
-    let measured = await measurePosture(tabId);
-    let failureReason = proveEmulationPosture(
+    let exact = await proveCurrentPosture(
+      tabId,
       state,
-      measured,
       intendedUserAgentFor(held.mode, realUserAgent),
     );
+    let measured = exact.measured;
+    let failureReason = exact.failureReason;
     if (failureReason !== null && postureIsCurrent(tabId, held)) {
       // The renderer/compositor boundary can trail the CDP acknowledgement by a
       // frame. Re-write the complete serialized posture once, then give that
@@ -630,12 +789,13 @@ export function createRenderEmulationRuntime(input: Readonly<{
         state = await writePosture(tabId, held, realUserAgent);
         for (let frame = 0; frame < 4 && postureIsCurrent(tabId, held); frame += 1) {
           await waitForBrowserFrame(tabId).catch(() => undefined);
-          measured = await measurePosture(tabId);
-          failureReason = proveEmulationPosture(
+          exact = await proveCurrentPosture(
+            tabId,
             state,
-            measured,
             intendedUserAgentFor(held.mode, realUserAgent),
           );
+          measured = exact.measured;
+          failureReason = exact.failureReason;
           if (failureReason === null) {
             break;
           }
@@ -656,10 +816,12 @@ export function createRenderEmulationRuntime(input: Readonly<{
       const restored: HeldPosture = {
         mode: prior.mode,
         scale: prior.scale,
+        revision: nextPostureRevision(tabId),
         epoch: nextPostureEpoch(tabId),
       };
       heldPostures.set(tabId, restored);
       try {
+        await persistPosture(tabId, restored);
         const realUserAgent = await realUserAgentFor(tabId);
         const proof = await writeAndProvePosture(tabId, restored, realUserAgent);
         if (proof.failureReason === null) {
@@ -675,6 +837,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       }
     }
     releasePosture(tabId);
+    await input.postureRepo?.clear(tabId).catch(() => undefined);
     try {
       await clearEmulationViaCdp(
         { send: (method, params) => sendEmulationCommand(tabId, method, params) },
@@ -737,48 +900,128 @@ export function createRenderEmulationRuntime(input: Readonly<{
   }
   const reassertPosture = (tabId: number, held: HeldPosture): Promise<void> =>
     withEmulationOperation(tabId, () => executeReassertPosture(tabId, held));
+  const executeRefitPosture = async (
+    tabId: number,
+    held: HeldPosture,
+    allowExpansion: boolean,
+  ): Promise<VerifiedEmulationState | null> => {
+    if (!postureIsCurrent(tabId, held)) return null;
+    const verified = verifiedPostures.get(tabId);
+    if (!verified || verified.mode !== held.mode) {
+      await executeReassertPosture(tabId, held);
+      return verifiedPostures.get(tabId) ?? null;
+    }
+    const fittedScale = await fittedScaleFor(tabId, held.mode, held.scale, verified.scale);
+    if (!postureIsCurrent(tabId, held)) return null;
+    const delta = fittedScale - verified.scale;
+    if (Math.abs(delta) <= 0.001) return verified;
+    if (delta > 0 && !allowExpansion) {
+      const priorTimer = refitTimers.get(tabId);
+      if (priorTimer !== undefined) clearTimeout(priorTimer);
+      const timer = setTimeout(() => {
+        refitTimers.delete(tabId);
+        if (postureIsCurrent(tabId, held)) {
+          void queueRefit(tabId, true);
+        }
+      }, REFIT_SETTLE_MS);
+      refitTimers.set(tabId, timer);
+      return verified;
+    }
+    const timer = refitTimers.get(tabId);
+    if (timer !== undefined) clearTimeout(timer);
+    refitTimers.delete(tabId);
+    try {
+      const refitted = await writeScaleOnlyRefit(tabId, held, verified, fittedScale);
+      if (!postureIsCurrent(tabId, held)) return null;
+      verifiedPostures.set(tabId, refitted);
+      return refitted;
+    } catch {
+      if (postureIsCurrent(tabId, held)) {
+        verifiedPostures.delete(tabId);
+        scheduleReassertRetry(tabId, held);
+      }
+      return null;
+    }
+  };
+  const queueRefit = async (tabId: number, allowExpansion = false): Promise<void> => {
+    if (refitQueued.has(tabId)) {
+      refitTrailing.add(tabId);
+      return;
+    }
+    refitQueued.add(tabId);
+    try {
+      const held = await hydratePosture(tabId);
+      if (!held) return;
+      await withEmulationOperation(tabId, () =>
+        executeRefitPosture(tabId, held, allowExpansion));
+    } finally {
+      refitQueued.delete(tabId);
+      if (refitTrailing.delete(tabId)) {
+        void queueRefit(tabId, false);
+      }
+    }
+  };
   input.tabs?.onUpdated?.addListener((tabId, changeInfo) => {
     if (changeInfo.status !== "loading") {
       return;
     }
-    const held = heldPostures.get(tabId);
-    if (held) {
+    void hydratePosture(tabId).then((held) => {
+      if (!held) return;
       verifiedPostures.delete(tabId);
       void reassertPosture(tabId, held);
-    }
+    });
   });
   input.tabs?.onRemoved?.addListener((tabId) => {
     attachedTabs.delete(tabId);
     realUserAgents.delete(tabId);
     releasePosture(tabId);
+    hydratedTabs.add(tabId);
+    void input.postureRepo?.clear(tabId).catch(() => undefined);
   });
   input.windows?.onBoundsChanged?.addListener((window) => {
     const windowId = window.id;
     if (typeof windowId !== "number") {
       return;
     }
-    for (const [tabId, held] of heldPostures) {
+    for (const [tabId] of heldPostures) {
       if (tabWindowIds.get(tabId) !== windowId) {
         continue;
       }
-      // The page's layout viewport remains the emulated device size; only the
-      // resulting view-image scale changes. Reassert the same held target after
-      // Chrome commits the new browser bounds, never an intermediate desktop
-      // or neutral posture.
-      verifiedPostures.delete(tabId);
-      void reassertPosture(tabId, held);
+      // The page layout remains the same simulated device. Refit only the
+      // compositor view scale; a resize must not churn identity/input posture.
+      void queueRefit(tabId);
     }
   });
+  if (input.postureRepo) {
+    void input.postureRepo.list().then(async (stored) => {
+      if (!stored.ok || !stored.value) return;
+      await Promise.all(stored.value.map(async (record) => {
+        const tabId = record.tabId;
+        const expectedEpoch = postureEpochs.get(tabId) ?? 0;
+        if (!await visibleTabViewport(tabId)) return;
+        hydratedTabs.add(tabId);
+        const held = adoptDurableRecord(record, expectedEpoch);
+        if (held) await reassertPosture(tabId, held);
+      }));
+    }).catch(() => undefined);
+  }
 
   return {
+    async hydrate(tabId: number): Promise<EmulationMode | null> {
+      return (await hydratePosture(tabId))?.mode ?? null;
+    },
     heldMode(tabId: number): EmulationMode | null {
       return heldPostures.get(tabId)?.mode ?? null;
+    },
+    async refit(tabId: number): Promise<void> {
+      await queueRefit(tabId);
     },
     async current(
       tabId: number,
       mode: EmulationMode,
       maximumScale: number,
     ): Promise<VerifiedEmulationState | null> {
+      await hydratePosture(tabId);
       return withEmulationOperation(tabId, async () => {
         const held = heldPostures.get(tabId);
         const verified = verifiedPostures.get(tabId);
@@ -787,16 +1030,15 @@ export function createRenderEmulationRuntime(input: Readonly<{
         }
         const fittedScale = await fittedScaleFor(tabId, mode, maximumScale, verified.scale);
         if (Math.abs(fittedScale - verified.scale) > 0.001) {
-          verifiedPostures.delete(tabId);
-          return null;
+          return executeRefitPosture(tabId, held, true);
         }
-        const realUserAgent = await realUserAgentFor(tabId);
-        const failureReason = proveEmulationPosture(
-          verified,
-          await measurePosture(tabId),
-          intendedUserAgentFor(mode, realUserAgent),
-        );
-        if (failureReason !== null || !postureIsCurrent(tabId, held)) {
+        // `verifiedPostures` is populated only after a complete proof and is
+        // invalidated synchronously on navigation, detach, transition, refit
+        // failure, and cold-worker recreation. A hot popup check therefore does
+        // not need to block on the page's main thread; tabs.get above is the only
+        // read required to catch physical clipping. This is the responsive path
+        // used immediately before AI capture.
+        if (!postureIsCurrent(tabId, held)) {
           verifiedPostures.delete(tabId);
           return null;
         }
@@ -809,13 +1051,24 @@ export function createRenderEmulationRuntime(input: Readonly<{
       scale: number,
       allowReload = false,
     ): Promise<VerifiedEmulationState> {
-      const priorHeld = heldPostures.get(tabId);
-      const held: HeldPosture = { mode, scale, epoch: nextPostureEpoch(tabId) };
-      cancelReassertRetry(tabId);
-      heldPostures.set(tabId, held);
-      verifiedPostures.delete(tabId);
-      try {
-        return await withEmulationOperation(tabId, async () => {
+      await hydratePosture(tabId);
+      return withEmulationOperation(tabId, async () => {
+        const priorHeld = heldPostures.get(tabId);
+        const held: HeldPosture = {
+          mode,
+          scale,
+          revision: nextPostureRevision(tabId),
+          epoch: nextPostureEpoch(tabId),
+        };
+        cancelReassertRetry(tabId);
+        clearRefitTimer(tabId);
+        heldPostures.set(tabId, held);
+        verifiedPostures.delete(tabId);
+        try {
+          // Durable intent precedes the first CDP write. A worker suspended
+          // anywhere after this point can recover the same target, never infer a
+          // generic mobile fallback.
+          await persistPosture(tabId, held);
           const realUserAgent = await realUserAgentFor(tabId);
           const proof = await writeAndProvePosture(tabId, held, realUserAgent);
           if (!postureIsCurrent(tabId, held)) {
@@ -859,31 +1112,34 @@ export function createRenderEmulationRuntime(input: Readonly<{
             identityStale,
             failureReason: proof.failureReason,
           };
-        });
-      } catch (error) {
-        if (postureIsCurrent(tabId, held)) {
-          try {
-            await restorePriorPosture(tabId, held, priorHeld);
-          } catch {
-            // Restoration itself is best-effort, but a failed attempt may not
-            // remain the desired posture or keep a half-applied debugger state.
-            if (postureIsCurrent(tabId, held)) {
-              releasePosture(tabId);
+        } catch (error) {
+          if (postureIsCurrent(tabId, held)) {
+            try {
+              await restorePriorPosture(tabId, held, priorHeld);
+            } catch {
+              // Restoration itself is best-effort, but a failed attempt may not
+              // remain the desired posture or keep a half-applied debugger state.
+              if (postureIsCurrent(tabId, held)) {
+                releasePosture(tabId);
+                await input.postureRepo?.clear(tabId).catch(() => undefined);
+              }
+              await detach(tabId).catch(() => undefined);
+              realUserAgents.delete(tabId);
             }
-            await detach(tabId).catch(() => undefined);
-            realUserAgents.delete(tabId);
           }
+          throw error;
         }
-        throw error;
-      }
+      });
     },
     async clear(tabId: number) {
       // Invalidate the desired posture before the first CDP await. An onDetach
       // callback or already-running reassertion may otherwise retain the old
       // object and attach/set overrides after this clear has completed.
       releasePosture(tabId);
+      hydratedTabs.add(tabId);
       return withEmulationOperation(tabId, async () => {
         try {
+          await input.postureRepo?.clear(tabId);
           return await clearEmulationViaCdp(
             { send: (method, params) => sendEmulationCommand(tabId, method, params) },
             {

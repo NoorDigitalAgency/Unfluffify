@@ -8,5 +8,6 @@ export * from "./repositories/run-records";
 export * from "./repositories/render-inspection";
 export * from "./repositories/shield-posture";
 export * from "./repositories/tab-state";
+export * from "./repositories/emulation-posture";
 export * from "./session";
 export * from "./settings";

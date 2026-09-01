@@ -298,6 +298,7 @@ function makeRuntime(
   options: Readonly<{
     configLoad?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
     emulationApply?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
+    emulationCurrent?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
     renderInspectionCurrent?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
     lockDirective?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
     pageContextStatus?: "managed_candidate" | "managed_non_candidate";
@@ -310,6 +311,7 @@ function makeRuntime(
   const factSignals: Array<ReturnType<typeof factBrain.observe>[number]> = [];
   let deliveredSignalSeq = 0;
   let availabilitySeq = 0;
+  let emulationMode: "mobile" | "desktop" | null = null;
   const runtimeListeners = new Set<(
     message: unknown,
     sender: unknown,
@@ -429,18 +431,45 @@ function makeRuntime(
         });
       }
       if (frame.name === "emulation.apply") {
+        const requestedMode = (frame.payload as { mode?: unknown }).mode;
         if (options.emulationApply) {
-          return await options.emulationApply(frame);
+          const response = await options.emulationApply(frame);
+          const responsePayload = response.payload as { active?: unknown } | undefined;
+          emulationMode = response.ok === true && responsePayload?.active === true &&
+            (requestedMode === "mobile" || requestedMode === "desktop")
+            ? requestedMode
+            : null;
+          return response;
         }
+        emulationMode = requestedMode === "desktop" ? "desktop" : "mobile";
         return replyFrame(frame, {
-          mode: "mobile",
-          width: 412,
-          height: 960,
+          mode: emulationMode,
+          width: emulationMode === "desktop" ? 1920 : 412,
+          height: emulationMode === "desktop" ? 1080 : 960,
           scale: 1,
           active: true,
         });
       }
+      if (frame.name === "emulation.current") {
+        if (options.emulationCurrent) {
+          return await options.emulationCurrent(frame);
+        }
+        const requestedMode = (frame.payload as { mode?: unknown }).mode;
+        return replyFrame(frame, requestedMode === emulationMode && emulationMode !== null
+          ? {
+              mode: emulationMode,
+              width: emulationMode === "desktop" ? 1920 : 412,
+              height: emulationMode === "desktop" ? 1080 : 960,
+              scale: 1,
+              active: true,
+            }
+          : null);
+      }
       if (frame.name === "emulation.clear") {
+        emulationMode = null;
+        return replyFrame(frame, { status: "ok" });
+      }
+      if (frame.name === "emulation.refit") {
         return replyFrame(frame, { status: "ok" });
       }
       if (frame.name === "settings.load") {
@@ -1058,6 +1087,78 @@ describe("rewrite popup entrypoint", () => {
     expect(finalViewportRefresh).toBeGreaterThanOrEqual(0);
     expect(runtime.sendMessage.mock.invocationCallOrder[finalDesktopCall]!)
       .toBeLessThan(tabsSendMessage.mock.invocationCallOrder[finalViewportRefresh]!);
+  });
+
+  it("rechecks background posture when a popup-local mode looks exact", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
+    let backgroundExact = true;
+    const runtime = makeRuntime(async (message) => replyFrame(message, []), "rendered", {
+      emulationCurrent: (frame) => replyFrame(frame, backgroundExact
+        ? { mode: "mobile", width: 412, height: 960, scale: 1, active: true }
+        : null),
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await confirmRenderMode(render);
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "emulation.apply"),
+      "initial emulation",
+    );
+    const before = runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "emulation.apply").length;
+    backgroundExact = false;
+    render.mock.calls.at(-1)?.[0].props.onEnableChange(true);
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "emulation.apply").length > before,
+      "authoritative posture recovery",
+    );
+
+    const names = runtime.sendMessage.mock.calls.map(([frame]) => frame.name);
+    expect(names.lastIndexOf("emulation.current")).toBeLessThan(names.lastIndexOf("emulation.apply"));
+  });
+
+  it("requests a background refit when side-panel geometry changes without reapplying a mode", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    let resizeListener: (() => void) | null = null;
+    Object.assign(window, {
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      addEventListener: vi.fn((name: string, listener: () => void) => {
+        if (name === "resize") resizeListener = listener;
+      }),
+      removeEventListener: vi.fn(),
+    });
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
+    const runtime = makeRuntime(async (message) => replyFrame(message, []));
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: makeTabsSendMessage(() => ({ ok: true, tree: "rewrite" })) },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "emulation.refit"),
+      "initial side-panel fit",
+    );
+    const applyCount = runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "emulation.apply").length;
+    const refitCount = runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "emulation.refit").length;
+    resizeListener?.();
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "emulation.refit").length > refitCount,
+      "resized side-panel fit",
+    );
+
+    expect(runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "emulation.apply"))
+      .toHaveLength(applyCount);
   });
 
   it("acknowledges silent mode only after a desktop replacement document paints selectors", async () => {

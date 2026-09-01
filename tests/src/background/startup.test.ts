@@ -13,6 +13,8 @@ describe("rewrite background startup", () => {
   it("opens the rewrite popup side panel from the extension action", async () => {
     const addMessageListener = vi.fn();
     const addActionListener = vi.fn();
+    const addSidePanelOpenedListener = vi.fn();
+    const addSidePanelClosedListener = vi.fn();
     const addAlarmListener = vi.fn();
     let resolveSetOptions: (() => void) | null = null;
     const setOptions = vi.fn(() => new Promise<void>((resolve) => {
@@ -31,6 +33,8 @@ describe("rewrite background startup", () => {
       sidePanel: {
         setOptions,
         open,
+        onOpened: { addListener: addSidePanelOpenedListener },
+        onClosed: { addListener: addSidePanelClosedListener },
       },
       alarms: {
         create: createAlarm,
@@ -44,6 +48,8 @@ describe("rewrite background startup", () => {
     expect(addActionListener).toHaveBeenCalledTimes(1);
     expect(addMessageListener).toHaveBeenCalledTimes(1);
     expect(addAlarmListener).toHaveBeenCalledTimes(1);
+    expect(addSidePanelOpenedListener).toHaveBeenCalledTimes(1);
+    expect(addSidePanelClosedListener).toHaveBeenCalledTimes(1);
     expect(createAlarm).toHaveBeenCalledWith("uf-property-lock-heartbeat", { periodInMinutes: 0.5 });
 
     const listener = addActionListener.mock.calls[0]?.[0] as (tab: chrome.tabs.Tab) => void;

@@ -2526,6 +2526,23 @@ async function applySessionEmulation(
   return (await applySessionEmulationResult(context, target)).active;
 }
 
+async function verifySessionEmulation(
+  context: TargetTabContext,
+  mode: "mobile" | "desktop",
+): Promise<boolean> {
+  const response = await getPopupBus().request("emulation.current", {
+    tabId: context.tabId,
+    mode,
+    scale: 1,
+  }, { target: "background" });
+  const exact = response.ok &&
+    response.data !== null &&
+    response.data.active === true &&
+    response.data.mode === mode;
+  if (!exact) appliedEmulationMode = null;
+  return exact;
+}
+
 async function waitForEmulationReload(
   context: TargetTabContext,
   target: Readonly<{ mode: "mobile" | "desktop" }>,
@@ -2593,7 +2610,10 @@ async function ensureSessionEmulation(context: TargetTabContext): Promise<boolea
     return false;
   }
   const mode = desiredEmulationMode();
-  if (appliedEmulationMode === mode) {
+  // The popup can be recreated independently of the MV3 worker and its local
+  // cache cannot prove debugger posture. Always ask the background authority;
+  // its exact-current path is read-only and its refit path is scale-only.
+  if (appliedEmulationMode === mode && await verifySessionEmulation(context, mode)) {
     return true;
   }
   return await applySessionEmulation(context, { mode, allowReload: !contentActive });
@@ -2607,11 +2627,20 @@ async function ensureSessionEmulationTarget(
   // queue an AI capture behind an unrelated slow authority request merely to
   // rediscover the mobile posture it already owns. A pending transition still
   // serializes, because it may be committed to the opposite target.
-  if (sessionTransitionPending === 0 && appliedEmulationMode === target.mode) {
-    return true;
+  if (sessionTransitionPending === 0) {
+    if (
+      appliedEmulationMode === target.mode &&
+      await verifySessionEmulation(context, target.mode)
+    ) {
+      return true;
+    }
+    return await applySessionEmulation(context, target);
   }
   return await runSessionTransition(async () => {
-    if (appliedEmulationMode === target.mode) {
+    if (
+      appliedEmulationMode === target.mode &&
+      await verifySessionEmulation(context, target.mode)
+    ) {
       return true;
     }
     return await applySessionEmulation(context, target);
@@ -5583,7 +5612,31 @@ if (DEBUG_BUILD && typeof window !== "undefined") {
 }
 const unsubscribeToast = toastController.subscribe(() => render());
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  let emulationRefitTimer: number | null = null;
+  const requestPhysicalViewportRefit = (): void => {
+    if (emulationRefitTimer !== null) window.clearTimeout(emulationRefitTimer);
+    emulationRefitTimer = window.setTimeout(() => {
+      emulationRefitTimer = null;
+      void resolveTargetTabContext().then(async (context) => {
+        if (!context) return;
+        await getPopupBus().request(
+          "emulation.refit",
+          { tabId: context.tabId },
+          { target: "background" },
+        );
+      }).catch(() => undefined);
+    }, 40);
+  };
+  const viewportObserver = typeof ResizeObserver === "function"
+    ? new ResizeObserver(requestPhysicalViewportRefit)
+    : null;
+  viewportObserver?.observe(document.documentElement);
+  window.addEventListener("resize", requestPhysicalViewportRefit);
+  requestPhysicalViewportRefit();
   const disposeTransientNotifications = (): void => {
+    if (emulationRefitTimer !== null) window.clearTimeout(emulationRefitTimer);
+    viewportObserver?.disconnect();
+    window.removeEventListener("resize", requestPhysicalViewportRefit);
     unsubscribeToast();
     toastController.dispose();
     maintenanceController.dispose();

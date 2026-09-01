@@ -1717,6 +1717,7 @@ describe("P5 page stabilization", () => {
     expect(fitDeviceScale("mobile", { width: 1_200, height: 720 })).toBeCloseTo(0.75);
     expect(fitDeviceScale("mobile", { width: 300, height: 1_200 })).toBeCloseTo(300 / 412);
     expect(fitDeviceScale("desktop", { width: 960, height: 900 })).toBeCloseTo(0.5);
+    expect(fitDeviceScale("mobile", { width: 90, height: 120 })).toBeCloseTo(0.125);
     expect(fitDeviceScale("mobile", { width: 4_000, height: 4_000 })).toBe(1);
     expect(fitDeviceScale("mobile", null, 0.85)).toBe(0.85);
   });
