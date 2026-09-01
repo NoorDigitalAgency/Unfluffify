@@ -2571,6 +2571,12 @@ this failure. R13 does not hide that evidence or relax either timeout.
   dense 200-node/97-selector corpus stays below 1,000 `Element.matches` calls,
   and `pnpm check` passes. The uninterrupted full `pnpm verify` passes all
   `1,582/1,582` tests, the production build, and all `7/7` manifest checks; the
-  debug build also passes. Clean-source P14/P17/P25, review/push, fresh headed
-  DPJ evidence, the remaining candidate matrix, and cumulative conformance
-  remain open under `EL-02-R13-04`.
+  debug build also passes.
+- Runtime commit `94d6a5e4d` is pushed to `origin/re-write`; the reviewed runtime
+  tree was clean and synchronized at ahead/behind `0/0` for browser acceptance.
+  Clean-source P14 passes all `192/192` scenarios with zero semantic, budget,
+  activation, mutation-pressure, or input-long-task failures. P17 passes all
+  `19/19` checks. P25 is complete and passes all seven retained children: P14,
+  P15, P16, P17, P18, P20, and P23, with no missing or failed gate.
+- Fresh headed DPJ evidence, the remaining candidate matrix, and cumulative
+  conformance remain open under `EL-02-R13-04`.
