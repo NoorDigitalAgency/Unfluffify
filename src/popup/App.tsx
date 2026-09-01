@@ -252,6 +252,7 @@ export function App({
   onPreviewRowHover,
   onPreviewRowActivate,
   focusedPreviewRowId,
+  previewInteractionReady,
   onRefresh,
   onLockAction,
   onSettingsChange,
@@ -296,6 +297,7 @@ export function App({
   onPreviewRowHover?: (rowId: string, active: boolean) => void;
   onPreviewRowActivate?: (rowId: string) => void;
   focusedPreviewRowId?: string | null;
+  previewInteractionReady: boolean;
   onRefresh?: () => void;
   onLockAction?: (action: LockAction) => void;
   onSettingsChange?: (field: PopupSettingsField, value: string) => void;
@@ -715,7 +717,7 @@ export function App({
         <section
           className="card preview-sidebar"
           aria-label="Detected Content"
-          aria-busy={presentation.previewExitPending}
+          aria-busy={presentation.previewExitPending || !previewInteractionReady}
           data-transient-fallback="preview"
         >
           <div className="preview-sidebar__header">
@@ -739,6 +741,8 @@ export function App({
           <p className="hint preview-sidebar__hint">
             {presentation.previewExitPending
               ? "Restoring the page…"
+              : !previewInteractionReady
+                ? "Preparing page comparison…"
               : "Point to or focus a row to compare it with the page. Click it, or press Enter or Space, to bring it into view. Exit preview to resume editing."}
           </p>
           <PreviewRowList
@@ -746,6 +750,7 @@ export function App({
             debug={debugBuild}
             hoveredRowId={null}
             focusedRowId={focusedPreviewRowId}
+            interactionReady={previewInteractionReady}
             pending={presentation.previewProjection === null}
             onRowHover={previewHoverHandler}
             onRowActivate={previewActivateHandler}

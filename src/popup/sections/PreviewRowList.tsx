@@ -25,6 +25,10 @@ export type PreviewRowListProps = Readonly<{
   /** A page-originated target request. The list moves its bounded window to the
    *  row and focuses it without scanning every rendered button. */
   focusedRowId?: string | null;
+  /** Rows may be projected before the content organ has consumed the matching
+   * Preview-open signal. Keep them visible but inert until that exact physical
+   * page occurrence acknowledges targeting readiness. */
+  interactionReady: boolean;
   pending?: boolean;
   onRowHover?: (rowId: string, active: boolean) => void;
   onRowActivate?: (rowId: string) => void;
@@ -82,6 +86,7 @@ export const PreviewRowList = React.memo(function PreviewRowList({
   debug,
   hoveredRowId,
   focusedRowId = null,
+  interactionReady,
   pending = false,
   onRowHover,
   onRowActivate,
@@ -196,14 +201,17 @@ export const PreviewRowList = React.memo(function PreviewRowList({
           : undefined;
         const tone = display.classification === "included" ? "keep" : "remove";
         const classificationLabel = PREVIEW_CLASSIFICATION_LABEL[display.classification] ?? "Excluded";
+        const targetUnavailableReason = display.targetUnavailableReason ?? (
+          interactionReady ? undefined : "Page comparison is still preparing"
+        );
         const accessibleName = [
           `${index + 1}. ${display.text}. ${classificationLabel}`,
-          display.targetUnavailableReason,
+          targetUnavailableReason,
         ].filter(Boolean).join(". ");
         return (
           <li
             key={display.id}
-            className={`preview-sidebar__item preview-sidebar__item--${tone} ${display.targetable ? "" : "preview-sidebar__item--unavailable"} ${hoveredRowId === display.id || requestedFocusRowId === display.id ? "preview-sidebar__item--active" : ""}`}
+            className={`preview-sidebar__item preview-sidebar__item--${tone} ${display.targetable && interactionReady ? "" : "preview-sidebar__item--unavailable"} ${hoveredRowId === display.id || requestedFocusRowId === display.id ? "preview-sidebar__item--active" : ""}`}
             aria-posinset={index + 1}
             aria-setsize={projection.rows.length}
             style={{ minHeight: rowHeight - 5 }}
@@ -220,12 +228,12 @@ export const PreviewRowList = React.memo(function PreviewRowList({
               type="button"
               className="preview-sidebar__item-button"
               aria-label={accessibleName}
-              disabled={!display.targetable}
-              title={debugTitle ?? display.targetUnavailableReason ?? undefined}
-              onPointerEnter={() => onRowHover?.(display.id, true)}
-              onPointerLeave={() => onRowHover?.(display.id, false)}
-              onFocus={() => onRowHover?.(display.id, true)}
-              onBlur={() => onRowHover?.(display.id, false)}
+              disabled={!display.targetable || !interactionReady}
+              title={debugTitle ?? targetUnavailableReason ?? undefined}
+              onPointerEnter={() => { if (interactionReady) onRowHover?.(display.id, true); }}
+              onPointerLeave={() => { if (interactionReady) onRowHover?.(display.id, false); }}
+              onFocus={() => { if (interactionReady) onRowHover?.(display.id, true); }}
+              onBlur={() => { if (interactionReady) onRowHover?.(display.id, false); }}
               onKeyDown={(event) => {
                 if (!isRovingFocusKey(event.key)) return;
                 const targetIndex = resolveRovingFocusIndex(event.key, index, targetableRows);
@@ -235,7 +243,7 @@ export const PreviewRowList = React.memo(function PreviewRowList({
                 event.stopPropagation();
                 setKeyboardFocusedRowId(target.id);
               }}
-              onClick={() => onRowActivate?.(display.id)}
+              onClick={() => { if (interactionReady) onRowActivate?.(display.id); }}
             >
               <span className="preview-sidebar__item-index" aria-hidden="true">{index + 1}.</span>
               <span className="preview-sidebar__item-text">
@@ -243,9 +251,9 @@ export const PreviewRowList = React.memo(function PreviewRowList({
                 <span className={`preview-sidebar__item-public-classification ${PREVIEW_CLASSIFICATION_TONE[display.classification] ?? "u-color-muted"}`}>
                   {classificationLabel}
                 </span>
-                {display.targetUnavailableReason ? (
+                {targetUnavailableReason ? (
                   <span className="preview-sidebar__item-target-status">
-                    {display.targetUnavailableReason}
+                    {targetUnavailableReason}
                   </span>
                 ) : null}
                 {detail ? (

@@ -1488,3 +1488,227 @@ stage from a fresh browser.
 6. `el02-r7-headed-arno` → 5
 7. `el02-r7-candidate-matrix` → 6
 8. `el02-r7-conformance` → 7
+
+# EL-02-R8 — Cross-organ Preview readiness before row interaction
+
+## 1. Goal
+
+Make every Content List row physically operable from its first actionable
+frame. The popup may project rows only as non-interactive preparation until the
+bound content organ has consumed the exact Preview-open signal; once the UI
+offers row interaction, native focus/hover, Enter/Space, pointer activation,
+row-to-page routing, and page-to-row routing must all address the same current
+projection occurrence without waiting for the 500 ms backstop.
+
+## 2. Current facts
+
+- Exact-source Arno on `14af0f41b666e0fa6905aee2215634cd84e141af`
+  passed P25 preflight, both Render Inspection modes, activation, marking
+  visual, marking gestures, marking scroll fade, and marking resize in three
+  consecutive guarded occurrences. Every publication guard stopped with zero
+  Save and zero publication attempts.
+- `src/entrypoints/popup/main.tsx:showPreview()` stages and adopts a projection,
+  reports `preview-opened`, waits only for the popup brain state, and renders.
+  `src/entrypoints/content-loader.content.ts:previewInteractionActive()` accepts
+  Preview target commands only after the content organ independently consumes
+  `preview.opened`. Its typed availability event and 500 ms backstop can trail
+  the popup.
+- `src/popup/sections/PreviewRowList.tsx` correctly renders targetable rows as
+  native semantic buttons and native Space produces trusted `keydown`, `keyup`,
+  and `click`. It currently has no cross-organ readiness input, so an otherwise
+  targetable row is enabled during the popup/content acknowledgement gap.
+- The focused headed reproduction activated `11. Kontakta oss. Excluded` with
+  trusted native Space. The row retained DOM focus, but the page produced zero
+  focus targets for three seconds and the popup selected no row. This is a
+  product-owned race, not a keyboard-event or semantic-button failure.
+- The content command `syncContentSignals` already drains the content signal
+  scheduler and returns `organName`, `runSessionId`, and `lastConsumedSeq`.
+  `syncContentRunGeneration()` already demonstrates a binding-fenced, bounded
+  request/retry pattern for this command.
+- The earlier Exit Preview timeout was a probe artifact: one trusted dispatch
+  restored Marking successfully. Arno's saved silent list contains 96 truthful
+  disabled consent rows and no enabled row, so silent two-way routing is `N/A`
+  for that authority occurrence rather than a product failure. The prior silent
+  fade miss began 76 ms after Preview exit while the deliberately faded restore
+  transition was still settling; the evidence runner must wait for its visible
+  baseline before injecting a new scroll.
+- `codebase-memory-mcp` indexing and search were attempted for this exact HEAD
+  and returned `Transport closed`; the source and tests above were therefore
+  inspected through the repository-authorized targeted fallback.
+
+## 3. Decisions already made
+
+- The popup and content organs remain independently authoritative; no direct
+  popup-only claim may substitute for content's physical Preview readiness.
+- `syncContentSignals` is the existing internal acknowledgement boundary. No
+  public endpoint, backend payload, extension permission, Save/Load contract,
+  or AI corpus changes are needed.
+- A row that has no visible page target remains present, disabled, and labeled
+  with its truthful reason. An all-disabled list is valid but cannot count as a
+  two-way-routing pass.
+- Preview opening remains local and must not add an authority refresh. The
+  500 ms poll remains a correctness backstop, not the primary acknowledgement.
+- Save continues to commit exactly once and a distinct Load complete-replaces
+  local authority. Run AI remains stateless and whole-property. R8 must not
+  alter any marking, hidden-element, consent, payload, or publication decision.
+
+## 4. Open questions
+
+None. The existing typed content-signal acknowledgement supplies the required
+architecture and the observed race determines the behavior.
+
+## 5. Non-goals
+
+- Do not change selector computation, Content List taxonomy, virtualization,
+  row labels, hidden-target eligibility, consent suppression, marking gestures,
+  silent selector authority, or Preview exit ownership.
+- Do not adopt Save responses, preserve local mutable drafts, change the
+  stateless AI request, Save, Load, Lynx, or Hub interfaces, or perform a real
+  Save/publication during live acceptance.
+- Do not weaken trusted-input, row-target correspondence, fade, or exact-source
+  acceptance to make the live workflow pass.
+
+## 6. Implementation phases
+
+### EL-02-R8-01 — Binding-fenced content Preview acknowledgement
+
+**Files:** `src/entrypoints/popup/main.tsx`,
+`tests/src/popup/entrypoint.test.ts`.
+
+1. Add one popup-local Preview-targeting readiness occurrence that is reset on
+   binding change, Preview close, and every new Preview open.
+2. Add a bounded helper based on the existing `syncContentSignals` delivery
+   pattern. It must accept only `preview_open` for a post-AI Preview or
+   `silent_preview` for a silent Preview on the exact current binding, with a
+   consumed signal sequence at least as new as that Preview-open occurrence.
+3. After the popup observes `preview-opened`, synchronously drain the content
+   organ and set readiness only from that exact acknowledgement. Never infer
+   readiness from a timer, projection presence, or popup state alone.
+4. Keep a failed/late/mismatched occurrence non-interactive and expose one
+   truthful warning; a later current poll may retry, but an old reply may never
+   unlock a new binding or Preview occurrence.
+5. Gate outbound row hover/activation and inbound page-focused rows on the same
+   readiness occurrence.
+
+**Focused validation:**
+`pnpm vitest run tests/src/popup/entrypoint.test.ts`.
+
+**Fallback rule:** if exact content acknowledgement cannot be obtained, retain
+Preview exit and truthful failure UI but never enable row interaction.
+
+### EL-02-R8-02 — Truthful non-interactive preparation UI
+
+**Files:** `src/popup/App.tsx`,
+`src/popup/sections/PreviewRowList.tsx`,
+`tests/src/popup/app.test.ts`,
+`tests/src/popup/sections/preview-row-list.test.ts`.
+
+1. Thread the exact readiness flag into the Preview surface and row list.
+2. While readiness is pending, mark the Preview region busy, use explicit
+   page-comparison preparation copy, and disable otherwise targetable row
+   buttons. Preserve the row's semantic label and add a truthful pending reason.
+3. Once acknowledged, restore the existing pointer/focus emphasis and native
+   Enter/Space activation without adding custom keyboard emulation.
+4. Preserve existing target-unavailable reasons with higher specificity than
+   the temporary readiness reason.
+
+**Focused validation:**
+`pnpm vitest run tests/src/popup/app.test.ts tests/src/popup/sections/preview-row-list.test.ts`.
+
+**Fallback rule:** if readiness is false or absent in an entrypoint occurrence,
+rows fail closed; Preview exit remains available.
+
+### EL-02-R8-03 — Exact regression and live acceptance
+
+**Files:** `tests/src/popup/entrypoint.test.ts`,
+`tests/src/popup/sections/preview-row-list.test.ts`, and only if a reusable
+contract seam is required, `scripts/performance/p25/workflow-probes.mjs` plus
+`tests/p25-workflow-probes.test.ts`.
+
+1. Add a delayed-content regression proving the popup may show only a pending,
+   disabled list before content reaches the matching Preview organ; no emphasis
+   or activation command may be sent during that interval.
+2. Resolve the matching content acknowledgement and prove the same native row
+   becomes actionable and routes. Prove a stale acknowledgement after exit,
+   re-open, or binding change cannot unlock the new occurrence.
+3. Preserve target-unavailable disabled rows and existing production/debug
+   text separation and virtualization bounds.
+4. Correct the ignored live evidence wrapper to require trusted Preview open
+   and exit clicks, treat an all-disabled authoritative list as routing `N/A`,
+   retain exact row-activation evidence, and wait for a visible restored silent
+   baseline before the scroll-fade probe. These artifacts remain out of commits.
+5. Run focused tests, `pnpm verify`, production/debug builds, full P25, review,
+   normal commit/push, then restart the repository live browser on the exact
+   pushed source and rerun guarded Arno end to end.
+
+**Focused validation:**
+`pnpm vitest run tests/src/popup/entrypoint.test.ts tests/src/popup/app.test.ts tests/src/popup/sections/preview-row-list.test.ts tests/p25-workflow-probes.test.ts`.
+
+**Fallback rule:** any trusted first-action routing failure or already-faded
+probe baseline rejects R8; do not reclassify it as latency or `N/A` unless the
+row itself is truthfully disabled.
+
+## 7. Test matrix
+
+- Unit/source: readiness occurrence lifecycle, exact expected content organ,
+  timeout/no-receiver/malformed/mismatched outcomes, stale binding/Preview
+  replies, disabled preparation rows, accessible copy, target-unavailable
+  precedence, native semantic button retention, virtualization bounds.
+- Integration: post-AI and silent Preview opening, content signal drain before
+  row commands, immediate keyboard activation, hover/focus, row-to-page and
+  page-to-row routing, exit/reopen, popup reopen, and no remote authority poll.
+- Repository: `pnpm verify`, `pnpm build:debug`, and `pnpm performance:p25` on
+  the exact final source.
+- Headed: fresh `pnpm browser:live https://arno.eu/collections/katting`, all
+  official guarded P25 stages, stateless AI, immediate trusted Space route,
+  inverse page route, post-AI freshness under one second, Discard, desktop
+  silent posture, truthful all-disabled silent list, stable-baseline fade and
+  restore, resize, checklist fence, and zero Save/publication attempts.
+
+## 8. Regression risks
+
+- A readiness flag that is not occurrence-fenced could unlock stale rows after
+  navigation or reopen. Reset and verify it with the same binding and Preview
+  origin used by the controller.
+- Waiting for content could reintroduce a slow/open spinner. Render immediate
+  preparation feedback and use the existing event-driven drain with bounded
+  retry rather than waiting for the remote authority lane.
+- Disabling pending rows could erase permanent missing-target truth. Permanent
+  target-unavailable reasons win and remain visible.
+- A Preview-open failure could strand the page shield. Keep content-owned exit
+  and existing bounded restoration semantics; never claim local completion.
+- Poll-driven projection refresh must not flip readiness or re-enable an old
+  projection after exit.
+
+## 9. Acceptance criteria
+
+- `EL02-R8-AC-01` No Content List row is actionable until the exact bound
+  content organ acknowledges `preview_open` or `silent_preview` at or beyond
+  that Preview occurrence's signal sequence; pending rows and copy are truthful
+  and Preview exit remains operable.
+- `EL02-R8-AC-02` On the first actionable frame, a trusted native Space on an
+  enabled row produces the matching page focus/scroll target, and a trusted
+  page target focuses the matching virtualized row.
+- `EL02-R8-AC-03` No timeout, malformed reply, no-receiver result, navigation,
+  exit/reopen, or delayed old acknowledgement can unlock a later occurrence.
+- `EL02-R8-AC-04` An all-disabled list of hidden/no-area targets remains a valid
+  truthful list with routing `N/A`; it never counts as a two-way-routing pass.
+- `EL02-R8-AC-05` Silent scroll-fade evidence starts from a visible stable
+  baseline, then proves fade, reposition/recompute, and restore; no acceptance
+  depends on sampling the prior exit transition mid-fade.
+- `EL02-R8-AC-06` Focused/full/build/P25 gates pass on the synchronized commit,
+  and a clean headed Arno run passes every applicable safe workflow contract
+  with zero Save and publication attempts.
+- `EL02-R8-AC-07` R8 changes no Save→Load, stateless-AI corpus, marking,
+  consent, hidden-payload, selector, or publication contract.
+
+## 10. Todo chain
+
+1. `el02-r8-preview-content-ack`
+2. `el02-r8-pending-row-ui` → 1
+3. `el02-r8-focused-regressions` → 2
+4. `el02-r8-full-gates` → 3
+5. `el02-r8-review-push` → 4
+6. `el02-r8-headed-arno` → 5
+7. `el02-r8-candidate-matrix` → 6
+8. `el02-r8-conformance` → 7

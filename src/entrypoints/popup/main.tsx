@@ -233,6 +233,23 @@ let signalPollHandle: ReturnType<Window["setInterval"]> | null = null;
 let signalsAvailableUnsubscribe: (() => void) | null = null;
 let previewFocusedUnsubscribe: (() => void) | null = null;
 let previewFocusedRowId: string | null = null;
+type PreviewContentOrganName = "preview_open" | "silent_preview";
+type PreviewInteractionOccurrence = Readonly<{
+  generation: number;
+  tabId: number;
+  requestKey: string;
+  organName: PreviewContentOrganName;
+  minimumConsumedSeq: number | null;
+}>;
+let previewInteractionGeneration = 0;
+let previewInteractionOccurrence: PreviewInteractionOccurrence | null = null;
+let previewInteractionReady = false;
+let previewInteractionFailureReportedGeneration: number | null = null;
+let previewInteractionFailureToastId: number | null = null;
+let previewInteractionSyncInFlight: Readonly<{
+  generation: number;
+  operation: Promise<boolean>;
+}> | null = null;
 const signalsAvailableRevisionByTab = new Map<number, number>();
 type SignalsAvailableWaiter = Readonly<{
   afterRevision: number;
@@ -391,14 +408,14 @@ function notifyEvent(
   label: string,
   detail: string,
   tone: Exclude<PopupLogEntry["tone"], "info">,
-): void {
+): number | null {
   const operatorDetail = DEBUG_BUILD ? detail : resolvePopupOperatorDetail(detail);
   logEvent(label, operatorDetail, tone);
   const toastTone: ToastTone = tone === "warn" ? "warning" : tone;
-  toastController.show({
+  return toastController.show({
     message: operatorDetail ? `${label}: ${operatorDetail}` : label,
     tone: toastTone,
-  });
+  })?.id ?? null;
 }
 
 function captureBindingOccurrence(key = boundTabKey): PopupBindingOccurrence {
@@ -824,7 +841,7 @@ function dispatchSignal(signal: BrainSignal): void {
     // occurrence. A delayed content reply must not repopulate the projection the
     // preview.exited transition just cleared.
     previewController.previewClosed();
-    previewFocusedRowId = null;
+    retirePreviewInteractionOccurrence();
   }
   logEvent(
     signal.name,
@@ -842,6 +859,72 @@ function popupStateHasOpenPreview(state: PopupState): boolean {
       ? state.priorState
       : state.name;
   return visibleState === "preview_open" || visibleState === "silent_preview";
+}
+
+function expectedPreviewContentOrgan(state = store.getState()): PreviewContentOrganName | null {
+  const visibleState = state.name === "locked"
+    ? state.priorState === "inspecting"
+      ? state.overlayPriorState
+      : state.priorState
+    : state.name === "inspecting"
+      ? state.priorState
+      : state.name;
+  return visibleState === "preview_open" || visibleState === "silent_preview"
+    ? visibleState
+    : null;
+}
+
+function retirePreviewInteractionOccurrence(): void {
+  previewInteractionGeneration += 1;
+  if (previewInteractionFailureToastId !== null) {
+    toastController.dismiss(previewInteractionFailureToastId);
+  }
+  previewInteractionOccurrence = null;
+  previewInteractionReady = false;
+  previewInteractionFailureReportedGeneration = null;
+  previewInteractionFailureToastId = null;
+  previewFocusedRowId = null;
+}
+
+function beginPreviewInteractionOccurrence(
+  context: TargetTabContext,
+  requestKey: string,
+  organName: PreviewContentOrganName,
+): PreviewInteractionOccurrence {
+  previewInteractionGeneration += 1;
+  if (previewInteractionFailureToastId !== null) {
+    toastController.dismiss(previewInteractionFailureToastId);
+  }
+  const occurrence = {
+    generation: previewInteractionGeneration,
+    tabId: context.tabId,
+    requestKey,
+    organName,
+    minimumConsumedSeq: null,
+  } satisfies PreviewInteractionOccurrence;
+  previewInteractionOccurrence = occurrence;
+  previewInteractionReady = false;
+  previewInteractionFailureReportedGeneration = null;
+  previewInteractionFailureToastId = null;
+  previewFocusedRowId = null;
+  return occurrence;
+}
+
+function previewInteractionOccurrenceIsCurrent(
+  occurrence: PreviewInteractionOccurrence,
+): boolean {
+  return previewInteractionOccurrence?.generation === occurrence.generation &&
+    previewInteractionGeneration === occurrence.generation &&
+    boundTabId === occurrence.tabId &&
+    boundTabKey === occurrence.requestKey &&
+    expectedPreviewContentOrgan() === occurrence.organName;
+}
+
+function previewInteractionIsReady(): boolean {
+  const occurrence = previewInteractionOccurrence;
+  return occurrence !== null &&
+    previewInteractionReady &&
+    previewInteractionOccurrenceIsCurrent(occurrence);
 }
 
 function popupStateRequiresActiveContent(state: PopupState): boolean {
@@ -896,6 +979,7 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
 function resetBoundSessionState(): void {
   renderInspectionController.bindingChanged();
   brainSignals.reset();
+  retirePreviewInteractionOccurrence();
   appliedEmulationMode = null;
   pendingRenderMode = null;
   lastSubmissionSnapshot = null;
@@ -998,6 +1082,7 @@ function ensureSignalPolling(): void {
     previewFocusedUnsubscribe = getPopupBus().on("preview.focused", ({ pageUrl, projectionId, rowId }) => {
       const projection = store.getPresentation().previewProjection;
       if (
+        !previewInteractionIsReady() ||
         !previewStateIsOpen() ||
         projection?.pageUrl !== pageUrl ||
         projection.projectionId !== projectionId
@@ -1558,6 +1643,7 @@ async function pollFastSignalsOnce(): Promise<void> {
     // the retained projection when its bridge has not changed, so the tick does
     // not rebuild geometry or touch remote authority.
     await ensurePreviewProjection(context, requestKey);
+    await ensurePreviewInteractionReady(context, requestKey);
   }
 }
 
@@ -2119,15 +2205,19 @@ type ContentSignalSyncOutcome =
   | "unsupported"
   | "timed_out"
   | "generation_mismatch";
+type ContentSignalSnapshot = Readonly<{
+  lastConsumedSeq: number;
+  organName: string;
+  runSessionId: string;
+}>;
 
 const CONTENT_SIGNAL_SYNC_ATTEMPT_MS = 2_000;
 const CONTENT_SIGNAL_SYNC_DEADLINE_MS = 15_000;
+const PREVIEW_CONTENT_SYNC_DEADLINE_MS = 2_000;
 
-async function syncContentRunGeneration(
+async function syncContentSignalState(
   context: TargetTabContext,
-  minimumSeq: number,
-  runSessionId: string,
-  phase: "started" | "terminal",
+  accepts: (snapshot: ContentSignalSnapshot) => boolean,
   maxWaitMs = CONTENT_SIGNAL_SYNC_DEADLINE_MS,
 ): Promise<ContentSignalSyncOutcome> {
   const binding = captureBindingOccurrence();
@@ -2171,12 +2261,12 @@ async function syncContentRunGeneration(
       if (typeof data.lastConsumedSeq !== "number" || typeof data.organName !== "string") {
         return "unsupported";
       }
-      const generationMatches = data.lastConsumedSeq >= minimumSeq && (
-        phase === "started"
-          ? data.organName === "running" && data.runSessionId === runSessionId
-          : data.organName !== "running" || data.runSessionId !== runSessionId
-      );
-      if (generationMatches) {
+      const snapshot = {
+        lastConsumedSeq: data.lastConsumedSeq,
+        organName: data.organName,
+        runSessionId: typeof data.runSessionId === "string" ? data.runSessionId : "",
+      } satisfies ContentSignalSnapshot;
+      if (accepts(snapshot)) {
         return "acknowledged";
       }
       sawGenerationMismatch = true;
@@ -2197,6 +2287,21 @@ async function syncContentRunGeneration(
     return "generation_mismatch";
   }
   return sawGenerationMismatch ? "generation_mismatch" : "timed_out";
+}
+
+async function syncContentRunGeneration(
+  context: TargetTabContext,
+  minimumSeq: number,
+  runSessionId: string,
+  phase: "started" | "terminal",
+  maxWaitMs = CONTENT_SIGNAL_SYNC_DEADLINE_MS,
+): Promise<ContentSignalSyncOutcome> {
+  return await syncContentSignalState(context, (snapshot) =>
+    snapshot.lastConsumedSeq >= minimumSeq && (
+      phase === "started"
+        ? snapshot.organName === "running" && snapshot.runSessionId === runSessionId
+        : snapshot.organName !== "running" || snapshot.runSessionId !== runSessionId
+    ), maxWaitMs);
 }
 
 async function requestTypedPreviewContent<T>(
@@ -2815,8 +2920,9 @@ async function reconcileContentStatus(context: TargetTabContext, requestKey = bo
     }
     await adoptMarkingRows(context.tabId, requestKey);
   }
-  if (previewStateIsOpen()) {
+  if (requestKey !== null && previewStateIsOpen()) {
     await ensurePreviewProjection(context, requestKey);
+    await ensurePreviewInteractionReady(context, requestKey);
   }
 }
 
@@ -4811,6 +4917,97 @@ function previewOwner(
   return { tabId: context.tabId, requestKey, pageUrl: context.url };
 }
 
+function previewInteractionFailureDetail(outcome: ContentSignalSyncOutcome): string {
+  switch (outcome) {
+    case "unreachable":
+      return "the page is unavailable; reload it before comparing Content List rows";
+    case "unsupported":
+      return "the page cannot confirm Content List targeting; reload it before retrying";
+    case "timed_out":
+      return "the page did not confirm Content List targeting in time";
+    case "generation_mismatch":
+      return "the page changed before Content List targeting was ready";
+    case "acknowledged":
+      return "";
+  }
+}
+
+async function ensurePreviewInteractionReady(
+  context: TargetTabContext,
+  requestKey: string,
+  requestedOrganName: PreviewContentOrganName | null = null,
+): Promise<boolean> {
+  const organName = requestedOrganName ?? expectedPreviewContentOrgan();
+  if (organName === null || !previewStateIsOpen()) {
+    return false;
+  }
+  let occurrence = previewInteractionOccurrence;
+  if (
+    occurrence === null ||
+    occurrence.tabId !== context.tabId ||
+    occurrence.requestKey !== requestKey ||
+    occurrence.organName !== organName
+  ) {
+    occurrence = beginPreviewInteractionOccurrence(context, requestKey, organName);
+  }
+  if (occurrence.minimumConsumedSeq === null) {
+    occurrence = {
+      ...occurrence,
+      minimumConsumedSeq: store.getState().lastConsumedSeq,
+    };
+    previewInteractionOccurrence = occurrence;
+  }
+  if (previewInteractionReady && previewInteractionOccurrenceIsCurrent(occurrence)) {
+    return true;
+  }
+  if (previewInteractionSyncInFlight?.generation === occurrence.generation) {
+    return await previewInteractionSyncInFlight.operation;
+  }
+  const operation = (async (): Promise<boolean> => {
+    const outcome = await syncContentSignalState(
+      context,
+      (snapshot) => snapshot.organName === occurrence.organName &&
+        occurrence.minimumConsumedSeq !== null &&
+        snapshot.lastConsumedSeq >= occurrence.minimumConsumedSeq,
+      PREVIEW_CONTENT_SYNC_DEADLINE_MS,
+    );
+    if (!previewInteractionOccurrenceIsCurrent(occurrence)) {
+      return false;
+    }
+    if (outcome === "acknowledged") {
+      previewInteractionReady = true;
+      if (previewInteractionFailureToastId !== null) {
+        toastController.dismiss(previewInteractionFailureToastId);
+        previewInteractionFailureToastId = null;
+      }
+      render();
+      return true;
+    }
+    previewInteractionReady = false;
+    if (previewInteractionFailureReportedGeneration !== occurrence.generation) {
+      previewInteractionFailureReportedGeneration = occurrence.generation;
+      const binding = captureBindingOccurrence(requestKey);
+      if (bindingOccurrenceIsCurrent(binding)) {
+        previewInteractionFailureToastId = notifyEvent(
+          "Content List is still preparing",
+          previewInteractionFailureDetail(outcome),
+          "warn",
+        );
+      }
+    }
+    render();
+    return false;
+  })();
+  previewInteractionSyncInFlight = { generation: occurrence.generation, operation };
+  try {
+    return await operation;
+  } finally {
+    if (previewInteractionSyncInFlight?.operation === operation) {
+      previewInteractionSyncInFlight = null;
+    }
+  }
+}
+
 async function ensurePreviewProjection(
   context: TargetTabContext,
   requestKey: string | null,
@@ -4881,6 +5078,10 @@ async function showPreview(existingAction: OperatorActionOccurrence | null = nul
     render();
     return false;
   }
+  const previewOrganName: PreviewContentOrganName = origin === "silent"
+    ? "silent_preview"
+    : "preview_open";
+  beginPreviewInteractionOccurrence(context, requestKey, previewOrganName);
   advanceOperatorAction(action, "preview");
   const opened = await reportPopupFactAndPull(context, "preview-opened", {
     previewActive: true,
@@ -4891,13 +5092,22 @@ async function showPreview(existingAction: OperatorActionOccurrence | null = nul
   }, requestKey, previewStateIsOpen);
   if (!opened || !bindingOccurrenceIsCurrent(binding)) {
     previewController.previewClosed();
+    retirePreviewInteractionOccurrence();
     store.setPreviewProjection(null);
     notifyBoundEvent(binding, "Preview unavailable", "the Preview acknowledgement did not arrive", "warn");
     render();
     return false;
   }
+  const interactionReady = await ensurePreviewInteractionReady(
+    context,
+    requestKey,
+    previewOrganName,
+  );
+  if (!bindingOccurrenceIsCurrent(binding) || !previewStateIsOpen()) {
+    return false;
+  }
   render();
-  return true;
+  return interactionReady;
   } finally {
     if (ownedAction) {
       advanceOperatorAction(ownedAction, "terminal");
@@ -4982,7 +5192,7 @@ async function exitPreview(): Promise<void> {
 
 function currentPreviewOwner(): PopupPreviewOwner | null {
   const projection = store.getState().previewProjection;
-  return boundTabId !== null && boundTabKey !== null && projection
+  return previewInteractionIsReady() && boundTabId !== null && boundTabKey !== null && projection
     ? { tabId: boundTabId, requestKey: boundTabKey, pageUrl: projection.pageUrl }
     : null;
 }
@@ -5195,6 +5405,7 @@ function render(): void {
       onPreviewRowHover={(rowId, active) => { void hoverPreviewRow(rowId, active); }}
       onPreviewRowActivate={(rowId) => { void activatePreviewRow(rowId); }}
       focusedPreviewRowId={previewFocusedRowId}
+      previewInteractionReady={previewInteractionIsReady()}
       onRefresh={() => { void refreshPopup(); }}
       onLockAction={(action) => { void dispatchLockAction(action); }}
       onSettingsChange={(field, value) => { configurationController.updateSettings(field, value); }}

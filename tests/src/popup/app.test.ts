@@ -67,6 +67,7 @@ function renderApp(
 ): string {
   return renderToStaticMarkup(createElement(App, {
     presentation: memoryFor(state),
+    previewInteractionReady: true,
     view,
     diagnostics: { ...EMPTY_POPUP_DIAGNOSTICS, ...diagnostics },
     settings,
@@ -334,6 +335,20 @@ describe("popup App surface", () => {
       expect(markup, `#${id} must not remain interactive behind preview`).not.toContain(`id="${id}"`);
     }
 
+    const preparing = renderApp(
+      state,
+      { ...SIGNED_IN, stateName: "preview_open", renderMode: "rendered" },
+      EMPTY_POPUP_SETTINGS_FORM,
+      { ...FULL_HANDLERS, previewInteractionReady: false },
+    );
+    expect(preparing).toContain('aria-busy="true"');
+    expect(preparing).toContain("Preparing page comparison…");
+    expect(preparing).toContain("Page comparison is still preparing");
+    expect(preparing).toMatch(/class="preview-sidebar__item-button"[^>]*disabled/);
+    expect(preparing).toMatch(/id="preview-exit"[^>]*aria-label="Exit Preview"/);
+    expect(preparing).not.toMatch(/id="preview-exit"[^>]*disabled/);
+    expect(preparing).not.toContain("Point to or focus a row to compare it with the page");
+
     const restoring = renderApp(
       { ...state, name: "exit_restoring" },
       { ...SIGNED_IN, stateName: "exit_restoring", renderMode: "rendered" },
@@ -370,6 +385,7 @@ describe("popup App surface", () => {
       projection,
       debug,
       hoveredRowId: null,
+      interactionReady: true,
     }));
 
     const production = renderRows(false);
@@ -1018,6 +1034,7 @@ describe("popup App surface", () => {
   it("makes explicit Refresh a visible input fence until authority settles", () => {
     const markup = renderToStaticMarkup(createElement(App, {
       presentation: memoryFor(SILENT),
+      previewInteractionReady: true,
       diagnostics: { ...EMPTY_POPUP_DIAGNOSTICS, ...SIGNED_IN, renderMode: "rendered" },
       refreshBusy: true,
       ...FULL_HANDLERS,

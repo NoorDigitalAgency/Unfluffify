@@ -33,6 +33,7 @@ describe("focused Preview row section", () => {
       projection: PROJECTION,
       debug: false,
       hoveredRowId: null,
+      interactionReady: true,
     };
     const compatibility: AppPreviewRowListProps = direct;
     expect(compatibility).toBe(direct);
@@ -43,6 +44,7 @@ describe("focused Preview row section", () => {
       projection: PROJECTION,
       debug: false,
       hoveredRowId: null,
+      interactionReady: true,
     }));
     expect(production).toContain("Readable &lt;safe&gt; content");
     expect(production).toContain("Included");
@@ -56,6 +58,7 @@ describe("focused Preview row section", () => {
       projection: PROJECTION,
       debug: true,
       hoveredRowId: "stable-row-1",
+      interactionReady: true,
     }));
     expect(debug).toContain('data-preview-row-debug="true"');
     expect(debug).toContain("Classification: explicit-included");
@@ -77,6 +80,7 @@ describe("focused Preview row section", () => {
       projection,
       debug: false,
       hoveredRowId: null,
+      interactionReady: true,
     }));
 
     expect(markup.match(/preview-sidebar__item-button/g)).toHaveLength(96);
@@ -129,11 +133,27 @@ describe("focused Preview row section", () => {
       projection,
       debug: false,
       hoveredRowId: null,
+      interactionReady: true,
     }));
 
     expect(markup).toContain("footer");
     expect(markup).toContain("Target has no visible page area");
     expect(markup).toContain("disabled=\"\"");
     expect(markup).toContain("preview-sidebar__item--unavailable");
+  });
+
+  it("keeps otherwise targetable rows inert until the content organ acknowledges Preview", () => {
+    const markup = renderToStaticMarkup(createElement(PreviewRowList, {
+      projection: PROJECTION,
+      debug: false,
+      hoveredRowId: null,
+      interactionReady: false,
+    }));
+
+    expect(markup).toContain("Readable &lt;safe&gt; content");
+    expect(markup).toContain("Page comparison is still preparing");
+    expect(markup).toContain("disabled=\"\"");
+    expect(markup).toContain("preview-sidebar__item--unavailable");
+    expect(markup).toContain('aria-label="1. Readable &lt;safe&gt; content. Included. Page comparison is still preparing"');
   });
 });

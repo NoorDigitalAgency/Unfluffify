@@ -2555,6 +2555,7 @@ describe("rewrite popup entrypoint", () => {
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
     let projectedRunSessionId = "";
     let projectedRunPhase: "idle" | "running" | "terminal" = "idle";
+    let projectedPreviewOrgan: "preview_open" | "silent_preview" | null = null;
     const snapshot = {
       baseUrl: "https://example.com",
       renderMode: "static",
@@ -2575,7 +2576,7 @@ describe("rewrite popup entrypoint", () => {
       if (message.type === "syncContentSignals") {
         return {
           ok: true,
-          organName: projectedRunPhase === "running" ? "running" : "post_ai_clean",
+          organName: projectedPreviewOrgan ?? (projectedRunPhase === "running" ? "running" : "post_ai_clean"),
           runSessionId: projectedRunPhase === "running" ? projectedRunSessionId : "",
           lastConsumedSeq: Number.MAX_SAFE_INTEGER,
           tree: "rewrite",
@@ -2620,6 +2621,9 @@ describe("rewrite popup entrypoint", () => {
           projectedRunPhase = "running";
         } else if (facts?.runPhase === "completed" || facts?.runPhase === "failed") {
           projectedRunPhase = "terminal";
+        }
+        if (facts?.previewActive === true) {
+          projectedPreviewOrgan = facts.previewOrigin === "silent" ? "silent_preview" : "preview_open";
         }
       }
       if (
@@ -2766,9 +2770,10 @@ describe("rewrite popup entrypoint", () => {
     const aiCommandNames = tabsSendMessage.mock.calls.map(([, frame]) =>
       ((frame as BusFrame).payload as { name?: string } | undefined)?.name);
     const syncIndexes = aiCommandNames.flatMap((name, index) => name === "syncContentSignals" ? [index] : []);
-    expect(syncIndexes).toHaveLength(2);
+    expect(syncIndexes).toHaveLength(3);
     expect(syncIndexes[0]).toBeLessThan(aiCommandNames.indexOf("captureSubmissionSnapshot"));
     expect(syncIndexes[1]).toBeGreaterThan(aiCommandNames.indexOf("markContentMainClean"));
+    expect(syncIndexes[2]).toBeGreaterThan(aiCommandNames.indexOf("preview.project"));
 
     expect(render.mock.calls.at(-1)?.[0].props.presentation).toMatchObject({
       previewVisible: true,
@@ -2776,6 +2781,7 @@ describe("rewrite popup entrypoint", () => {
       curtainVisible: false,
       previewProjection: expect.objectContaining({ projectionId: "projection-1" }),
     });
+    expect(render.mock.calls.at(-1)?.[0].props.previewInteractionReady).toBe(true);
 
     render.mock.calls.at(-1)?.[0].props.onPreviewRowHover("row-main", true);
     render.mock.calls.at(-1)?.[0].props.onPreviewRowHover("row-main", false);
@@ -4490,6 +4496,11 @@ describe("rewrite popup entrypoint", () => {
     let holdPreviewOpenedFact = false;
     let previewExitCount = 0;
     let stallNextSignalPull = false;
+    let projectedPreviewOrgan: "silent" | "silent_preview" = "silent";
+    let holdPreviewContentSync = false;
+    let releasePreviewContentSync: (() => void) | null = null;
+    let rejectNextPreviewContentSync = false;
+    let holdStalePreviewContentSeq = false;
     const runtime = makeRuntime(async (message) => {
       if (message.name === "signals.pull" && stallNextSignalPull) {
         stallNextSignalPull = false;
@@ -4528,7 +4539,14 @@ describe("rewrite popup entrypoint", () => {
         (message.payload as { sensation?: { reason?: string } }).sensation?.reason === "preview-exit-requested"
       ) {
         previewExitCount += 1;
+        projectedPreviewOrgan = "silent";
         await runtime.sendMessage(contentPreviewExitedFrame(false, `content-silent-preview-exited-${previewExitCount}`));
+      }
+      if (
+        message.name === "fact.reported" &&
+        (message.payload as { sensation?: { reason?: string } }).sensation?.reason === "preview-opened"
+      ) {
+        projectedPreviewOrgan = "silent_preview";
       }
       if (
         message.name === "fact.reported" &&
@@ -4584,6 +4602,25 @@ describe("rewrite popup entrypoint", () => {
     let delayPreviewEmphasis = false;
     let resolveDelayedEmphasis: ((value: null) => void) | null = null;
     const tabsSendMessage = makeTabsSendMessage((_tabId, message) => {
+      if (message.type === "syncContentSignals") {
+        if (rejectNextPreviewContentSync && projectedPreviewOrgan === "silent_preview") {
+          rejectNextPreviewContentSync = false;
+          return { ok: true };
+        }
+        const response = {
+          ok: true,
+          organName: projectedPreviewOrgan,
+          runSessionId: "",
+          lastConsumedSeq: holdStalePreviewContentSeq ? 0 : Number.MAX_SAFE_INTEGER,
+          tree: "rewrite",
+        };
+        if (holdPreviewContentSync && projectedPreviewOrgan === "silent_preview") {
+          return new Promise<typeof response>((resolve) => {
+            releasePreviewContentSync = () => resolve(response);
+          });
+        }
+        return response;
+      }
       if (message.type === "preview.project") {
         previewProjectCount += 1;
         if (delayProjectionUntilAfterExit) {
@@ -4657,6 +4694,7 @@ describe("rewrite popup entrypoint", () => {
       "selector-bearing silent state",
     );
     holdPreviewOpenedFact = true;
+    holdPreviewContentSync = true;
     render.mock.calls.at(-1)?.[0].props.onPreview();
     await waitFor(() => releasePreviewOpenedFact !== null, "the delayed preview-opened fact response");
 
@@ -4669,9 +4707,25 @@ describe("rewrite popup entrypoint", () => {
       () => render.mock.calls.at(-1)?.[0].props.presentation.previewProjection?.revision === 1,
       "the fast polling projection during the delayed open fact",
     );
-    holdPreviewOpenedFact = false;
-    releasePreviewOpenedFact?.();
+    await waitFor(() => releasePreviewContentSync !== null, "the delayed content Preview acknowledgement");
+    expect(render.mock.calls.at(-1)?.[0].props.previewInteractionReady).toBe(false);
+    const targetCommandCountWhilePreparing = tabsSendMessage.mock.calls.filter(([, frame]) => {
+      const name = ((frame as BusFrame).payload as { name?: string } | undefined)?.name;
+      return name === "preview.activate" || name === "preview.emphasize";
+    }).length;
+    render.mock.calls.at(-1)?.[0].props.onPreviewRowHover("silent-row", true);
+    render.mock.calls.at(-1)?.[0].props.onPreviewRowActivate("silent-row");
     await flushEntrypointWork();
+    expect(tabsSendMessage.mock.calls.filter(([, frame]) => {
+      const name = ((frame as BusFrame).payload as { name?: string } | undefined)?.name;
+      return name === "preview.activate" || name === "preview.emphasize";
+    })).toHaveLength(targetCommandCountWhilePreparing);
+    holdPreviewOpenedFact = false;
+    holdPreviewContentSync = false;
+    releasePreviewOpenedFact?.();
+    releasePreviewContentSync?.();
+    await flushEntrypointWork();
+    expect(render.mock.calls.at(-1)?.[0].props.previewInteractionReady).toBe(true);
     expect(render.mock.calls.at(-1)?.[0].props.presentation.previewProjection).toMatchObject({
       projectionId: "silent-projection-a",
       revision: 1,
@@ -4754,11 +4808,23 @@ describe("rewrite popup entrypoint", () => {
     raceProjectionRequests = false;
     delayPreviewActivation = false;
     delayPreviewEmphasis = false;
+    rejectNextPreviewContentSync = true;
     render.mock.calls.at(-1)?.[0].props.onPreview();
     await waitFor(
       () => render.mock.calls.at(-1)?.[0].props.presentation.previewProjection?.projectionId === "silent-projection-b",
       "cycle B preview projection",
     );
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.toast?.message.includes("Content List is still preparing") === true,
+      "the exact readiness warning",
+    );
+    expect(render.mock.calls.at(-1)?.[0].props.previewInteractionReady).toBe(false);
+    pollCurrentTab?.();
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.previewInteractionReady === true,
+      "the retried content Preview acknowledgement",
+    );
+    expect(render.mock.calls.at(-1)?.[0].props.toast).toBeNull();
     const projectCountBeforeStaleActivation = previewProjectCount;
     resolveDelayedActivation?.({ targeted: false });
     resolveDelayedEmphasis?.(null);
@@ -4786,6 +4852,80 @@ describe("rewrite popup entrypoint", () => {
     await flushEntrypointWork();
     expect(render.mock.calls.at(-1)?.[0].props.diagnostics.stateName).toBe("silent");
     expect(render.mock.calls.at(-1)?.[0].props.presentation.previewProjection).toBeNull();
+
+    // Reusing the same organ name is not proof that content consumed this open
+    // occurrence. Keep rows inert while its signal sequence is stale, then let
+    // the local backstop recover and dismiss only this occurrence's warning.
+    delayProjectionUntilAfterExit = false;
+    resolvePostExitProjection = null;
+    holdStalePreviewContentSeq = true;
+    vi.useFakeTimers();
+    try {
+      render.mock.calls.at(-1)?.[0].props.onPreview();
+      for (
+        let index = 0;
+        index < 100 && render.mock.calls.at(-1)?.[0].props.diagnostics.stateName !== "silent_preview";
+        index += 1
+      ) {
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      expect(render.mock.calls.at(-1)?.[0].props.diagnostics.stateName).toBe("silent_preview");
+      expect(render.mock.calls.at(-1)?.[0].props.previewInteractionReady).toBe(false);
+      await vi.advanceTimersByTimeAsync(2_100);
+      for (
+        let index = 0;
+        index < 100 && render.mock.calls.at(-1)?.[0].props.toast?.message
+          .includes("Content List is still preparing") !== true;
+        index += 1
+      ) {
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      expect(render.mock.calls.at(-1)?.[0].props.toast?.message)
+        .toContain("Content List is still preparing");
+      expect(render.mock.calls.at(-1)?.[0].props.previewInteractionReady).toBe(false);
+      holdStalePreviewContentSeq = false;
+      pollCurrentTab?.();
+      for (
+        let index = 0;
+        index < 100 && render.mock.calls.at(-1)?.[0].props.previewInteractionReady !== true;
+        index += 1
+      ) {
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      expect(render.mock.calls.at(-1)?.[0].props.previewInteractionReady).toBe(true);
+      expect(render.mock.calls.at(-1)?.[0].props.toast).toBeNull();
+    } finally {
+      holdStalePreviewContentSeq = false;
+      vi.useRealTimers();
+    }
+    render.mock.calls.at(-1)?.[0].props.onExitPreview();
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.diagnostics.stateName === "silent",
+      "silent restoration after same-name sequence recovery",
+    );
+
+    // A content-organ acknowledgement belongs to the Preview cycle that
+    // requested it. If that cycle exits while the command is delayed, its old
+    // `silent_preview` reply must not unlock rows in the restored silent view.
+    releasePreviewContentSync = null;
+    holdPreviewContentSync = true;
+    render.mock.calls.at(-1)?.[0].props.onPreview();
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.diagnostics.stateName === "silent_preview" &&
+        releasePreviewContentSync !== null,
+      "the delayed stale Preview acknowledgement",
+    );
+    expect(render.mock.calls.at(-1)?.[0].props.previewInteractionReady).toBe(false);
+    render.mock.calls.at(-1)?.[0].props.onExitPreview();
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.diagnostics.stateName === "silent",
+      "silent restoration before the old acknowledgement",
+    );
+    holdPreviewContentSync = false;
+    releasePreviewContentSync?.();
+    await flushEntrypointWork();
+    expect(render.mock.calls.at(-1)?.[0].props.diagnostics.stateName).toBe("silent");
+    expect(render.mock.calls.at(-1)?.[0].props.previewInteractionReady).toBe(false);
   });
 
   it("drains pending dirty signals and aborts stale Preview", async () => {

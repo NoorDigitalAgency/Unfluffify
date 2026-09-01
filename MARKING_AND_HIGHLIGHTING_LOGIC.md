@@ -848,7 +848,13 @@ a page draft by itself. Content List is a local content projection: opening it
 must not wait for a fresh authority poll, and the 500 ms signal backstop must not
 rebuild it. Row hover/focus emphasizes the page, row activation scrolls the
 page, and clicking a projected page highlight focuses and scrolls the exact
-occurrence-fenced row.
+occurrence-fenced row. Because popup and content consume Preview signals
+independently, projected rows remain readable but disabled until the exact bound
+content organ acknowledges `preview_open` or `silent_preview` through the local
+signal drain and reports a consumed signal sequence at least as new as the
+current Preview-open occurrence. This acknowledgement is not a remote authority
+refresh, and a delayed or same-name stale reply from an exited, reopened, or
+navigated occurrence cannot unlock the current list.
 
 Starting an AI content-detection run must first enter the popup compute-busy
 state, render the spinner/countdown, and apply the page-side compute lock that
