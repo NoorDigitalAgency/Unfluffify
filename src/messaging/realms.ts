@@ -107,10 +107,17 @@ const LockStateResponseSchema = z.object({
   lockBanner: LockBannerVocabularySchema,
 });
 
+const EmulationPhysicalViewportHintSchema = z.object({
+  /** The side panel is not inside the emulated page, so its content height is
+   * an independent measurement of the user's currently visible tab height. */
+  height: z.number().finite().positive(),
+}).strict();
+
 const EmulationApplyRequestSchema = z.object({
   tabId: z.number().int().positive(),
   mode: z.enum(["mobile", "desktop"]),
   scale: z.number(),
+  physicalViewportHint: EmulationPhysicalViewportHintSchema.optional(),
   /** Whether the caller is in a position to survive a page reload. Establishing a
    *  spoofed identity needs one — Chrome fixes navigator.userAgent per document —
    *  and only the popup knows whether a marking session would lose work to it. */
@@ -471,6 +478,7 @@ export const applicationContract = defineContract({
         tabId: true,
         mode: true,
         scale: true,
+        physicalViewportHint: true,
       }),
       response: EmulationStateResponseSchema.nullable(),
     },
@@ -479,7 +487,10 @@ export const applicationContract = defineContract({
       response: z.object({ status: z.literal("ok") }),
     },
     "emulation.refit": {
-      request: z.object({ tabId: z.number().int().positive() }),
+      request: z.object({
+        tabId: z.number().int().positive(),
+        physicalViewportHint: EmulationPhysicalViewportHintSchema.optional(),
+      }),
       response: z.object({ status: z.literal("ok") }),
     },
     "page.context": {

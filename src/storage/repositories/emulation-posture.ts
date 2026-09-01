@@ -9,6 +9,10 @@ export const EmulationPostureRecordSchema = z.object({
   tabId: z.number().int().positive(),
   mode: z.enum(["mobile", "desktop"]),
   maximumScale: z.number().finite().positive(),
+  /** Last scale that passed both the complete CDP-posture proof and the
+   * physical tab-fit proof. Older v1 records legitimately omit it; hydration
+   * then establishes a new safe scale before persisting the enriched record. */
+  fittedScale: z.number().finite().positive().optional(),
   revision: z.number().int().nonnegative(),
 });
 

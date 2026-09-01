@@ -69,7 +69,7 @@ function installEntrypointDom(href: string): void {
   Object.defineProperty(globalThis, "document", {
     configurable: true,
     value: {
-      documentElement: { dataset: {}, style: {} },
+      documentElement: { dataset: {}, style: {}, clientHeight: 705 },
       getElementById: vi.fn(() => ({ id: "root", dataset: {}, isConnected: true })),
       body: {
         appendChild: vi.fn(() => ({ id: "root", dataset: {}, isConnected: true })),
@@ -83,6 +83,7 @@ function installEntrypointDom(href: string): void {
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
+      innerHeight: 705,
       setInterval: vi.fn(() => 1),
       clearInterval: vi.fn(),
       // Discarding markings asks first; default to accepting so the existing
@@ -679,8 +680,17 @@ describe("rewrite popup entrypoint", () => {
     // allowReload is true here because no marking session is armed: establishing a
     // spoofed identity needs a load, and there is nothing to lose to one yet.
     expect(emulationFrames()).toEqual([
-      { name: "emulation.apply", payload: { tabId: 77, mode: "mobile", scale: 1, allowReload: true } },
-    ].map((expected) => expect.objectContaining(expected)));
+      expect.objectContaining({
+        name: "emulation.apply",
+        payload: expect.objectContaining({
+          tabId: 77,
+          mode: "mobile",
+          scale: 1,
+          allowReload: true,
+          physicalViewportHint: { height: 705 },
+        }),
+      }),
+    ]);
   });
 
   it("reprojects silent selectors when the same tab and URL receive a new document", async () => {
@@ -1162,6 +1172,11 @@ describe("rewrite popup entrypoint", () => {
 
     expect(runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "emulation.apply"))
       .toHaveLength(applyCount);
+    const refit = runtime.sendMessage.mock.calls.findLast(([frame]) => frame.name === "emulation.refit")?.[0];
+    expect(refit?.payload).toMatchObject({
+      tabId: 77,
+      physicalViewportHint: { height: 705 },
+    });
   });
 
   it("acknowledges silent mode only after a desktop replacement document paints selectors", async () => {

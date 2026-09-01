@@ -7,7 +7,7 @@ import {
   type EmulationMode,
   type EmulationState,
 } from "../content/stabilization";
-import { DEVICE_EMULATION_PRESETS, DEVICE_SCALE_DEFAULTS } from "../domain/constants";
+import { DEVICE_EMULATION_PRESETS } from "../domain/constants";
 import type {
   EmulationPostureRecord,
   EmulationPostureRepo,
@@ -31,6 +31,20 @@ export type VerifiedEmulationState = EmulationState & Readonly<{
   reloadRequired?: boolean;
   failureReason?: EmulationFailureReason;
 }>;
+
+export type EmulationPhysicalViewportHint = Readonly<{
+  /** Independent visible height measured by the non-emulated side panel. */
+  height: number;
+}>;
+
+type PhysicalViewport = Readonly<{ width: number; height: number }>;
+
+class PhysicalViewportUnavailableError extends Error {
+  constructor() {
+    super("Physical viewport is unavailable");
+    this.name = "PhysicalViewportUnavailableError";
+  }
+}
 
 type MeasuredEmulationPosture = Readonly<{
   innerWidth: number;
@@ -201,7 +215,10 @@ function physicalViewportFits(
   state: Pick<EmulationState, "width" | "height" | "scale">,
   viewport: Readonly<{ width: number; height: number }> | null,
 ): boolean {
-  if (!viewport) return true;
+  // Unknown physical geometry cannot prove that the bottom/right edges are
+  // visible. The real background always has tabs.get; tests or degraded hosts
+  // without it must fail closed instead of acknowledging an assumed fit.
+  if (!viewport) return false;
   return state.width * state.scale <= viewport.width + 0.5 &&
     state.height * state.scale <= viewport.height + 0.5;
 }
@@ -347,14 +364,22 @@ export function createRenderEmulationRuntime(input: Readonly<{
    *  a state the tab is supposed to be in. */
   const heldPostures = new Map<number, HeldPosture>();
   const verifiedPostures = new Map<number, VerifiedEmulationState>();
+  /** Survives verified-cache invalidation and debugger detach. A same-mode full
+   * reassert may shrink this value, but only the stable refit path may grow it. */
+  const safeFittedScales = new Map<number, Readonly<{
+    mode: EmulationMode;
+    scale: number;
+  }>>();
   const tabWindowIds = new Map<number, number>();
   const reassertRetryTimers = new Map<number, ReturnType<typeof setTimeout>>();
   const reassertRetryAttempts = new Map<number, number>();
   const refitTimers = new Map<number, ReturnType<typeof setTimeout>>();
   const refitQueued = new Set<number>();
   const refitTrailing = new Set<number>();
+  const refitHints = new Map<number, EmulationPhysicalViewportHint | undefined>();
+  const geometryGenerations = new Map<number, number>();
   const REASSERT_RETRY_DELAYS_MS = [100, 250, 500, 1_000, 2_000, 5_000] as const;
-  const REFIT_SETTLE_MS = 120;
+  const REFIT_SETTLE_MS = 240;
   const postureEpochs = new Map<number, number>();
   const postureRevisions = new Map<number, number>();
   const hydratedTabs = new Set<number>();
@@ -371,12 +396,21 @@ export function createRenderEmulationRuntime(input: Readonly<{
     postureRevisions.set(tabId, revision);
     return revision;
   };
-  const recordFor = (tabId: number, held: HeldPosture): EmulationPostureRecord => ({
-    tabId,
-    mode: held.mode,
-    maximumScale: held.scale,
-    revision: held.revision,
-  });
+  const nextGeometryGeneration = (tabId: number): number => {
+    const generation = (geometryGenerations.get(tabId) ?? 0) + 1;
+    geometryGenerations.set(tabId, generation);
+    return generation;
+  };
+  const recordFor = (tabId: number, held: HeldPosture): EmulationPostureRecord => {
+    const safe = safeFittedScales.get(tabId);
+    return {
+      tabId,
+      mode: held.mode,
+      maximumScale: held.scale,
+      ...(safe?.mode === held.mode ? { fittedScale: safe.scale } : {}),
+      revision: held.revision,
+    };
+  };
   const adoptDurableRecord = (
     record: EmulationPostureRecord,
     expectedEpoch: number,
@@ -393,6 +427,14 @@ export function createRenderEmulationRuntime(input: Readonly<{
       epoch: nextPostureEpoch(tabId),
     };
     heldPostures.set(tabId, held);
+    if (record.fittedScale !== undefined) {
+      safeFittedScales.set(tabId, {
+        mode: record.mode,
+        scale: Math.min(record.maximumScale, record.fittedScale),
+      });
+    } else {
+      safeFittedScales.delete(tabId);
+    }
     return held;
   };
   const hydratePosture = (tabId: number): Promise<HeldPosture | undefined> => {
@@ -425,12 +467,36 @@ export function createRenderEmulationRuntime(input: Readonly<{
       if (current) await input.postureRepo.save(recordFor(tabId, current));
     }
   };
-  const clearRefitTimer = (tabId: number): void => {
+  const rememberSafeFittedScale = async (
+    tabId: number,
+    held: HeldPosture,
+    scale: number,
+  ): Promise<void> => {
+    if (!postureIsCurrent(tabId, held)) return;
+    safeFittedScales.set(tabId, { mode: held.mode, scale });
+    // Desired posture was persisted before the first CDP mutation. Enriching
+    // that record with the proven compositor fit is best-effort here: losing a
+    // worker before this small write merely forces conservative remeasurement,
+    // while rolling back an already exact visible posture would create churn.
+    await persistPosture(tabId, held).catch(() => undefined);
+  };
+  const safeScaleCeiling = (tabId: number, held: HeldPosture): number => {
+    const safe = safeFittedScales.get(tabId);
+    return safe?.mode === held.mode
+      ? Math.min(held.scale, safe.scale)
+      : held.scale;
+  };
+  const invalidateGeometry = (tabId: number): number => {
     const timer = refitTimers.get(tabId);
     if (timer !== undefined) clearTimeout(timer);
     refitTimers.delete(tabId);
+    return nextGeometryGeneration(tabId);
+  };
+  const clearRefitTimer = (tabId: number): void => {
+    invalidateGeometry(tabId);
     refitQueued.delete(tabId);
     refitTrailing.delete(tabId);
+    refitHints.delete(tabId);
   };
   const cancelReassertRetry = (tabId: number): void => {
     const timer = reassertRetryTimers.get(tabId);
@@ -446,11 +512,13 @@ export function createRenderEmulationRuntime(input: Readonly<{
     nextPostureEpoch(tabId);
     heldPostures.delete(tabId);
     verifiedPostures.delete(tabId);
+    safeFittedScales.delete(tabId);
     tabWindowIds.delete(tabId);
   };
   const visibleTabViewport = async (
     tabId: number,
-  ): Promise<Readonly<{ width: number; height: number }> | null> => {
+    hint?: EmulationPhysicalViewportHint,
+  ): Promise<PhysicalViewport | null> => {
     if (!input.tabs?.get) {
       return null;
     }
@@ -473,27 +541,41 @@ export function createRenderEmulationRuntime(input: Readonly<{
       if (Number.isInteger(tab?.windowId)) {
         tabWindowIds.set(tabId, Number(tab?.windowId));
       }
-      return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0
-        ? { width, height }
-        : null;
+      if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+        return null;
+      }
+      const hintedHeight = Number(hint?.height);
+      return {
+        width,
+        height: Number.isFinite(hintedHeight) && hintedHeight > 0
+          ? Math.min(height, hintedHeight)
+          : height,
+      };
     } catch {
       return null;
     }
   };
-  const fittedScaleFor = async (
+  const intersectPhysicalViewports = (
+    first: PhysicalViewport | null,
+    second: PhysicalViewport | null,
+  ): PhysicalViewport | null => {
+    if (!first || !second) return null;
+    return {
+      width: Math.min(first.width, second.width),
+      height: Math.min(first.height, second.height),
+    };
+  };
+  /** A full posture write is a visible transition, so it gets two independent
+   * browser samples and uses only their safe intersection. Same-mode refits stay
+   * single-sample and are protected by their generation-fenced trailing proof. */
+  const transitionPhysicalViewport = async (
     tabId: number,
-    mode: EmulationMode,
-    maximumScale: number,
-    fallbackScale?: number,
-  ): Promise<number> => {
-    const viewport = await visibleTabViewport(tabId);
-    return fitDeviceScale(
-      mode,
-      viewport,
-      viewport
-        ? maximumScale
-        : Math.min(maximumScale, fallbackScale ?? DEVICE_SCALE_DEFAULTS[mode]),
-    );
+    hint?: EmulationPhysicalViewportHint,
+  ): Promise<PhysicalViewport | null> => {
+    const first = await visibleTabViewport(tabId, hint);
+    await Promise.resolve();
+    const second = await visibleTabViewport(tabId, hint);
+    return intersectPhysicalViewports(first, second);
   };
   /** Reasons the operator did not choose. A closing tab has nothing to restore, and
    *  a replaced target means the tab is being taken over by something else. */
@@ -511,6 +593,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
     attachedTabs.delete(tabId);
     realUserAgents.delete(tabId);
     verifiedPostures.delete(tabId);
+    invalidateGeometry(tabId);
     if (reason && TERMINAL_DETACH_REASONS.has(reason)) {
       releasePosture(tabId);
       hydratedTabs.add(tabId);
@@ -702,33 +785,89 @@ export function createRenderEmulationRuntime(input: Readonly<{
     tabId: number,
     state: EmulationState,
     intendedUserAgent: string,
+    hint?: EmulationPhysicalViewportHint,
   ): Promise<Readonly<{
     measured: MeasuredEmulationPosture | null;
     failureReason: EmulationFailureReason | null;
   }>> => {
     const measured = await measurePosture(tabId);
     const documentFailure = proveEmulationPosture(state, measured, intendedUserAgent);
-    if (documentFailure !== null) return { measured, failureReason: documentFailure };
+    // Physical clipping outranks every document-level mismatch. In particular,
+    // an identity-stale document may need a reload, but its replacement must
+    // inherit a scale already proven safe for the visible browser rectangle.
+    if (!physicalViewportFits(state, await visibleTabViewport(tabId, hint))) {
+      return { measured, failureReason: "physical_fit_mismatch" };
+    }
     return {
       measured,
-      failureReason: physicalViewportFits(state, await visibleTabViewport(tabId))
-        ? null
-        : "physical_fit_mismatch",
+      failureReason: documentFailure,
     };
+  };
+  const writeMetricsScale = async (
+    tabId: number,
+    held: HeldPosture,
+    scale: number,
+  ): Promise<void> => {
+    if (!postureIsCurrent(tabId, held)) {
+      throw new Error("Emulation posture was released");
+    }
+    const preset = DEVICE_EMULATION_PRESETS[held.mode];
+    await sendEmulationCommand(tabId, "Emulation.setDeviceMetricsOverride", {
+      width: preset.width,
+      height: preset.height,
+      deviceScaleFactor: 1,
+      mobile: held.mode === "mobile",
+      scale,
+    });
+    if (!postureIsCurrent(tabId, held)) {
+      throw new Error("Emulation posture was released");
+    }
+  };
+  const correctLatePhysicalShrink = async <State extends EmulationState>(
+    tabId: number,
+    held: HeldPosture,
+    state: State,
+    hint?: EmulationPhysicalViewportHint,
+  ): Promise<State> => {
+    const viewport = await visibleTabViewport(tabId, hint);
+    if (!viewport) return state;
+    const fitted = fitDeviceScale(
+      held.mode,
+      viewport,
+      Math.min(held.scale, state.scale),
+    );
+    if (!postureIsCurrent(tabId, held)) {
+      throw new Error("Emulation posture was released");
+    }
+    if (fitted >= state.scale - 0.001) return state;
+    await writeMetricsScale(tabId, held, fitted);
+    return { ...state, scale: fitted };
   };
   const writePosture = async (
     tabId: number,
     held: HeldPosture,
     realUserAgent: string,
+    hint?: EmulationPhysicalViewportHint,
   ): Promise<EmulationState> => {
     if (!postureIsCurrent(tabId, held)) {
       throw new Error("Emulation posture was released");
     }
-    const scale = await fittedScaleFor(
-      tabId,
+    const ceiling = safeScaleCeiling(tabId, held);
+    const transitionViewport = await transitionPhysicalViewport(tabId, hint);
+    if (!transitionViewport) throw new PhysicalViewportUnavailableError();
+    const sampledScale = fitDeviceScale(held.mode, transitionViewport, ceiling);
+    if (!postureIsCurrent(tabId, held)) {
+      throw new Error("Emulation posture was released");
+    }
+    // One final browser-owned sample sits immediately before the first visible
+    // metrics mutation and may only reduce the already conservative transition
+    // fit. It cannot introduce the scale-1/oversize frame this fence prevents.
+    const finalViewport = await visibleTabViewport(tabId, hint);
+    if (!finalViewport) throw new PhysicalViewportUnavailableError();
+    const scale = fitDeviceScale(
       held.mode,
-      held.scale,
-      verifiedPostures.get(tabId)?.scale,
+      finalViewport,
+      Math.min(ceiling, sampledScale),
     );
     if (!postureIsCurrent(tabId, held)) {
       throw new Error("Emulation posture was released");
@@ -750,29 +889,24 @@ export function createRenderEmulationRuntime(input: Readonly<{
       scale,
       { realUserAgent, physicalSafetyScale: true },
     );
-    return state;
+    return await correctLatePhysicalShrink(tabId, held, state, hint);
   };
   const writeScaleOnlyRefit = async (
     tabId: number,
     held: HeldPosture,
     prior: VerifiedEmulationState,
     scale: number,
+    hint?: EmulationPhysicalViewportHint,
   ): Promise<VerifiedEmulationState> => {
     if (!postureIsCurrent(tabId, held)) {
       throw new Error("Emulation posture was released");
     }
     const preset = DEVICE_EMULATION_PRESETS[held.mode];
-    await sendEmulationCommand(tabId, "Emulation.setDeviceMetricsOverride", {
-      width: preset.width,
-      height: preset.height,
-      deviceScaleFactor: 1,
-      mobile: held.mode === "mobile",
-      scale,
-    });
+    await writeMetricsScale(tabId, held, scale);
     if (!postureIsCurrent(tabId, held)) {
       throw new Error("Emulation posture was released");
     }
-    const state: VerifiedEmulationState = {
+    let state: VerifiedEmulationState = {
       ...prior,
       mode: held.mode,
       width: preset.width,
@@ -781,6 +915,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       active: true,
       identityStale: false,
     };
+    state = await correctLatePhysicalShrink(tabId, held, state, hint);
     const realUserAgent = await realUserAgentFor(tabId);
     let failureReason: EmulationFailureReason | null = null;
     for (let frame = 0; frame < 3 && postureIsCurrent(tabId, held); frame += 1) {
@@ -788,9 +923,13 @@ export function createRenderEmulationRuntime(input: Readonly<{
         tabId,
         state,
         intendedUserAgentFor(held.mode, realUserAgent),
+        hint,
       );
       failureReason = proof.failureReason;
       if (failureReason === null) return state;
+      if (failureReason === "physical_fit_mismatch") {
+        state = await correctLatePhysicalShrink(tabId, held, state, hint);
+      }
       await waitForBrowserFrame(tabId).catch(() => undefined);
     }
     throw new Error(`Emulation refit proof failed: ${failureReason ?? "proof_unavailable"}`);
@@ -799,20 +938,41 @@ export function createRenderEmulationRuntime(input: Readonly<{
     tabId: number,
     held: HeldPosture,
     realUserAgent: string,
+    hint?: EmulationPhysicalViewportHint,
   ): Promise<Readonly<{
     state: EmulationState;
     measured: MeasuredEmulationPosture | null;
     failureReason: EmulationFailureReason | null;
   }>> => {
-    let state = await writePosture(tabId, held, realUserAgent);
+    let state = await writePosture(tabId, held, realUserAgent, hint);
     let exact = await proveCurrentPosture(
       tabId,
       state,
       intendedUserAgentFor(held.mode, realUserAgent),
+      hint,
     );
     let measured = exact.measured;
     let failureReason = exact.failureReason;
-    if (failureReason !== null && postureIsCurrent(tabId, held)) {
+    if (failureReason === "physical_fit_mismatch" && postureIsCurrent(tabId, held)) {
+      // Geometry movement is not loss of the complete emulation identity. Keep
+      // correction on the metrics-only path and never churn UA/touch/media.
+      for (let sample = 0; sample < 3 && failureReason === "physical_fit_mismatch"; sample += 1) {
+        state = await correctLatePhysicalShrink(tabId, held, state, hint);
+        exact = await proveCurrentPosture(
+          tabId,
+          state,
+          intendedUserAgentFor(held.mode, realUserAgent),
+          hint,
+        );
+        measured = exact.measured;
+        failureReason = exact.failureReason;
+      }
+    }
+    if (
+      failureReason !== null &&
+      failureReason !== "physical_fit_mismatch" &&
+      postureIsCurrent(tabId, held)
+    ) {
       // The renderer/compositor boundary can trail the CDP acknowledgement by a
       // frame. Re-write the complete serialized posture once, then give that
       // replacement write a bounded sequence of presentation opportunities
@@ -824,13 +984,14 @@ export function createRenderEmulationRuntime(input: Readonly<{
       // first exact proof, and treat a mismatch after four frames as evidence.
       await waitForBrowserFrame(tabId).catch(() => undefined);
       if (postureIsCurrent(tabId, held)) {
-        state = await writePosture(tabId, held, realUserAgent);
+        state = await writePosture(tabId, held, realUserAgent, hint);
         for (let frame = 0; frame < 4 && postureIsCurrent(tabId, held); frame += 1) {
           await waitForBrowserFrame(tabId).catch(() => undefined);
           exact = await proveCurrentPosture(
             tabId,
             state,
             intendedUserAgentFor(held.mode, realUserAgent),
+            hint,
           );
           measured = exact.measured;
           failureReason = exact.failureReason;
@@ -863,14 +1024,26 @@ export function createRenderEmulationRuntime(input: Readonly<{
         const realUserAgent = await realUserAgentFor(tabId);
         const proof = await writeAndProvePosture(tabId, restored, realUserAgent);
         if (proof.failureReason === null) {
-          verifiedPostures.set(tabId, {
+          const verified: VerifiedEmulationState = {
             ...proof.state,
             active: true,
             identityStale: false,
-          });
+          };
+          verifiedPostures.set(tabId, verified);
+          await rememberSafeFittedScale(tabId, restored, verified.scale);
           return;
         }
-      } catch {
+      } catch (error) {
+        if (
+          error instanceof PhysicalViewportUnavailableError &&
+          postureIsCurrent(tabId, restored)
+        ) {
+          // A transient missing rectangle is not permission to clear the prior
+          // held posture into a desktop flash. Retain and reinforce it once
+          // browser geometry becomes readable again.
+          scheduleReassertRetry(tabId, restored);
+          return;
+        }
         // Fall through to the neutral browser posture.
       }
     }
@@ -889,7 +1062,11 @@ export function createRenderEmulationRuntime(input: Readonly<{
   /** Puts a dropped posture back. Deliberately does not reload: the operator is
    *  looking at the page, and the identity for the current document was settled
    *  when it loaded — re-establishing the viewport is what is urgent here. */
-  const executeReassertPosture = async (tabId: number, held: HeldPosture): Promise<void> => {
+  const executeReassertPosture = async (
+    tabId: number,
+    held: HeldPosture,
+    hint?: EmulationPhysicalViewportHint,
+  ): Promise<void> => {
     if (!postureIsCurrent(tabId, held)) {
       return;
     }
@@ -898,15 +1075,17 @@ export function createRenderEmulationRuntime(input: Readonly<{
       if (!postureIsCurrent(tabId, held)) {
         return;
       }
-      const proof = await writeAndProvePosture(tabId, held, realUserAgent);
+      const proof = await writeAndProvePosture(tabId, held, realUserAgent, hint);
       if (proof.failureReason !== null) {
         throw new Error(`Emulation proof failed: ${proof.failureReason}`);
       }
-      verifiedPostures.set(tabId, {
+      const verified: VerifiedEmulationState = {
         ...proof.state,
         active: true,
         identityStale: false,
-      });
+      };
+      verifiedPostures.set(tabId, verified);
+      await rememberSafeFittedScale(tabId, held, verified.scale);
       cancelReassertRetry(tabId);
     } catch {
       // A live target can temporarily refuse attachment while Chrome is
@@ -942,50 +1121,112 @@ export function createRenderEmulationRuntime(input: Readonly<{
     tabId: number,
     held: HeldPosture,
     allowExpansion: boolean,
+    hint?: EmulationPhysicalViewportHint,
+    expectedExpansionScale?: number,
+    expectedGeometryGeneration?: number,
   ): Promise<VerifiedEmulationState | null> => {
     if (!postureIsCurrent(tabId, held)) return null;
     const attachmentCurrent = await debuggerAttachmentIsCurrent(tabId);
     if (!postureIsCurrent(tabId, held)) return null;
     const verified = verifiedPostures.get(tabId);
     if (!attachmentCurrent || !verified || verified.mode !== held.mode) {
-      await executeReassertPosture(tabId, held);
+      await executeReassertPosture(tabId, held, hint);
       return verifiedPostures.get(tabId) ?? null;
     }
-    const fittedScale = await fittedScaleFor(tabId, held.mode, held.scale, verified.scale);
+    const physicalViewport = await visibleTabViewport(tabId, hint);
+    if (!physicalViewport) {
+      scheduleReassertRetry(tabId, held);
+      return {
+        ...verified,
+        active: false,
+        failureReason: "physical_fit_mismatch",
+      };
+    }
+    const fittedScale = fitDeviceScale(held.mode, physicalViewport, held.scale);
     if (!postureIsCurrent(tabId, held)) return null;
     const delta = fittedScale - verified.scale;
-    if (Math.abs(delta) <= 0.001) return verified;
-    if (delta > 0 && !allowExpansion) {
+    if (
+      Math.abs(delta) <= 0.001 &&
+      physicalViewportFits(verified, physicalViewport)
+    ) {
+      const priorTimer = refitTimers.get(tabId);
+      if (priorTimer !== undefined) clearTimeout(priorTimer);
+      refitTimers.delete(tabId);
+      cancelReassertRetry(tabId);
+      return verified;
+    }
+    const geometryGeneration = geometryGenerations.get(tabId) ?? 0;
+    const expansionIsConfirmed =
+      allowExpansion &&
+      expectedGeometryGeneration === geometryGeneration &&
+      expectedExpansionScale !== undefined &&
+      Math.abs(expectedExpansionScale - fittedScale) <= 0.001;
+    if (delta > 0 && !expansionIsConfirmed) {
       const priorTimer = refitTimers.get(tabId);
       if (priorTimer !== undefined) clearTimeout(priorTimer);
       const timer = setTimeout(() => {
         refitTimers.delete(tabId);
-        if (postureIsCurrent(tabId, held)) {
-          void queueRefit(tabId, true);
+        if (
+          postureIsCurrent(tabId, held) &&
+          (geometryGenerations.get(tabId) ?? 0) === geometryGeneration
+        ) {
+          void queueRefit(tabId, {
+            allowExpansion: true,
+            expectedExpansionScale: fittedScale,
+            expectedGeometryGeneration: geometryGeneration,
+            hint,
+          });
         }
       }, REFIT_SETTLE_MS);
       refitTimers.set(tabId, timer);
+      cancelReassertRetry(tabId);
       return verified;
     }
     const timer = refitTimers.get(tabId);
     if (timer !== undefined) clearTimeout(timer);
     refitTimers.delete(tabId);
+    if (
+      delta > 0 &&
+      expectedGeometryGeneration !== (geometryGenerations.get(tabId) ?? 0)
+    ) {
+      cancelReassertRetry(tabId);
+      return verified;
+    }
     try {
-      const refitted = await writeScaleOnlyRefit(tabId, held, verified, fittedScale);
+      const refitted = await writeScaleOnlyRefit(tabId, held, verified, fittedScale, hint);
       if (!postureIsCurrent(tabId, held)) return null;
       verifiedPostures.set(tabId, refitted);
+      await rememberSafeFittedScale(tabId, held, refitted.scale);
+      cancelReassertRetry(tabId);
       return refitted;
-    } catch {
+    } catch (error) {
       if (postureIsCurrent(tabId, held)) {
+        if (error instanceof Error && /physical_fit_mismatch/i.test(error.message)) {
+          // The complete identity posture remains valid; a newer physical
+          // rectangle merely owes another immediate scale-only pass.
+          void queueRefit(tabId, { hint });
+          return {
+            ...verified,
+            active: false,
+            failureReason: "physical_fit_mismatch",
+          };
+        }
         verifiedPostures.delete(tabId);
         scheduleReassertRetry(tabId, held);
       }
       return null;
     }
   };
-  const queueRefit = async (tabId: number, allowExpansion = false): Promise<void> => {
+  type RefitRequest = Readonly<{
+    allowExpansion?: boolean;
+    expectedExpansionScale?: number;
+    expectedGeometryGeneration?: number;
+    hint?: EmulationPhysicalViewportHint;
+  }>;
+  const queueRefit = async (tabId: number, request: RefitRequest = {}): Promise<void> => {
     if (refitQueued.has(tabId)) {
       refitTrailing.add(tabId);
+      if (request.hint) refitHints.set(tabId, request.hint);
       return;
     }
     refitQueued.add(tabId);
@@ -993,13 +1234,32 @@ export function createRenderEmulationRuntime(input: Readonly<{
       const held = await hydratePosture(tabId);
       if (!held) return;
       await withEmulationOperation(tabId, () =>
-        executeRefitPosture(tabId, held, allowExpansion));
+        executeRefitPosture(
+          tabId,
+          held,
+          request.allowExpansion === true,
+          request.hint,
+          request.expectedExpansionScale,
+          request.expectedGeometryGeneration,
+        ));
     } finally {
       refitQueued.delete(tabId);
       if (refitTrailing.delete(tabId)) {
-        void queueRefit(tabId, false);
+        const hint = refitHints.get(tabId);
+        refitHints.delete(tabId);
+        void queueRefit(tabId, { hint });
+      } else {
+        refitHints.delete(tabId);
       }
     }
+  };
+  const requestRefit = async (
+    tabId: number,
+    hint?: EmulationPhysicalViewportHint,
+  ): Promise<void> => {
+    invalidateGeometry(tabId);
+    if (hint) refitHints.set(tabId, hint);
+    await queueRefit(tabId, { hint });
   };
   input.tabs?.onUpdated?.addListener((tabId, changeInfo) => {
     if (changeInfo.status !== "loading") {
@@ -1007,6 +1267,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
     }
     void hydratePosture(tabId).then((held) => {
       if (!held) return;
+      invalidateGeometry(tabId);
       verifiedPostures.delete(tabId);
       void reassertPosture(tabId, held);
     });
@@ -1029,7 +1290,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       }
       // The page layout remains the same simulated device. Refit only the
       // compositor view scale; a resize must not churn identity/input posture.
-      void queueRefit(tabId);
+      void requestRefit(tabId);
     }
   });
   if (input.postureRepo) {
@@ -1053,13 +1314,14 @@ export function createRenderEmulationRuntime(input: Readonly<{
     heldMode(tabId: number): EmulationMode | null {
       return heldPostures.get(tabId)?.mode ?? null;
     },
-    async refit(tabId: number): Promise<void> {
-      await queueRefit(tabId);
+    async refit(tabId: number, hint?: EmulationPhysicalViewportHint): Promise<void> {
+      await requestRefit(tabId, hint);
     },
     async current(
       tabId: number,
       mode: EmulationMode,
       maximumScale: number,
+      hint?: EmulationPhysicalViewportHint,
     ): Promise<VerifiedEmulationState | null> {
       await hydratePosture(tabId);
       return withEmulationOperation(tabId, async () => {
@@ -1069,15 +1331,27 @@ export function createRenderEmulationRuntime(input: Readonly<{
           return null;
         }
         if (!await debuggerAttachmentIsCurrent(tabId)) {
-          return executeReassertPosture(tabId, held).then(() =>
+          return executeReassertPosture(tabId, held, hint).then(() =>
             verifiedPostures.get(tabId) ?? null);
         }
-        const fittedScale = await fittedScaleFor(tabId, mode, maximumScale, verified.scale);
-        if (Math.abs(fittedScale - verified.scale) > 0.001) {
+        const physicalViewport = await visibleTabViewport(tabId, hint);
+        if (!physicalViewport) {
+          scheduleReassertRetry(tabId, held);
+          return {
+            ...verified,
+            active: false,
+            failureReason: "physical_fit_mismatch",
+          };
+        }
+        const fittedScale = fitDeviceScale(mode, physicalViewport, maximumScale);
+        if (
+          Math.abs(fittedScale - verified.scale) > 0.001 ||
+          !physicalViewportFits(verified, physicalViewport)
+        ) {
           // Verification may discover that physical geometry changed, but it
           // must not bypass the resize contract. Safety shrink remains
           // immediate; growth is scheduled after the stable trailing edge.
-          return executeRefitPosture(tabId, held, false);
+          return executeRefitPosture(tabId, held, false, hint);
         }
         // `verifiedPostures` is populated only after a complete proof and is
         // invalidated synchronously on navigation, browser-owned detach,
@@ -1089,6 +1363,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
           verifiedPostures.delete(tabId);
           return null;
         }
+        cancelReassertRetry(tabId);
         return verified;
       });
     },
@@ -1097,6 +1372,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       mode: EmulationMode,
       scale: number,
       allowReload = false,
+      hint?: EmulationPhysicalViewportHint,
     ): Promise<VerifiedEmulationState> {
       await hydratePosture(tabId);
       return withEmulationOperation(tabId, async () => {
@@ -1117,7 +1393,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
           // generic mobile fallback.
           await persistPosture(tabId, held);
           const realUserAgent = await realUserAgentFor(tabId);
-          const proof = await writeAndProvePosture(tabId, held, realUserAgent);
+          const proof = await writeAndProvePosture(tabId, held, realUserAgent, hint);
           if (!postureIsCurrent(tabId, held)) {
             throw new Error("Emulation posture was released");
           }
@@ -1128,11 +1404,30 @@ export function createRenderEmulationRuntime(input: Readonly<{
               identityStale: false,
             };
             verifiedPostures.set(tabId, verified);
+            await rememberSafeFittedScale(tabId, held, verified.scale);
             return verified;
+          }
+          if (proof.failureReason === "physical_fit_mismatch") {
+            // A moving browser rectangle does not authorize restoring the prior
+            // mode (which would create the very flash this runtime prevents).
+            // Retain the desired posture and retry it at the last conservative
+            // scale; active remains false until a later exact physical proof.
+            scheduleReassertRetry(tabId, held);
+            return {
+              ...proof.state,
+              active: false,
+              identityStale: false,
+              failureReason: proof.failureReason,
+            };
           }
           const identityStale = proof.failureReason === "identity_mismatch";
           if (identityStale && allowReload && input.tabs) {
             try {
+              // Every non-identity posture field, including physical fit, was
+              // exact. Persist that safe compositor scale before navigation so
+              // the replacement document cannot reappear larger while its
+              // identity proof is being established.
+              await rememberSafeFittedScale(tabId, held, proof.state.scale);
               await invokeBrowserApi<void>(
                 () => input.tabs?.reload(tabId, {}),
                 (callback) => input.tabs?.reload(tabId, {}, callback),
@@ -1160,6 +1455,25 @@ export function createRenderEmulationRuntime(input: Readonly<{
             failureReason: proof.failureReason,
           };
         } catch (error) {
+          if (
+            error instanceof PhysicalViewportUnavailableError &&
+            postureIsCurrent(tabId, held)
+          ) {
+            // No metrics write was allowed without two transition samples plus
+            // the final pre-write sample. Keep the desired posture durable and
+            // retry; never clear or acknowledge a geometry assumption.
+            scheduleReassertRetry(tabId, held);
+            const preset = DEVICE_EMULATION_PRESETS[held.mode];
+            return {
+              mode: held.mode,
+              width: preset.width,
+              height: preset.height,
+              scale: fitDeviceScale(held.mode, null, safeScaleCeiling(tabId, held)),
+              active: false,
+              identityStale: false,
+              failureReason: "physical_fit_mismatch",
+            };
+          }
           if (postureIsCurrent(tabId, held)) {
             try {
               await restorePriorPosture(tabId, held, priorHeld);

@@ -143,6 +143,40 @@ describe("corrective messaging application contracts", () => {
     expect(save.request.safeParse({ aiEndpoint: "not-a-url" }).success).toBe(false);
   });
 
+  it("carries only a strict conservative physical-height hint on internal emulation commands", () => {
+    const apply = applicationContract.commands["emulation.apply"].request;
+    const current = applicationContract.commands["emulation.current"].request;
+    const refit = applicationContract.commands["emulation.refit"].request;
+    const physicalViewportHint = { height: 705 };
+
+    expect(apply.parse({
+      tabId: 7,
+      mode: "mobile",
+      scale: 1,
+      physicalViewportHint,
+    })).toMatchObject({ physicalViewportHint });
+    expect(current.parse({
+      tabId: 7,
+      mode: "desktop",
+      scale: 1,
+      physicalViewportHint,
+    })).toMatchObject({ physicalViewportHint });
+    expect(refit.parse({ tabId: 7, physicalViewportHint })).toEqual({
+      tabId: 7,
+      physicalViewportHint,
+    });
+    expect(apply.safeParse({
+      tabId: 7,
+      mode: "mobile",
+      scale: 1,
+      physicalViewportHint: { height: 705, width: 850 },
+    }).success).toBe(false);
+    expect(refit.safeParse({
+      tabId: 7,
+      physicalViewportHint: { height: 0 },
+    }).success).toBe(false);
+  });
+
   it("keeps the JWT off the settings commands entirely", () => {
     // The token is owned by the login flow. A settings write that could carry
     // one could also drop one, so the field must not exist on this surface.

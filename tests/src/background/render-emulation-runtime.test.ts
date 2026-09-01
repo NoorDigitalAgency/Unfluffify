@@ -11,6 +11,7 @@ const REAL_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like
 function fakeDebugger(options: Readonly<{
   keepDocumentIdentityStale?: boolean;
   mobileInnerViewportOffset?: Readonly<{ width: number; height: number }>;
+  onMetricsCommand?: (params: Record<string, unknown> | undefined) => void;
 }> = {}) {
   const sent: Array<{ method: string; params?: Record<string, unknown> }> = [];
   const attaches: number[] = [];
@@ -133,6 +134,7 @@ function fakeDebugger(options: Readonly<{
           return;
         }
         if (method === "Emulation.setDeviceMetricsOverride") {
+          options.onMetricsCommand?.(params);
           width = Number(params?.width ?? width);
           height = Number(params?.height ?? height);
           devicePixelRatio = Number(params?.deviceScaleFactor ?? devicePixelRatio);
@@ -209,6 +211,29 @@ async function flush(): Promise<void> {
   }
 }
 
+type TestPhysicalViewport = {
+  width: number;
+  height: number;
+  windowId: number;
+};
+
+function tabsWithViewport(
+  viewport: TestPhysicalViewport = { width: 1_920, height: 1_080, windowId: 4 },
+) {
+  return {
+    get: vi.fn((
+      _tabId: number,
+      callback?: (tab: TestPhysicalViewport) => void,
+    ) => callback?.(viewport)),
+    reload: vi.fn((
+      _tabId: number,
+      _options?: Record<string, unknown>,
+      callback?: () => void,
+    ) => callback?.()),
+    sendMessage: vi.fn(),
+  };
+}
+
 describe("render emulation runtime", () => {
   it("fits the entire mobile and desktop screens to the visible tab viewport", async () => {
     const debuggerApi = fakeDebugger();
@@ -251,6 +276,121 @@ describe("render emulation runtime", () => {
     expect(mobile.height * mobile.scale).toBeLessThanOrEqual(viewport.height);
   });
 
+  it("fails closed before the first metrics write when physical geometry is unavailable", async () => {
+    const debuggerApi = fakeDebugger();
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: {
+        reload: vi.fn((_tabId, _options, callback) => callback?.()),
+        sendMessage: vi.fn(),
+      },
+    });
+
+    await expect(runtime.apply(7, "mobile", 1)).resolves.toMatchObject({
+      mode: "mobile",
+      active: false,
+      failureReason: "physical_fit_mismatch",
+    });
+    expect(debuggerApi.sent.some((call) =>
+      call.method === "Emulation.setDeviceMetricsOverride"
+    )).toBe(false);
+
+    await runtime.clear(7);
+  });
+
+  it("requires both transition samples before allowing the first metrics write", async () => {
+    const debuggerApi = fakeDebugger();
+    let viewportReads = 0;
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: {
+        get: vi.fn((_tabId: number, callback?: (tab: TestPhysicalViewport) => void) => {
+          viewportReads += 1;
+          callback?.(viewportReads === 2
+            ? { width: 0, height: 0, windowId: 4 }
+            : { width: 900, height: 720, windowId: 4 });
+        }),
+        reload: vi.fn((_tabId, _options, callback) => callback?.()),
+        sendMessage: vi.fn(),
+      },
+    });
+
+    await expect(runtime.apply(7, "mobile", 1)).resolves.toMatchObject({
+      active: false,
+      failureReason: "physical_fit_mismatch",
+    });
+    expect(viewportReads).toBe(2);
+    expect(debuggerApi.sent.some((call) =>
+      call.method === "Emulation.setDeviceMetricsOverride"
+    )).toBe(false);
+
+    await runtime.clear(7);
+  });
+
+  it("does not reuse an active cache when the physical viewport becomes unreadable", async () => {
+    const debuggerApi = fakeDebugger();
+    let readable = true;
+    const viewport = { width: 900, height: 720, windowId: 4 };
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: {
+        get: vi.fn((_tabId: number, callback?: (tab: TestPhysicalViewport) => void) => {
+          callback?.(readable ? viewport : { width: 0, height: 0, windowId: 4 });
+        }),
+        reload: vi.fn((_tabId, _options, callback) => callback?.()),
+        sendMessage: vi.fn(),
+      },
+    });
+
+    await expect(runtime.apply(7, "mobile", 1)).resolves.toMatchObject({ active: true });
+    readable = false;
+    await expect(runtime.current(7, "mobile", 1)).resolves.toMatchObject({
+      active: false,
+      failureReason: "physical_fit_mismatch",
+    });
+    readable = true;
+    await expect(runtime.current(7, "mobile", 1)).resolves.toMatchObject({ active: true });
+  });
+
+  it("never returns the stale active posture when geometry disappears during a shrink refit", async () => {
+    let readable = true;
+    let destabilizeOnMetrics = false;
+    const viewport = { width: 900, height: 720, windowId: 4 };
+    const debuggerApi = fakeDebugger({
+      onMetricsCommand() {
+        if (destabilizeOnMetrics) readable = false;
+      },
+    });
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: {
+        get: vi.fn((_tabId: number, callback?: (tab: TestPhysicalViewport) => void) => {
+          callback?.(readable ? viewport : { width: 0, height: 0, windowId: 4 });
+        }),
+        reload: vi.fn((_tabId, _options, callback) => callback?.()),
+        sendMessage: vi.fn(),
+      },
+    });
+
+    await expect(runtime.apply(7, "mobile", 1)).resolves.toMatchObject({
+      active: true,
+      scale: 0.75,
+    });
+    viewport.height = 480;
+    destabilizeOnMetrics = true;
+    await expect(runtime.current(7, "mobile", 1)).resolves.toMatchObject({
+      active: false,
+      failureReason: "physical_fit_mismatch",
+    });
+
+    destabilizeOnMetrics = false;
+    readable = true;
+    await expect(runtime.current(7, "mobile", 1)).resolves.toMatchObject({
+      active: true,
+      scale: 0.5,
+    });
+  });
+
   it("recomputes before acknowledgement when the physical tab shrinks during a transition", async () => {
     const debuggerApi = fakeDebugger();
     let viewportReads = 0;
@@ -272,8 +412,68 @@ describe("render emulation runtime", () => {
     expect(mobile.scale).toBeCloseTo(0.125);
     expect(mobile.width * mobile.scale).toBeLessThanOrEqual(small.width);
     expect(mobile.height * mobile.scale).toBeLessThanOrEqual(small.height);
+    // The second pre-write sample sees the smaller rectangle, so the unsafe
+    // large metrics frame is never emitted and no corrective second write is
+    // needed.
     expect(debuggerApi.sent.filter((call) => call.method === "Emulation.setDeviceMetricsOverride"))
-      .toHaveLength(2);
+      .toHaveLength(1);
+    expect(debuggerApi.sent.find((call) => call.method === "Emulation.setDeviceMetricsOverride")?.params)
+      .toMatchObject({ scale: 0.125 });
+  });
+
+  it("intersects the popup's non-emulated visible height with tabs.get before the first metrics write", async () => {
+    const debuggerApi = fakeDebugger();
+    const viewport = { width: 900, height: 800, windowId: 4 };
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: {
+        get: vi.fn((_tabId: number, callback?: (tab: typeof viewport) => void) => callback?.(viewport)),
+        reload: vi.fn((_tabId, _options, callback) => callback?.()),
+        sendMessage: vi.fn(),
+      },
+    });
+
+    const mobile = await runtime.apply(7, "mobile", 1, false, { height: 420 });
+
+    expect(mobile).toMatchObject({ mode: "mobile", width: 412, height: 960, active: true });
+    expect(mobile.scale).toBeCloseTo(420 / 960);
+    expect(debuggerApi.sent.filter((call) => call.method === "Emulation.setDeviceMetricsOverride"))
+      .toEqual([expect.objectContaining({
+        params: expect.objectContaining({ scale: 420 / 960 }),
+      })]);
+  });
+
+  it("corrects a physical shrink that lands after the first metrics acknowledgement before returning active", async () => {
+    const viewport = { width: 900, height: 720, windowId: 4 };
+    let metricsWrites = 0;
+    const debuggerApi = fakeDebugger({
+      onMetricsCommand() {
+        metricsWrites += 1;
+        if (metricsWrites === 1) viewport.height = 480;
+      },
+    });
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: {
+        get: vi.fn((_tabId: number, callback?: (tab: typeof viewport) => void) => callback?.(viewport)),
+        reload: vi.fn((_tabId, _options, callback) => callback?.()),
+        sendMessage: vi.fn(),
+      },
+    });
+
+    const mobile = await runtime.apply(7, "mobile", 1);
+    const metrics = debuggerApi.sent.filter((call) => call.method === "Emulation.setDeviceMetricsOverride");
+
+    expect(mobile).toMatchObject({ mode: "mobile", scale: 0.5, active: true });
+    expect(metrics).toHaveLength(2);
+    expect(metrics[0]?.params?.scale).toBeCloseTo(720 / 960);
+    expect(metrics[1]?.params).toMatchObject({
+      width: 412,
+      height: 960,
+      mobile: true,
+      scale: 0.5,
+    });
+    expect(mobile.height * mobile.scale).toBeLessThanOrEqual(viewport.height);
   });
 
   it("hydrates and reasserts the exact durable desktop posture after a cold worker restart", async () => {
@@ -291,7 +491,21 @@ describe("render emulation runtime", () => {
       tabs,
       postureRepo: repo,
     });
-    await first.apply(7, "desktop", 1);
+    const firstState = await first.apply(7, "desktop", 1);
+    await expect(repo.load(7)).resolves.toMatchObject({
+      ok: true,
+      value: {
+        mode: "desktop",
+        maximumScale: 1,
+        fittedScale: firstState.scale,
+      },
+    });
+
+    // A cold worker must reinforce the last proven compositor fit first. It may
+    // grow only through the later stable refit path, even if the current window
+    // is now larger.
+    viewport.width = 1_800;
+    viewport.height = 1_000;
 
     const coldDebugger = fakeDebugger();
     const cold = createRenderEmulationRuntime({
@@ -304,7 +518,12 @@ describe("render emulation runtime", () => {
 
     expect(cold.heldMode(7)).toBe("desktop");
     expect(coldDebugger.sent.find((call) => call.method === "Emulation.setDeviceMetricsOverride")?.params)
-      .toMatchObject({ width: 1920, height: 1080, mobile: false });
+      .toMatchObject({
+        width: 1920,
+        height: 1080,
+        mobile: false,
+        scale: firstState.scale,
+      });
     expect(coldDebugger.sent.some((call) => call.params?.mobile === true)).toBe(false);
   });
 
@@ -426,7 +645,11 @@ describe("render emulation runtime", () => {
       expect(debuggerApi.sent.some((call) => call.method === "Emulation.setDeviceMetricsOverride"))
         .toBe(false);
 
-      await vi.advanceTimersByTimeAsync(120);
+      await vi.advanceTimersByTimeAsync(239);
+      await flush();
+      expect(debuggerApi.sent).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(1);
       await flush();
       const emulationCalls = debuggerApi.sent.filter((call) => call.method.startsWith("Emulation."));
       expect(emulationCalls).toHaveLength(1);
@@ -434,6 +657,54 @@ describe("render emulation runtime", () => {
         method: "Emulation.setDeviceMetricsOverride",
         params: { width: 412, height: 960, mobile: true, scale: 700 / 960 },
       });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("invalidates a pending expansion when a newer physical generation arrives", async () => {
+    vi.useFakeTimers();
+    try {
+      const debuggerApi = fakeDebugger();
+      const viewport = { width: 900, height: 480, windowId: 4 };
+      let boundsChanged: ((window: { id?: number }) => void) | undefined;
+      const runtime = createRenderEmulationRuntime({
+        debuggerApi: debuggerApi.api,
+        tabs: {
+          get: vi.fn((_tabId: number, callback?: (tab: typeof viewport) => void) => callback?.(viewport)),
+          reload: vi.fn((_tabId, _options, callback) => callback?.()),
+          sendMessage: vi.fn(),
+        },
+        windows: {
+          onBoundsChanged: { addListener(listener) { boundsChanged = listener; } },
+        },
+      });
+      await runtime.apply(7, "mobile", 1);
+      debuggerApi.sent.length = 0;
+
+      viewport.height = 700;
+      boundsChanged?.({ id: 4 });
+      await flush();
+      await vi.advanceTimersByTimeAsync(200);
+
+      viewport.height = 600;
+      boundsChanged?.({ id: 4 });
+      await flush();
+      await vi.advanceTimersByTimeAsync(40);
+      await flush();
+      expect(debuggerApi.sent).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(199);
+      await flush();
+      expect(debuggerApi.sent).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await flush();
+      expect(debuggerApi.sent.filter((call) => call.method.startsWith("Emulation.")))
+        .toEqual([expect.objectContaining({
+          method: "Emulation.setDeviceMetricsOverride",
+          params: expect.objectContaining({ scale: 600 / 960 }),
+        })]);
     } finally {
       vi.useRealTimers();
     }
@@ -476,7 +747,7 @@ describe("render emulation runtime", () => {
       });
       expect(debuggerApi.sent).toEqual([]);
 
-      await vi.advanceTimersByTimeAsync(119);
+      await vi.advanceTimersByTimeAsync(239);
       await flush();
       expect(debuggerApi.sent).toEqual([]);
 
@@ -522,11 +793,40 @@ describe("render emulation runtime", () => {
       .toBeGreaterThanOrEqual(2);
   });
 
+  it("reasserts a canceled debugger at the last proven safe scale instead of opportunistically growing", async () => {
+    const debuggerApi = fakeDebugger();
+    const viewport = { width: 900, height: 480, windowId: 4 };
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: {
+        get: vi.fn((_tabId: number, callback?: (tab: typeof viewport) => void) => callback?.(viewport)),
+        reload: vi.fn((_tabId, _options, callback) => callback?.()),
+        sendMessage: vi.fn(),
+      },
+    });
+    await expect(runtime.apply(7, "mobile", 1)).resolves.toMatchObject({ scale: 0.5 });
+    debuggerApi.sent.length = 0;
+
+    viewport.height = 720;
+    debuggerApi.detach(7, "canceled_by_user");
+    await flush();
+
+    const metrics = debuggerApi.sent.filter((call) => call.method === "Emulation.setDeviceMetricsOverride");
+    expect(metrics).toHaveLength(1);
+    expect(metrics[0]?.params).toMatchObject({
+      width: 412,
+      height: 960,
+      mobile: true,
+      scale: 0.5,
+    });
+    expect(debuggerApi.sent.some((call) => call.params?.mobile === false)).toBe(false);
+  });
+
   it("reasserts rather than forgetting a held posture when DevTools replaces the debugger", async () => {
     const debuggerApi = fakeDebugger();
     const runtime = createRenderEmulationRuntime({
       debuggerApi: debuggerApi.api,
-      tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+      tabs: tabsWithViewport(),
     });
     await runtime.apply(7, "desktop", 1);
     debuggerApi.sent.length = 0;
@@ -545,7 +845,7 @@ describe("render emulation runtime", () => {
       const debuggerApi = fakeDebugger();
       const runtime = createRenderEmulationRuntime({
         debuggerApi: debuggerApi.api,
-        tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+        tabs: tabsWithViewport(),
       });
       await runtime.apply(7, "desktop", 1);
       debuggerApi.sent.length = 0;
@@ -579,7 +879,7 @@ describe("render emulation runtime", () => {
     const debuggerApi = fakeDebugger();
     const runtime = createRenderEmulationRuntime({
       debuggerApi: debuggerApi.api,
-      tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+      tabs: tabsWithViewport(),
     });
 
     await runtime.apply(7, "desktop", 1);
@@ -596,7 +896,7 @@ describe("render emulation runtime", () => {
     debuggerApi.mismatchNextProofs(1);
     const runtime = createRenderEmulationRuntime({
       debuggerApi: debuggerApi.api,
-      tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+      tabs: tabsWithViewport(),
     });
 
     await expect(runtime.apply(7, "mobile", 1, false)).resolves.toMatchObject({
@@ -620,7 +920,7 @@ describe("render emulation runtime", () => {
     });
     const runtime = createRenderEmulationRuntime({
       debuggerApi: debuggerApi.api,
-      tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+      tabs: tabsWithViewport(),
     });
 
     await expect(runtime.apply(7, "mobile", 1, false)).resolves.toMatchObject({
@@ -639,7 +939,7 @@ describe("render emulation runtime", () => {
     debuggerApi.mismatchNextProofs(3);
     const runtime = createRenderEmulationRuntime({
       debuggerApi: debuggerApi.api,
-      tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+      tabs: tabsWithViewport(),
     });
 
     await expect(runtime.apply(7, "mobile", 1, false)).resolves.toMatchObject({
@@ -661,7 +961,7 @@ describe("render emulation runtime", () => {
     const debuggerApi = fakeDebugger();
     const runtime = createRenderEmulationRuntime({
       debuggerApi: debuggerApi.api,
-      tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+      tabs: tabsWithViewport(),
     });
     await runtime.apply(7, "mobile", 1, false);
     debuggerApi.mismatchNextProofs(5);
@@ -681,7 +981,7 @@ describe("render emulation runtime", () => {
     const repo = createEmulationPostureRepo(createMemoryStore());
     const runtime = createRenderEmulationRuntime({
       debuggerApi: debuggerApi.api,
-      tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+      tabs: tabsWithViewport(),
       postureRepo: repo,
     });
     await runtime.apply(7, "desktop", 1, false);
@@ -706,7 +1006,7 @@ describe("render emulation runtime", () => {
     const debuggerApi = fakeDebugger();
     const runtime = createRenderEmulationRuntime({
       debuggerApi: debuggerApi.api,
-      tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+      tabs: tabsWithViewport(),
     });
 
     await runtime.apply(7, "mobile", 1);
@@ -722,7 +1022,7 @@ describe("render emulation runtime", () => {
     const debuggerApi = fakeDebugger();
     const runtime = createRenderEmulationRuntime({
       debuggerApi: debuggerApi.api,
-      tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+      tabs: tabsWithViewport(),
     });
 
     await runtime.apply(7, "mobile", 1);
@@ -740,7 +1040,7 @@ describe("render emulation runtime", () => {
     const debuggerApi = fakeDebugger();
     const runtime = createRenderEmulationRuntime({
       debuggerApi: debuggerApi.api,
-      tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+      tabs: tabsWithViewport(),
     });
     await runtime.apply(7, "mobile", 1);
 
@@ -767,11 +1067,11 @@ describe("render emulation runtime", () => {
   it("re-asserts the complete Googlebot posture when navigation begins", async () => {
     const debuggerApi = fakeDebugger();
     let onUpdated: ((tabId: number, changeInfo: { status?: string }) => void) | undefined;
+    const tabs = tabsWithViewport();
     const runtime = createRenderEmulationRuntime({
       debuggerApi: debuggerApi.api,
       tabs: {
-        reload: vi.fn((_t, _o, cb) => cb?.()),
-        sendMessage: vi.fn(),
+        ...tabs,
         onUpdated: { addListener(listener) { onUpdated = listener; } },
       },
     });
@@ -808,7 +1108,7 @@ describe("render emulation runtime", () => {
     // next load. The reload is what makes it real — and it is the popup's call,
     // because only it knows whether a marking session would lose work.
     const stale = fakeDebugger({ keepDocumentIdentityStale: true });
-    const staleTabs = { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() };
+    const staleTabs = tabsWithViewport();
     const runtime = createRenderEmulationRuntime({ debuggerApi: stale.api, tabs: staleTabs });
 
     // The fake always answers the real desktop UA, so a mobile posture is stale.
@@ -854,7 +1154,7 @@ describe("render emulation runtime", () => {
       const debuggerApi = fakeDebugger();
       const runtime = createRenderEmulationRuntime({
         debuggerApi: debuggerApi.api,
-        tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+        tabs: tabsWithViewport(),
         apiTimeoutMs: 50,
       });
       const deferred = debuggerApi.deferNextCommand("Emulation.setDeviceMetricsOverride");
@@ -882,7 +1182,7 @@ describe("render emulation runtime", () => {
     const debuggerApi = fakeDebugger();
     const runtime = createRenderEmulationRuntime({
       debuggerApi: debuggerApi.api,
-      tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+      tabs: tabsWithViewport(),
       apiTimeoutMs: 50,
     });
     await runtime.apply(7, "mobile", 1, false);
@@ -912,7 +1212,7 @@ describe("render emulation runtime", () => {
       const debuggerApi = fakeDebugger();
       const runtime = createRenderEmulationRuntime({
         debuggerApi: debuggerApi.api,
-        tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+        tabs: tabsWithViewport(),
         apiTimeoutMs: 50,
       });
       const deferred = debuggerApi.deferNextCommand("Emulation.setTouchEmulationEnabled");
@@ -1003,7 +1303,17 @@ describe("render emulation runtime", () => {
     });
     const runtime = createRenderEmulationRuntime({
       debuggerApi,
-      tabs: { reload, sendMessage: vi.fn() },
+      tabs: {
+        get: vi.fn(async (
+          _tabId: number,
+          callback?: (tab: TestPhysicalViewport) => void,
+        ) => {
+          expect(callback).toBeUndefined();
+          return { width: 1_920, height: 1_080, windowId: 4 };
+        }),
+        reload,
+        sendMessage: vi.fn(),
+      },
       apiMode: "promise",
     });
 

@@ -3917,3 +3917,176 @@ attempted during this audit or authorized by R21.
 6. `el02-r21-headed-acne` -> 5
 7. `el02-r21-candidate-matrix` -> 6
 8. `el02-r21-conformance` -> 7
+
+# EL-02-R22 — Make debugger emulation physically safe on every frame
+
+## 1. Entering expert-check finding — `EL-02-F028`
+
+The operator reports that mobile simulation can flicker, temporarily change
+size, and sometimes leave the lower part of the 412×960 device outside the
+visible browser viewport. This reopens physical-emulation parity even though
+R19 and R20 passed their narrower automated and headed checks.
+
+Fresh read-only Acne evidence on synchronized version `2.0.0.731` shows the
+settled state is exact: the target tab is 850×705, the emulated layout is
+412×960, and background authority reports scale `0.734375`. The implementation
+nevertheless contains a frame-level race that can violate that settled result:
+
+1. A full apply/reassert derives scale from one `tabs.get()` sample and writes
+   device metrics before it knows whether side-panel/browser geometry changed
+   between measurement and acknowledgement.
+2. Physical-fit proof happens after the write. A mismatch can therefore expose
+   an oversized frame before the second corrective write.
+3. `chrome.debugger.onDetach` discards the verified posture, including its
+   fitted scale. Reassertion retains the desired mode but recalculates from an
+   unconfirmed sample, so cancel/replacement recovery can return at a larger,
+   temporarily clipped scale.
+4. Scale growth waits 120 ms but is not fenced to an unchanged physical-geometry
+   sample. A transient larger measurement can still become the trailing writer.
+5. The popup owns an independent, non-emulated side-panel height measurement,
+   but does not provide it to background fitting. The prior headed proof relied
+   on `captureVisibleTab`; that proves Chrome produced the complete emulated
+   device buffer, not that every buffer pixel was physically displayed inside
+   the headed browser window.
+
+The rewrite already uses Chrome Debugger as the sole emulation mechanism and
+retains/reasserts the exact held mobile or desktop mode. This round preserves
+that architecture and fixes the missing physical-safety authority rather than
+adding a CSS transform or page-owned workaround.
+
+No AI request, Save, takeover, Lynx publication, release, or deployment is
+authorized by R22 or its browser acceptance.
+
+## 2. Root contract
+
+1. Chrome Debugger remains the only mobile/desktop simulation authority.
+   Mobile is exactly 412×960; desktop is exactly 1920×1080. Page scale, DPR,
+   touch, pointer/media, and crawler identity remain part of the same proven
+   posture.
+2. The whole simulated screen must fit inside the user's current visible target
+   tab on every acknowledged frame. Both inequalities are mandatory:
+   `deviceWidth × fittedScale <= visibleWidth` and
+   `deviceHeight × fittedScale <= visibleHeight`.
+3. A popup/side-panel request supplies its contemporaneous non-emulated visible
+   height as a conservative typed hint. Background intersects that hint with
+   `tabs.get()` rather than replacing browser authority. A supplied hint may
+   make the device smaller, never larger; a missing hint falls back to the real
+   tab rectangle and cannot invent a larger physical viewport.
+4. Each held posture durably retains its last proven fitted scale separately
+   from the requested maximum. Full same-mode reassertion, navigation recovery,
+   cold-worker hydration, and debugger detach/cancel start at that safe scale or
+   smaller. They may not opportunistically grow it.
+5. A first transition without a prior safe scale takes two bounded physical
+   samples and uses the component-wise smaller rectangle plus any popup hint.
+   A final pre-write sample may shrink the result. No initial metrics command
+   may use scale 1 or another larger intermediate scale unless that scale already
+   fits every available authority.
+6. Geometry shrink is immediate and scale-only. Geometry growth requires two
+   matching fit observations separated by the stable trailing interval and an
+   unchanged posture/geometry generation. New resize, side-panel, hint, detach,
+   navigation, or transition evidence cancels the pending expansion.
+7. Post-write physical proof is an acknowledgement fence. If geometry shrinks
+   during the CDP command, background performs an immediate scale-only
+   correction before returning active; it does not expose success, invalidate
+   the complete identity posture, or fall into full reapply churn.
+8. Browser-owned/user debugger detach retains the exact held mode and immediately
+   reasserts the complete posture with bounded retry. A held desktop posture
+   returns desktop; a held mobile posture returns mobile. No stale worker,
+   popup cache, poll, refit, or retry may write the opposite or neutral mode.
+
+## 3. Implementation plan
+
+### EL-02-R22-01 — Add independent physical-viewport authority
+
+1. Extend the internal emulation apply/current/refit requests with an optional,
+   strict physical viewport hint. The popup sends its actual side-panel
+   `documentElement.clientHeight`/`innerHeight`; background accepts the hint only
+   as a conservative minimum combined with `tabs.get()`.
+2. Centralize normalized viewport sampling and fitted-scale calculation. Initial
+   mode transitions take two bounded samples and the last sample immediately
+   before metrics mutation can only reduce the chosen scale.
+3. Keep the interface internal: no Hub/Lynx endpoint, payload, public extension
+   permission, or configuration schema changes.
+
+### EL-02-R22-02 — Persist and reinforce the last proven safe scale
+
+1. Add an optional backward-compatible `fittedScale` to the session posture
+   record. Persist it only after exact CDP and physical proof; hydrate it with
+   the desired mode and maximum scale.
+2. Keep a per-tab safe-scale authority after verified-cache invalidation.
+   Same-mode full writes and detach/navigation recovery are capped to it. A mode
+   transition retires the old mode's cap and establishes the new one only after
+   proof.
+3. Update the durable record after every proven scale-only shrink/growth without
+   changing the target revision. Preserve epoch/revision fencing around every
+   asynchronous storage and CDP boundary.
+
+### EL-02-R22-03 — Fence expansion and correct late shrink without churn
+
+1. Replace the single-delay expansion permission with a captured fitted-scale
+   sample plus geometry generation. At the trailing edge, re-sample and expand
+   only when the same fit remains current; otherwise reschedule or shrink.
+2. Re-sample physical geometry immediately after metrics acknowledgement. If a
+   smaller fit is now required, issue one scale-only correction and prove that
+   state before active acknowledgement.
+3. Distinguish physical-fit movement from loss of identity/touch/media posture.
+   Physical movement must stay on the scale-only path; actual debugger loss
+   still performs immediate complete held-posture reassertion.
+
+### EL-02-R22-04 — Add regressions and truthful headed evidence
+
+1. Add deterministic tests for stale-large initial samples, popup-height
+   intersection, geometry changes between measurement/write/proof, detach with
+   a retained safe scale, cold hydration, same-mode navigation, and desktop as
+   well as mobile reinforcement.
+2. Add fake-timer coverage for repeated resize bursts: immediate shrink, two
+   matching trailing observations before growth, generation invalidation, one
+   metrics-only final write, and no scale-1/opposite/full-posture frame.
+3. Run focused emulation/storage/messaging/popup/startup tests, `pnpm check`,
+   `pnpm verify`, production/debug builds, clean P17, and full unchanged-threshold
+   P25 acceptance.
+4. Review, commit, push, refresh the code graph, and prove exact upstream
+   synchronization. Restart repository `live-browser` and run high-cadence
+   mobile/desktop, resize, side-panel, reload, cold-worker, and deliberate
+   debugger-cancel traces on Acne, Aleris, and 3DPrima `/se`. Record the actual
+   physical tab rectangle and authoritative fitted scale for every frame; do not
+   use full device-buffer dimensions as a substitute for physical-fit evidence.
+
+## 4. Acceptance criteria
+
+- `EL02-R22-AC-01` Every acknowledged mobile state is 412×960 and every
+  acknowledged desktop state is 1920×1080 with both physical-fit inequalities
+  true against `tabs.get()` and any fresher popup-height hint.
+- `EL02-R22-AC-02` A stale-large first measurement cannot produce an oversized
+  first metrics write; no transition or recovery emits a transient scale 1
+  unless scale 1 physically fits.
+- `EL02-R22-AC-03` The last proven fitted scale survives debugger-cache loss and
+  cold-worker hydration. Detach/cancel reasserts the exact held mode at that
+  scale or smaller before any later stable expansion.
+- `EL02-R22-AC-04` Shrink is immediate. Growth requires two matching observations
+  and an unchanged generation, is coalesced to one metrics-only write, and is
+  cancelled by newer geometry or posture evidence.
+- `EL02-R22-AC-05` Geometry movement after a metrics command is corrected by the
+  scale-only path before active acknowledgement; it does not trigger UA, touch,
+  media, page-scale, reload, opposite-mode, or neutral-posture churn.
+- `EL02-R22-AC-06` Popup creation/recreation, side-panel open/close, browser
+  resize, marking/mobile, silent desktop, navigation, render inspection, and
+  session teardown preserve one serialized authoritative target.
+- `EL02-R22-AC-07` Focused/full/build/P17/P25 gates pass with unchanged thresholds
+  and no marking, payload, Preview, consent, reveal, ownership, Save, or
+  publication regression.
+- `EL02-R22-AC-08` Fresh Acne/Aleris/3DPrima headed traces prove the complete
+  device fits throughout transition, resize, reload, and detach recovery, with
+  zero AI, Save, takeover, final-publication, release, and deployment attempts.
+
+## 5. Run-plan todo order
+
+1. `el02-r22-viewport-authority` -> 0
+2. `el02-r22-durable-safe-scale` -> 1
+3. `el02-r22-generation-fence` -> 2
+4. `el02-r22-regressions` -> 3
+5. `el02-r22-focused-full-gates` -> 4
+6. `el02-r22-review-push` -> 5
+7. `el02-r22-headed-acne` -> 6
+8. `el02-r22-candidate-matrix` -> 7
+9. `el02-r22-conformance` -> 8

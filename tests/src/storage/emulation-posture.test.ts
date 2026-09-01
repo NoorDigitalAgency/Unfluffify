@@ -13,6 +13,7 @@ describe("emulation posture repository", () => {
       tabId: 7,
       mode: "desktop",
       maximumScale: 0.85,
+      fittedScale: 0.62,
       revision: 3,
     });
 
@@ -22,6 +23,7 @@ describe("emulation posture repository", () => {
         tabId: 7,
         mode: "desktop",
         maximumScale: 0.85,
+        fittedScale: 0.62,
         revision: 3,
       },
     });
@@ -31,6 +33,7 @@ describe("emulation posture repository", () => {
         tabId: 7,
         mode: "desktop",
         maximumScale: 0.85,
+        fittedScale: 0.62,
         revision: 3,
       }],
     });
@@ -47,6 +50,20 @@ describe("emulation posture repository", () => {
     await expect(repo.load(7)).resolves.toMatchObject({
       ok: true,
       value: { mode: "desktop", revision: 8 },
+    });
+  });
+
+  it("hydrates legacy v1 records that predate the optional fitted scale", async () => {
+    const repo = createEmulationPostureRepo(createMemoryStore({
+      "uf:emulation-postures:v1": {
+        version: 1,
+        records: [{ tabId: 7, mode: "mobile", maximumScale: 1, revision: 2 }],
+      },
+    }));
+
+    await expect(repo.load(7)).resolves.toEqual({
+      ok: true,
+      value: { tabId: 7, mode: "mobile", maximumScale: 1, revision: 2 },
     });
   });
 

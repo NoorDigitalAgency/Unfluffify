@@ -767,3 +767,18 @@ painted" decision from the replaced document.
   walk, geometry read, overlay mutation, or paint-index rebuild. Explicit stale-
   target recovery deliberately bypasses the identity shortcut and requests one
   authoritative full projection while retaining the last truthful list.
+- R22 PHYSICAL EMULATION SAFETY: a held mobile/desktop posture is not active
+  until the background has a positive physical tab rectangle and has proved
+  `deviceWidth * scale <= physicalWidth` plus
+  `deviceHeight * scale <= physicalHeight`. Unknown geometry fails closed. The
+  popup sends its non-emulated side-panel viewport height on apply/current/refit;
+  the background intersects that hint with `chrome.tabs.get`, samples again
+  immediately before the first metrics write, and corrects a late shrink before
+  acknowledging the posture. The last proved fitted scale is stored with the
+  durable held mode and survives debugger detach and MV3 worker restart, so
+  reassertion can shrink but never opportunistically grow or flash an unsafe
+  frame. Growth is allowed only on the 240 ms stable trailing refit after both
+  the expected scale and geometry generation remain unchanged; resize,
+  navigation, detach, or a newer refit invalidates it. Same-mode physical
+  correction is metrics-only and must not churn UA, touch, media, page scale,
+  neutral posture, or the opposite device mode.

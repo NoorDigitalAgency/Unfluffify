@@ -487,6 +487,9 @@ describe("rewrite background startup", () => {
         },
       },
       tabs: {
+        get(_tabId: number, callback: (tab: chrome.tabs.Tab) => void) {
+          callback({ id: 5, width: 1_000, height: 1_000, windowId: 4 } as chrome.tabs.Tab);
+        },
         sendMessage: vi.fn(),
       },
       action: {
@@ -512,7 +515,12 @@ describe("rewrite background startup", () => {
       source: "popup",
       sourceInstance: "popup:test",
       target: "background",
-      payload: { tabId: 5, mode: "mobile", scale: 2 },
+      payload: {
+        tabId: 5,
+        mode: "mobile",
+        scale: 2,
+        physicalViewportHint: { height: 600 },
+      },
     }, {}, (value: unknown) => {
       response = value;
     });
@@ -523,13 +531,16 @@ describe("rewrite background startup", () => {
     expect(response).toMatchObject({
       frameType: "reply",
       ok: true,
-      // Without a readable tab viewport the runtime uses the safe legacy
-      // mobile fallback rather than risking a clipped 1:1 screen.
-      payload: { mode: "mobile", width: 412, height: 960, scale: 0.85, active: true },
+      // The non-emulated side-panel height is intersected with tabs.get and
+      // proven before the posture may become active.
+      payload: { mode: "mobile", width: 412, height: 960, scale: 0.625, active: true },
     });
     expect(debuggerCalls).toEqual(expect.arrayContaining([
       expect.objectContaining({ method: "attach", target: { tabId: 5 } }),
-      expect.objectContaining({ method: "Emulation.setDeviceMetricsOverride", params: expect.objectContaining({ width: 412, height: 960 }) }),
+      expect.objectContaining({
+        method: "Emulation.setDeviceMetricsOverride",
+        params: expect.objectContaining({ width: 412, height: 960, scale: 0.625 }),
+      }),
     ]));
   });
 

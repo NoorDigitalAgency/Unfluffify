@@ -1516,6 +1516,7 @@ export function startRewriteBackground(): void {
         request.tabId,
         request.mode,
         request.scale,
+        request.physicalViewportHint,
       );
       if (current) {
         return current;
@@ -1525,18 +1526,24 @@ export function startRewriteBackground(): void {
         request.mode,
         request.scale,
         request.allowReload === true,
+        request.physicalViewportHint,
       );
     }));
   bus.onCommand("emulation.current", async (request) => {
     if (await consentSuppressionDisabled(request.tabId)) return null;
-    return await renderEmulation.current(request.tabId, request.mode, request.scale);
+    return await renderEmulation.current(
+      request.tabId,
+      request.mode,
+      request.scale,
+      request.physicalViewportHint,
+    );
   });
   bus.onCommand("emulation.clear", async (request) => {
     await renderEmulation.clear(request.tabId);
     return { status: "ok" as const };
   });
   bus.onCommand("emulation.refit", async (request) => {
-    await renderEmulation.refit(request.tabId);
+    await renderEmulation.refit(request.tabId, request.physicalViewportHint);
     return { status: "ok" as const };
   });
   /** Render-mode knowledge is presentation data, not property classification.

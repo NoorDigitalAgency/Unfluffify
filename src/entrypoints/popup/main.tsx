@@ -1401,6 +1401,7 @@ async function performCandidateNavigation(
           tabId: context.tabId,
           mode: "mobile",
           scale: 1,
+          ...physicalViewportRequestFields(),
           allowReload: false,
         }, { target: "background" });
       },
@@ -2442,6 +2443,27 @@ function desiredEmulationMode(): "mobile" | "desktop" {
   return desktopPreviewEnabled && !contentActive ? "desktop" : "mobile";
 }
 
+/** The side panel is rendered by Chrome outside the emulated website target.
+ * Its height is therefore a second, contemporaneous authority for the user's
+ * visible tab height. It is intentionally a one-axis conservative hint: target
+ * width still belongs to chrome.tabs.get(), while taking the smaller height can
+ * only make the simulated device safer, never clipped. */
+function physicalViewportRequestFields(): Readonly<{
+  physicalViewportHint?: Readonly<{ height: number }>;
+}> {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return {};
+  }
+  const candidates = [
+    document.documentElement?.clientHeight,
+    window.innerHeight,
+  ].filter((height): height is number =>
+    typeof height === "number" && Number.isFinite(height) && height > 0);
+  return candidates.length > 0
+    ? { physicalViewportHint: { height: Math.min(...candidates) } }
+    : {};
+}
+
 type SessionEmulationTarget = Readonly<{
   mode: "mobile" | "desktop";
   allowReload: boolean;
@@ -2514,6 +2536,7 @@ async function applySessionEmulationResult(
       tabId: context.tabId,
       mode: target.mode,
       scale: 1,
+      ...physicalViewportRequestFields(),
       allowReload: target.allowReload,
     }, { target: "background" });
     const exact = response.ok && response.data.active === true;
@@ -2554,6 +2577,7 @@ async function verifySessionEmulation(
     tabId: context.tabId,
     mode,
     scale: 1,
+    ...physicalViewportRequestFields(),
   }, { target: "background" });
   const exact = response.ok &&
     response.data !== null &&
@@ -5641,7 +5665,7 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
         if (!context) return;
         await getPopupBus().request(
           "emulation.refit",
-          { tabId: context.tabId },
+          { tabId: context.tabId, ...physicalViewportRequestFields() },
           { target: "background" },
         );
       }).catch(() => undefined);
