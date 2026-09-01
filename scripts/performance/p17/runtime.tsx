@@ -186,6 +186,7 @@ function renderPopup(): void {
     reactRoot?.render(
       <App
         presentation={popupStore.getPresentation()}
+        focusedPreviewRowOccurrence={0}
         previewInteractionReady={true}
         view="marking"
         diagnostics={{

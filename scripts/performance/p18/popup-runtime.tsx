@@ -173,6 +173,7 @@ function renderPopup(): void {
   const renderRevision = scenarioRevision;
   const appProps = {
     presentation: popupStore.getPresentation(),
+    focusedPreviewRowOccurrence: 0,
     previewInteractionReady: scenario === "preview" && popupStore.getState().name === "preview_open",
     view,
     diagnostics: diagnostics(),

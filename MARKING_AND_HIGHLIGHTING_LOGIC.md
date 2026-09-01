@@ -856,6 +856,13 @@ current Preview-open occurrence. This acknowledgement is not a remote authority
 refresh, and a delayed or same-name stale reply from an exited, reopened, or
 navigated occurrence cannot unlock the current list.
 
+Inverse page-to-row routing carries two identities: the stable projection/row
+ID selects the target, while a popup-local monotonic focus occurrence identifies
+each accepted page activation. A second activation of the same page highlight
+must therefore refocus the same semantic row button after focus moved elsewhere.
+The same occurrence is handled only once, so polling, projection refresh, and
+ordinary React rerenders cannot replay focus.
+
 Starting an AI content-detection run must first enter the popup compute-busy
 state, render the spinner/countdown, and apply the page-side compute lock that
 pauses marking edits. Raw HTML backfills, XPath refinement, and payload

@@ -25,6 +25,9 @@ export type PreviewRowListProps = Readonly<{
   /** A page-originated target request. The list moves its bounded window to the
    *  row and focuses it without scanning every rendered button. */
   focusedRowId?: string | null;
+  /** Monotonic identity for page-originated focus requests. Stable row identity
+   * alone cannot distinguish a second activation of the same page target. */
+  focusedRowOccurrence: number;
   /** Rows may be projected before the content organ has consumed the matching
    * Preview-open signal. Keep them visible but inert until that exact physical
    * page occurrence acknowledges targeting readiness. */
@@ -79,6 +82,16 @@ export function planPreviewRowFocus(input: Readonly<{
   return { windowStart, scrollTop, shouldScroll };
 }
 
+export function previewRowFocusOccurrenceKey(input: Readonly<{
+  projectionId: string;
+  rowId: string;
+  externalOccurrence: number;
+  keyboardOwned: boolean;
+}>): string {
+  const owner = input.keyboardOwned ? "keyboard" : `page:${input.externalOccurrence}`;
+  return `${input.projectionId}\u0000${input.rowId}\u0000${owner}`;
+}
+
 /** Pure rendering seam for proving both disclosure modes even though the normal
  * Vitest compilation intentionally uses a debug extension build. */
 export const PreviewRowList = React.memo(function PreviewRowList({
@@ -86,6 +99,7 @@ export const PreviewRowList = React.memo(function PreviewRowList({
   debug,
   hoveredRowId,
   focusedRowId = null,
+  focusedRowOccurrence,
   interactionReady,
   pending = false,
   onRowHover,
@@ -115,7 +129,7 @@ export const PreviewRowList = React.memo(function PreviewRowList({
   }, [projection]);
   React.useEffect(() => {
     setKeyboardFocusedRowId(null);
-  }, [focusedRowId, projection?.projectionId]);
+  }, [focusedRowId, focusedRowOccurrence, projection?.projectionId]);
   React.useEffect(() => {
     if (requestedFocusRowId === null) {
       handledFocusOccurrence.current = null;
@@ -123,7 +137,12 @@ export const PreviewRowList = React.memo(function PreviewRowList({
   }, [requestedFocusRowId]);
   React.useEffect(() => {
     if (requestedFocusRowId === null || focusedIndex === undefined || !projection) return;
-    const occurrence = `${projection.projectionId}\u0000${requestedFocusRowId}`;
+    const occurrence = previewRowFocusOccurrenceKey({
+      projectionId: projection.projectionId,
+      rowId: requestedFocusRowId,
+      externalOccurrence: focusedRowOccurrence,
+      keyboardOwned: keyboardFocusedRowId !== null,
+    });
     if (handledFocusOccurrence.current === occurrence) return;
     const viewport = viewportRef.current;
     const plan = planPreviewRowFocus({
@@ -150,7 +169,7 @@ export const PreviewRowList = React.memo(function PreviewRowList({
       }
     }
     handledFocusOccurrence.current = occurrence;
-  }, [focusedIndex, projection, requestedFocusRowId, rowHeight, windowStart]);
+  }, [focusedIndex, focusedRowOccurrence, keyboardFocusedRowId, projection, requestedFocusRowId, rowHeight, windowStart]);
 
   if (!projection) {
     return <p className="preview-sidebar__empty" role="status">{pending ? "Preparing content list…" : "Content list unavailable"}</p>;

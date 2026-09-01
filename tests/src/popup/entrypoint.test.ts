@@ -4667,6 +4667,29 @@ describe("rewrite popup entrypoint", () => {
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
+    const popupRuntimeListener = runtime.onMessage.addListener.mock.calls.at(-1)?.[0] as ((
+      message: unknown,
+      sender: unknown,
+      sendResponse: (value: unknown) => void,
+    ) => unknown) | undefined;
+    expect(popupRuntimeListener).toBeTypeOf("function");
+    const emitPreviewFocused = (id: string): void => {
+      popupRuntimeListener?.({
+        kind: "uf-bus/1",
+        frameType: "event",
+        id,
+        seq: 0,
+        name: "preview.focused",
+        source: "content",
+        sourceInstance: "content:77",
+        target: "popup",
+        payload: {
+          pageUrl: "https://example.com/page",
+          projectionId: projectionOccurrenceId,
+          rowId: "silent-row",
+        },
+      } satisfies BusFrame, {}, () => undefined);
+    };
     await runtime.sendMessage(reportedFactFrame("content", "seed-silent-preview-marking", {
       markingEnabled: true,
     }, "seed-silent-preview-marking"));
@@ -4709,6 +4732,11 @@ describe("rewrite popup entrypoint", () => {
     );
     await waitFor(() => releasePreviewContentSync !== null, "the delayed content Preview acknowledgement");
     expect(render.mock.calls.at(-1)?.[0].props.previewInteractionReady).toBe(false);
+    const rejectedFocusOccurrence = render.mock.calls.at(-1)?.[0].props.focusedPreviewRowOccurrence;
+    emitPreviewFocused("preview-focus-before-content-ready");
+    await flushEntrypointWork();
+    expect(render.mock.calls.at(-1)?.[0].props.focusedPreviewRowId).toBeNull();
+    expect(render.mock.calls.at(-1)?.[0].props.focusedPreviewRowOccurrence).toBe(rejectedFocusOccurrence);
     const targetCommandCountWhilePreparing = tabsSendMessage.mock.calls.filter(([, frame]) => {
       const name = ((frame as BusFrame).payload as { name?: string } | undefined)?.name;
       return name === "preview.activate" || name === "preview.emphasize";
@@ -4731,6 +4759,14 @@ describe("rewrite popup entrypoint", () => {
       revision: 1,
       rows: [{ text: "Poll winner" }],
     });
+    emitPreviewFocused("preview-focus-current-1");
+    await flushEntrypointWork();
+    const firstFocusOccurrence = render.mock.calls.at(-1)?.[0].props.focusedPreviewRowOccurrence;
+    expect(render.mock.calls.at(-1)?.[0].props.focusedPreviewRowId).toBe("silent-row");
+    emitPreviewFocused("preview-focus-current-2");
+    await flushEntrypointWork();
+    expect(render.mock.calls.at(-1)?.[0].props.focusedPreviewRowId).toBe("silent-row");
+    expect(render.mock.calls.at(-1)?.[0].props.focusedPreviewRowOccurrence).toBe(firstFocusOccurrence + 1);
 
     expect(tabsSendMessage).toHaveBeenCalledWith(77, previewCommand("preview.project", {
       pageUrl: "https://example.com/page",

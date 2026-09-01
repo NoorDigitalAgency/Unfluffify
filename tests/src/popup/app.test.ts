@@ -67,6 +67,7 @@ function renderApp(
 ): string {
   return renderToStaticMarkup(createElement(App, {
     presentation: memoryFor(state),
+    focusedPreviewRowOccurrence: 0,
     previewInteractionReady: true,
     view,
     diagnostics: { ...EMPTY_POPUP_DIAGNOSTICS, ...diagnostics },
@@ -385,6 +386,7 @@ describe("popup App surface", () => {
       projection,
       debug,
       hoveredRowId: null,
+      focusedRowOccurrence: 0,
       interactionReady: true,
     }));
 
@@ -1034,6 +1036,7 @@ describe("popup App surface", () => {
   it("makes explicit Refresh a visible input fence until authority settles", () => {
     const markup = renderToStaticMarkup(createElement(App, {
       presentation: memoryFor(SILENT),
+      focusedPreviewRowOccurrence: 0,
       previewInteractionReady: true,
       diagnostics: { ...EMPTY_POPUP_DIAGNOSTICS, ...SIGNED_IN, renderMode: "rendered" },
       refreshBusy: true,

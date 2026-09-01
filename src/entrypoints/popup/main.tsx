@@ -233,6 +233,7 @@ let signalPollHandle: ReturnType<Window["setInterval"]> | null = null;
 let signalsAvailableUnsubscribe: (() => void) | null = null;
 let previewFocusedUnsubscribe: (() => void) | null = null;
 let previewFocusedRowId: string | null = null;
+let previewFocusedRowOccurrence = 0;
 type PreviewContentOrganName = "preview_open" | "silent_preview";
 type PreviewInteractionOccurrence = Readonly<{
   generation: number;
@@ -1091,6 +1092,9 @@ function ensureSignalPolling(): void {
       }
       // PreviewRowList owns the row-id index and bounded window. Publishing the
       // requested stable ID avoids scanning or rendering the complete list.
+      // The occurrence remains distinct: clicking the same page target again
+      // after focus moved elsewhere must refocus its semantic row button.
+      previewFocusedRowOccurrence += 1;
       previewFocusedRowId = rowId;
       render();
     });
@@ -5405,6 +5409,7 @@ function render(): void {
       onPreviewRowHover={(rowId, active) => { void hoverPreviewRow(rowId, active); }}
       onPreviewRowActivate={(rowId) => { void activatePreviewRow(rowId); }}
       focusedPreviewRowId={previewFocusedRowId}
+      focusedPreviewRowOccurrence={previewFocusedRowOccurrence}
       previewInteractionReady={previewInteractionIsReady()}
       onRefresh={() => { void refreshPopup(); }}
       onLockAction={(action) => { void dispatchLockAction(action); }}

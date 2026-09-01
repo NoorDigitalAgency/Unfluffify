@@ -252,6 +252,7 @@ export function App({
   onPreviewRowHover,
   onPreviewRowActivate,
   focusedPreviewRowId,
+  focusedPreviewRowOccurrence,
   previewInteractionReady,
   onRefresh,
   onLockAction,
@@ -297,6 +298,7 @@ export function App({
   onPreviewRowHover?: (rowId: string, active: boolean) => void;
   onPreviewRowActivate?: (rowId: string) => void;
   focusedPreviewRowId?: string | null;
+  focusedPreviewRowOccurrence: number;
   previewInteractionReady: boolean;
   onRefresh?: () => void;
   onLockAction?: (action: LockAction) => void;
@@ -750,6 +752,7 @@ export function App({
             debug={debugBuild}
             hoveredRowId={null}
             focusedRowId={focusedPreviewRowId}
+            focusedRowOccurrence={focusedPreviewRowOccurrence}
             interactionReady={previewInteractionReady}
             pending={presentation.previewProjection === null}
             onRowHover={previewHoverHandler}

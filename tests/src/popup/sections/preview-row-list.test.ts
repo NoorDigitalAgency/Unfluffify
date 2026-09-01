@@ -9,6 +9,7 @@ import {
 import {
   PreviewRowList,
   planPreviewRowFocus,
+  previewRowFocusOccurrenceKey,
   type PreviewRowListProps,
 } from "../../../../src/popup/sections/PreviewRowList";
 
@@ -33,6 +34,7 @@ describe("focused Preview row section", () => {
       projection: PROJECTION,
       debug: false,
       hoveredRowId: null,
+      focusedRowOccurrence: 0,
       interactionReady: true,
     };
     const compatibility: AppPreviewRowListProps = direct;
@@ -44,6 +46,7 @@ describe("focused Preview row section", () => {
       projection: PROJECTION,
       debug: false,
       hoveredRowId: null,
+      focusedRowOccurrence: 0,
       interactionReady: true,
     }));
     expect(production).toContain("Readable &lt;safe&gt; content");
@@ -58,6 +61,7 @@ describe("focused Preview row section", () => {
       projection: PROJECTION,
       debug: true,
       hoveredRowId: "stable-row-1",
+      focusedRowOccurrence: 0,
       interactionReady: true,
     }));
     expect(debug).toContain('data-preview-row-debug="true"');
@@ -80,6 +84,7 @@ describe("focused Preview row section", () => {
       projection,
       debug: false,
       hoveredRowId: null,
+      focusedRowOccurrence: 0,
       interactionReady: true,
     }));
 
@@ -133,6 +138,7 @@ describe("focused Preview row section", () => {
       projection,
       debug: false,
       hoveredRowId: null,
+      focusedRowOccurrence: 0,
       interactionReady: true,
     }));
 
@@ -147,6 +153,7 @@ describe("focused Preview row section", () => {
       projection: PROJECTION,
       debug: false,
       hoveredRowId: null,
+      focusedRowOccurrence: 0,
       interactionReady: false,
     }));
 
@@ -155,5 +162,36 @@ describe("focused Preview row section", () => {
     expect(markup).toContain("disabled=\"\"");
     expect(markup).toContain("preview-sidebar__item--unavailable");
     expect(markup).toContain('aria-label="1. Readable &lt;safe&gt; content. Included. Page comparison is still preparing"');
+  });
+
+  it("distinguishes repeated page-focus requests without replaying ordinary renders", () => {
+    const first = previewRowFocusOccurrenceKey({
+      projectionId: "preview-1",
+      rowId: "stable-row-1",
+      externalOccurrence: 7,
+      keyboardOwned: false,
+    });
+    const sameRender = previewRowFocusOccurrenceKey({
+      projectionId: "preview-1",
+      rowId: "stable-row-1",
+      externalOccurrence: 7,
+      keyboardOwned: false,
+    });
+    const repeatedPageActivation = previewRowFocusOccurrenceKey({
+      projectionId: "preview-1",
+      rowId: "stable-row-1",
+      externalOccurrence: 8,
+      keyboardOwned: false,
+    });
+    const keyboardOwnership = previewRowFocusOccurrenceKey({
+      projectionId: "preview-1",
+      rowId: "stable-row-1",
+      externalOccurrence: 8,
+      keyboardOwned: true,
+    });
+
+    expect(sameRender).toBe(first);
+    expect(repeatedPageActivation).not.toBe(first);
+    expect(keyboardOwnership).not.toBe(repeatedPageActivation);
   });
 });

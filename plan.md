@@ -1712,3 +1712,113 @@ row itself is truthfully disabled.
 6. `el02-r8-headed-arno` → 5
 7. `el02-r8-candidate-matrix` → 6
 8. `el02-r8-conformance` → 7
+
+# EL-02-R9 — Occurrence-fenced repeat page-to-row focus
+
+## 1. Goal
+
+Make every trusted page-highlight activation refocus its matching Content List
+button, including a second activation of the same stable row after DOM focus has
+moved elsewhere. Stable row identity must continue to preserve projection and
+virtualization state; interaction occurrence identity must independently prove
+that a new focus request was handled.
+
+## 2. Current facts
+
+- Exact-source DPJ on pushed commit `9e8fdfddb46a26c80a28030cf1ddb516980a025e`
+  passed preflight, both Render Inspection modes, activation/network, marking
+  visual, exact gestures, scroll fade, and resize.
+- Its post-AI Content List opened with 96 rows. Trusted keyboard row activation
+  routed row 561 to the matching page highlight. The evidence runner then moved
+  popup focus to Exit Preview and physically activated the same matching page
+  target.
+- Content emitted the inverse route and the popup retained row 561 as selected,
+  but `document.activeElement` remained outside the row. The two-second terminal
+  proof therefore failed with `domFocusedRowName: null`.
+- `src/entrypoints/popup/main.tsx` projects inbound `preview.focused` as only a
+  stable `previewFocusedRowId`. Repeating the same row ID calls `render()` but
+  does not change the child input.
+- `PreviewRowList` suppresses an already handled focus key composed only from
+  projection ID and row ID. That is correct for render churn, but it incorrectly
+  collapses two distinct trusted page activations of the same row.
+- The run-lifetime network guard stopped cleanly with dynamic coverage, zero
+  Save attempts, zero publication attempts, and no guard errors.
+
+## 3. Decisions
+
+- Keep stable row IDs, projection identity, row selection, and bounded
+  virtualization unchanged.
+- Add popup-local monotonic identity to each accepted inbound page-focus event.
+  This is ephemeral UI occurrence state, not marking/session persistence.
+- A rerender, projection refresh, poll, or unchanged prop must not repeat focus;
+  a new accepted `preview.focused` event must, even for the same row ID.
+- Readiness, binding, page URL, projection ID, and targetability fences remain
+  prerequisites. A stale or unready event cannot increment the occurrence.
+- No endpoint, Save→Load, stateless-AI, payload, marking, consent, selector, or
+  publication contract changes.
+
+## 4. Implementation phases
+
+### EL-02-R9-01 — Carry explicit focus-request identity
+
+**Files:** `src/entrypoints/popup/main.tsx`, `src/popup/App.tsx`,
+`src/popup/sections/PreviewRowList.tsx`.
+
+1. Increment a popup-local focus-request occurrence for every accepted
+   `preview.focused` event and reset its visible request with Preview retirement.
+2. Thread the occurrence beside the stable row ID into `PreviewRowList`.
+3. Include the external occurrence in the handled-focus key. Preserve the
+   existing single-handle behavior for ordinary React rerenders and keyboard
+   roving focus.
+4. Clear local keyboard focus ownership when a newer external occurrence
+   arrives so page interaction has explicit precedence.
+
+### EL-02-R9-02 — Regression and exact-source acceptance
+
+**Files:** `tests/src/popup/entrypoint.test.ts`,
+`tests/src/popup/sections/preview-row-list.test.ts`, and authority documentation.
+
+1. Prove two accepted same-row page-focus events produce two distinct request
+   occurrences, while stale/unready events produce none.
+2. Prove the focus key changes for a new external occurrence but stays stable
+   across unrelated rerenders.
+3. Run focused tests, `pnpm check`, `pnpm verify`, debug build, and clean P25.
+4. Commit/push, restart the repository live browser from the exact clean source,
+   and rerun guarded DPJ. Require DOM focus on the matching same row, successful
+   exit, the remaining workflow checks, and zero Save/publication attempts.
+
+## 5. Regression risks
+
+- Incrementing on rejected events could revive stale projections. Increment
+  only after all existing readiness and projection fences pass.
+- Using object identity alone could refocus on every render. Use an explicit
+  monotonic scalar occurrence.
+- External focus could fight keyboard navigation. A newer page occurrence wins;
+  normal rerenders and polls do not.
+- Virtualized off-window rows still require the existing two-render focus plan;
+  occurrence identity must survive the window adjustment render.
+
+## 6. Acceptance criteria
+
+- `EL02-R9-AC-01` Two trusted page activations targeting the same current row
+  yield distinct accepted focus occurrences and each focuses its semantic row
+  button, even when focus moved to Exit Preview between them.
+- `EL02-R9-AC-02` Unready, stale binding, stale page URL, stale projection, and
+  retired Preview events never advance or apply a focus request.
+- `EL02-R9-AC-03` Polling and projection rerenders cannot replay a handled focus
+  occurrence; bounded virtualization and native row keyboard behavior remain
+  unchanged.
+- `EL02-R9-AC-04` Focused/full/build/P25 gates pass on the committed source.
+- `EL02-R9-AC-05` A fresh guarded DPJ workflow proves same-row inverse routing,
+  exit/restore, remaining safe workflow contracts, and zero Save/publication
+  attempts.
+
+## 7. Todo chain
+
+1. `el02-r9-focus-occurrence`
+2. `el02-r9-focused-regressions` → 1
+3. `el02-r9-full-gates` → 2
+4. `el02-r9-review-push` → 3
+5. `el02-r9-headed-dpj` → 4
+6. `el02-r9-candidate-matrix` → 5
+7. `el02-r9-conformance` → 6

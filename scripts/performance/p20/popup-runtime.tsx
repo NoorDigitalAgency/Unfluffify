@@ -118,6 +118,7 @@ function render(): void {
   flushSync(() => root?.render(
     <App
       presentation={store.getPresentation()}
+      focusedPreviewRowOccurrence={0}
       previewInteractionReady={false}
       view="silent"
       diagnostics={diagnostics()}
