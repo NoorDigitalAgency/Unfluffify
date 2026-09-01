@@ -2790,3 +2790,13 @@ than weakening or taking over that lock.
   semantic/performance checks and dirty-source P17 passes all `19/19` required
   browser checks; their only rejected criterion is source identity, so clean-
   source reruns follow the repair commit.
+- Exact-source acceptance after repair is green. P14 passes all `192/192`
+  scenarios with zero semantic, budget, activation, mutation-pressure, or
+  input-long-task failures
+  (`acceptance-2026-09-01T10-30-40-479Z.json`). P17 passes all `19/19` checks on
+  a clean source set (`acceptance-2026-09-01T10-37-58-831Z.json`, SHA-256
+  `b1c844226f1db5f739bf14dcd547b15321b2a09c965e2eeece63b28afd5b4926`). The
+  complete P25 composite passes P14, P15, P16, P17, P18, P20, and P23 with no
+  missing or failed child (`acceptance-2026-09-01T10-50-06-308Z.json`). The
+  headed Aleris and remaining candidate acceptance rounds remain the next R14
+  evidence boundary.
