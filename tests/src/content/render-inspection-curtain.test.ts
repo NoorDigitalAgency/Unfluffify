@@ -249,7 +249,7 @@ function session(
       baseUrl: "https://example.com",
     },
     pageUrl: "https://example.com/property",
-    javascriptEnabled: true,
+    javascriptEnabled: false,
     documentId: `document-${generation}`,
     documentNonce,
     startedAt: 0,
@@ -300,6 +300,30 @@ async function flushMutation(): Promise<void> {
 }
 
 describe("render inspection replacement-document curtain", () => {
+  it("keeps the JavaScript-on reload headless while retaining two-frame paint proof", () => {
+    const { controller, window, painted, lifecycleStage } = harness();
+    const adopted = { ...session("token-js", 1, "nonce-js"), javascriptEnabled: true };
+
+    expect(controller.adopt(adopted)).toBe(true);
+    expect(controller.element()).toBeNull();
+    expect(window.pendingFrames()).toBe(1);
+
+    window.flushFrame();
+    expect(painted).not.toHaveBeenCalled();
+    window.flushFrame();
+
+    expect(controller.element()).toBeNull();
+    expect(painted).toHaveBeenCalledOnce();
+    expect(painted).toHaveBeenCalledWith(adopted);
+    expect(lifecycleStage.mock.calls.map(([, stage]) => stage)).toEqual([
+      "adopted",
+      "mounted",
+      "frame-one",
+      "frame-two",
+      "acknowledged",
+    ]);
+  });
+
   it("waits for a document-start null root, mounts there, and acknowledges only after two animation frames", async () => {
     const { controller, document, window, observers, painted } = harness(false);
     const adopted = session("token-a", 1, "nonce-a");
@@ -375,7 +399,7 @@ describe("render inspection replacement-document curtain", () => {
       offsetLeft: 0,
       offsetTop: 0,
     };
-    const adopted = { ...session("token-emulated", 4, "nonce-emulated"), javascriptEnabled: true };
+    const adopted = { ...session("token-emulated", 4, "nonce-emulated"), javascriptEnabled: false };
 
     controller.adopt(adopted);
     window.flushTimer(1_000);

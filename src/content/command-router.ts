@@ -158,6 +158,7 @@ export function createDefaultContentAuthority(pageUrl: string): ContentAuthority
 }
 
 export function authorityFromLockState(state: ContentLockState): ContentAuthorityState {
+  const stableEditableOwner = state.lockRole === "editor" && state.canEdit;
   return {
     baseUrl: state.baseUrl,
     environmentKey: state.environmentKey ?? null,
@@ -168,7 +169,12 @@ export function authorityFromLockState(state: ContentLockState): ContentAuthorit
     blockedReason: state.blockedReason,
     banner: {
       ...state.banner,
-      text: resolveContentLockCopy(state.banner),
+      // A stale upstream banner bit must not cover the page while this client
+      // is the stable editable owner. Blocked editors (including ownership
+      // loss/warning transitions), passive clients, and non-candidates retain
+      // their authoritative label.
+      visible: stableEditableOwner ? false : state.banner.visible,
+      text: stableEditableOwner ? "" : resolveContentLockCopy(state.banner),
     },
   };
 }

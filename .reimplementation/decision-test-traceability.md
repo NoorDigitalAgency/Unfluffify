@@ -42,7 +42,7 @@ note by itself is not decision evidence.
 | I-30 | P8 | `tests/src/popup/app.test.ts::opens a fail-closed Lynx checklist over canonical saved coverage` | production package UI run |
 | I-31 | P4 | `tests/src/background/emulation-policy.test.ts::preserves only the held silent desktop-preview exception` | P11 silent desktop preview |
 | I-32 | P4 | `tests/src/content/stabilization/stabilization.test.ts::sends the mobile identity alongside the mobile metrics` | P11 CDP emulation facts |
-| I-33 | P4 | `tests/src/background/emulation-policy.test.ts::forces the fixed crawler posture on first recognition and every later reconciliation` | P11 navigation/detach self-heal |
+| I-33 | P4 | `tests/src/background/emulation-policy.test.ts::establishes the fixed crawler posture once and leaves held authority untouched`; `tests/src/background/render-emulation-runtime.test.ts::re-fits the held mode after committed window bounds without an opposite-mode flash`; `tests/src/background/render-emulation-runtime.test.ts::re-establishes the posture when the operator dismisses the debugger`; `tests/src/background/render-emulation-runtime.test.ts::retains and retries the exact held target through transient debugger ownership conflicts` | P11 navigation/detach/bounds self-heal and full-screen fit |
 | I-34 | P6 | `tests/src/popup/todo-recovery.test.ts::does not turn the signal poll into a Hub poll and refreshes at exactly 15 seconds` | P11 candidate polling window |
 | I-35 | P4 | `tests/src/content/stabilization/stabilization.test.ts::runs the confirmed-bottom reveal ritual, freezes no-scroll pages, and skips stale cases` | P11 reveal trace |
 | I-36 | P3 | `tests/src/content/marking/dom-bridge.test.ts::renders the three legacy silent border classes on separate reusable layers` | P11 visual border check |
@@ -63,7 +63,7 @@ note by itself is not decision evidence.
 | U-14 | P2 | `tests/src/domain/boundary.test.ts::shares one toggleable-boundary decision for closed and silent surfaces` | P9 canonical marking scenario |
 | U-15 | P1 | — | `ACCEPT-P19-DECOMPOSITION` |
 | U-16 | P1 | `tests/transfer-payload-store.test.ts::deduplicates one scoped payload and returns an integrity-bearing handle` | P9 large-corpus scenario |
-| U-17 | P4 | `tests/src/background/emulation-policy.test.ts::forces the fixed crawler posture on first recognition and every later reconciliation` | production package inspection |
+| U-17 | P4 | `tests/src/background/emulation-policy.test.ts::establishes the fixed crawler posture once and leaves held authority untouched` | production package inspection |
 | U-18a | P8 | `tests/src/popup/entrypoint.test.ts::clears only the bound domain and explicitly unregisters then reloads the opening tab` | P11 cache and unregister flow |
 | U-18b | P7 | `tests/src/popup/app.test.ts::offers a load for each JavaScript mode rather than an automated verdict` | P11 manual inspection with both JavaScript loads |
 | U-18c | P6 | `tests/src/background/page-context-runtime.test.ts::reuses a settled canonical context until an explicit refresh` | P11 feed-owned page types |

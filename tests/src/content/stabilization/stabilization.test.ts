@@ -5,6 +5,7 @@ import {
   applyEmulationViaCdp,
   deriveGooglebotSmartphoneUserAgent,
   deriveGooglebotSmartphoneUserAgentMetadata,
+  fitDeviceScale,
   clearEmulation,
   clearEmulationViaCdp,
   clampDeviceScale,
@@ -1710,6 +1711,14 @@ describe("P5 page stabilization", () => {
     });
 
     expect(clearEmulation(applyEmulation("desktop", 0.7)).active).toBe(false);
+  });
+
+  it("fits the complete device screen on both axes", () => {
+    expect(fitDeviceScale("mobile", { width: 1_200, height: 720 })).toBeCloseTo(0.75);
+    expect(fitDeviceScale("mobile", { width: 300, height: 1_200 })).toBeCloseTo(300 / 412);
+    expect(fitDeviceScale("desktop", { width: 960, height: 900 })).toBeCloseTo(0.5);
+    expect(fitDeviceScale("mobile", { width: 4_000, height: 4_000 })).toBe(1);
+    expect(fitDeviceScale("mobile", null, 0.85)).toBe(0.85);
   });
 
   it("applies and clears CDP device emulation", async () => {

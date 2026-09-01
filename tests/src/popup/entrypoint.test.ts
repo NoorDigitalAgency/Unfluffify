@@ -261,16 +261,24 @@ function makeTabsSendMessage(
     if (frame?.kind === "uf-bus/1" && frame.name === "command.dispatch") {
       const command = frame.payload as { name: string; payload?: Record<string, unknown> };
       const rawData = await handler(tabId, { type: command.name, ...(command.payload ?? {}) });
-      const data = command.name === "activateContentMain" &&
-          rawData &&
-          typeof rawData === "object" &&
-          (rawData as { ok?: unknown }).ok === true
+      const acknowledged = rawData &&
+        typeof rawData === "object" &&
+        (rawData as { ok?: unknown }).ok === true;
+      const data = command.name === "activateContentMain" && acknowledged
         ? {
             interactionsReady: true,
             ritual: { status: "prepared", frozenAtBottom: true },
             ...rawData as Record<string, unknown>,
           }
-        : rawData;
+        : command.name === "enterRenderModeView" && acknowledged
+          ? { suspended: true, ...rawData as Record<string, unknown> }
+          : command.name === "preparePageVisit" && acknowledged
+            ? {
+                prepared: true,
+                ritual: { status: "prepared", frozenAtBottom: true },
+                ...rawData as Record<string, unknown>,
+              }
+            : rawData;
       return contentReplyFrame(frame, data);
     }
     if (frame?.kind === "uf-bus/1" && frame.frameType === "request" && frame.target === "content") {
@@ -1425,6 +1433,86 @@ describe("rewrite popup entrypoint", () => {
     expect(runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "renderInspection.cancel")).toBe(false);
   });
 
+  it("keeps an operator-started inspection open across delayed startup config adoption", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+    let pendingConfigFrame: BusFrame | null = null;
+    let releaseConfig!: (frame: BusFrame) => void;
+    const delayedConfig = new Promise<BusFrame>((resolve) => {
+      releaseConfig = resolve;
+    });
+    const runtime = makeRuntime(
+      async (message) => {
+        if (message.name === "renderInspection.start") {
+          const request = message.payload as { javascriptEnabled: boolean };
+          return replyFrame(message, {
+            status: "started",
+            session: renderInspectionSession({
+              phase: "terminal",
+              javascriptEnabled: request.javascriptEnabled,
+              updatedAt: Date.now() + 1,
+              terminalReason: "paint-acknowledged",
+            }),
+          });
+        }
+        return replyFrame(message, []);
+      },
+      "rendered",
+      {
+        configLoad: async (frame) => {
+          pendingConfigFrame = frame;
+          return await delayedConfig;
+        },
+      },
+    );
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: {
+        query,
+        sendMessage: makeTabsSendMessage(() => ({ ok: true, active: false })),
+      },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    await waitFor(() => props().diagnostics.settingsLoaded, "stored settings");
+    const poll = globalThis.window.setInterval.mock.calls
+      .find(([, delay]) => delay === 500)?.[0] as (() => void) | undefined;
+    expect(poll).toEqual(expect.any(Function));
+    poll?.();
+    await waitFor(() => pendingConfigFrame !== null, "the deferred startup config load");
+    expect(props().view).toBe("render-mode");
+    expect(props().diagnostics.renderMode).toBeNull();
+
+    props().onInspectRenderMode(true);
+    await waitFor(
+      () => props().diagnostics.renderModeView === "with_javascript",
+      "the paint-acknowledged JavaScript inspection",
+    );
+    expect(props().view).toBe("render-mode");
+
+    releaseConfig(replyFrame(pendingConfigFrame!, {
+      status: "ok",
+      config: { ...backendConfig(), renderMode: "rendered" },
+      renderMode: "rendered",
+      renderModeSource: "backend",
+    }));
+    await waitFor(() => props().diagnostics.configStatus === "ok", "authoritative config adoption");
+
+    expect(props()).toMatchObject({
+      view: "render-mode",
+      diagnostics: {
+        configStatus: "ok",
+        renderMode: "rendered",
+        renderModeSource: "backend",
+        renderModeView: "with_javascript",
+        renderModeBusy: false,
+      },
+    });
+  });
+
   it("keeps confirmed paint authoritative while post-paint lock refresh exceeds the popup watchdog", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     const render = createReactRenderProbe();
@@ -1833,7 +1921,25 @@ describe("rewrite popup entrypoint", () => {
         }),
       },
     );
-    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, active: false }));
+    let holdExitSilentProjection = false;
+    let releaseExitSilentProjection: (() => void) | null = null;
+    const tabsSendMessage = makeTabsSendMessage(async (_tabId, message) => {
+      if (message.type === "applySilentSelectors") {
+        if (holdExitSilentProjection) {
+          await new Promise<void>((resolve) => { releaseExitSilentProjection = resolve; });
+        }
+        return {
+          ok: true,
+          applied: true,
+          presentationAcknowledged: true,
+          tree: "rewrite",
+        };
+      }
+      if (message.type === "getContentMainStatus") {
+        return { ok: true, active: false, documentNonce: "render-exit-document" };
+      }
+      return { ok: true, active: false };
+    });
     globalThis.chrome = {
       runtime: { ...runtime },
       tabs: { query, sendMessage: tabsSendMessage },
@@ -1845,9 +1951,19 @@ describe("rewrite popup entrypoint", () => {
       () => props().diagnostics.renderModeView === "without_javascript",
       "authoritative static terminal",
     );
+    props().onRefresh();
+    await waitFor(
+      () => props().diagnostics.configStatus === "ok" && props().diagnostics.stateName === "silent",
+      "selector-bearing silent authority behind Render mode",
+    );
+    props().onOpenRenderMode();
+    await waitFor(() => props().view === "render-mode", "the explicit Render mode view");
 
     props().onOpenConfiguration();
     await waitFor(() => javascriptStartFrame !== null, "JavaScript restoration start");
+    const commandsBeforeJavascriptPaint = tabsSendMessage.mock.calls.map(([, frame]) =>
+      ((frame as BusFrame).payload as { name?: string } | undefined)?.name,
+    );
 
     expect(props().view).toBe("render-mode");
     expect(runtime.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
@@ -1856,6 +1972,9 @@ describe("rewrite popup entrypoint", () => {
     }));
     expect(tabsSendMessage.mock.calls.some(([, message]) =>
       JSON.stringify(message).includes("activateContentMain"))).toBe(false);
+    expect(commandsBeforeJavascriptPaint).not.toContain("preparePageVisit");
+
+    holdExitSilentProjection = true;
 
     const startFrame = javascriptStartFrame as BusFrame;
     resolveJavascriptStart?.(replyFrame(startFrame, {
@@ -1869,6 +1988,24 @@ describe("rewrite popup entrypoint", () => {
         terminalReason: "paint-acknowledged",
       }),
     }));
+    await waitFor(
+      () => tabsSendMessage.mock.calls.some(([, frame]) =>
+        ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "preparePageVisit"),
+      "reveal/freeze request after JavaScript paint",
+    );
+    await waitFor(
+      () => releaseExitSilentProjection !== null,
+      "silent selector projection after reveal/freeze",
+    );
+    expect(props().view).toBe("render-mode");
+    const exitCommands = tabsSendMessage.mock.calls.map(([, frame]) =>
+      ((frame as BusFrame).payload as { name?: string } | undefined)?.name,
+    );
+    expect(exitCommands.indexOf("preparePageVisit")).toBeGreaterThanOrEqual(0);
+    expect(exitCommands.indexOf("preparePageVisit")).toBeLessThan(exitCommands.lastIndexOf("applySilentSelectors"));
+
+    holdExitSilentProjection = false;
+    releaseExitSilentProjection?.();
     await waitFor(() => props().view === "configuration", "connection settings after JavaScript paint");
 
     expect(props().diagnostics).toMatchObject({

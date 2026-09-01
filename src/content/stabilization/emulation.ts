@@ -28,6 +28,32 @@ export function applyEmulation(mode: EmulationMode, scale: number): EmulationSta
   };
 }
 
+/** Fits the complete simulated screen inside the operator's visible tab. Width
+ * and height are both authoritative: fitting only the mobile width can leave
+ * the bottom of a 412×960 device physically outside a shorter browser window. */
+export function fitDeviceScale(
+  mode: EmulationMode,
+  available: Readonly<{ width: number; height: number }> | null,
+  maximumScale = 1,
+): number {
+  const cappedMaximum = clampDeviceScale(maximumScale);
+  if (
+    !available ||
+    !Number.isFinite(available.width) ||
+    !Number.isFinite(available.height) ||
+    available.width <= 0 ||
+    available.height <= 0
+  ) {
+    return cappedMaximum;
+  }
+  const preset = DEVICE_EMULATION_PRESETS[mode];
+  return clampDeviceScale(Math.min(
+    cappedMaximum,
+    available.width / preset.width,
+    available.height / preset.height,
+  ));
+}
+
 export function clearEmulation(state: EmulationState): EmulationState {
   return { ...state, active: false };
 }

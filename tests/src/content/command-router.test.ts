@@ -1,8 +1,46 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createContentCommandRouter } from "../../../src/content/command-router";
+import {
+  authorityFromLockState,
+  createContentCommandRouter,
+} from "../../../src/content/command-router";
 
 describe("content command authority", () => {
+  it("suppresses a stale page label for the stable editable owner", () => {
+    expect(authorityFromLockState({
+      baseUrl: "https://example.com",
+      environmentKey: "stage.example",
+      siteId: 1,
+      configPresent: true,
+      lockRole: "editor",
+      canEdit: true,
+      blockedReason: "editor",
+      banner: { visible: true, reason: "editor" },
+    }).banner).toEqual({
+      visible: false,
+      reason: "editor",
+      text: "",
+    });
+  });
+
+  it("retains the page label while the editor is losing ownership", () => {
+    expect(authorityFromLockState({
+      baseUrl: "https://example.com",
+      environmentKey: "stage.example",
+      siteId: 1,
+      configPresent: true,
+      lockRole: "editor",
+      canEdit: false,
+      blockedReason: "disconnect-warning",
+      banner: { visible: true, reason: "disconnect-warning", countdownSeconds: 70 },
+    }).banner).toEqual({
+      visible: true,
+      reason: "disconnect-warning",
+      countdownSeconds: 70,
+      text: "Connection lost. You will lose the editor role in 70s unless the connection recovers.",
+    });
+  });
+
   it("rejects a delayed silent clear from a different same-origin page", async () => {
     const clearSilentSelectors = vi.fn(() => ({ ok: true }));
     const router = createContentCommandRouter({

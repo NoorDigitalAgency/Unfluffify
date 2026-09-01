@@ -19,6 +19,7 @@ function fakeDebugger(options: Readonly<{
   let documentUserAgent = REAL_UA;
   let overrideUserAgent = REAL_UA;
   let mismatchedProofsRemaining = 0;
+  let rejectedAttachesRemaining = 0;
   let media = {
     pointerCoarse: false,
     pointerFine: true,
@@ -44,6 +45,9 @@ function fakeDebugger(options: Readonly<{
     },
     mismatchNextProofs(count: number) {
       mismatchedProofsRemaining = count;
+    },
+    rejectNextAttaches(count: number) {
+      rejectedAttachesRemaining = count;
     },
     detach(tabId: number, reason?: string) {
       onDetach?.({ tabId }, reason);
@@ -73,6 +77,10 @@ function fakeDebugger(options: Readonly<{
     api: {
       attach(target: { tabId?: number }, _version: string, callback?: () => void) {
         attaches.push(target.tabId ?? -1);
+        if (rejectedAttachesRemaining > 0) {
+          rejectedAttachesRemaining -= 1;
+          return Promise.reject(new Error("Debugger is temporarily unavailable"));
+        }
         callback?.();
       },
       detach(target: { tabId?: number }, callback?: () => void) {
@@ -166,26 +174,162 @@ async function flush(): Promise<void> {
 }
 
 describe("render emulation runtime", () => {
+  it("fits the entire mobile and desktop screens to the visible tab viewport", async () => {
+    const debuggerApi = fakeDebugger();
+    const viewport = { width: 800, height: 700, windowId: 4 };
+    const tabs = {
+      get: vi.fn((_tabId: number, callback?: (tab: typeof viewport) => void) => callback?.(viewport)),
+      reload: vi.fn((_tabId, _options, callback) => callback?.()),
+      sendMessage: vi.fn(),
+    };
+    const runtime = createRenderEmulationRuntime({ debuggerApi: debuggerApi.api, tabs });
+
+    const mobile = await runtime.apply(7, "mobile", 1);
+    expect(mobile).toMatchObject({ width: 412, height: 960, active: true });
+    expect(mobile.scale).toBeCloseTo(700 / 960);
+    expect(mobile.width * mobile.scale).toBeLessThanOrEqual(viewport.width);
+    expect(mobile.height * mobile.scale).toBeLessThanOrEqual(viewport.height);
+
+    const desktop = await runtime.apply(7, "desktop", 1);
+    expect(desktop).toMatchObject({ width: 1920, height: 1080, active: true });
+    expect(desktop.scale).toBeCloseTo(800 / 1920);
+    expect(desktop.width * desktop.scale).toBeLessThanOrEqual(viewport.width);
+    expect(desktop.height * desktop.scale).toBeLessThanOrEqual(viewport.height);
+  });
+
+  it("proves an exact same-mode posture without rewriting device metrics", async () => {
+    const debuggerApi = fakeDebugger();
+    const viewport = { width: 900, height: 720, windowId: 4 };
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: {
+        get: vi.fn((_tabId: number, callback?: (tab: typeof viewport) => void) => callback?.(viewport)),
+        reload: vi.fn((_tabId, _options, callback) => callback?.()),
+        sendMessage: vi.fn(),
+      },
+    });
+    await runtime.apply(7, "mobile", 1);
+    debuggerApi.sent.length = 0;
+
+    await expect(runtime.current(7, "mobile", 1)).resolves.toMatchObject({
+      mode: "mobile",
+      scale: 0.75,
+      active: true,
+    });
+    expect(debuggerApi.sent.some((call) => call.method === "Emulation.setDeviceMetricsOverride"))
+      .toBe(false);
+  });
+
+  it("re-fits the held mode after committed window bounds without an opposite-mode flash", async () => {
+    const debuggerApi = fakeDebugger();
+    const viewport = { width: 900, height: 720, windowId: 4 };
+    let boundsChanged: ((window: { id?: number }) => void) | undefined;
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: {
+        get: vi.fn((_tabId: number, callback?: (tab: typeof viewport) => void) => callback?.(viewport)),
+        reload: vi.fn((_tabId, _options, callback) => callback?.()),
+        sendMessage: vi.fn(),
+      },
+      windows: {
+        onBoundsChanged: { addListener(listener) { boundsChanged = listener; } },
+      },
+    });
+    await runtime.apply(7, "mobile", 1);
+    debuggerApi.sent.length = 0;
+    viewport.height = 480;
+
+    boundsChanged?.({ id: 4 });
+    await flush();
+
+    const metrics = debuggerApi.sent.filter((call) => call.method === "Emulation.setDeviceMetricsOverride");
+    expect(metrics).toHaveLength(1);
+    expect(metrics[0]?.params).toMatchObject({ width: 412, height: 960, mobile: true });
+    expect(metrics[0]?.params?.scale).toBeCloseTo(0.5);
+    expect(metrics.some((call) => call.params?.mobile === false)).toBe(false);
+  });
+
   it("re-establishes the posture when the operator dismisses the debugger", async () => {
     // Detaching drops every override at once — viewport and identity together — so a
     // dismissed debugging banner silently returns the tab to a desktop-shaped page
     // that the operator may still be marking against. The posture is a state the tab
     // is supposed to be in, not a request that was granted once.
     const debuggerApi = fakeDebugger();
-    const tabs = { reload: vi.fn((_tabId, _options, callback) => callback?.()), sendMessage: vi.fn() };
+    const viewport = { width: 900, height: 720, windowId: 4 };
+    const tabs = {
+      get: vi.fn((_tabId: number, callback?: (tab: typeof viewport) => void) => callback?.(viewport)),
+      reload: vi.fn((_tabId, _options, callback) => callback?.()),
+      sendMessage: vi.fn(),
+    };
     const runtime = createRenderEmulationRuntime({ debuggerApi: debuggerApi.api, tabs });
 
     await runtime.apply(7, "mobile", 1);
     const before = debuggerApi.sent.filter((call) => call.method === "Emulation.setDeviceMetricsOverride").length;
+    viewport.height = 480;
 
     debuggerApi.detach(7, "canceled_by_user");
     await flush();
 
     const after = debuggerApi.sent.filter((call) => call.method === "Emulation.setDeviceMetricsOverride").length;
     expect(after).toBe(before + 1);
+    expect(debuggerApi.sent.filter((call) => call.method === "Emulation.setDeviceMetricsOverride").at(-1)?.params)
+      .toMatchObject({ width: 412, height: 960, mobile: true, scale: 0.5 });
     // The identity goes back with it: half a posture is not the posture.
     expect(debuggerApi.sent.filter((call) => call.method === "Emulation.setUserAgentOverride").length)
       .toBeGreaterThanOrEqual(2);
+  });
+
+  it("reasserts rather than forgetting a held posture when DevTools replaces the debugger", async () => {
+    const debuggerApi = fakeDebugger();
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+    });
+    await runtime.apply(7, "desktop", 1);
+    debuggerApi.sent.length = 0;
+
+    debuggerApi.detach(7, "replaced_with_devtools");
+    await flush();
+
+    expect(runtime.heldMode(7)).toBe("desktop");
+    expect(debuggerApi.sent.find((call) => call.method === "Emulation.setDeviceMetricsOverride")?.params)
+      .toMatchObject({ mobile: false, width: 1920, height: 1080 });
+  });
+
+  it("retains and retries the exact held target through transient debugger ownership conflicts", async () => {
+    vi.useFakeTimers();
+    try {
+      const debuggerApi = fakeDebugger();
+      const runtime = createRenderEmulationRuntime({
+        debuggerApi: debuggerApi.api,
+        tabs: { reload: vi.fn((_t, _o, cb) => cb?.()), sendMessage: vi.fn() },
+      });
+      await runtime.apply(7, "desktop", 1);
+      debuggerApi.sent.length = 0;
+      // Each reassert probes the current UA twice before its first metrics
+      // write, so three refused attaches represent one complete transient
+      // ownership conflict. Fail the immediate attempt and the first retry.
+      debuggerApi.rejectNextAttaches(6);
+
+      debuggerApi.detach(7, "replaced_with_devtools");
+      await flush();
+      expect(runtime.heldMode(7)).toBe("desktop");
+      expect(debuggerApi.sent).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(100);
+      await flush();
+      expect(runtime.heldMode(7)).toBe("desktop");
+      expect(debuggerApi.sent).toEqual([]);
+
+      await vi.advanceTimersByTimeAsync(250);
+      await flush();
+      expect(runtime.heldMode(7)).toBe("desktop");
+      expect(debuggerApi.sent.find((call) => call.method === "Emulation.setDeviceMetricsOverride")?.params)
+        .toMatchObject({ mobile: false, width: 1920, height: 1080 });
+      expect(debuggerApi.sent.some((call) => call.params?.mobile === true)).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("re-establishes the same mode that was held, not a default", async () => {

@@ -1963,7 +1963,15 @@ async function maybeResumeAiRun(
 async function refreshSilentSelectorPreview(
   context: TargetTabContext,
   requestKey = boundTabKey,
+  options: Readonly<{ allowDuringRenderMode?: boolean }> = {},
 ): Promise<boolean> {
+  // Render mode owns a presentation-suspension lease. Configuration/lock
+  // authority may continue to refresh, but neither this slow lane nor an
+  // explicit Refresh may paint Silent before the exit ritual is prepared.
+  if (currentView() === "render-mode" && options.allowDuringRenderMode !== true) {
+    silentSelectorsAppliedKey = null;
+    return true;
+  }
   // Silent Preview is an interaction surface over the same authoritative
   // silent-selector paint. Treating it as a non-silent state sends
   // clearSilentSelectors on open, leaving a truthful list beside an empty page
@@ -3481,6 +3489,7 @@ async function adoptMarkingRows(tabId: number, requestKey = boundTabKey): Promis
  *  popup that started it, so this exit first re-reads background authority and
  *  keeps the operator in the render-mode view until JavaScript paint is exact. */
 async function openConfiguration(): Promise<void> {
+  const leavingRenderMode = currentView() === "render-mode";
   const binding = captureBindingOccurrence();
   requestedView = "render-mode";
   render();
@@ -3491,6 +3500,13 @@ async function openConfiguration(): Promise<void> {
   if (!restored) {
     notifyBoundEvent(binding, "Connection settings blocked", "restore the JavaScript view before leaving", "warn");
     render();
+    return;
+  }
+  if (leavingRenderMode && !await completeRenderModeExit("configuration")) {
+    return;
+  }
+  if (leavingRenderMode) {
+    logEvent("Opened connection settings");
     return;
   }
   requestedView = "configuration";
@@ -3514,10 +3530,16 @@ function continueFromConfiguration(): void {
 /** Legacy's renderModeEditMode: a mode that is already set can still be revisited,
  *  and asking for the view is the whole of that request. The pick starts from
  *  whatever is in force, so opening the editor changes nothing by itself. */
-function openRenderMode(): void {
+async function openRenderMode(): Promise<void> {
   requestedView = "render-mode";
   pendingRenderMode = null;
   render();
+  const context = await resolveTargetTabContext();
+  if (context === null) {
+    return;
+  }
+  const requestKey = await handleBoundContext(context);
+  await enterRenderModePage(context, requestKey);
 }
 
 /** Selecting is not deciding. Nothing is persisted, nothing is pushed to the
@@ -3595,16 +3617,95 @@ async function restoreJavascriptView(): Promise<boolean> {
 /** A property with no render mode had nothing worth preparing at page load, and the
  *  inspection's own reloads would have spent the one ritual this visit gets. So the
  *  moment a mode exists and the operator has left the inspection, ask for it. */
-async function preparePageAfterRenderMode(): Promise<void> {
+type PreparedRenderModePage = Readonly<{
+  context: TargetTabContext;
+  requestKey: string;
+}>;
+
+async function enterRenderModePage(
+  context: TargetTabContext,
+  requestKey: string,
+): Promise<boolean> {
+  const delivery = await requestContentDelivery(context.tabId, {
+    type: "enterRenderModeView",
+    pageUrl: context.url,
+  }, { quietNoReceiver: true });
+  if (boundTabKey !== requestKey) {
+    return false;
+  }
+  const response = delivery.status === "delivered" && delivery.data && typeof delivery.data === "object"
+    ? delivery.data as Record<string, unknown>
+    : null;
+  const suspended = response?.ok === true && response.suspended === true;
+  if (!suspended) {
+    notifyEvent(
+      "Render mode unavailable",
+      response && typeof response.reason === "string"
+        ? response.reason
+        : contentReachable ? "the page could not suspend extraction presentation" : "reload the page to inject the extension",
+      "warn",
+    );
+  }
+  return suspended;
+}
+
+async function preparePageAfterRenderMode(): Promise<PreparedRenderModePage | null> {
   const context = await resolveTargetTabContext();
   if (context === null) {
-    return;
+    return null;
   }
-  const prepared = await sendContentMessage(context.tabId, { type: "preparePageVisit" });
+  const requestKey = await handleBoundContext(context);
+  const binding = captureBindingOccurrence(requestKey);
+  const delivery = await requestContentDelivery(
+    context.tabId,
+    { type: "preparePageVisit" },
+    { quietNoReceiver: true },
+  );
+  if (!bindingOccurrenceIsCurrent(binding)) {
+    return null;
+  }
+  const response = delivery.status === "delivered" && delivery.data && typeof delivery.data === "object"
+    ? delivery.data as Record<string, unknown>
+    : null;
+  const prepared = response?.ok === true && response.prepared === true;
   if (!prepared) {
-    logEvent("Page preparation skipped", contentReachable ? "not a candidate page" : "no content script on this tab");
+    const reason = response && typeof response.reason === "string"
+      ? response.reason
+      : contentReachable ? "page preparation was not acknowledged" : "no content script on this tab";
+    logEvent("Page preparation skipped", reason, "warn");
+    notifyBoundEvent(binding, "Page preparation failed", `${reason}; stay here and retry`, "warn");
+    render();
+    return null;
   }
   render();
+  return { context, requestKey };
+}
+
+async function completeRenderModeExit(
+  nextView: PopupViewRequest | null,
+): Promise<boolean> {
+  const prepared = await preparePageAfterRenderMode();
+  if (prepared === null) {
+    return false;
+  }
+  silentSelectorsAppliedKey = null;
+  const projected = await refreshSilentSelectorPreview(
+    prepared.context,
+    prepared.requestKey,
+    { allowDuringRenderMode: true },
+  );
+  if (!projected) {
+    notifyEvent("Silent highlights unavailable", "the prepared page did not acknowledge selector presentation", "warn");
+    // The ritual is complete, but the product boundary is not: restore the
+    // presentation-suspension lease so polling or retained posture cannot paint
+    // a partial/late Silent surface underneath the still-open Render view.
+    await enterRenderModePage(prepared.context, prepared.requestKey);
+    render();
+    return false;
+  }
+  requestedView = nextView;
+  render();
+  return true;
 }
 
 /** Legacy's `Set`. Serves the first choice and every later edit alike. */
@@ -3631,9 +3732,9 @@ async function commitRenderMode(): Promise<void> {
     if (!await restoreJavascriptView()) {
       return;
     }
-    requestedView = null;
-    render();
-    await preparePageAfterRenderMode();
+    if (!await completeRenderModeExit(null)) {
+      return;
+    }
     notifyEvent("Render mode set", chosen === "rendered" ? "Rendered page" : "Static HTML", "success");
   } catch (error: unknown) {
     if (previousMode === null) {
@@ -3661,11 +3762,9 @@ async function cancelRenderMode(): Promise<void> {
   if (!await restoreJavascriptView()) {
     return;
   }
-  requestedView = null;
-  render();
   // Cancelling leaves an established mode in place, so the page still wants
   // preparing — the ritual's own guard makes this a no-op if it already ran.
-  await preparePageAfterRenderMode();
+  await completeRenderModeExit(null);
 }
 
 async function setDesktopPreviewEnabled(enabled: boolean): Promise<void> {
@@ -3898,11 +3997,22 @@ function cancelActiveRenderInspection(
  * durable start/poll occurrence to the popup-local controller.
  */
 async function loadRenderModeView(javascriptEnabled: boolean): Promise<void> {
+  // Clicking either inspection control is an explicit request to remain in
+  // this view. Pin it before the first await so a startup authority refresh can
+  // adopt the backend configuration without ejecting the operator mid-proof.
+  requestedView = "render-mode";
+  render();
   const context = await resolveTargetTabContext();
   if (context === null) {
     return;
   }
   const requestKey = await handleBoundContext(context);
+  if (!await enterRenderModePage(context, requestKey)) {
+    renderInspectionController.markUnavailable(
+      "The page could not suspend extraction presentation for this render view.",
+    );
+    return;
+  }
   await refreshTodoContext(context, requestKey, { force: true });
   const property = managedRenderInspectionPropertyFor(context, requestKey);
   if (property === null) {

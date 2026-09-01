@@ -329,10 +329,11 @@ export function createRenderInspectionCurtain(
   };
 
   const schedulePaintAcknowledgement = (): void => {
-    if (!session || !curtain?.isConnected) {
+    if (!session || (!session.javascriptEnabled && !curtain?.isConnected)) {
       return;
     }
     const candidate = session;
+    const headless = candidate.javascriptEnabled;
     const key = identityKey(candidate);
     if (paintScheduledFor === key) {
       return;
@@ -340,7 +341,14 @@ export function createRenderInspectionCurtain(
     paintScheduledFor = key;
     const epoch = ++paintEpoch;
     const stillCurrent = (): boolean =>
-      !terminated && epoch === paintEpoch && sameIdentity(session, candidate) && curtain?.isConnected === true;
+      !terminated &&
+      epoch === paintEpoch &&
+      sameIdentity(session, candidate) &&
+      (headless || curtain?.isConnected === true);
+    const headlessDocumentReady = (): boolean =>
+      headless &&
+      document.visibilityState === "visible" &&
+      document.documentElement?.isConnected === true;
     const finish = (stage: "frame-two" | "fallback"): void => {
       if (!stillCurrent()) {
         return;
@@ -351,7 +359,7 @@ export function createRenderInspectionCurtain(
         paintScheduledFor = "";
         return;
       }
-      if (!curtainHasVisibleViewportCoverage()) {
+      if (headless ? !headlessDocumentReady() : !curtainHasVisibleViewportCoverage()) {
         clearPaintFallback();
         paintEpoch += 1;
         paintScheduledFor = "";
@@ -432,7 +440,7 @@ export function createRenderInspectionCurtain(
         paintScheduledFor = "";
         return;
       }
-      if (curtainHasVisibleViewportCoverage()) {
+      if (headless ? headlessDocumentReady() : curtainHasVisibleViewportCoverage()) {
         finish("fallback");
         return;
       }
@@ -490,6 +498,22 @@ export function createRenderInspectionCurtain(
       return false;
     }
     try {
+      if (session.javascriptEnabled) {
+        // "With JavaScript" is a plain refresh in the product. Retain the
+        // exact generation/document paint acknowledgement without creating any
+        // page curtain or input boundary visible to the operator.
+        observer?.disconnect();
+        observer = null;
+        curtain?.remove();
+        curtain = null;
+        card = null;
+        spinner = null;
+        copy = null;
+        reportLifecycleStage(session, "mounted");
+        schedulePaintAcknowledgement();
+        options.onSurfaceChanged?.();
+        return true;
+      }
       if (!curtain) {
         createCurtain();
       }

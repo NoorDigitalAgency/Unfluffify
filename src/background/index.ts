@@ -903,6 +903,7 @@ export function startRewriteBackground(): void {
   const renderEmulation = createRenderEmulationRuntime({
     debuggerApi: api.debugger,
     tabs: api.tabs,
+    windows: api.windows,
     onDebuggerDetached(tabId) {
       renderInspectionDetachHandler?.(tabId);
     },
@@ -1475,6 +1476,14 @@ export function startRewriteBackground(): void {
           identityStale: false,
           failureReason: "consent_suppression_disabled" as const,
         };
+      }
+      const current = await renderEmulation.current(
+        request.tabId,
+        request.mode,
+        request.scale,
+      );
+      if (current) {
+        return current;
       }
       return renderEmulation.apply(
         request.tabId,

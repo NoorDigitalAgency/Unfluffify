@@ -662,7 +662,8 @@ describe("P6 content marking engine", () => {
   });
 
   it("maps every evaluation category into the legacy overlay grammar", () => {
-    expect(MARKING_OVERLAY_CLASSES).toHaveLength(13);
+    expect(MARKING_OVERLAY_CLASSES).toHaveLength(14);
+    expect(MARKING_OVERLAY_CLASSES).toContain("uf-preview-presentation");
     expect(overlayClassFor("implicit-include")).toBe("uf-default");
     expect(overlayClassFor("explicit-include")).toBe("uf-explicit-include");
     expect(overlayClassFor("exception")).toBe("uf-explicit-exclude");

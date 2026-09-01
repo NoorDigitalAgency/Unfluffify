@@ -1176,7 +1176,14 @@ describe("C4 rewrite content entrypoints", () => {
         return replyFrame(message, { status: "adopt", session: adopted });
       }
       if (message.name === "page.context") {
-        return managedPageContextReply(message, pageUrl.href);
+        const managed = managedPageContextReply(message, pageUrl.href);
+        return {
+          ...managed,
+          payload: {
+            ...(managed.payload as Record<string, unknown>),
+            renderModeSet: true,
+          },
+        };
       }
       if (message.name === "signals.pull") {
         return replyFrame(message, [
@@ -1240,6 +1247,8 @@ describe("C4 rewrite content entrypoints", () => {
 
     expect(requestNames[0]).toBe("renderInspection.adopt");
     expect(requestNames.indexOf("page.context")).toBeGreaterThan(requestNames.indexOf("renderInspection.adopt"));
+    expect(requestNames).not.toContain("pageWorld.acquire");
+    expect(requestNames).not.toContain("pageWorld.command");
     const curtain = inspectionCurtainHarness.instances.at(-1);
     expect(curtain?.adopt).toHaveBeenCalledWith(adopted);
     expect(curtain?.clearMatching).not.toHaveBeenCalled();
@@ -1247,8 +1256,12 @@ describe("C4 rewrite content entrypoints", () => {
     expect(curtain?.terminate).not.toHaveBeenCalled();
     expect(shieldHarness.instances.at(-1)?.extensionSurfaces()).toContain(curtain?.element());
     expect(shieldHarness.instances.at(-1)?.setActive)
-      .toHaveBeenCalledWith("render-inspection", true);
-    expect(shieldHarness.instances.at(-1)?.blockNativeScroll?.()).toBe(true);
+      .not.toHaveBeenCalledWith("render-inspection", true);
+    expect(shieldHarness.instances.at(-1)?.setActive)
+      .not.toHaveBeenCalledWith("blocked-organ", true);
+    expect(shieldHarness.instances.at(-1)?.setActive)
+      .not.toHaveBeenCalledWith("page-visit-inspection", true);
+    expect(shieldHarness.instances.at(-1)?.blockNativeScroll?.()).toBe(false);
 
     // The old generation's exact ack starts, then a newer durable generation is
     // adopted before its response. That late response cannot clear generation 2.
@@ -1294,7 +1307,10 @@ describe("C4 rewrite content entrypoints", () => {
       requestNames.push(message.name);
       if (message.name === "renderInspection.adopt") {
         const nonce = (message.payload as { documentNonce: string }).documentNonce;
-        adopted = adoptedInspectionSession(pageUrl.href, nonce);
+        adopted = {
+          ...adoptedInspectionSession(pageUrl.href, nonce),
+          javascriptEnabled: false,
+        };
         return replyFrame(message, { status: "adopt", session: adopted });
       }
       if (message.name === "renderInspection.paintFallbackTick") {
@@ -1501,7 +1517,7 @@ describe("C4 rewrite content entrypoints", () => {
     expect(curtain?.adopt).toHaveBeenCalledTimes(2);
     expect(curtain?.current()).toEqual(adopted);
     expect(shieldHarness.instances.at(-1)?.setActive)
-      .toHaveBeenCalledWith("render-inspection", true);
+      .not.toHaveBeenCalledWith("render-inspection", true);
     expect(shieldHarness.instances.at(-1)?.setActive)
       .toHaveBeenCalledWith("bfcache-render-inspection", false);
   });
@@ -1747,6 +1763,7 @@ describe("C4 rewrite content entrypoints", () => {
   });
 
   it("serializes silent application behind the initial document-context bind", async () => {
+    mockAlreadyPreparedPageVisit();
     const addListener = vi.fn();
     const pageUrl = "https://example.com/jobs/1";
     let resolveInitialContext: (() => void) | undefined;
@@ -1787,6 +1804,9 @@ describe("C4 rewrite content entrypoints", () => {
       shieldPosture: { status: "inactive", revision, scope },
     });
     const sendMessage = vi.fn(async (message: BusFrame) => {
+      if (message.name === "renderInspection.adopt") {
+        return replyFrame(message, { status: "none" });
+      }
       if (message.name === "page.context") {
         contextRequests += 1;
         if (contextRequests === 1) {
@@ -1932,6 +1952,7 @@ describe("C4 rewrite content entrypoints", () => {
       replaceSelectors: vi.fn(() => true),
       lastInitializationSeededSelectors: vi.fn(() => true),
       renderSilentHighlights: vi.fn(() => ["/html[1]/body[1]/main[1]"]),
+      parkPresentation: vi.fn(),
       setInputTransparent: vi.fn(),
       setSilentDebugAnnotations: vi.fn(),
     };
@@ -1951,6 +1972,7 @@ describe("C4 rewrite content entrypoints", () => {
     }).main({ onInvalidated: (callback) => { invalidate = callback; } });
     for (let attempt = 0; attempt < 20 && contextRequests === 0; attempt += 1) {
       await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
     }
     expect(contextRequests).toBe(1);
     const listener = addListener.mock.calls[0]?.[0] as (
@@ -1981,15 +2003,48 @@ describe("C4 rewrite content entrypoints", () => {
       .filter((name) => name === "page.context" || name === "shield.posture.set");
     expect(postureNames).toEqual(["page.context", "shield.posture.set"]);
 
+    const suspended = await dispatchContentCommand(listener, "enterRenderModeView", { pageUrl });
+    expect(suspended).toEqual({
+      ok: true,
+      data: { ok: true, suspended: true, tree: "rewrite" },
+    });
+    expect(engine.parkPresentation).toHaveBeenCalledOnce();
+    expect(shieldHarness.instances.at(-1)?.setActive)
+      .toHaveBeenCalledWith("silent-highlights", false);
+    expect((await dispatchContentCommand(listener, "getContentMainStatus")).data)
+      .toMatchObject({ renderModeViewActive: true });
+
+    const blockedProjection = await dispatchContentCommand(listener, "applySilentSelectors", { selectors });
+    expect(blockedProjection).toEqual({
+      ok: true,
+      data: { ok: false, reason: "render-mode-view-active", tree: "rewrite" },
+    });
+    expect(engine.renderSilentHighlights).toHaveBeenCalledOnce();
+
+    const prepared = await dispatchContentCommand(listener, "preparePageVisit");
+    expect(prepared).toMatchObject({
+      ok: true,
+      data: {
+        ok: true,
+        prepared: true,
+        ritual: { status: "prepared", frozenAtBottom: true },
+      },
+    });
+    expect((await dispatchContentCommand(listener, "getContentMainStatus")).data)
+      .toMatchObject({ renderModeViewActive: false });
+    await dispatchContentCommand(listener, "applySilentSelectors", { selectors });
+    expect(engine.renderSilentHighlights).toHaveBeenCalledTimes(2);
+    expect(postureSetRequests).toBe(2);
+
     let releaseDelayedSet: (() => void) | undefined;
     delayedSetGate = new Promise<void>((resolve) => { releaseDelayedSet = resolve; });
     await dispatchContentCommand(listener, "applySilentSelectors", { selectors });
-    for (let attempt = 0; attempt < 20 && postureSetRequests < 2; attempt += 1) {
+    for (let attempt = 0; attempt < 20 && postureSetRequests < 3; attempt += 1) {
       await Promise.resolve();
     }
-    expect(postureSetRequests).toBe(2);
+    expect(postureSetRequests).toBe(3);
     invalidate?.();
-    expect(engine.replaceSelectors).toHaveBeenCalledOnce();
+    expect(engine.replaceSelectors).toHaveBeenCalledTimes(2);
     expect(engine.dispose).toHaveBeenCalledOnce();
     expect(shieldHarness.instances.at(-1)?.dispose).toHaveBeenCalledOnce();
     releaseDelayedSet?.();

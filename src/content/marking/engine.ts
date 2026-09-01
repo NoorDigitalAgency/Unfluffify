@@ -1183,6 +1183,8 @@ export function createMarkingEngine(
   let previewFocusRefreshCycle = 0;
   let lastPreviewRequest: Readonly<{ pageUrl: string; selectors: SelectorSet }> | null = null;
   let currentPreviewProjection: PreviewProjection | null = null;
+  let previewPresentationActive = false;
+  let previewRestoreSilentHighlightsArmed = false;
   const invalidateMutableSessionProjection = (): void => {
     mutableSessionProjectionDirty = true;
     invalidateSelectorProjection();
@@ -1503,6 +1505,9 @@ export function createMarkingEngine(
       lastPreviewRequest.pageUrl,
       lastPreviewRequest.selectors,
     );
+    if (previewPresentationActive) {
+      renderPreviewPresentation();
+    }
   };
 
   const reconcilePreviewEmphasis = (): void => {
@@ -1805,6 +1810,35 @@ export function createMarkingEngine(
     reportWorkStage("silent-render");
     return xpaths;
   };
+  const renderPreviewPresentation = (): readonly string[] => {
+    const projection = currentPreviewProjection;
+    if (!previewPresentationActive || !projection) {
+      return [];
+    }
+    const includedXpaths: string[] = [];
+    const excludedXpaths: string[] = [];
+    const immutableXpaths: string[] = [];
+    for (const row of projection.rows) {
+      if (row.classification === "excluded") {
+        excludedXpaths.push(row.xpath);
+      } else if (row.classification === "immutable" || row.classification === "closed-shadow") {
+        immutableXpaths.push(row.xpath);
+      } else {
+        // Explicit, implicit, and selector-undetected rows all project as the
+        // Content List's user-facing "included" state.
+        includedXpaths.push(row.xpath);
+      }
+    }
+    renderer.setPreviewPresentation(true);
+    renderer.renderSilentHighlights(includedXpaths, byXpathElements(), {
+      immutableXpaths,
+      excludedXpaths,
+    });
+    reportWorkStage("silent-render");
+    return [...includedXpaths, ...excludedXpaths, ...immutableXpaths];
+  };
+  const renderActiveSilentPresentation = (): readonly string[] =>
+    previewPresentationActive ? renderPreviewPresentation() : renderSilent();
   const renderSilentBranch = (
     evaluation: ReturnType<typeof store.currentEvaluation>,
     byXpath: ReadonlyMap<string, OverlayRenderTarget>,
@@ -1853,7 +1887,7 @@ export function createMarkingEngine(
     renderer.render(store.currentEvaluation(), byXpathElements(), bridgeGeneration);
     reportWorkStage("marking-render");
     if (silentHighlightsArmed) {
-      renderSilent();
+      renderActiveSilentPresentation();
     }
   };
 type DeferredBranchRenderChunk = Readonly<{
@@ -1947,7 +1981,7 @@ type DeferredBranchRenderChunk = Readonly<{
           bridgeGeneration,
           chunk.affectedXpaths,
         );
-        if (silentHighlightsArmed) {
+        if (silentHighlightsArmed && !previewPresentationActive) {
           renderSilentBranch(current, chunk.targets);
         }
         if (chunkIndex < chunks.length) {
@@ -1972,7 +2006,7 @@ type DeferredBranchRenderChunk = Readonly<{
       && branchTargets.size <= DEFERRED_BRANCH_RENDER_TARGET_CHUNK_SIZE
     ) {
       renderer.renderBranch(evaluation, branchTargets, bridgeGeneration, branch.affectedXpaths);
-      if (silentHighlightsArmed) {
+      if (silentHighlightsArmed && !previewPresentationActive) {
         renderSilentBranch(evaluation, branchTargets);
       }
       return;
@@ -2143,7 +2177,7 @@ type DeferredBranchRenderChunk = Readonly<{
       reportWorkStage("marking-render");
       if (silentHighlightsArmed) {
         schedulePhase(() => {
-          renderSilent();
+          renderActiveSilentPresentation();
           settleStructuralRender();
         });
         return;
@@ -2350,7 +2384,7 @@ type DeferredBranchRenderChunk = Readonly<{
       // exact long task progressive marking was designed to remove.
       const progressive = byXpath.size > PROGRESSIVE_GEOMETRY_TARGET_THRESHOLD;
       if (nextWork === "silent-geometry" && silentHighlightsArmed) {
-        renderSilent();
+        renderActiveSilentPresentation();
         if (progressive) {
           renderGeometryProgressively(byXpath, false);
         } else {
@@ -3529,6 +3563,13 @@ type DeferredBranchRenderChunk = Readonly<{
         lastPreviewRequest.selectors.inclusionSelectors.every((value, index) => value === selectors.inclusionSelectors[index]) &&
         lastPreviewRequest.selectors.exclusionSelectors.every((value, index) => value === selectors.exclusionSelectors[index])
       ) {
+        if (!previewPresentationActive) {
+          previewRestoreSilentHighlightsArmed = silentHighlightsArmed;
+          previewPresentationActive = true;
+          silentHighlightsArmed = true;
+          renderer.setPreviewPresentation(true);
+        }
+        renderPreviewPresentation();
         return currentPreviewProjection;
       }
       lastPreviewRequest = {
@@ -3539,6 +3580,13 @@ type DeferredBranchRenderChunk = Readonly<{
         },
       };
       currentPreviewProjection = buildPreviewProjection(pageUrl, lastPreviewRequest.selectors);
+      if (!previewPresentationActive) {
+        previewRestoreSilentHighlightsArmed = silentHighlightsArmed;
+        previewPresentationActive = true;
+        silentHighlightsArmed = true;
+        renderer.setPreviewPresentation(true);
+      }
+      renderPreviewPresentation();
       reconcilePreviewEmphasis();
       return currentPreviewProjection;
     },
@@ -3552,6 +3600,14 @@ type DeferredBranchRenderChunk = Readonly<{
       currentPreviewProjection = null;
       activePreviewProjectionId = null;
       renderer.setFocus(null);
+      renderer.setPreviewPresentation(false);
+      previewPresentationActive = false;
+      silentHighlightsArmed = previewRestoreSilentHighlightsArmed;
+      if (silentHighlightsArmed) {
+        renderSilent();
+      } else {
+        renderer.clearSilentHighlights();
+      }
     },
     emphasizePreviewRow(targetProjectionId: string, rowId: string, active: boolean): boolean {
       const row = currentPreviewProjection?.projectionId === targetProjectionId
@@ -3640,7 +3696,7 @@ type DeferredBranchRenderChunk = Readonly<{
     },
     renderSilentHighlights(): readonly string[] {
       silentHighlightsArmed = true;
-      return renderSilent();
+      return renderActiveSilentPresentation();
     },
     clearOverlays(): void {
       cancelPreviewFocusRefresh();
@@ -3675,6 +3731,7 @@ type DeferredBranchRenderChunk = Readonly<{
       cancelDeferredBranchRender();
       hoverResolution = null;
       previewEmphasizedRowId = null;
+      previewPresentationActive = false;
       lastPreviewRequest = null;
       currentPreviewProjection = null;
       activePreviewProjectionId = null;

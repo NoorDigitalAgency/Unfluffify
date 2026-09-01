@@ -517,7 +517,9 @@ describe("rewrite background startup", () => {
     expect(response).toMatchObject({
       frameType: "reply",
       ok: true,
-      payload: { mode: "mobile", width: 412, height: 960, scale: 1, active: true },
+      // Without a readable tab viewport the runtime uses the safe legacy
+      // mobile fallback rather than risking a clipped 1:1 screen.
+      payload: { mode: "mobile", width: 412, height: 960, scale: 0.85, active: true },
     });
     expect(debuggerCalls).toEqual(expect.arrayContaining([
       expect.objectContaining({ method: "attach", target: { tabId: 5 } }),

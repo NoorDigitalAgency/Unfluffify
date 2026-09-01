@@ -238,6 +238,10 @@ let contentTransientSurfaces: ContentTransientSurfaces | null = null;
 let contentLockConfirmation: TransientSurfaceHandle | null = null;
 let pageInspectionActive = false;
 let silentInteractionShieldActive = false;
+/** Render mode is a presentation-suspended operator view. The exact reload
+ * generation may still be proving paint, but ordinary Silent/Marking chrome
+ * must remain parked until the explicit reveal/freeze exit transaction wins. */
+let renderModeViewActive = false;
 const contentToasts = createContentToastLifecycle();
 let interactionShield: InteractionShieldController | null = null;
 let renderInspectionCurtain: RenderInspectionCurtainController | null = null;
@@ -559,6 +563,11 @@ function adoptAuthoritativeRenderInspection(
   ) {
     return false;
   }
+  // This runs before retained shield posture is adopted on a replacement
+  // document. Record the operator's Render-view lease first so neither that
+  // retained posture nor a concurrent page-context response can paint Silent.
+  renderModeViewActive = true;
+  durableSilentAdoptionGeneration += 1;
   return ensureRenderInspectionCurtain()?.adopt(session) ?? false;
 }
 
@@ -2248,8 +2257,9 @@ function privilegedExtensionTargetsForShield(): HTMLElement[] {
 }
 
 function inspectionOwnsScroll(): boolean {
+  const renderInspection = renderInspectionCurtain?.current() ?? null;
   return pageInspectionActive || provisionalBfcacheRenderInspectionFence ||
-    (renderInspectionCurtain?.current() ?? null) !== null;
+    (renderInspection !== null && !renderInspection.javascriptEnabled);
 }
 
 function ensureInteractionShield(): InteractionShieldController | null {
@@ -2290,8 +2300,18 @@ function ensureInteractionShield(): InteractionShieldController | null {
 function syncInteractionShield(): void {
   const previewActive = previewInteractionActive();
   const silentActive = silentInteractionShieldActive;
-  const blockedOrganActive = contentPresentation.pageInputBlocked && !previewActive;
-  const inspectionActive = (renderInspectionCurtain?.current() ?? null) !== null;
+  // Render view owns its own exact presentation contract. Generic brain
+  // inspection signals may still fold for diagnostics, but they cannot add a
+  // second blocked-organ shield underneath a headless JavaScript-on refresh (or
+  // duplicate the JavaScript-off curtain/page-visit lease).
+  const blockedOrganActive = contentPresentation.pageInputBlocked &&
+    !previewActive &&
+    !renderModeViewActive;
+  const renderInspection = renderInspectionCurtain?.current() ?? null;
+  // JavaScript-on is a plain reload from the operator's perspective. Its
+  // durable identity/paint proof is deliberately headless and must not acquire
+  // the page-input shield used by the JavaScript-off inspection curtain.
+  const inspectionActive = renderInspection !== null && !renderInspection.javascriptEnabled;
   const bfcacheInspectionActive = provisionalBfcacheRenderInspectionFence;
   const pageVisitInspectionActive =
     pageWorldCleanupFenceNonce !== "" ||
@@ -2411,6 +2431,7 @@ function terminateInteractionShieldAuthority(
   renderInspectionAdoptionGeneration += 1;
   pendingRenderInspectionAdoptionGeneration = null;
   provisionalBfcacheRenderInspectionFence = false;
+  renderModeViewActive = false;
   shieldPostureMutationGeneration += 1;
   interactionShieldAuthorityActive = false;
   silentInteractionShieldActive = false;
@@ -2463,7 +2484,7 @@ function currentShieldPropertyKey(): string | null {
 
 function setCurrentShieldPosture(posture: ShieldPostureProjection): void {
   currentShieldPosture = posture;
-  durablePostureShieldActive = posture.status === "active";
+  durablePostureShieldActive = posture.status === "active" && !renderModeViewActive;
   syncInteractionShield();
 }
 
@@ -2668,7 +2689,10 @@ function scheduleDurableSilentAdoption(selectors: SelectorSet): void {
     if (
       generation !== durableSilentAdoptionGeneration ||
       currentShieldPosture.status !== "active" ||
-      markingActive
+      markingActive ||
+      renderModeViewActive ||
+      pageInspectionActive ||
+      pendingPageVisitRitual !== null
     ) {
       return;
     }
@@ -3174,6 +3198,10 @@ async function resolvePageContext(options: Readonly<{ ritualRequiresCandidate?: 
     response.data.renderModeSet &&
     wanted &&
     !suspended &&
+    // Render view is presentation-suspended even when its JavaScript-on reload
+    // deliberately has no curtain or input shield. Only the explicit exit
+    // transaction below may start reveal/freeze for that replacement document.
+    !renderModeViewActive &&
     // Inspection owns this document's scroll and may reload it again. Starting
     // the page-load ritual underneath that exact curtain creates a doomed
     // occurrence that a later real activation can accidentally join. The
@@ -4311,6 +4339,13 @@ function applySilentSelectors(
     // A live session owns the overlay; overwriting it would discard real marks.
     return { ok: false, reason: "marking-active", tree: "rewrite" };
   }
+  if (renderModeViewActive || pageInspectionActive || pendingPageVisitRitual !== null) {
+    return {
+      ok: false,
+      reason: renderModeViewActive ? "render-mode-view-active" : "page-preparation-active",
+      tree: "rewrite",
+    };
+  }
   const selectors = selectorSetFrom(payloadObject(payload));
   markingEngine?.setInputTransparent?.(false);
   const seeded = markingEngine
@@ -4359,6 +4394,25 @@ function clearSilentSelectors(
     clearPersistedShieldPosture("silent-cleared");
   }
   return { ok: true, tree: "rewrite" };
+}
+
+/** Parks extraction presentation while retaining consent and the authoritative
+ * selector posture. A live mutable Marking session may never be destroyed by a
+ * Render-mode navigation shortcut. */
+function enterRenderModePresentation(): Record<string, unknown> {
+  if (markingActive) {
+    return { ok: false, reason: "marking-active", tree: "rewrite" };
+  }
+  renderModeViewActive = true;
+  durableSilentAdoptionGeneration += 1;
+  removeSilentDebugCopyListener?.();
+  markingEngine?.parkPresentation();
+  silentInteractionShieldActive = false;
+  durablePostureShieldActive = false;
+  lastContentSurfaceSignature = "";
+  renderContentSurface();
+  syncInteractionShield();
+  return { ok: true, suspended: true, tree: "rewrite" };
 }
 
 function previewInteractionActive(): boolean {
@@ -4463,6 +4517,7 @@ function contentStatus(): Record<string, unknown> {
         : markingActive
           ? "blocked"
           : "silent",
+    renderModeViewActive,
     ritual: pendingPageVisitRitual
       ? { status: "pending", ...pendingPageVisitRitual.identity }
       : completedPageVisitRitual,
@@ -4601,6 +4656,30 @@ function createContentRouter() {
         deactivateMarking("silent");
         return { ok: true, initialized: false, tree: "rewrite" };
       },
+      enterRenderModeView: async (payload, command) => {
+        const lifecycleGeneration = contentLifecycleGeneration;
+        const requestPageUrl = payloadObject(payload).pageUrl;
+        if (
+          typeof requestPageUrl !== "string" ||
+          !currentPageUrl() ||
+          requestPageUrl !== currentPageUrl()
+        ) {
+          return { ok: false, suspended: false, tree: "rewrite", reason: "page-url-mismatch" };
+        }
+        if (!await resumeConsentSuppression(command.tabId, lifecycleGeneration)) {
+          return { ok: false, suspended: false, tree: "rewrite", reason: "consent-registration-failed" };
+        }
+        if (
+          lifecycleGeneration !== contentLifecycleGeneration ||
+          requestPageUrl !== currentPageUrl()
+        ) {
+          return { ok: false, suspended: false, tree: "rewrite", reason: "page-url-mismatch" };
+        }
+        if (!interactionShieldAuthorityActive) {
+          return { ok: false, suspended: false, tree: "rewrite", reason: "property-authority-unavailable" };
+        }
+        return enterRenderModePresentation();
+      },
       resetContentMain: async (payload) => interactionShieldAuthorityActive
         ? {
             ok: await resetMarking(selectorSetFrom(payloadObject(payload))),
@@ -4693,6 +4772,11 @@ function createContentRouter() {
           return { ok: false, prepared: false, reason: "property-authority-unavailable" };
         }
         const ritual = await runPageVisitRitual(currentPageUrl(), "render-mode-established");
+        if (ritual.status === "prepared") {
+          renderModeViewActive = false;
+          durablePostureShieldActive = false;
+          syncInteractionShield();
+        }
         return {
           ok: ritual.status === "prepared",
           prepared: ritual.status === "prepared",
@@ -4808,7 +4892,11 @@ export default defineContentScript({
     // replacement-document interaction gap while the ordinary page-context call
     // performs remote classification/config validation. The latter remains the
     // final authority and can retain or tear this provisional adoption down.
-    const retainedAdoption = adoptRetainedShieldPosture();
+    // Inspection adoption must settle first: it is what establishes the
+    // Render-view paint-suspension lease on a replacement document. Starting
+    // retained Silent adoption concurrently allowed the faster response to
+    // schedule selector paint before that lease existed.
+    const retainedAdoption = inspectionAdoption.then(() => adoptRetainedShieldPosture());
     pageContextBindQueue = Promise.allSettled([inspectionAdoption, retainedAdoption]).then(() => undefined);
     // Bind and adopt the authoritative current posture before consuming signals.
     // A rehydrated worker can have a signal head without replayable history.

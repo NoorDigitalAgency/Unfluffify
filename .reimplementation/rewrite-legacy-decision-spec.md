@@ -173,7 +173,7 @@ The following rules combine decisions that otherwise appear to overlap:
 | I-30 | Keep lock, Todo, Send-to-Lynx, and other previously dark surfaces live in production when their state makes them applicable. |
 | I-31 | Keep the explicit silent-only desktop-preview exception; it is not a general device simulator. |
 | I-32 | Keep Googlebot Smartphone as the crawler emulation target, including viewport, UA/client hints, touch, and pointer media characteristics. |
-| I-33 | Continuously force mobile emulation on every recognized managed tab; it must self-heal after navigation, debugger detach, or tab rebinding. |
+| I-33 | Establish mobile emulation on first recognition, then continuously hold the extension-owned mobile or silent-desktop target. Navigation, debugger detach, tab rebinding, and committed viewport changes must reassert that same target without an opposite-mode flash and refit the complete simulated screen on both axes; transient debugger-ownership refusal retains and retries the exact target rather than forgetting it. |
 | I-34 | Keep 15-second candidate-recovery polling only while presence/grace rules qualify the suspended editor. |
 | I-35 | Keep the current reveal sequence, scroll-height growth detection, ten-pass cap, and restoration of the operator's original scroll position after freezing. |
 | I-36 | Keep the rewrite's chosen colors, but use the legacy border grammar: thick, dashed, animated, and state-specific on both silent highlighting and marking UI. |

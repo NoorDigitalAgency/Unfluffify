@@ -1396,6 +1396,59 @@ describe("P6 DOM bridge", () => {
     engine.dispose();
   });
 
+  it("projects Content List through Silent annotations and restores the marking surface on exit", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const paragraph = new FakeElement("P", rect(10, 20, 180, 30), "Included paragraph");
+    const footer = new FakeElement("FOOTER", rect(0, 200, 300, 80), "Excluded footer");
+    for (const element of [root, paragraph, footer]) element.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(paragraph);
+    root.appendChild(footer);
+    doc.pointHits = (_x, y) => y < 100 ? [paragraph, root] : [footer, root];
+    const engine = createMarkingEngine(root as unknown as Element, { render: true });
+
+    const projection = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: ["p"],
+      exclusionSelectors: ["footer"],
+    });
+    const included = projection.rows.find((row) => row.text === "Included paragraph")!;
+    const overlay = engine.overlayRoot() as unknown as FakeElement;
+    const layer = (name: string) => overlay.children.find((child) =>
+      child.getAttribute("data-layer") === name
+    );
+
+    expect(overlay.className).toContain("uf-preview-presentation");
+    expect(layer("silent-content")?.children.length).toBeGreaterThan(0);
+    expect(layer("silent-excluded")?.children.length).toBeGreaterThan(0);
+    expect(engine.previewRowAtPoint(20, 30)).toEqual({
+      projectionId: projection.projectionId,
+      rowId: included.id,
+    });
+    expect([
+      "default",
+      "saved-explicit-exclude",
+      "saved-explicit-include",
+      "session-explicit-exclude",
+      "session-explicit-include",
+    ].some((name) => (layer(name)?.children.length ?? 0) > 0)).toBe(true);
+
+    engine.retirePreviewProjection();
+
+    expect(overlay.className).not.toContain("uf-preview-presentation");
+    expect(layer("silent-content")?.children).toHaveLength(0);
+    expect(layer("silent-excluded")?.children).toHaveLength(0);
+    expect([
+      "default",
+      "saved-explicit-exclude",
+      "saved-explicit-include",
+      "session-explicit-exclude",
+      "session-explicit-include",
+    ].some((name) => (layer(name)?.children.length ?? 0) > 0)).toBe(true);
+    engine.dispose();
+  });
+
   it("keeps preview row identity and exact targeting when a same-tag sibling shifts XPath", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));

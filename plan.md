@@ -2930,3 +2930,294 @@ live browser was stopped.
   one of its `19/19` functional browser checks and rejects only source identity;
   P25 correctly stops at its required-clean preflight. Exact-commit P17 and P25
   remain required immediately after the reviewed implementation commit.
+
+# EL-02-R16 — Render Inspection intent across startup authority adoption
+
+## 1. Entering expert-check finding — exact headed Acne startup race
+
+R15's exact automated gates and headed Aleris acceptance remain valid. A fresh
+production-bundle Acne run reached preflight while the popup still reported
+`Property lock pending` and had not yet adopted the stored property
+configuration. The operator-visible Render Inspection controls were active, so
+the trusted `With JavaScript` action began. The delayed authoritative config
+load then restored the backend render mode and Silent view, ejecting the
+operator from the in-flight inspection. P25 correctly rejected the occurrence:
+the final mode was authoritative, but the requested inspection lifecycle was no
+longer observable and therefore could not be claimed as paint-acknowledged.
+
+No AI request, Save, takeover, Lynx publication, release, or deployment was
+performed. The persistent publication fence recorded zero attempts and zero
+errors.
+
+## 2. Root contract
+
+1. An operator action on either Render Inspection control is an explicit request
+   to remain in the Render mode view. That intent must be recorded synchronously,
+   before context, Todo, lock, config, reload, or inspection awaits begin.
+2. A delayed same-binding authoritative response may update the confirmed render
+   mode, selectors, revisions, lock, and Todo state, but it must not replace the
+   operator's active Render Inspection view or erase its exact generation's
+   lifecycle projection.
+3. Ordinary explicit exits remain authoritative. Cancel and successful commit
+   may leave Render mode; a real binding/document fence may retire the old
+   occurrence. Merely finishing startup authority adoption may not.
+4. Acceptance must continue requiring an observed inspection lifecycle and
+   paint acknowledgement. A backend-restored mode alone is not inspection proof.
+
+## 3. Implementation plan
+
+### EL-02-R16-01 — Pin operator inspection intent before asynchronous work
+
+1. In the Render Inspection action path, synchronously promote the current view
+   to the explicit `render-mode` request before its first await.
+2. Preserve any pending radio choice while inspecting; the load buttons compare
+   page views and must not silently decide or clear the later commit choice.
+3. Keep cancellation, commit, rebinding, and durable inspection-generation
+   fences unchanged.
+
+### EL-02-R16-02 — Prove delayed authority cannot eject the operator
+
+1. Add an entrypoint regression with a deferred `config.load`: start an
+   inspection while the property configuration is unresolved, adopt an exact
+   paint-acknowledged inspection, then release the backend configuration.
+2. Require the backend mode/config to be adopted while the popup remains in
+   Render mode and continues to expose the exact inspected JavaScript view.
+3. Retain existing tests proving Cancel exits an established Render mode and
+   stale-document inspection authority is rejected.
+
+### EL-02-R16-03 — Gates, publish, and resumed headed acceptance
+
+1. Run the focused popup entrypoint/view tests, `pnpm check`, `pnpm verify`,
+   production/debug builds, clean P17, and the complete unchanged-threshold P25
+   composite.
+2. Review, commit, push, and prove exact upstream synchronization before headed
+   acceptance.
+3. Re-run the exact no-egress Acne workflow from a freshly re-registered service
+   worker. Both Render Inspection modes must terminalize as paint-acknowledged;
+   then complete the corrected trusted pointer/keyboard Content List proof.
+4. Resume Assist24, Arno, ArkivIT, Teknikhallen, and Humanova. Any new exact
+   contradiction opens the next remediation iteration; external locks fail
+   closed without takeover.
+
+## 4. Acceptance criteria
+
+- `EL02-R16-AC-01` Inspecting either render mode synchronously pins the explicit
+  Render mode view before any asynchronous authority or reload work.
+- `EL02-R16-AC-02` A delayed same-binding `config.load` adopts its complete
+  authoritative state without closing or replacing the active inspection
+  occurrence.
+- `EL02-R16-AC-03` The inspected view remains backed by the exact
+  paint-acknowledged lifecycle; a restored backend mode is never substituted as
+  proof.
+- `EL02-R16-AC-04` Cancel, commit, navigation, document, and binding fences retain
+  their existing behavior.
+- `EL02-R16-AC-05` Focused/full/build/P17/P25 gates pass on synchronized source
+  with unchanged thresholds.
+- `EL02-R16-AC-06` Fresh headed Acne acceptance passes both render modes and the
+  safe workflow with zero AI, Save, takeover, or final-publication attempts.
+
+## 5. Run-plan todo order
+
+1. `el02-r16-render-intent` → 0
+2. `el02-r16-focused-full-gates` → 1
+3. `el02-r16-review-push` → 2
+4. `el02-r16-headed-acne` → 3
+5. `el02-r16-candidate-matrix` → 4
+6. `el02-r16-conformance` → 5
+
+# EL-02-R17 — Render-view boundaries, Preview annotation parity, and page-label scope
+
+## 1. Entering expert-check findings — operator-observed contract corrections
+
+R16 remains a valid startup-intent repair, but the resumed operator review
+identified five presentation-boundary defects that supersede any assumption
+that both Render Inspection buttons should expose the same page-inspection
+surface:
+
+1. `With JavaScript` is a JavaScript-on refresh, not a reveal/freeze or visible
+   page-inspection occurrence. It must not activate marking, selector
+   highlighting, a page curtain, or an input shield. Reloading also releases any
+   freeze owned by the replaced document.
+2. Render mode is a presentation-suspended view. Leaving it must run one exact
+   reveal/freeze occurrence and only after that occurrence is prepared may
+   Silent highlighting be projected.
+3. Consent suppression remains property-scoped and continuous in every mode and
+   transition, including JavaScript-on refresh, JavaScript-off inspection,
+   reveal/freeze, Marking, Silent, and Content List.
+4. Content List page annotations must use the Silent visual vocabulary whether
+   Preview originated in Silent or Marking. Those annotations and semantic list
+   rows remain the two directions of one clickable/focusable target mapping.
+5. The fixed page-top ownership label is absent for a stable editable owner. It
+   is present only for a passive/non-owner, an owner in an actual loss/transfer/
+   warning boundary, or a non-candidate page.
+
+No AI request, Save, takeover, Lynx publication, release, or deployment is
+authorized by this remediation or its browser acceptance.
+
+## 2. Root contract
+
+1. Entering Render mode establishes an exact-document presentation-suspension
+   lease. It parks Silent/Marking paint without terminating consent suppression
+   or mutating the stored selector posture.
+2. A JavaScript-on render test retains the durable generation/document paint
+   proof needed to know its reload completed, but that proof is headless: no
+   inspection curtain, page-input shield, reveal/freeze, marking paint, or
+   Silent paint is exposed. A JavaScript-off test retains the guarded inspection
+   curtain contract.
+3. Retained shield posture, page-context adoption, and popup authority polling
+   may adopt configuration while Render mode is open, but none may project
+   Silent highlighting until the explicit exit transaction completes.
+4. Render-mode exit is ordered and fenced: restore/reload JavaScript if needed;
+   keep the popup in Render mode; run reveal/freeze; require a prepared current
+   document occurrence; then leave Render mode and apply the current
+   authoritative Silent selector set. Failure or stale identity leaves the view
+   presentation-suspended and visible to retry.
+5. `applySilentSelectors` rejects while a render-view suspension or page-visit
+   ritual owns the document. Consent suppression is resumed independently and
+   is never cleared by those presentation gates.
+6. Preview presentation is a reversible renderer mode. It hides interactive
+   Marking classifications, paints every visible projected row with the Silent
+   included/excluded/immutable vocabulary, retains focus emphasis and page/list
+   activation, and restores the exact prior Marking or Silent presentation on
+   exit.
+7. Content lock projection suppresses a supplied banner whenever
+   `lockRole=editor` and `canEdit=true`. Every blocked editor and every passive,
+   unknown, or non-candidate projection retains its appropriate banner.
+8. Device emulation is a durable Chrome Debugger posture, not a repeated popup
+   side effect. Mobile is always 412×960 and desktop is always 1920×1080, while
+   the CDP display scale is recomputed from the visible tab viewport as the
+   smaller width/height fit ratio. The complete simulated screen must remain
+   visible with no clipped bottom. Same-mode refresh/poll traffic must not
+   rewrite exact metrics, viewport/window changes must re-fit without passing
+   through an opposite posture, and an operator-detached debugger must
+   immediately reassert the currently held mobile or desktop posture.
+
+## 3. Implementation plan
+
+### EL-02-R17-01 — Make JavaScript-on reload headless and fence Render presentation
+
+1. Add a content-owned Render-view suspension state and an explicit popup-to-
+   content entry command. Park paint and local shield leases without clearing
+   consent or durable selector authority; reject destructive entry over an
+   active Marking session.
+2. Adopt a replacement document's exact render-inspection generation before
+   retained Silent posture. Mark the Render-view suspension before retained
+   selectors can schedule paint.
+3. Extend the render-inspection paint controller so JavaScript-on generations
+   acknowledge the exact visible document through frames/guarded starvation
+   proof without mounting a curtain or acquiring the render-inspection input
+   shield. Keep the full curtain proof for JavaScript-off generations.
+4. Gate popup authority projection and content-side retained/application paths
+   while Render mode or reveal/freeze owns presentation.
+
+### EL-02-R17-02 — Serialize Render exit as reveal/freeze then Silent
+
+1. Make page preparation return a typed prepared/rejected result instead of a
+   delivery-only boolean.
+2. Keep `requestedView=render-mode` through JavaScript restoration and the full
+   page-visit ritual so slow polling cannot paint Silent underneath it.
+3. Only after a current prepared ritual may Set, Cancel, or an explicit
+   configuration exit release the Render-view lease, change views, invalidate
+   the Silent paint cache, and apply the authoritative selectors.
+4. Add exact ordering, failure, stale-binding, already-frozen, and no-selector
+   regressions. Require no marking/highlight/curtain/shield on the JavaScript-on
+   reload and continuous consent suppression on every branch.
+
+### EL-02-R17-03 — Give Content List one Silent annotation language
+
+1. Add a renderer Preview-presentation state that suppresses Marking
+   classification/hover/interaction layers while leaving Silent annotation and
+   focus layers available.
+2. Materialize Silent included/excluded/immutable annotations from the exact
+   adopted Preview projection, so the painted clickable corpus and semantic row
+   corpus share identity.
+3. Repaint that Preview surface on structural projection refresh and make page
+   hit testing ignore suppressed Marking boxes.
+4. On Preview retirement, clear focus and Preview annotations, then restore the
+   exact prior Marking presentation or authoritative Silent presentation without
+   changing mutable decisions.
+
+### EL-02-R17-04 — Scope the page-top label to ownership boundaries
+
+1. Normalize content lock authority so a stable editable owner never receives a
+   visible page banner even if an obsolete upstream banner bit is present.
+2. Preserve banners for passive/unknown roles, non-candidates, transfers,
+   disconnect/expiry warnings, takeover, and every blocked owner state.
+3. Add projection and content-surface tests for both sides of the boundary.
+
+### EL-02-R17-05 — Restore durable fit-to-viewport Chrome emulation
+
+1. Port the useful legacy scale contract into the serialized background CDP
+   authority: obtain the current visible tab dimensions and clamp
+   `min(tabWidth/deviceWidth, tabHeight/deviceHeight)` to the supported scale
+   range on every real posture transition or viewport refit.
+2. Keep one held target posture per tab. Suppress redundant same-mode writes
+   from popup startup, authority refresh, and repeated page-context requests;
+   exact already-held posture is acknowledged without another metrics rewrite.
+3. Monitor browser-window bounds and debugger detach events. Recompute/reassert
+   the same target in the per-tab queue, preserving the epoch fence so stale
+   mobile/desktop work can never become the final writer. A transient debugger-
+   ownership refusal retains that exact target and retries with bounded backoff;
+   it never forgets the target or falls through to the opposite default mode.
+4. Prove that a 412×960 mobile screen and 1920×1080 desktop screen both fit in
+   shorter/narrower visible viewports, that resizing changes only scale, that a
+   user detach reasserts the held target, and that polling/reload races produce
+   no opposite-mode or scale-1 flash.
+
+### EL-02-R17-06 — Gates, publish, and headed acceptance
+
+1. Run focused render-inspection, popup-entrypoint, content-entrypoint, marking-
+   engine/renderer, Preview, lock, and consent tests; then `pnpm check`,
+   `pnpm verify`, production/debug builds, clean P17, and unchanged-threshold
+   P25.
+2. Review all R16/R17 source changes, commit, push, and prove exact upstream
+   synchronization before browser acceptance.
+3. Restart the repository watcher and use only `.github/skills/live-browser` on
+   Acne first. Prove JavaScript-on is refresh-only/headless, JavaScript-off keeps
+   its guarded inspection, exit orders reveal/freeze before Silent, consent is
+   continuously hidden, Content List uses Silent annotations with two-way
+   targeting, and a stable owner has no page-top label.
+4. Resume the remaining safe candidate matrix only after Acne passes. Preserve
+   the external-lock fail-closed fence and zero-egress constraints.
+
+## 4. Acceptance criteria
+
+- `EL02-R17-AC-01` `With JavaScript` replaces the document with scripts enabled
+  and exposes no reveal/freeze, inspection curtain, page-input shield, Marking,
+  or Silent annotation surface.
+- `EL02-R17-AC-02` A prior freeze is gone after the JavaScript-on reload; leaving
+  Render mode then completes one current reveal/freeze before Silent paint.
+- `EL02-R17-AC-03` Neither retained posture nor fast/slow polling can activate
+  Silent highlighting during Render mode or reveal/freeze.
+- `EL02-R17-AC-04` Consent elements remain suppressed in every page mode and at
+  every tested transition without entering extraction presentation.
+- `EL02-R17-AC-05` Content List uses Silent visual annotations from both Silent
+  and Marking origins, with page-to-row and row-to-page activation/focus intact.
+- `EL02-R17-AC-06` Stable editable owners have no page-top banner; non-owner,
+  owner-loss/warning, and non-candidate cases retain it.
+- `EL02-R17-AC-07` R16's delayed-authority view pin and all existing modifier,
+  payload, reveal, performance, race, P17, and P25 contracts remain green.
+- `EL02-R17-AC-08` Fresh headed acceptance records zero AI, Save, takeover,
+  final-publication, release, and deployment attempts.
+- `EL02-R17-AC-09` Mobile remains exactly 412×960 and desktop exactly 1920×1080,
+  with CDP scale equal to the clamped two-axis visible-viewport fit; the bottom
+  and right edge of the simulated device are visible.
+- `EL02-R17-AC-10` Repeated context/popup polling over an exact held posture emits
+  no redundant `Emulation.setDeviceMetricsOverride` and causes no size flash.
+- `EL02-R17-AC-11` Browser-window resizing re-fits the current posture without an
+  intermediate opposite mode; debugger cancellation immediately reasserts the
+  same held posture, and a transient ownership conflict keeps retrying that
+  exact posture without a neutral, opposite-mode, or scale-1 write.
+
+## 5. Run-plan todo order
+
+1. `el02-r17-render-suspension` → 0
+2. `el02-r17-exit-ordering` → 1
+3. `el02-r17-preview-presentation` → 2
+4. `el02-r17-page-label` → 3
+5. `el02-r17-fit-emulation` → 4
+6. `el02-r17-focused-full-gates` → 5
+7. `el02-r17-review-push` → 6
+8. `el02-r17-headed-acne` → 7
+9. `el02-r17-candidate-matrix` → 8
+10. `el02-r17-conformance` → 9

@@ -468,6 +468,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   let passthroughActive = false;
   let inputTransparent = false;
   let scrolling = false;
+  let previewPresentationActive = false;
   let renderGeneration = 0;
   let paintOrder = 0;
   let explicitExclusionXpaths = new Set<string>();
@@ -1024,7 +1025,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   };
 
   const setRootState = (
-    className: "uf-scrolling" | "uf-marking-temporarily-disabled",
+    className: "uf-scrolling" | "uf-marking-temporarily-disabled" | "uf-preview-presentation",
     active: boolean,
   ): void => {
     const classes = new Set(root.className.split(/\s+/).filter(Boolean));
@@ -1158,14 +1159,16 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       // a reactive site replaces the live Element after projection. Content
       // List is opened from marking mode, where these can be the only painted
       // rectangles available beneath the independent interaction shield.
-      for (const record of classificationBoxes.values()) {
-        consider(
-          record.xpath,
-          record.rect,
-          LAYER_BY_CLASSIFICATION[record.classification],
-          record.overlay.style.visibility !== "hidden",
-          record.paintOrder,
-        );
+      if (!previewPresentationActive) {
+        for (const record of classificationBoxes.values()) {
+          consider(
+            record.xpath,
+            record.rect,
+            LAYER_BY_CLASSIFICATION[record.classification],
+            record.overlay.style.visibility !== "hidden",
+            record.paintOrder,
+          );
+        }
       }
       // Silent boxes provide the same retained-geometry authority in silent
       // preview mode. Later siblings paint above earlier siblings per layer.
@@ -1554,6 +1557,16 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     setSuspended(active: boolean): void {
       setRootState("uf-marking-temporarily-disabled", active);
     },
+    setPreviewPresentation(active: boolean): void {
+      previewPresentationActive = active;
+      setRootState("uf-preview-presentation", active);
+      if (active) {
+        hoverElement = null;
+        hoverXpath = "";
+        drawHover();
+        clearAcknowledgement();
+      }
+    },
     setSilentDebugAnnotations(active: boolean): void {
       silentDebugAnnotations = active;
       for (const record of silentBoxes.values()) {
@@ -1574,6 +1587,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       clearBoxes();
     },
     dispose(): void {
+      previewPresentationActive = false;
       clearBoxes();
       latestTargetByXpath.clear();
       root.remove();

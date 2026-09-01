@@ -3,9 +3,11 @@ import {
   applyEmulationViaCdp,
   clearEmulationViaCdp,
   deriveGooglebotSmartphoneUserAgent,
+  fitDeviceScale,
   type EmulationMode,
   type EmulationState,
 } from "../content/stabilization";
+import { DEVICE_SCALE_DEFAULTS } from "../domain/constants";
 
 export type EmulationFailureReason =
   | "viewport_mismatch"
@@ -198,12 +200,26 @@ type DebuggerApi = Readonly<{
   onDetach?: Readonly<{ addListener(listener: (source: Debuggee, reason?: string) => void): void }>;
 }>;
 type TabsApi = Readonly<{
+  get?(tabId: number, callback?: (tab?: Readonly<{
+    width?: number;
+    height?: number;
+    windowId?: number;
+  }>) => void): Promise<Readonly<{
+    width?: number;
+    height?: number;
+    windowId?: number;
+  }>> | void;
   reload(tabId: number, options?: Record<string, unknown>, callback?: () => void): Promise<void> | void;
   sendMessage(tabId: number, message: unknown): Promise<unknown> | unknown;
   onUpdated?: Readonly<{
     addListener(listener: (tabId: number, changeInfo: Readonly<{ status?: string }>) => void): void;
   }>;
   onRemoved?: Readonly<{ addListener(listener: (tabId: number) => void): void }>;
+}>;
+type WindowsApi = Readonly<{
+  onBoundsChanged?: Readonly<{
+    addListener(listener: (window: Readonly<{ id?: number }>) => void): void;
+  }>;
 }>;
 
 function isPromiseLike<T>(value: unknown): value is PromiseLike<T> {
@@ -265,6 +281,7 @@ function promiseWithTimeout<T>(promise: Promise<T>, timeoutMs: number, operation
 export function createRenderEmulationRuntime(input: Readonly<{
   debuggerApi?: DebuggerApi;
   tabs?: TabsApi;
+  windows?: WindowsApi;
   onDebuggerDetached?: (tabId: number, reason?: string) => void;
   apiTimeoutMs?: number;
   apiMode?: "callback" | "promise";
@@ -307,6 +324,11 @@ export function createRenderEmulationRuntime(input: Readonly<{
    *  the popup being asked. Emulation is not a request that was granted once; it is
    *  a state the tab is supposed to be in. */
   const heldPostures = new Map<number, HeldPosture>();
+  const verifiedPostures = new Map<number, VerifiedEmulationState>();
+  const tabWindowIds = new Map<number, number>();
+  const reassertRetryTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  const reassertRetryAttempts = new Map<number, number>();
+  const REASSERT_RETRY_DELAYS_MS = [100, 250, 500, 1_000, 2_000, 5_000] as const;
   const postureEpochs = new Map<number, number>();
   const nextPostureEpoch = (tabId: number): number => {
     const epoch = (postureEpochs.get(tabId) ?? 0) + 1;
@@ -315,13 +337,75 @@ export function createRenderEmulationRuntime(input: Readonly<{
   };
   const postureIsCurrent = (tabId: number, held: HeldPosture): boolean =>
     heldPostures.get(tabId) === held && postureEpochs.get(tabId) === held.epoch;
+  const cancelReassertRetry = (tabId: number): void => {
+    const timer = reassertRetryTimers.get(tabId);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      reassertRetryTimers.delete(tabId);
+    }
+    reassertRetryAttempts.delete(tabId);
+  };
   const releasePosture = (tabId: number): void => {
+    cancelReassertRetry(tabId);
     nextPostureEpoch(tabId);
     heldPostures.delete(tabId);
+    verifiedPostures.delete(tabId);
+    tabWindowIds.delete(tabId);
+  };
+  const visibleTabViewport = async (
+    tabId: number,
+  ): Promise<Readonly<{ width: number; height: number }> | null> => {
+    if (!input.tabs?.get) {
+      return null;
+    }
+    try {
+      const tab = await invokeBrowserApi<Readonly<{
+        width?: number;
+        height?: number;
+        windowId?: number;
+      }>>(
+        () => input.tabs!.get!(tabId) as Promise<Readonly<{
+          width?: number;
+          height?: number;
+          windowId?: number;
+        }>> | void,
+        (callback) => input.tabs!.get!(tabId, callback),
+        "Tab viewport read",
+      );
+      const width = Number(tab?.width);
+      const height = Number(tab?.height);
+      if (Number.isInteger(tab?.windowId)) {
+        tabWindowIds.set(tabId, Number(tab?.windowId));
+      }
+      return Number.isFinite(width) && Number.isFinite(height) && width > 0 && height > 0
+        ? { width, height }
+        : null;
+    } catch {
+      return null;
+    }
+  };
+  const fittedScaleFor = async (
+    tabId: number,
+    mode: EmulationMode,
+    maximumScale: number,
+    fallbackScale?: number,
+  ): Promise<number> => {
+    const viewport = await visibleTabViewport(tabId);
+    return fitDeviceScale(
+      mode,
+      viewport,
+      viewport
+        ? maximumScale
+        : Math.min(maximumScale, fallbackScale ?? DEVICE_SCALE_DEFAULTS[mode]),
+    );
   };
   /** Reasons the operator did not choose. A closing tab has nothing to restore, and
    *  a replaced target means the tab is being taken over by something else. */
-  const TERMINAL_DETACH_REASONS = new Set(["target_closed", "target_crashed", "replaced_with_devtools"]);
+  // A DevTools replacement is still an operator attempt to take down the held
+  // simulation, not permission to forget the product posture. Reassert it just
+  // like Chrome's explicit `canceled_by_user` detach; only a dead target is
+  // terminal.
+  const TERMINAL_DETACH_REASONS = new Set(["target_closed", "target_crashed"]);
   input.debuggerApi?.onDetach?.addListener((source, reason) => {
     const tabId = source.tabId;
     if (typeof tabId !== "number") {
@@ -330,6 +414,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
     input.onDebuggerDetached?.(tabId, reason);
     attachedTabs.delete(tabId);
     realUserAgents.delete(tabId);
+    verifiedPostures.delete(tabId);
     const held = heldPostures.get(tabId);
     if (!held || (reason && TERMINAL_DETACH_REASONS.has(reason))) {
       releasePosture(tabId);
@@ -486,6 +571,15 @@ export function createRenderEmulationRuntime(input: Readonly<{
     if (!postureIsCurrent(tabId, held)) {
       throw new Error("Emulation posture was released");
     }
+    const scale = await fittedScaleFor(
+      tabId,
+      held.mode,
+      held.scale,
+      verifiedPostures.get(tabId)?.scale,
+    );
+    if (!postureIsCurrent(tabId, held)) {
+      throw new Error("Emulation posture was released");
+    }
     const state = await applyEmulationViaCdp(
       {
         async send(method, params) {
@@ -500,7 +594,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
         },
       },
       held.mode,
-      held.scale,
+      scale,
       { realUserAgent },
     );
     return state;
@@ -569,6 +663,11 @@ export function createRenderEmulationRuntime(input: Readonly<{
         const realUserAgent = await realUserAgentFor(tabId);
         const proof = await writeAndProvePosture(tabId, restored, realUserAgent);
         if (proof.failureReason === null) {
+          verifiedPostures.set(tabId, {
+            ...proof.state,
+            active: true,
+            identityStale: false,
+          });
           return;
         }
       } catch {
@@ -602,14 +701,40 @@ export function createRenderEmulationRuntime(input: Readonly<{
       if (proof.failureReason !== null) {
         throw new Error(`Emulation proof failed: ${proof.failureReason}`);
       }
+      verifiedPostures.set(tabId, {
+        ...proof.state,
+        active: true,
+        identityStale: false,
+      });
+      cancelReassertRetry(tabId);
     } catch {
-      // The tab may be gone, or attaching may be refused. Nothing else to try, and
-      // the next apply from the popup will re-establish it.
+      // A live target can temporarily refuse attachment while Chrome is
+      // replacing DevTools/debugger ownership. Retain the exact desired target
+      // and keep reinforcing it; forgetting it here lets the next generic page
+      // reconciliation establish the default mode and creates a visible flash.
       if (postureIsCurrent(tabId, held)) {
-        releasePosture(tabId);
+        verifiedPostures.delete(tabId);
+        scheduleReassertRetry(tabId, held);
       }
     }
   };
+  function scheduleReassertRetry(tabId: number, held: HeldPosture): void {
+    if (!postureIsCurrent(tabId, held) || reassertRetryTimers.has(tabId)) {
+      return;
+    }
+    const attempt = reassertRetryAttempts.get(tabId) ?? 0;
+    const delay = REASSERT_RETRY_DELAYS_MS[
+      Math.min(attempt, REASSERT_RETRY_DELAYS_MS.length - 1)
+    ]!;
+    reassertRetryAttempts.set(tabId, attempt + 1);
+    const timer = setTimeout(() => {
+      reassertRetryTimers.delete(tabId);
+      if (postureIsCurrent(tabId, held)) {
+        void reassertPosture(tabId, held);
+      }
+    }, delay);
+    reassertRetryTimers.set(tabId, timer);
+  }
   const reassertPosture = (tabId: number, held: HeldPosture): Promise<void> =>
     withEmulationOperation(tabId, () => executeReassertPosture(tabId, held));
   input.tabs?.onUpdated?.addListener((tabId, changeInfo) => {
@@ -618,6 +743,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
     }
     const held = heldPostures.get(tabId);
     if (held) {
+      verifiedPostures.delete(tabId);
       void reassertPosture(tabId, held);
     }
   });
@@ -626,10 +752,56 @@ export function createRenderEmulationRuntime(input: Readonly<{
     realUserAgents.delete(tabId);
     releasePosture(tabId);
   });
+  input.windows?.onBoundsChanged?.addListener((window) => {
+    const windowId = window.id;
+    if (typeof windowId !== "number") {
+      return;
+    }
+    for (const [tabId, held] of heldPostures) {
+      if (tabWindowIds.get(tabId) !== windowId) {
+        continue;
+      }
+      // The page's layout viewport remains the emulated device size; only the
+      // resulting view-image scale changes. Reassert the same held target after
+      // Chrome commits the new browser bounds, never an intermediate desktop
+      // or neutral posture.
+      verifiedPostures.delete(tabId);
+      void reassertPosture(tabId, held);
+    }
+  });
 
   return {
     heldMode(tabId: number): EmulationMode | null {
       return heldPostures.get(tabId)?.mode ?? null;
+    },
+    async current(
+      tabId: number,
+      mode: EmulationMode,
+      maximumScale: number,
+    ): Promise<VerifiedEmulationState | null> {
+      return withEmulationOperation(tabId, async () => {
+        const held = heldPostures.get(tabId);
+        const verified = verifiedPostures.get(tabId);
+        if (!held || !verified || held.mode !== mode) {
+          return null;
+        }
+        const fittedScale = await fittedScaleFor(tabId, mode, maximumScale, verified.scale);
+        if (Math.abs(fittedScale - verified.scale) > 0.001) {
+          verifiedPostures.delete(tabId);
+          return null;
+        }
+        const realUserAgent = await realUserAgentFor(tabId);
+        const failureReason = proveEmulationPosture(
+          verified,
+          await measurePosture(tabId),
+          intendedUserAgentFor(mode, realUserAgent),
+        );
+        if (failureReason !== null || !postureIsCurrent(tabId, held)) {
+          verifiedPostures.delete(tabId);
+          return null;
+        }
+        return verified;
+      });
     },
     async apply(
       tabId: number,
@@ -639,7 +811,9 @@ export function createRenderEmulationRuntime(input: Readonly<{
     ): Promise<VerifiedEmulationState> {
       const priorHeld = heldPostures.get(tabId);
       const held: HeldPosture = { mode, scale, epoch: nextPostureEpoch(tabId) };
+      cancelReassertRetry(tabId);
       heldPostures.set(tabId, held);
+      verifiedPostures.delete(tabId);
       try {
         return await withEmulationOperation(tabId, async () => {
           const realUserAgent = await realUserAgentFor(tabId);
@@ -648,11 +822,13 @@ export function createRenderEmulationRuntime(input: Readonly<{
             throw new Error("Emulation posture was released");
           }
           if (proof.failureReason === null) {
-            return {
+            const verified: VerifiedEmulationState = {
               ...proof.state,
               active: true,
               identityStale: false,
             };
+            verifiedPostures.set(tabId, verified);
+            return verified;
           }
           const identityStale = proof.failureReason === "identity_mismatch";
           if (identityStale && allowReload && input.tabs) {

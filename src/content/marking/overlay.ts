@@ -8,6 +8,7 @@ export const MARKING_OVERLAY_CLASSES = [
   "uf-layer",
   "uf-scrolling",
   "uf-marking-temporarily-disabled",
+  "uf-preview-presentation",
   "uf-rect",
   "uf-hover",
   "uf-focus",
@@ -81,6 +82,30 @@ export const MARKING_OVERLAY_STYLES = `
 .uf-marking-layer-root.uf-marking-temporarily-disabled .uf-layer[data-layer="hover"],
 .uf-marking-layer-root.uf-marking-temporarily-disabled .uf-layer[data-layer="interaction"] {
   opacity: 0;
+}
+.uf-marking-layer-root.uf-preview-presentation .uf-layer[data-layer="hard"],
+.uf-marking-layer-root.uf-preview-presentation .uf-layer[data-layer="default"],
+.uf-marking-layer-root.uf-preview-presentation .uf-layer[data-layer="saved-explicit-exclude"],
+.uf-marking-layer-root.uf-preview-presentation .uf-layer[data-layer="saved-explicit-include"],
+.uf-marking-layer-root.uf-preview-presentation .uf-layer[data-layer="ai-content"],
+.uf-marking-layer-root.uf-preview-presentation .uf-layer[data-layer="session-explicit-exclude"],
+.uf-marking-layer-root.uf-preview-presentation .uf-layer[data-layer="session-explicit-include"],
+.uf-marking-layer-root.uf-preview-presentation .uf-layer[data-layer="hover"],
+.uf-marking-layer-root.uf-preview-presentation .uf-layer[data-layer="interaction"] {
+  /* Content List is a read-only selector projection even when it was opened
+     from Marking. Keep the retained marking boxes for an allocation-free
+     restore, but expose only the Silent vocabulary and focus layer. */
+  opacity: 0;
+}
+.uf-marking-layer-root.uf-preview-presentation .uf-layer[data-layer="silent-immutable"],
+.uf-marking-layer-root.uf-preview-presentation .uf-layer[data-layer="silent-content"],
+.uf-marking-layer-root.uf-preview-presentation .uf-layer[data-layer="silent-excluded"],
+.uf-marking-layer-root.uf-preview-presentation .uf-layer[data-layer="focus"] {
+  /* Preview may be opened while Marking's interaction posture is suspended.
+     Its read-only annotations are nevertheless the ordinary Silent surface,
+     not the grayed mutable-session affordance. */
+  opacity: 1;
+  filter: none;
 }
 .uf-marking-layer-root.uf-marking-temporarily-disabled .uf-rect,
 .uf-marking-layer-root.uf-marking-temporarily-disabled .uf-silent-rect {
