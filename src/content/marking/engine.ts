@@ -3575,8 +3575,9 @@ type DeferredBranchRenderChunk = Readonly<{
           previewPresentationActive = true;
           silentHighlightsArmed = true;
           renderer.setPreviewPresentation(true);
+          renderPreviewPresentation();
+          reconcilePreviewEmphasis();
         }
-        renderPreviewPresentation();
         return currentPreviewProjection;
       }
       lastPreviewRequest = {

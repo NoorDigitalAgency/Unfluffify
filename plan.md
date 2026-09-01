@@ -3775,3 +3775,145 @@ attempted during this audit or authorized by R20.
   closed with no unresolved R20 blocker.
 - The expert-loop proceeds to another independent audit. R20 closure does not,
   by itself, assert whole-product production readiness.
+
+# EL-02-R21 — Make retained Preview polling paint-idle and payload-light
+
+## 1. Entering expert-check finding — `EL-02-F027`
+
+The independent post-R20 audit rejects whole-product production readiness even
+though R20 itself remains accepted. Static graph tracing found that every open
+Preview fast tick follows
+`pollFastSignalsOnce -> ensurePreviewProjection -> preview.project ->
+projectPreview -> renderPreviewPresentation -> renderSilentHighlights ->
+drawSilent`. The supposedly cached branch therefore walks every projection row,
+remeasures every target rectangle, and rewrites overlay geometry every 500 ms.
+The source comment claiming that retained projection does not rebuild geometry
+is false.
+
+Fresh repository `live-browser` evidence on Acne version `2.0.0.730` confirms a
+High performance and presentation-stability defect. In an isolated 5.5-second
+window, the popup emitted 11 `preview.project` requests. Every response carried
+the exact same projection ID
+`preview-980ea577-96e3-41d9-a1cd-b6d9f2447204-occurrence-1` and revision `1`,
+yet each request occupied 13.7–31.0 ms. With only 13 silent rectangles, the
+unchanged page received 33 extension-owned style mutations in 5.7 seconds; the
+opening trace recorded 120 style mutations in roughly nine seconds. The work is
+document-size dependent and can steal repeated layout/paint time from pointer,
+scroll, focus, and two-way Preview interaction on denser properties.
+
+No AI request, Save, takeover, Lynx publication, release, or deployment was
+attempted during this audit or authorized by R21.
+
+## 2. Root contract
+
+1. Opening Content List materializes one authoritative projection and paints
+   its silent annotation presentation once. A retained projection with the same
+   page, selector authority, projection ID, and revision is a visual no-op.
+2. An unchanged 500 ms fast tick may perform one extension-local identity probe
+   for list freshness. It may not clone the row corpus, walk projection rows,
+   read target geometry, write overlay styles/classes, rebuild paint ownership,
+   or touch remote authority.
+3. Content remains the authority for structural and presentation changes.
+   Marking mutations invalidate the materialized projection; DOM/presentation
+   refreshes rebuild the projection and repaint the active Preview exactly once.
+   The next identity probe then causes the popup to adopt the newer projection.
+4. Selector changes, binding changes, document replacement, Preview close/open,
+   and explicit stale-target recovery still obtain a complete authoritative
+   projection. No optimization may retain rows across a different occurrence.
+5. Scroll, resize, and layout movement continue through the renderer's existing
+   geometry scheduler and gray fade/reposition/fade-in contract. The polling
+   path must not compete with or resurrect that work.
+6. Page-to-list and list-to-page targeting remain projection-ID/revision fenced.
+   Active emphasis survives a structural rebase by stable row identity, and a
+   removed/unavailable target continues to fail closed and recover truthfully.
+
+## 3. Implementation plan
+
+### EL-02-R21-01 — Add a typed identity-only Preview freshness probe
+
+1. Add internal schemas/types for a page-fenced Preview identity request and a
+   nullable response containing only `pageUrl`, `projectionId`, and `revision`.
+   Register one internal `preview.current` command; this is not a Lynx/Hub API,
+   payload, permission, or public extension-interface change.
+2. Expose the current projection identity from the content Preview controller
+   without ensuring a new engine, building rows, or rendering. A mismatched page
+   fails closed.
+3. Extend the popup Preview controller with an identity port. Once a projection
+   and selector authority are adopted for the current owner, probe identity
+   first. Return the retained local projection when identity matches; request a
+   full projection only when identity is absent, newer, or belongs to another
+   occurrence.
+
+### EL-02-R21-02 — Make the content cache branch presentation-idempotent
+
+1. In `projectPreview`, an identical materialized request returns the current
+   projection without calling `renderPreviewPresentation` when the Preview
+   presentation is already active.
+2. Keep a defensive inactive-presentation path that arms and paints once if a
+   valid retained projection ever exists without an active presentation; do not
+   rely on polling as an overlay-root repair loop.
+3. Preserve the existing structural refresh path that rebuilds the projection,
+   repaints once, and reconciles emphasis before the popup adopts the newer
+   revision.
+
+### EL-02-R21-03 — Add idleness, freshness, and occurrence regressions
+
+1. Add engine instrumentation coverage proving two identical projection calls
+   return the same ID/revision and produce exactly one silent render total.
+2. Prove a marking invalidation and a structural/presentation refresh each
+   create a newer revision, render exactly once for the material change, and
+   leave the following identical request paint-idle.
+3. Add popup-controller tests proving a matching identity performs no full-row
+   request, a newer/null/different identity performs exactly one full request,
+   and stale owner/occurrence replies cannot repopulate the list.
+4. Extend messaging and entrypoint tests for the typed nullable identity command
+   and page mismatch behavior.
+
+### EL-02-R21-04 — Gates, synchronization, and headed proof
+
+1. Run focused engine/controller/messaging/entrypoint tests, `pnpm check`,
+   `pnpm verify`, production/debug builds, clean P17, and the unchanged-threshold
+   P25 acceptance composite.
+2. Review the exact R21 diff, commit, push, refresh the code graph, and prove
+   exact upstream synchronization before headed acceptance.
+3. Restart repository `live-browser` on Acne. With Content List open, require at
+   least ten identity probes, zero unchanged full `preview.project` requests,
+   one stable ID/revision, and zero extension-owned overlay mutations during an
+   idle 5.5-second window.
+4. Trigger a safe local DOM/presentation change and prove one newer projection
+   is adopted and painted once, followed by another mutation-free idle window.
+   Repeat retained-idle and two-way targeting checks on Aleris and 3DPrima `/se`;
+   external ownership remains fail-closed and prohibited egress stays zero.
+
+## 4. Acceptance criteria
+
+- `EL02-R21-AC-01` Ten or more unchanged Preview ticks emit only identity-sized
+  freshness probes and zero full-row projection requests after initial adoption.
+- `EL02-R21-AC-02` An unchanged projection causes zero renderer calls, target
+  geometry reads, overlay mutations, paint-index rebuilds, and popup row-store
+  updates.
+- `EL02-R21-AC-03` Marking, selector, DOM, visibility, and occurrence changes
+  still yield one complete authoritative projection with a strictly newer or
+  different identity and exactly one corresponding presentation update.
+- `EL02-R21-AC-04` Stale probes/full replies, page mismatch, Preview exit, and
+  binding replacement fail closed and cannot restore an obsolete projection.
+- `EL02-R21-AC-05` Two-way hover/focus/click/scroll targeting and gray
+  scroll/resize fade-reposition behavior retain their exact contracts.
+- `EL02-R21-AC-06` Focused/full/build/P17/P25 gates pass with unchanged
+  thresholds and no marking, payload, consent, reveal, render-mode, emulation,
+  ownership, or publication regression.
+- `EL02-R21-AC-07` Headed Acne/Aleris/3DPrima evidence proves idle visual
+  quiescence, one-update material freshness, responsive two-way interaction,
+  and zero AI, Save, takeover, final-publication, release, and deployment
+  attempts.
+
+## 5. Run-plan todo order
+
+1. `el02-r21-identity-probe` -> 0
+2. `el02-r21-idempotent-render` -> 1
+3. `el02-r21-regressions` -> 2
+4. `el02-r21-focused-full-gates` -> 3
+5. `el02-r21-review-push` -> 4
+6. `el02-r21-headed-acne` -> 5
+7. `el02-r21-candidate-matrix` -> 6
+8. `el02-r21-conformance` -> 7

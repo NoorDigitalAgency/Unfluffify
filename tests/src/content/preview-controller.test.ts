@@ -22,6 +22,7 @@ const projection = {
 function engine() {
   return {
     projectPreview: vi.fn(() => projection),
+    currentPreviewProjection: vi.fn(() => projection),
     retirePreviewProjection: vi.fn(),
     emphasizePreviewRow: vi.fn((projectionId: string, rowId: string) =>
       projectionId === projection.projectionId && rowId === "row-1"
@@ -33,6 +34,27 @@ function engine() {
 }
 
 describe("preview content controller", () => {
+  it("reads only the retained projection identity without ensuring or rendering", () => {
+    const target = engine();
+    const ensureEngine = vi.fn(() => target);
+    const controller = createPreviewController({
+      currentPageUrl: () => projection.pageUrl,
+      currentEngine: () => target,
+      ensureEngine,
+      interactionActive: () => true,
+    });
+
+    expect(controller.current({ pageUrl: projection.pageUrl })).toEqual({
+      projectionId: projection.projectionId,
+      revision: projection.revision,
+      pageUrl: projection.pageUrl,
+    });
+    expect(target.currentPreviewProjection).toHaveBeenCalledOnce();
+    expect(target.projectPreview).not.toHaveBeenCalled();
+    expect(ensureEngine).not.toHaveBeenCalled();
+    expect(controller.current({ pageUrl: "https://example.com/other" })).toBeNull();
+  });
+
   it("projects the caller's exact selectors and fences the active page", () => {
     const target = engine();
     const controller = createPreviewController({

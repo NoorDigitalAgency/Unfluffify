@@ -32,6 +32,14 @@ function projection(
   };
 }
 
+function identity(value: PreviewProjection) {
+  return {
+    projectionId: value.projectionId,
+    revision: value.revision,
+    pageUrl: value.pageUrl,
+  };
+}
+
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
   const promise = new Promise<T>((resolvePromise) => {
@@ -49,6 +57,7 @@ function createHarness(overrides: Partial<PopupPreviewControllerPorts> = {}) {
     exclusionSelectors: ["nav"],
   };
   const requestProjection = vi.fn(async () => projection());
+  const requestCurrent = vi.fn(async () => currentProjection ? identity(currentProjection) : null);
   const emphasize = vi.fn(async () => ({ targeted: true }));
   const activate = vi.fn(async () => ({ targeted: true }));
   const notify = vi.fn();
@@ -60,6 +69,7 @@ function createHarness(overrides: Partial<PopupPreviewControllerPorts> = {}) {
     currentProjection: () => currentProjection,
     setProjection,
     requestProjection,
+    requestCurrent,
     emphasize,
     activate,
     isOpen: () => open,
@@ -71,6 +81,7 @@ function createHarness(overrides: Partial<PopupPreviewControllerPorts> = {}) {
   return {
     controller: createPopupPreviewController(ports),
     requestProjection,
+    requestCurrent,
     emphasize,
     activate,
     notify,
@@ -110,9 +121,11 @@ describe("popup Preview controller", () => {
   });
 
   it("adopts only rising revisions within one projection occurrence", async () => {
-    const replies = [projection(2), projection(1), projection(3)];
+    const replies = [projection(2), projection(3)];
+    const identities = [identity(projection(1)), identity(projection(3))];
     const harness = createHarness({
       requestProjection: vi.fn(async () => replies.shift() ?? null),
+      requestCurrent: vi.fn(async () => identities.shift() ?? null),
     });
     harness.setOpen(true);
 
@@ -120,6 +133,42 @@ describe("popup Preview controller", () => {
     await expect(harness.controller.project(OWNER)).resolves.toMatchObject({ revision: 2 });
     await expect(harness.controller.project(OWNER)).resolves.toMatchObject({ revision: 3 });
     expect(harness.projection()?.revision).toBe(3);
+  });
+
+  it("keeps matching retained identity payload-light and requests full rows only after change", async () => {
+    const next = projection(2);
+    const requestProjection = vi.fn()
+      .mockResolvedValueOnce(projection(1))
+      .mockResolvedValueOnce(next);
+    const requestCurrent = vi.fn()
+      .mockResolvedValueOnce(identity(projection(1)))
+      .mockResolvedValueOnce(identity(next));
+    const harness = createHarness({ requestProjection, requestCurrent });
+    harness.setOpen(true);
+
+    await expect(harness.controller.project(OWNER, harness.selectors)).resolves.toMatchObject({ revision: 1 });
+    await expect(harness.controller.project(OWNER)).resolves.toMatchObject({ revision: 1 });
+    expect(requestProjection).toHaveBeenCalledTimes(1);
+    await expect(harness.controller.project(OWNER)).resolves.toMatchObject({ revision: 2 });
+    expect(requestCurrent).toHaveBeenCalledTimes(2);
+    expect(requestProjection).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to one full projection when the identity probe is unavailable", async () => {
+    const requestProjection = vi.fn()
+      .mockResolvedValueOnce(projection(1))
+      .mockResolvedValueOnce(projection(2));
+    const harness = createHarness({
+      requestProjection,
+      requestCurrent: vi.fn(async () => null),
+    });
+    harness.setOpen(true);
+
+    await harness.controller.project(OWNER, harness.selectors);
+    await harness.controller.project(OWNER);
+
+    expect(requestProjection).toHaveBeenCalledTimes(2);
+    expect(harness.projection()?.revision).toBe(2);
   });
 
   it("fences a delayed projection across a binding occurrence change", async () => {
@@ -134,6 +183,41 @@ describe("popup Preview controller", () => {
 
     await expect(request).resolves.toBeNull();
     expect(harness.projection()).toBeNull();
+  });
+
+  it("fences a delayed identity probe across a binding occurrence change", async () => {
+    const pending = deferred<ReturnType<typeof identity> | null>();
+    const harness = createHarness({
+      requestCurrent: vi.fn(async () => await pending.promise),
+    });
+    harness.setOpen(true);
+    await harness.controller.project(OWNER, harness.selectors);
+    const retainedPoll = harness.controller.project(OWNER);
+
+    harness.controller.bindingChanged();
+    harness.setCurrentOwner({ ...OWNER, requestKey: "77:https://example.com/rebound" });
+    pending.resolve(identity(projection(2)));
+
+    await expect(retainedPoll).resolves.toBeNull();
+    expect(harness.requestProjection).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let an older identity probe supersede a newer same-owner probe", async () => {
+    const older = deferred<ReturnType<typeof identity> | null>();
+    const requestCurrent = vi.fn()
+      .mockImplementationOnce(async () => await older.promise)
+      .mockResolvedValueOnce(identity(projection(1)));
+    const harness = createHarness({ requestCurrent });
+    harness.setOpen(true);
+    await harness.controller.project(OWNER, harness.selectors);
+
+    const olderPoll = harness.controller.project(OWNER);
+    const newerPoll = harness.controller.project(OWNER);
+    await expect(newerPoll).resolves.toMatchObject({ revision: 1 });
+    older.resolve(identity(projection(2)));
+
+    await expect(olderPoll).resolves.toBeNull();
+    expect(harness.requestProjection).toHaveBeenCalledTimes(1);
   });
 
   it("does not let a delayed opening candidate erase a newer poll winner", async () => {
@@ -219,8 +303,8 @@ describe("popup Preview controller", () => {
     await harness.controller.project(OWNER, laterPresentationSelectors);
     await harness.controller.hover(OWNER, "row-stable-1", true);
 
-    expect(harness.requestProjection).toHaveBeenCalledTimes(3);
-    for (const [request] of harness.requestProjection.mock.calls.slice(0, 3)) {
+    expect(harness.requestProjection).toHaveBeenCalledTimes(2);
+    for (const [request] of harness.requestProjection.mock.calls.slice(0, 2)) {
       expect(request.selectors).toEqual({
         inclusionSelectors: [],
         exclusionSelectors: [".saved-broad-exclusion"],
@@ -233,7 +317,7 @@ describe("popup Preview controller", () => {
     harness.setOpen(true);
     await harness.controller.project(OWNER, laterPresentationSelectors);
 
-    expect(harness.requestProjection).toHaveBeenCalledTimes(4);
-    expect(harness.requestProjection.mock.calls[3]?.[0].selectors).toEqual(laterPresentationSelectors);
+    expect(harness.requestProjection).toHaveBeenCalledTimes(3);
+    expect(harness.requestProjection.mock.calls[2]?.[0].selectors).toEqual(laterPresentationSelectors);
   });
 });

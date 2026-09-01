@@ -204,7 +204,10 @@ function contentCommand(name: string, payload?: unknown) {
   });
 }
 
-function previewCommand(name: "preview.project" | "preview.emphasize" | "preview.activate", payload: unknown) {
+function previewCommand(
+  name: "preview.current" | "preview.project" | "preview.emphasize" | "preview.activate",
+  payload: unknown,
+) {
   return expect.objectContaining({
     kind: "uf-bus/1",
     frameType: "request",
@@ -4845,6 +4848,11 @@ describe("rewrite popup entrypoint", () => {
         shadow: "light" as const,
       }],
     });
+    let activeContentProjection = projection(
+      0,
+      "Saved article",
+      "/html[1]/body[1]/main[1]",
+    );
     let previewProjectCount = 0;
     let projectionOccurrenceId = "silent-projection-a";
     let raceProjectionRequests = false;
@@ -4890,14 +4898,28 @@ describe("rewrite popup entrypoint", () => {
               resolveDelayedRevision = resolve;
             });
           }
-          return projection(3, "Article after mutation", "/html[1]/body[1]/main[2]", projectionOccurrenceId);
+          activeContentProjection = projection(
+            3,
+            "Article after mutation",
+            "/html[1]/body[1]/main[2]",
+            projectionOccurrenceId,
+          );
+          return activeContentProjection;
         }
-        return projection(
+        activeContentProjection = projection(
           holdPreviewOpenedFact && previewProjectCount > 1 ? 1 : 0,
           holdPreviewOpenedFact && previewProjectCount > 1 ? "Poll winner" : "Saved article",
           "/html[1]/body[1]/main[1]",
           projectionOccurrenceId,
         );
+        return activeContentProjection;
+      }
+      if (message.type === "preview.current") {
+        return {
+          projectionId: activeContentProjection.projectionId,
+          revision: activeContentProjection.revision,
+          pageUrl: activeContentProjection.pageUrl,
+        };
       }
       if (message.type === "preview.activate" && delayPreviewActivation) {
         return new Promise<{ targeted: boolean }>((resolve) => {
@@ -4980,6 +5002,12 @@ describe("rewrite popup entrypoint", () => {
     // poll consumes the queued Preview signal and adopts a newer projection E2.
     // Completing E1 must not clear the E2 winner.
     expect(pollCurrentTab).not.toBeNull();
+    activeContentProjection = projection(
+      1,
+      "Poll winner",
+      "/html[1]/body[1]/main[1]",
+      projectionOccurrenceId,
+    );
     pollCurrentTab?.();
     await waitFor(
       () => render.mock.calls.at(-1)?.[0].props.presentation.previewProjection?.revision === 1,
@@ -5053,13 +5081,42 @@ describe("rewrite popup entrypoint", () => {
     expect(contentCommandsAfterSilentOpen).toContain("applySilentSelectors");
     expect(contentCommandsAfterSilentOpen).not.toContain("clearSilentSelectors");
 
-    // The open preview is re-projected on the normal popup poll. A second tick
-    // while revision 2 is pending coalesces into exactly one trailing request;
-    // after revision 2 settles, that trailing request observes the DOM mutation.
+    const fullProjectsBeforeIdleTick = previewProjectCount;
+    const identityProbesBeforeIdleTick = tabsSendMessage.mock.calls
+      .map(([, frame]) => frame as BusFrame)
+      .filter((frame) => frame.name === "preview.current").length;
+    pollCurrentTab?.();
+    await waitFor(
+      () => tabsSendMessage.mock.calls
+        .map(([, frame]) => frame as BusFrame)
+        .filter((frame) => frame.name === "preview.current").length > identityProbesBeforeIdleTick,
+      "the retained Preview identity probe",
+    );
+    await flushEntrypointWork();
+    expect(previewProjectCount).toBe(fullProjectsBeforeIdleTick);
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, previewCommand("preview.current", {
+      pageUrl: "https://example.com/page",
+    }));
+
+    // The normal popup poll sees a newer content-owned identity and requests
+    // full rows. A second tick while revision 2 is pending coalesces into one
+    // trailing probe; after revision 2 settles, that probe observes revision 3.
     raceProjectionRequests = true;
+    activeContentProjection = projection(
+      2,
+      "Stale article",
+      "/html[1]/body[1]/main[1]",
+      projectionOccurrenceId,
+    );
     pollCurrentTab?.();
     await waitFor(() => resolveDelayedRevision !== null, "the delayed revision-one projection request");
     pollCurrentTab?.();
+    activeContentProjection = projection(
+      3,
+      "Article after mutation",
+      "/html[1]/body[1]/main[2]",
+      projectionOccurrenceId,
+    );
     resolveDelayedRevision?.(projection(2, "Stale article", "/html[1]/body[1]/main[1]", projectionOccurrenceId));
     await waitFor(
       () => render.mock.calls.at(-1)?.[0].props.presentation.previewProjection?.revision === 3,
@@ -5141,6 +5198,12 @@ describe("rewrite popup entrypoint", () => {
     expect(postReopenLogLabels).not.toContain("Preview row unavailable");
 
     delayProjectionUntilAfterExit = true;
+    activeContentProjection = projection(
+      1,
+      "Too late",
+      "/html[1]/body[1]/main[3]",
+      projectionOccurrenceId,
+    );
     pollCurrentTab?.();
     await waitFor(() => resolvePostExitProjection !== null, "the projection request held across Preview exit");
     render.mock.calls.at(-1)?.[0].props.onExitPreview();

@@ -37,9 +37,11 @@ import type { PropertyPublishRequest, PropertySaveRequest, SelectorSet } from ".
 import { canonicalPageKey } from "../../storage/property-snapshot-authority";
 import type { RenderMode } from "../../domain/schema/property";
 import type {
+  PreviewCurrentRequest,
   PreviewEmphasizeRequest,
   PreviewProjectRequest,
   PreviewProjection,
+  PreviewProjectionIdentity,
   PreviewTargetRequest,
   PreviewTargetResponse,
 } from "../../domain/schema/preview";
@@ -231,6 +233,7 @@ const previewController = createPopupPreviewController({
       exclusionSelectors: [...selectors.exclusionSelectors],
     },
   }),
+  requestCurrent: ({ tabId, pageUrl }) => requestPreviewCurrent(tabId, { pageUrl }),
   emphasize: ({ tabId, ...request }) => requestPreviewEmphasis(tabId, request),
   activate: ({ tabId, ...request }) => requestPreviewActivation(tabId, request),
   isOpen: previewStateIsOpen,
@@ -1667,8 +1670,9 @@ async function pollFastSignalsOnce(): Promise<void> {
   await pullSignals(context.tabId, requestKey);
   if (previewStateIsOpen()) {
     // This is an extension-local structural-revision backstop. Content returns
-    // the retained projection when its bridge has not changed, so the tick does
-    // not rebuild geometry or touch remote authority.
+    // only the retained projection identity while its bridge is unchanged; a
+    // newer identity triggers one full row adoption without polling geometry or
+    // touching remote authority.
     await ensurePreviewProjection(context, requestKey);
     await ensurePreviewInteractionReady(context, requestKey);
   }
@@ -2383,6 +2387,14 @@ function requestPreviewProjection(
 ): Promise<PreviewProjection | null> {
   return requestTypedPreviewContent(tabId, (bus) =>
     bus.request("preview.project", request, { target: "content" }));
+}
+
+function requestPreviewCurrent(
+  tabId: number,
+  request: PreviewCurrentRequest,
+): Promise<PreviewProjectionIdentity | null> {
+  return requestTypedPreviewContent(tabId, (bus) =>
+    bus.request("preview.current", request, { target: "content" }));
 }
 
 function requestPreviewEmphasis(

@@ -1,7 +1,9 @@
 import type {
+  PreviewCurrentRequest,
   PreviewEmphasizeRequest,
   PreviewProjectRequest,
   PreviewProjection,
+  PreviewProjectionIdentity,
   PreviewTargetRequest,
   PreviewTargetResponse,
 } from "../domain/schema/preview";
@@ -9,6 +11,7 @@ import type { SelectorSet } from "../storage/config";
 
 export type PreviewProjectionEngine = Readonly<{
   projectPreview(pageUrl: string, selectors: SelectorSet): PreviewProjection;
+  currentPreviewProjection(): PreviewProjection | null;
   retirePreviewProjection(): void;
   emphasizePreviewRow(projectionId: string, rowId: string, active: boolean): boolean;
   activatePreviewRow(projectionId: string, rowId: string): boolean;
@@ -27,6 +30,20 @@ function pageMatches(currentPageUrl: string, requestedPageUrl: string): boolean 
 
 export function createPreviewController(options: PreviewControllerOptions) {
   return {
+    current(request: PreviewCurrentRequest): PreviewProjectionIdentity | null {
+      if (!pageMatches(options.currentPageUrl(), request.pageUrl)) {
+        return null;
+      }
+      const projection = options.currentEngine()?.currentPreviewProjection() ?? null;
+      if (!projection || projection.pageUrl !== request.pageUrl) {
+        return null;
+      }
+      return {
+        projectionId: projection.projectionId,
+        revision: projection.revision,
+        pageUrl: projection.pageUrl,
+      };
+    },
     project(request: PreviewProjectRequest): PreviewProjection {
       if (!pageMatches(options.currentPageUrl(), request.pageUrl)) {
         throw new Error("Preview pageUrl does not match the active document");

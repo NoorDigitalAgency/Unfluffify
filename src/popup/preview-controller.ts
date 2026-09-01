@@ -1,5 +1,6 @@
 import type {
   PreviewProjection,
+  PreviewProjectionIdentity,
   PreviewTargetResponse,
 } from "../domain/schema/preview";
 import type { PopupSelectorList } from "./organ/machine";
@@ -24,6 +25,10 @@ export type PopupPreviewControllerPorts = Readonly<{
     pageUrl: string;
     selectors: PopupSelectorList;
   }>): Promise<PreviewProjection | null>;
+  requestCurrent(input: Readonly<{
+    tabId: number;
+    pageUrl: string;
+  }>): Promise<PreviewProjectionIdentity | null>;
   emphasize(input: Readonly<{
     tabId: number;
     pageUrl: string;
@@ -151,6 +156,40 @@ export function createPopupPreviewController(
     return { operationEpoch, projection, selectors: requestedSelectors };
   };
 
+  const retainedSelectors = (
+    owner: PopupPreviewOwner,
+    selectors?: PopupSelectorList,
+  ): PopupSelectorList | null => adoptedSelectorAuthority && sameOwner(adoptedSelectorAuthority.owner, owner)
+    ? adoptedSelectorAuthority.selectors
+    : selectors ?? null;
+
+  const retainedIdentityStatus = async (
+    owner: PopupPreviewOwner,
+  ): Promise<"current" | "changed" | "stale"> => {
+    const current = ports.currentProjection();
+    if (!current) {
+      return "changed";
+    }
+    const operationEpoch = ++requestEpoch;
+    const identity = await ports.requestCurrent({ tabId: owner.tabId, pageUrl: owner.pageUrl });
+    if (
+      !ports.isOpen() ||
+      !ports.isCurrent(owner) ||
+      operationEpoch !== requestEpoch
+    ) {
+      return "stale";
+    }
+    const retained = ports.currentProjection();
+    return identity !== null &&
+      retained !== null &&
+      identity.pageUrl === owner.pageUrl &&
+      retained.pageUrl === identity.pageUrl &&
+      retained.projectionId === identity.projectionId &&
+      identity.revision <= retained.revision
+      ? "current"
+      : "changed";
+  };
+
   const adoptCandidate = (
     candidate: PreviewProjectionCandidate,
     owner: PopupPreviewOwner,
@@ -214,11 +253,21 @@ export function createPopupPreviewController(
     owner: PopupPreviewOwner,
     selectors?: PopupSelectorList,
   ): Promise<PreviewProjection | null> => {
-    const retained = adoptedSelectorAuthority && sameOwner(adoptedSelectorAuthority.owner, owner)
-      ? adoptedSelectorAuthority.selectors
-      : selectors;
+    const retained = retainedSelectors(owner, selectors);
     if (!retained) {
       return null;
+    }
+    const canProbeRetainedIdentity =
+      adoptedSelectorAuthority !== null &&
+      sameOwner(adoptedSelectorAuthority.owner, owner);
+    if (canProbeRetainedIdentity) {
+      const identityStatus = await retainedIdentityStatus(owner);
+      if (identityStatus === "current") {
+        return ports.currentProjection();
+      }
+      if (identityStatus === "stale") {
+        return null;
+      }
     }
     const candidate = await requestCandidate(owner, retained);
     return candidate ? adoptCandidate(candidate, owner) : null;
@@ -233,7 +282,14 @@ export function createPopupPreviewController(
     }
     // Keep the last truthful list visible until its replacement is ready. A
     // transient receiver delay must not flash a false empty-state to the user.
-    await project(owner);
+    const selectors = retainedSelectors(owner);
+    if (!selectors) {
+      return;
+    }
+    const candidate = await requestCandidate(owner, selectors);
+    if (candidate) {
+      adoptCandidate(candidate, owner);
+    }
     ports.onChange();
   };
 

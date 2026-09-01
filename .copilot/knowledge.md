@@ -754,3 +754,16 @@ painted" decision from the replaced document.
   immediate and growth waits for the stable trailing edge. Never pass
   `allowExpansion:true` from verification, or a poll/authority collision can
   visibly expand the device in the middle of a resize burst.
+- R21 RETAINED PREVIEW CADENCE: an open Content List fast tick is an identity
+  probe, not a repaint loop. `preview.current` returns only the strict nullable
+  `{pageUrl, projectionId, revision}` identity from an already-existing content
+  engine; it never ensures an engine, builds rows, or renders. The popup requests
+  full `preview.project` rows only when that identity is absent or changed, and
+  fences identity replies as `current`, `changed`, or `stale` so an older probe
+  cannot supersede newer same-owner work. Content structural/presentation
+  refresh remains the producer: it rebuilds and repaints the active projection
+  exactly once, after which the popup adopts the newer revision. An identical
+  active `projectPreview` request must return the retained object with zero row
+  walk, geometry read, overlay mutation, or paint-index rebuild. Explicit stale-
+  target recovery deliberately bypasses the identity shortcut and requests one
+  authoritative full projection while retaining the last truthful list.

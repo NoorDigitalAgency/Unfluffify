@@ -99,6 +99,23 @@ describe("corrective messaging application contracts", () => {
     });
     expect(applicationContract.commands["preview.project"].request.safeParse({ pageUrl: projection.pageUrl }).success)
       .toBe(false);
+    expect(applicationContract.commands["preview.current"].request.parse({
+      pageUrl: projection.pageUrl,
+    })).toEqual({ pageUrl: projection.pageUrl });
+    expect(applicationContract.commands["preview.current"].response.parse({
+      projectionId: projection.projectionId,
+      revision: projection.revision,
+      pageUrl: projection.pageUrl,
+    })).toEqual({
+      projectionId: projection.projectionId,
+      revision: projection.revision,
+      pageUrl: projection.pageUrl,
+    });
+    expect(applicationContract.commands["preview.current"].response.parse(null)).toBeNull();
+    expect(applicationContract.commands["preview.current"].response.safeParse({
+      ...projection,
+      rows: undefined,
+    }).success).toBe(false);
     expect(applicationContract.commands["preview.emphasize"].request.parse({
       pageUrl: projection.pageUrl,
       projectionId: projection.projectionId,

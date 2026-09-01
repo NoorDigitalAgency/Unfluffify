@@ -54,6 +54,18 @@ export const PreviewProjectRequestSchema = z.object({
   selectors: SelectorSetSchema,
 });
 
+export const PreviewCurrentRequestSchema = z.object({
+  pageUrl: z.string().url(),
+});
+
+export const PreviewProjectionIdentitySchema = PreviewProjectionSchema.pick({
+  projectionId: true,
+  revision: true,
+  pageUrl: true,
+}).strict();
+
+export const PreviewCurrentResponseSchema = PreviewProjectionIdentitySchema.nullable();
+
 export const PreviewTargetRequestSchema = z.object({
   pageUrl: z.string().url(),
   projectionId: z.string().min(1),
@@ -74,6 +86,8 @@ export type PreviewTargetStatus = z.infer<typeof PreviewTargetStatusSchema>;
 export type PreviewRow = z.infer<typeof PreviewRowSchema>;
 export type PreviewProjection = z.infer<typeof PreviewProjectionSchema>;
 export type PreviewProjectRequest = z.infer<typeof PreviewProjectRequestSchema>;
+export type PreviewCurrentRequest = z.infer<typeof PreviewCurrentRequestSchema>;
+export type PreviewProjectionIdentity = z.infer<typeof PreviewProjectionIdentitySchema>;
 export type PreviewTargetRequest = z.infer<typeof PreviewTargetRequestSchema>;
 export type PreviewEmphasizeRequest = z.infer<typeof PreviewEmphasizeRequestSchema>;
 export type PreviewTargetResponse = z.infer<typeof PreviewTargetResponseSchema>;

@@ -4880,6 +4880,7 @@ export default defineContentScript({
       handleUrlChanged();
     });
     bus.onCommand("command.dispatch", (command) => createContentRouter().dispatch(command));
+    bus.onCommand("preview.current", (request) => previewController.current(request));
     bus.onCommand("preview.project", (request) => previewController.project(request));
     bus.onCommand("preview.emphasize", (request) => previewController.emphasize(request));
     bus.onCommand("preview.activate", (request) => previewController.activate(request));

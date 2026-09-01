@@ -762,6 +762,7 @@ describe("C4 rewrite content entrypoints", () => {
     const clearHover = vi.fn();
     const engine = {
       projectPreview: vi.fn(() => activeProjection),
+      currentPreviewProjection: vi.fn(() => activeProjection),
       retirePreviewProjection: vi.fn(() => {
         activeProjection = reopenedProjection;
         clearHover();
@@ -780,6 +781,7 @@ describe("C4 rewrite content entrypoints", () => {
     };
     const nextEngine = {
       projectPreview: vi.fn(() => nextProjection),
+      currentPreviewProjection: vi.fn(() => nextProjection),
       retirePreviewProjection: vi.fn(),
       emphasizePreviewRow: vi.fn(() => false),
       activatePreviewRow: vi.fn(() => false),
@@ -885,6 +887,23 @@ describe("C4 rewrite content entrypoints", () => {
       "closed-shadow",
     ]);
     expect(engine.projectPreview).toHaveBeenCalledWith(pageUrl, selectors);
+
+    const currentProjection = await dispatchTypedContentCommand(listener, "preview.current", { pageUrl });
+    expect(currentProjection).toMatchObject({
+      ok: true,
+      payload: {
+        projectionId: projection.projectionId,
+        revision: projection.revision,
+        pageUrl,
+      },
+    });
+    expect(engine.currentPreviewProjection).toHaveBeenCalledOnce();
+
+    const wrongPageCurrent = await dispatchTypedContentCommand(listener, "preview.current", {
+      pageUrl: "https://example.com/stale",
+    });
+    expect(wrongPageCurrent).toMatchObject({ ok: true, payload: null });
+    expect(engine.currentPreviewProjection).toHaveBeenCalledOnce();
 
     const shieldTarget = {
       closest: vi.fn((selector: string) => selector === '[data-uf-extension-ui="true"]'

@@ -27,6 +27,8 @@ import {
 } from "../storage/config";
 import { MarkRowSchema } from "../domain/schema/marking";
 import {
+  PreviewCurrentRequestSchema,
+  PreviewCurrentResponseSchema,
   PreviewEmphasizeRequestSchema,
   PreviewProjectRequestSchema,
   PreviewProjectionSchema,
@@ -227,6 +229,10 @@ export const applicationContract = defineContract({
     "preview.project": {
       request: PreviewProjectRequestSchema,
       response: PreviewProjectionSchema,
+    },
+    "preview.current": {
+      request: PreviewCurrentRequestSchema,
+      response: PreviewCurrentResponseSchema,
     },
     "preview.emphasize": {
       request: PreviewEmphasizeRequestSchema,

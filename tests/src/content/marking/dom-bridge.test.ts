@@ -1807,6 +1807,54 @@ describe("P6 DOM bridge", () => {
     expect(engine.activatePreviewRow(cycleTwo.projectionId, rowId)).toBe(true);
   });
 
+  it("keeps retained Preview projection paint-idle until a material bridge refresh", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const target = new FakeElement("P", rect(0, 20, 120, 20), "Stable target");
+    for (const element of [root, target]) element.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(target);
+    const renderer = createRendererTestSeam();
+    const engine = createMarkingEngine(root as unknown as Element, {
+      instrumentation: { createRenderer: renderer.createRenderer },
+    });
+    const selectors = { inclusionSelectors: ["p"], exclusionSelectors: [] };
+
+    const initial = engine.projectPreview("https://example.com/page", selectors);
+    const geometryReadsAfterInitial = target.rectReadCount + target.clientRectReadCount;
+    expect(renderer.silentRender).toHaveBeenCalledTimes(1);
+
+    const retained = engine.projectPreview("https://example.com/page", selectors);
+    expect(retained).toBe(initial);
+    expect(renderer.silentRender).toHaveBeenCalledTimes(1);
+    expect(target.rectReadCount + target.clientRectReadCount).toBe(geometryReadsAfterInitial);
+
+    const inserted = new FakeElement("P", rect(0, 50, 120, 20), "Inserted target");
+    inserted.ownerDocument = doc;
+    root.appendChild(inserted);
+    engine.refresh();
+    const refreshed = engine.currentPreviewProjection();
+    expect(refreshed?.revision).toBeGreaterThan(initial.revision);
+    expect(refreshed?.rows.some((row) => row.text === "Inserted target")).toBe(true);
+    expect(renderer.silentRender).toHaveBeenCalledTimes(2);
+
+    expect(engine.projectPreview("https://example.com/page", selectors)).toBe(refreshed);
+    expect(renderer.silentRender).toHaveBeenCalledTimes(2);
+
+    doc.hits = [target, root];
+    const mutable = engine.resolveAtPoint(10, 25, "exclude");
+    expect(mutable?.xpath).toBe("/main[1]/p[1]");
+    expect(engine.toggle(mutable!, "exclude")).toBe(true);
+    expect(engine.currentPreviewProjection()).toBeNull();
+    const changed = engine.projectPreview("https://example.com/page", selectors);
+    expect(changed.revision).toBeGreaterThan(refreshed!.revision);
+    expect(renderer.silentRender).toHaveBeenCalledTimes(3);
+    expect(engine.projectPreview("https://example.com/page", selectors)).toBe(changed);
+    expect(renderer.silentRender).toHaveBeenCalledTimes(3);
+    engine.dispose();
+  });
+
   it("rebinds active preview hover after XPath rebase and forgets it when the row disappears", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
