@@ -2238,7 +2238,6 @@ export function startRewriteBackground(): void {
             status: "integrity_shrink" as const,
             config: snapshot,
             renderMode: applied.renderMode,
-            ...(applied.pendingRenderMode ? { pendingRenderMode: applied.pendingRenderMode } : {}),
             renderModeSource: "backend" as const,
             reason: applied.integrityWarning.message,
           };
@@ -2247,7 +2246,6 @@ export function startRewriteBackground(): void {
           status: "ok" as const,
           config: snapshot,
           ...(applied.renderMode ? { renderMode: applied.renderMode } : {}),
-          ...(applied.pendingRenderMode ? { pendingRenderMode: applied.pendingRenderMode } : {}),
           renderModeSource: "backend" as const,
         };
       }
@@ -2258,12 +2256,15 @@ export function startRewriteBackground(): void {
           source: "local" as const,
         };
       })();
+      const nonAuthoritativePendingRenderMode = "pendingRenderMode" in applied && (
+        applied.pendingRenderMode === "rendered" || applied.pendingRenderMode === "static"
+      ) ? applied.pendingRenderMode : undefined;
       return {
         status: result.status,
         httpStatus: result.httpStatus,
         ...(applied.renderMode ? { renderMode: applied.renderMode } : {}),
-        ...("pendingRenderMode" in applied && applied.pendingRenderMode
-          ? { pendingRenderMode: applied.pendingRenderMode }
+        ...(nonAuthoritativePendingRenderMode
+          ? { pendingRenderMode: nonAuthoritativePendingRenderMode }
           : {}),
         renderModeSource: applied.source,
       };

@@ -394,24 +394,16 @@ export function createRewriteBackgroundServices(input: Readonly<{
           }
           if (outcome.status === "ok") {
             const stored = await configRepo.load(environmentKey, siteId);
-            const existingLocal = await localPropertyRepo.load(environmentKey, siteId);
             const adoption = assessAuthoritativeSnapshot(
               stored.ok ? stored.value : null,
               outcome.config,
               { environmentKey, siteId },
             );
-            const draft = existingLocal.ok ? existingLocal.value?.pendingRenderModeDraft : undefined;
-            const retainedDraft = draft &&
-              draft.basePropertyRevision === adoption.snapshot.propertyRevision &&
-              draft.baseRenderModeUpdatedAt === adoption.snapshot.renderModeUpdatedAt
-              ? draft
-              : undefined;
             await configRepo.save(adoption.snapshot);
             await localPropertyRepo.save({
               environmentKey,
               siteId,
               backendConfigPresent: true,
-              ...(retainedDraft ? { pendingRenderModeDraft: retainedDraft } : {}),
               ...(adoption.integrityWarning ? {
                 integrityWarning: {
                   ...adoption.integrityWarning,
@@ -423,7 +415,6 @@ export function createRewriteBackgroundServices(input: Readonly<{
             });
             return {
               renderMode: adoption.snapshot.renderMode,
-              ...(retainedDraft ? { pendingRenderMode: retainedDraft.renderMode } : {}),
               source: "backend" as const,
               snapshot: adoption.snapshot,
               integrityWarning: adoption.integrityWarning,

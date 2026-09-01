@@ -144,20 +144,22 @@ describe("local render-mode persistence", () => {
       .resolves.toEqual({ stored: true, reason: "pending-save" });
   });
 
-  it("restores a draft on the same authority and clears it on replacement", async () => {
+  it("clears a draft on every successful backend replacement, including an identical revision", async () => {
     const svc = services();
     await svc.property.applyBackendLoad(ENVIRONMENT_KEY, SITE_ID, { status: "ok", config: BACKEND_CONFIG });
     await svc.property.rememberRenderMode(ENVIRONMENT_KEY, SITE_ID, "static");
 
-    await expect(svc.property.applyBackendLoad(
+    const identical = await svc.property.applyBackendLoad(
       ENVIRONMENT_KEY,
       SITE_ID,
       { status: "ok", config: BACKEND_CONFIG },
-    )).resolves.toMatchObject({
-      renderMode: "rendered",
-      pendingRenderMode: "static",
-      source: "backend",
-    });
+    );
+    expect(identical).toMatchObject({ renderMode: "rendered", source: "backend" });
+    expect(identical).not.toHaveProperty("pendingRenderMode");
+    let local = await svc.repos.localPropertyRepo.load(ENVIRONMENT_KEY, SITE_ID);
+    expect(local.ok ? local.value?.pendingRenderModeDraft : null).toBeUndefined();
+
+    await svc.property.rememberRenderMode(ENVIRONMENT_KEY, SITE_ID, "static");
 
     const replacement = {
       ...BACKEND_CONFIG,
@@ -171,8 +173,21 @@ describe("local render-mode persistence", () => {
     );
     expect(applied).toMatchObject({ renderMode: "rendered", source: "backend" });
     expect(applied).not.toHaveProperty("pendingRenderMode");
-    const local = await svc.repos.localPropertyRepo.load(ENVIRONMENT_KEY, SITE_ID);
+    local = await svc.repos.localPropertyRepo.load(ENVIRONMENT_KEY, SITE_ID);
     expect(local.ok ? local.value?.pendingRenderModeDraft : null).toBeUndefined();
+  });
+
+  it("keeps a pending draft only when a load outcome is non-authoritative", async () => {
+    for (const status of ["auth_error", "invalid", "error"] as const) {
+      const svc = services();
+      await svc.property.applyBackendLoad(ENVIRONMENT_KEY, SITE_ID, { status: "ok", config: BACKEND_CONFIG });
+      await svc.property.rememberRenderMode(ENVIRONMENT_KEY, SITE_ID, "static");
+
+      await expect(svc.property.applyBackendLoad(ENVIRONMENT_KEY, SITE_ID, { status }))
+        .resolves.toMatchObject({ pendingRenderMode: "static", source: "local" });
+      const local = await svc.repos.localPropertyRepo.load(ENVIRONMENT_KEY, SITE_ID);
+      expect(local.ok ? local.value?.pendingRenderModeDraft : null).toMatchObject({ renderMode: "static" });
+    }
   });
 });
 

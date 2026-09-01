@@ -2160,3 +2160,164 @@ Still pending before R11 conformance: clean committed full P25, normal push and
 `0/0` proof, exact production headed DPJ first activation with no retry once its
 editor lock is naturally available, the remaining eligible candidate matrix,
 and independent criterion-by-criterion adjudication.
+
+# EL-02-R12 — Literal Load replacement and readiness-fenced Content List proof
+
+## 1. Entering conformance findings
+
+R11 commit `88f35b813c33b539c6582f447d1ccf513431bbd7` is synchronized
+with `origin/re-write` and passes the full automated gate set. Exact production
+headed DPJ evidence now passes both Render Inspection modes and the first
+marking activation on its first attempt, proving R11's page-world acquisition
+repair. The guarded run made zero Save or publication attempts.
+
+The later safe workflow exposed two independent R12 findings:
+
+| Finding | Severity | Exact evidence and owner |
+| --- | --- | --- |
+| `EL-02-F017` | High | `applyBackendLoad` conditionally carries `pendingRenderModeDraft` across a successful 200 Load when the revision identity is unchanged. The approved contract requires every successful Load to complete-replace local property state with no draft, session row, suggestion, or pre-Load mutable state preserved beside it. |
+| `EL-02-F018` | Medium | Content List rows first painted 41 ms before the exact content-organ interaction acknowledgement. The live workflow sampled that deliberate preparation gap, classified all 96 disabled rows as terminally untargetable, and immediately tried Exit. Three-second frame sampling later proved one stable Preview root and Exit control with 30 enabled rows; one settled trusted Exit click succeeded. The gate conflates projection first paint with interaction readiness and its element-owned click witness can lose the diagnostic if a control is replaced between arming and dispatch. |
+
+The DPJ AI request contained one page because the complete authoritative DPJ
+snapshot currently contains exactly one persisted page (`/`, homepage). The
+current live page correctly replaced that stored occurrence, so no persisted
+page or HTML was omitted and the stateless whole-property corpus contract did
+not fail.
+
+## 2. Locked decisions
+
+- A validated backend 200 is a literal atomic replacement. It always clears a
+  pending local render-mode draft, even if property revision and render-mode
+  timestamp happen to match the prior baseline. Transport/auth/validation
+  failures remain non-authoritative and may leave the pre-existing local state
+  untouched. The documented first-configuration render-mode exception remains
+  limited to an authoritative 404.
+- Cached projection of an already adopted configuration is not another remote
+  Load. It may expose an active-session pending choice until explicit Refresh,
+  worker recovery, or the mandatory post-Save remote Load replaces it.
+- Content List projection first paint and target interaction readiness are
+  separate facts. First paint retains its <=1-second performance criterion;
+  physical row routing begins only after the Preview root reports its exact
+  interaction-ready acknowledgement.
+- Trusted activation remains one real browser input per configured attempt. Its
+  witness belongs at document capture scope and accepts only an event whose
+  composed path contains the exact current logical control (or its associated
+  label). This preserves proof across a same-control React replacement without
+  accepting an unrelated click or synthesizing success.
+- No endpoint, payload schema, permission, selector, marking, consent, Save,
+  stateless-AI, or publication contract changes are allowed.
+
+## 3. Implementation phases
+
+### EL-02-R12-01 — Complete-replace backend adoption
+
+**Files:** `src/background/services.ts`,
+`tests/src/background/property-authority.test.ts`, and authority documentation.
+
+1. Remove successful-200 retention and projection of
+   `pendingRenderModeDraft` from `applyBackendLoad`.
+2. Store only backend-presence metadata plus any independently detected
+   integrity warning after adoption; the parsed `ConfigSnapshot` is the sole
+   property configuration baseline.
+3. Prove identical-revision and advanced-revision 200 responses both clear the
+   draft, while transport/auth/invalid outcomes preserve existing recovery
+   state and a 404 retains only its documented first-configuration render mode.
+
+### EL-02-R12-02 — Readiness-fenced Content List evidence
+
+**Files:** `scripts/performance/p25/workflow-probes.mjs`,
+`scripts/performance/p25-live-comparison.mjs`,
+`tests/p25-workflow-probes.test.ts`, and the ignored safe live wrapper.
+
+1. Capture Preview `aria-busy`, exact interaction readiness, and enabled-row
+   count without changing public production UI.
+2. Preserve row first-paint timing, then wait separately for the exact
+   interaction-ready terminal before any row-to-page or page-to-row probe.
+3. Move trusted click witnessing to document capture scope, bind it to the
+   current logical control and associated label through the composed path, and
+   clean the witness after every terminal path.
+4. Add regression coverage for projection-ready/targeting-pending separation,
+   same-control replacement, unrelated-click rejection, and unchanged strict
+   one-dispatch evidence.
+
+### EL-02-R12-03 — Gates and resumed headed workflow
+
+1. Run focused property-authority and workflow-probe suites, then `pnpm check`,
+   `pnpm verify`, debug build, P17, and clean full P25.
+2. Review the exact diff, commit, push, refresh the graph if available, and
+   prove `HEAD == @{u}` with ahead/behind `0/0` and a clean worktree.
+3. Launch the exact production commit through repository `live-browser`; rerun
+   guarded DPJ from a fresh marking session. Require separate first-paint and
+   ready acknowledgements, both two-way routes, settled Exit, freshness,
+   Discard, silent posture, fade/restore, and zero Save/publication attempts.
+4. Resume the remaining externally available candidate matrix, then perform an
+   independent criterion-by-criterion expert-check. Any failed criterion opens
+   R13; only a complete pass may approve the rewrite.
+
+## 4. Acceptance criteria
+
+- `EL02-R12-AC-01` Every successful backend 200 clears all pending local
+  render-mode draft state and adopts exactly the returned complete snapshot;
+  failed/non-authoritative reads do not masquerade as replacement.
+- `EL02-R12-AC-02` Content List first paint remains measured independently and
+  <=1 second, while row interaction is attempted only after exact readiness.
+- `EL02-R12-AC-03` A trusted activation witness survives same-logical-control
+  replacement but rejects unrelated or untrusted clicks and never fabricates a
+  successful event.
+- `EL02-R12-AC-04` Focused/full/build/P17/P25 gates pass on the synchronized
+  source, and guarded DPJ completes every applicable safe workflow stage with
+  zero Save/publication attempts.
+- `EL02-R12-AC-05` Save remains one current-page commit followed by a distinct
+  complete-replace Load, and every stateless AI request still overlays the live
+  current page onto every persisted authoritative page/HTML occurrence.
+- `EL02-R12-AC-06` Independent cumulative conformance finds no unresolved R11
+  or R12 regression before the candidate matrix proceeds.
+
+## 5. Todo chain
+
+1. `el02-r12-load-complete-replace`
+2. `el02-r12-content-list-readiness` → 1
+3. `el02-r12-focused-regressions` → 2
+4. `el02-r12-full-gates` → 3
+5. `el02-r12-review-push` → 4
+6. `el02-r12-headed-dpj` → 5
+7. `el02-r12-candidate-matrix` → 6
+8. `el02-r12-conformance` → 7
+
+## 6. Implementation checkpoint — prepublication
+
+R12 now treats every validated 200 Load as literal replacement: it adopts the
+returned complete snapshot and writes backend-presence/integrity metadata only,
+never a pending render-mode draft. Identical-revision and advanced-revision
+loads both clear the draft; auth, transport, and validation failures remain
+non-authoritative and preserve recovery posture. Cached projection before a new
+remote read remains distinct from Load.
+
+The P25 popup probe now records Content List first paint separately from exact
+interaction readiness. Rewrite readiness is the Preview root's
+`aria-busy=false`; legacy receives only the narrow enabled-row fallback needed
+for implementation-neutral comparison. Row routing cannot begin during the
+preparation gap. Trusted control activation is witnessed at document capture
+scope, but only a trusted event whose current composed path contains the exact
+logical control or associated label is accepted; unrelated and synthetic
+events remain rejected and the witness is cleaned on every terminal path.
+
+Current exact-worktree evidence:
+
+- Focused property-authority/workflow-probe suite: 2 files, 64 tests PASS.
+- `pnpm check`: PASS.
+- `pnpm verify`: 147 files and 1,578 tests PASS; production build and all seven
+  generated-manifest checks PASS.
+- `pnpm build:debug`: PASS.
+- P17 smoke: 19/19 PASS.
+- Dirty-source P25 smoke: all seven P14/P15/P16/P17/P18/P20/P23 children PASS.
+- The first sandboxed verify/P17 attempts failed only because loopback/browser
+  infrastructure was denied (`listen EPERM` / Playwright CLI exit); the same
+  canonical commands passed with their required local execution permission.
+- Codebase graph access remains externally unavailable because the MCP
+  transport closes; targeted source/test inspection is the documented fallback.
+
+No Save, Load request, AI run, takeover, publication, release, or deployment was
+performed by R12 validation. The existing R11 headed session proved first
+activation and zero Save/publication attempts; a fresh exact-commit browser run
+remains required after review, commit, push, and clean P25.

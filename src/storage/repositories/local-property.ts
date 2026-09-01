@@ -13,8 +13,9 @@ import { invalidStoredValue, parseStoredValue } from "./key-value";
  *  live, and re-asking on every popup open would be the alternative.
  *
  *  A backend-backed property may retain one non-authoritative render-mode
- *  draft. Its baseline identity makes a later authoritative replacement clear
- *  it rather than replaying a choice made against an older configuration.
+ *  draft only between remote authority reads. Its baseline identity fences
+ *  cached projection, while every later successful backend Load clears it and
+ *  complete-replaces local property state regardless of revision equality.
  *
  *  `backendConfigPresent` is stored rather than held in memory so the gate
  *  survives a service-worker restart: without it a later write could not tell

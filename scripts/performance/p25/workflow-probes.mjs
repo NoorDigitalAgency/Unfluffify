@@ -238,8 +238,14 @@ export async function captureWorkflowPopupState(session) {
       };
     };
     const rowButtons = [...document.querySelectorAll('.preview-sidebar__item-button')];
+    const enabledRowCount = rowButtons.filter((candidate) =>
+      candidate instanceof HTMLButtonElement && !candidate.disabled).length;
     const active = document.activeElement;
     const previewRoot = document.querySelector('.preview-sidebar');
+    const previewAriaBusy = previewRoot?.getAttribute('aria-busy') ?? null;
+    const previewInteractionReady = previewRoot !== null && (
+      previewAriaBusy === 'false' || (previewAriaBusy === null && enabledRowCount > 0)
+    );
     const domFocusedPreviewButton = active?.matches?.('.preview-sidebar__item-button') ? active : null;
     const selectedPreviewButton = document.querySelector('.preview-sidebar__item--active .preview-sidebar__item-button');
     const activePreviewButton = domFocusedPreviewButton || selectedPreviewButton;
@@ -271,6 +277,10 @@ export async function captureWorkflowPopupState(session) {
       preview: {
         open: previewRoot !== null,
         rowCount: rowButtons.length,
+        enabledRowCount,
+        ariaBusy: previewAriaBusy,
+        interactionReady: previewInteractionReady,
+        interactionReadySource: previewAriaBusy === null ? 'enabled-row-fallback' : 'aria-busy',
         firstRowName: rowName(rowButtons[0]),
         focusedRowName: rowName(activePreviewButton),
         domFocusedRowName: rowName(domFocusedPreviewButton),
@@ -353,82 +363,111 @@ export async function physicalActivatePopupControl(
   const readyAtEpochMs = Date.now();
   const activationToken = `${id}:${readyAtEpochMs}:${Math.random().toString(16).slice(2)}`;
   const proofKey = "__ufP25TrustedActivationProof";
+  const cleanupKey = "__ufP25TrustedActivationCleanup";
   const dispatchLimit = trustedActivation
     ? Math.max(1, Math.floor(Number(maxDispatchAttempts) || 1))
     : 1;
   const dispatches = [];
   let activationProof = null;
   let dispatchedAtEpochMs = null;
-  for (let attempt = 1; attempt <= dispatchLimit; attempt += 1) {
-    let dispatchRect = before.rect;
-    if (trustedActivation) {
-      if (attempt > 1) {
-        await session.send("Page.bringToFront");
-      }
-      const armed = await session.evaluate(`(() => {
-        const element = document.getElementById(${JSON.stringify(id)}) || (${JSON.stringify(fallbackSelector)} ? document.querySelector(${JSON.stringify(fallbackSelector)}) : null);
-        if (!(element instanceof HTMLElement) || element.disabled) return null;
-        const rect = element.getBoundingClientRect();
-        const x = rect.left + rect.width / 2;
-        const y = rect.top + rect.height / 2;
-        const hit = document.elementFromPoint(x, y);
-        const label = element.closest('label') || ('labels' in element ? element.labels?.[0] : null);
-        const hitMatches = hit === element || Boolean(hit && element.contains(hit)) || Boolean(hit && label?.contains(hit));
-        if (rect.width <= 0 || rect.height <= 0 || !hitMatches) return null;
-        const token = ${JSON.stringify(activationToken)};
-        const proofKey = ${JSON.stringify(proofKey)};
-        element.addEventListener('click', (event) => {
-          globalThis[proofKey] = {
-            token,
-            trusted: event.isTrusted === true,
-            detail: event.detail,
-            atEpochMs: Date.now(),
-            targetId: event.target instanceof HTMLElement ? event.target.id : null,
+  try {
+    for (let attempt = 1; attempt <= dispatchLimit; attempt += 1) {
+      let dispatchRect = before.rect;
+      if (trustedActivation) {
+        if (attempt > 1) {
+          await session.send("Page.bringToFront");
+        }
+        const armed = await session.evaluate(`(() => {
+          const resolveControl = () => document.getElementById(${JSON.stringify(id)}) || (${JSON.stringify(fallbackSelector)} ? document.querySelector(${JSON.stringify(fallbackSelector)}) : null);
+          const element = resolveControl();
+          if (!(element instanceof HTMLElement) || element.disabled) return null;
+          const rect = element.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top + rect.height / 2;
+          const hit = document.elementFromPoint(x, y);
+          const label = element.closest('label') || ('labels' in element ? element.labels?.[0] : null);
+          const hitMatches = hit === element || Boolean(hit && element.contains(hit)) || Boolean(hit && label?.contains(hit));
+          if (rect.width <= 0 || rect.height <= 0 || !hitMatches) return null;
+          const token = ${JSON.stringify(activationToken)};
+          const proofKey = ${JSON.stringify(proofKey)};
+          const cleanupKey = ${JSON.stringify(cleanupKey)};
+          globalThis[cleanupKey]?.();
+          delete globalThis[proofKey];
+          const cleanup = () => {
+            document.removeEventListener('click', witness, true);
+            if (globalThis[cleanupKey] === cleanup) delete globalThis[cleanupKey];
           };
-        }, { capture: true, once: true });
-        return { rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height } };
-      })()`);
-      if (!armed?.rect) {
-        throw new Error(`Real popup control #${id} could not arm a trusted activation proof`);
+          const witness = (event) => {
+            const current = resolveControl();
+            if (!(current instanceof HTMLElement)) return;
+            const currentLabel = current.closest('label') || ('labels' in current ? current.labels?.[0] : null);
+            const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+            const target = event.target;
+            const matches = path.includes(current) || path.includes(currentLabel) ||
+              target === current || Boolean(target instanceof Node && current.contains(target)) ||
+              Boolean(target instanceof Node && currentLabel?.contains(target));
+            if (!matches || event.isTrusted !== true) return;
+            globalThis[proofKey] = {
+              token,
+              trusted: true,
+              detail: event.detail,
+              atEpochMs: Date.now(),
+              targetId: event.target instanceof HTMLElement ? event.target.id : null,
+              controlId: current.id || null,
+            };
+            cleanup();
+          };
+          document.addEventListener('click', witness, true);
+          globalThis[cleanupKey] = cleanup;
+          return { rect: { x: rect.left, y: rect.top, width: rect.width, height: rect.height } };
+        })()`);
+        if (!armed?.rect) {
+          throw new Error(`Real popup control #${id} could not arm a trusted activation proof`);
+        }
+        dispatchRect = armed.rect;
       }
-      dispatchRect = armed.rect;
-    }
-    const dispatched = Date.now();
-    dispatchedAtEpochMs ??= dispatched;
-    if (method === "keyboard") {
-      await session.evaluate(`(document.getElementById(${JSON.stringify(id)}) || (${JSON.stringify(fallbackSelector)} ? document.querySelector(${JSON.stringify(fallbackSelector)}) : null))?.focus()`);
-      await session.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
-      await session.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
-    } else {
-      const x = dispatchRect.x + dispatchRect.width / 2;
-      const y = dispatchRect.y + dispatchRect.height / 2;
-      await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
-      await session.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 });
-      await session.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 });
-    }
-    dispatches.push({ attempt, atEpochMs: dispatched });
-    if (!trustedActivation) {
-      break;
-    }
-    const acknowledgementDeadline = Date.now() + Math.max(0, Number(activationAckTimeoutMs) || 0);
-    do {
-      activationProof = await session.evaluate(`(() => {
-        const proof = globalThis[${JSON.stringify(proofKey)}];
-        return proof?.token === ${JSON.stringify(activationToken)} ? proof : null;
-      })()`);
+      const dispatched = Date.now();
+      dispatchedAtEpochMs ??= dispatched;
+      if (method === "keyboard") {
+        await session.evaluate(`(document.getElementById(${JSON.stringify(id)}) || (${JSON.stringify(fallbackSelector)} ? document.querySelector(${JSON.stringify(fallbackSelector)}) : null))?.focus()`);
+        await session.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+        await session.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
+      } else {
+        const x = dispatchRect.x + dispatchRect.width / 2;
+        const y = dispatchRect.y + dispatchRect.height / 2;
+        await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+        await session.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", buttons: 1, clickCount: 1 });
+        await session.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", buttons: 0, clickCount: 1 });
+      }
+      dispatches.push({ attempt, atEpochMs: dispatched });
+      if (!trustedActivation) {
+        break;
+      }
+      const acknowledgementDeadline = Date.now() + Math.max(0, Number(activationAckTimeoutMs) || 0);
+      do {
+        activationProof = await session.evaluate(`(() => {
+          const proof = globalThis[${JSON.stringify(proofKey)}];
+          return proof?.token === ${JSON.stringify(activationToken)} ? proof : null;
+        })()`);
+        if (activationProof?.trusted === true) {
+          break;
+        }
+        if (Date.now() < acknowledgementDeadline) {
+          await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+      } while (Date.now() < acknowledgementDeadline);
       if (activationProof?.trusted === true) {
         break;
       }
-      if (Date.now() < acknowledgementDeadline) {
-        await new Promise((resolve) => setTimeout(resolve, 20));
-      }
-    } while (Date.now() < acknowledgementDeadline);
-    if (activationProof?.trusted === true) {
-      break;
     }
-  }
-  if (trustedActivation && activationProof?.trusted !== true) {
-    throw new Error(`Real popup control #${id} did not receive a trusted activation after ${dispatches.length} attempts`);
+    if (trustedActivation && activationProof?.trusted !== true) {
+      throw new Error(`Real popup control #${id} did not receive a trusted activation after ${dispatches.length} attempts`);
+    }
+  } finally {
+    if (trustedActivation) {
+      await session.evaluate(`(() => { globalThis[${JSON.stringify(cleanupKey)}]?.(); })()`)
+        .catch(() => undefined);
+    }
   }
   return {
     method,
@@ -607,6 +646,12 @@ export async function physicalActivatePreviewPageTarget(session) {
   return { trustedPointer: true, target, dispatchedAt: new Date().toISOString() };
 }
 
+export function previewInteractionReadyForWorkflow(state) {
+  return state?.preview?.open === true &&
+    state.preview.rowCount > 0 &&
+    state.preview.interactionReady === true;
+}
+
 export async function waitForWorkflowPopupState(session, predicate, timeoutMs = 20_000) {
   const deadline = Date.now() + timeoutMs;
   let last = null;
@@ -764,6 +809,7 @@ export function validateFullWorkflowEvidence(workflow) {
   requireValue(workflow?.contentList?.firstPaintMs >= 0 && workflow.contentList.firstPaintMs <= 1_000, "content-list-first-paint");
   requireValue(workflow?.contentList?.openActivation?.method === "ai-auto-open", "content-list-ai-auto-open");
   requireValue(workflow?.contentList?.rowCount > 0, "content-list-empty");
+  requireValue(workflow?.contentList?.interactionReady === true && workflow?.contentList?.enabledRowCount > 0, "content-list-interaction-not-ready");
   requireValue(workflow?.contentList?.rowToPage?.trustedKeyboard === true && workflow.contentList.rowToPage.targetCorresponds === true, "content-list-row-to-page");
   requireValue(workflow?.contentList?.pageToRow?.trustedPointer === true && workflow.contentList.pageToRow.rowFocused === true && workflow.contentList.pageToRow.targetCorresponds === true, "content-list-page-to-row");
   requireValue(workflow?.initialAi?.success === true, "initial-ai-terminal-success");

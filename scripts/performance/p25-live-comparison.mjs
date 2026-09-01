@@ -63,6 +63,7 @@ import {
   physicalActivatePopupControl,
   physicalActivatePreviewPageTarget,
   physicalActivatePreviewRow,
+  previewInteractionReadyForWorkflow,
   popupControlIsActionable,
   popupRecoveryTransitioned,
   proveRequestedRenderMode,
@@ -1332,7 +1333,7 @@ async function runContentListWorkflow(popup, siteTarget, aiEvidence) {
   const openActivation = beforeOpen.preview.open
     ? { method: "ai-auto-open", before: beforeOpen, dispatchedAt: null }
     : await physicalActivatePopupControl(popup, "marking-preview", "pointer");
-  const firstPaint = await waitForWorkflowPopupState(
+  await waitForWorkflowPopupState(
     popup,
     (state) => state.preview.open && state.preview.rowCount > 0,
     20_000,
@@ -1340,13 +1341,22 @@ async function runContentListWorkflow(popup, siteTarget, aiEvidence) {
   const firstPaintMs = aiEvidence?.contentListAutoOpen?.opened && Number.isFinite(aiEvidence.contentListAutoOpen.firstPaintMs)
     ? aiEvidence.contentListAutoOpen.firstPaintMs
     : performance.now() - started;
+  const interactionReady = await waitForWorkflowPopupState(
+    popup,
+    previewInteractionReadyForWorkflow,
+    20_000,
+  );
+  const interactionReadyMs = performance.now() - started;
+  if (interactionReady.preview.enabledRowCount < 1) {
+    throw new Error(`Content List acknowledged interaction readiness without an actionable row: ${JSON.stringify(interactionReady.preview)}`);
+  }
   const site = await new CdpSession(siteTarget).connect();
   try {
     await site.send("Runtime.enable");
     await site.send("Page.enable");
     const beforeRowRoute = await captureSiteWorkflowPosture(site);
     const beforeFocusOwners = new Set(beforeRowRoute.focusOwners ?? []);
-    const rowActivation = await physicalActivatePreviewRow(popup, firstPaint.preview.rowCount > 1 ? 1 : 0);
+    const rowActivation = await physicalActivatePreviewRow(popup, interactionReady.preview.enabledRowCount > 1 ? 1 : 0);
     let afterRowRoute = null;
     let correlatedFocusTarget = null;
     const rowDeadline = Date.now() + 2_000;
@@ -1398,8 +1408,11 @@ async function runContentListWorkflow(popup, siteTarget, aiEvidence) {
     return {
       openActivation,
       firstPaintMs,
-      rowCount: firstPaint.preview.rowCount,
-      firstRowName: firstPaint.preview.firstRowName,
+      interactionReadyMs,
+      interactionReady: interactionReady.preview.interactionReady,
+      enabledRowCount: interactionReady.preview.enabledRowCount,
+      rowCount: interactionReady.preview.rowCount,
+      firstRowName: interactionReady.preview.firstRowName,
       rowToPage: {
         ...rowActivation,
         activatedRow: rowActivation.before,

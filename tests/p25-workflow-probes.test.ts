@@ -11,6 +11,7 @@ import {
   physicalActivatePopupControl,
   physicalActivatePreviewPageTarget,
   physicalActivatePreviewRow,
+  previewInteractionReadyForWorkflow,
   previewPageFocusCorresponds,
   popupControlIsActionable,
   popupRecoveryTransitioned,
@@ -37,6 +38,17 @@ describe("P25 production popup evidence", () => {
     expect(expression).toContain("Run AI again to update the selectors for the latest markings.");
     expect(expression).toContain("? 'production-title'");
     expect(expression).toContain("blockedReason: debugBlockedReason ?? blockedReasonFromTitle");
+    expect(expression).toContain("previewAriaBusy === 'false'");
+    expect(expression).toContain("enabledRowCount");
+  });
+
+  it("distinguishes projection first paint from exact Content List interaction readiness", () => {
+    expect(previewInteractionReadyForWorkflow({
+      preview: { open: true, rowCount: 96, enabledRowCount: 0, interactionReady: false },
+    })).toBe(false);
+    expect(previewInteractionReadyForWorkflow({
+      preview: { open: true, rowCount: 96, enabledRowCount: 30, interactionReady: true },
+    })).toBe(true);
   });
 });
 
@@ -211,9 +223,11 @@ describe("P25 physical popup activation", () => {
 
   it("retries a cross-target pointer dispatch only until a trusted click is observed", async () => {
     const sends: Array<{ method: string; params?: unknown }> = [];
+    const expressions: string[] = [];
     let released = 0;
     const session = {
       async evaluate(expression: string) {
+        expressions.push(expression);
         if (expression.includes("scrollIntoView")) {
           return {
             id: "preview-exit",
@@ -255,6 +269,11 @@ describe("P25 physical popup activation", () => {
     expect(evidence.trustedActivation).toMatchObject({ required: true, attempts: 2 });
     expect(sends.filter(({ method }) => method === "Input.dispatchMouseEvent")).toHaveLength(6);
     expect(sends.filter(({ method }) => method === "Page.bringToFront")).toHaveLength(2);
+    const armedExpression = expressions.find((expression) => expression.includes("addEventListener('click'"));
+    expect(armedExpression).toContain("document.addEventListener('click', witness, true)");
+    expect(armedExpression).toContain("event.composedPath()");
+    expect(armedExpression).toContain("const current = resolveControl()");
+    expect(armedExpression).toContain("!matches || event.isTrusted !== true");
   });
 
   it("never waits through an unrelated overlay", async () => {
@@ -635,6 +654,8 @@ function completeWorkflowEvidence() {
     contentList: {
       openActivation: { method: "ai-auto-open" },
       firstPaintMs: 120,
+      interactionReady: true,
+      enabledRowCount: 3,
       rowCount: 4,
       rowToPage: { trustedKeyboard: true, focusPainted: true, targetCorresponds: true },
       pageToRow: { trustedPointer: true, rowFocused: true, targetCorresponds: true },
@@ -657,7 +678,8 @@ describe("P25 full workflow fail-closed acceptance", () => {
   it("is wired into the real workflow, silent, and publication stages", () => {
     const harness = readFileSync(resolve(process.cwd(), "scripts/performance/p25-live-comparison.mjs"), "utf8");
     expect(harness).toContain("runMeasuredFullWorkflow({ popup: session, site: targets.site, guard, identity, options })");
-    expect(harness).toContain("await physicalActivatePreviewRow(popup, firstPaint.preview.rowCount > 1 ? 1 : 0)");
+    expect(harness).toContain("await waitForWorkflowPopupState(\n    popup,\n    previewInteractionReadyForWorkflow,");
+    expect(harness).toContain("await physicalActivatePreviewRow(popup, interactionReady.preview.enabledRowCount > 1 ? 1 : 0)");
     expect(harness).toContain("activatedRow: rowActivation.before");
     expect(harness).toContain("await physicalActivatePreviewPageTarget(site)");
     expect(harness).toContain("Content List page-to-row correlation did not terminalize; evidence=");
@@ -750,6 +772,7 @@ describe("P25 full workflow fail-closed acceptance", () => {
   it.each([
     ["Content List first paint", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.contentList.firstPaintMs = 1_001; }, "content-list-first-paint"],
     ["Content List AI auto-open", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.contentList.openActivation.method = "pointer"; }, "content-list-ai-auto-open"],
+    ["Content List interaction readiness", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.contentList.interactionReady = false; }, "content-list-interaction-not-ready"],
     ["page-to-row route", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.contentList.pageToRow.rowFocused = false; }, "content-list-page-to-row"],
     ["initial AI terminal success", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.initialAi.success = false; }, "initial-ai-terminal-success"],
     ["fresh AI terminal success", (value: ReturnType<typeof completeWorkflowEvidence>) => { value.freshAi.success = false; }, "fresh-ai-terminal-success"],
