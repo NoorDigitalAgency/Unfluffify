@@ -186,6 +186,7 @@ function renderPopup(): void {
     reactRoot?.render(
       <App
         presentation={popupStore.getPresentation()}
+        previewInteractionReady={true}
         view="marking"
         diagnostics={{
           ...EMPTY_POPUP_DIAGNOSTICS,
