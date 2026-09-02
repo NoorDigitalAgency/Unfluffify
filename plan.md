@@ -5582,5 +5582,34 @@ Repository `live-browser` production-build diagnostic evidence:
 - no AI, Save, takeover, Lynx, deployment, backend write, or production
   mutation occurred.
 
-Clean committed-source release gates, normal push/0:0 proof, a fresh exact-
-pushed headed matrix, and cumulative adjudication remain mandatory.
+Clean committed-source release evidence:
+
+- implementation checkpoint `ccde52ca87c9c1e0bc7b351928fb41df776dc172`
+  contains only the intended guardian, parser, fixture, regression, and plan
+  changes;
+- `pnpm verify`: passed with 149 test files and 1,680 tests, generated
+  page-world/icon checks, production build, and 7/7 manifest tests;
+- `pnpm build:debug`: passed;
+- P17 acceptance: 19/19 checks passed from a clean source set, artifact
+  `output/playwright/p17-preview/acceptance-2026-09-02T09-57-47-980Z.json`;
+- standalone P14 acceptance: all 192 scenarios passed with zero semantic,
+  budget, activation, mutation-pressure, or input-long-task failures, artifact
+  `output/playwright/p14-marking-performance/acceptance-2026-09-02T09-58-16-676Z.json`;
+- the first full P25 run was correctly rejected because one of sixteen strict
+  P14 relative-p95 comparisons missed by 3.98 ms: large marking mutation
+  stabilization was 329.9 ms against a 325.92 ms limit. The rewrite sample was
+  effectively unchanged from the immediately preceding passing standalone run
+  (330.4 ms); the paired legacy p95 moved from 316.5 to 310.4 ms. Every
+  semantic, absolute-budget, long-task, provenance, cleanup, and other strict
+  ratio check passed. No threshold or source changed; and
+- a fresh unchanged-source P25 rerun passed all seven required children with a
+  validated deterministic warm-up, complete ordering, retained child
+  artifacts, and zero failures, artifact
+  `output/playwright/p25-parity/acceptance-2026-09-02T10-30-21-845Z.json`.
+
+The rejected run remains recorded rather than reclassified as a pass. Its
+single non-reproducible relative comparison is bounded by the adjacent passing
+standalone run and the complete unchanged rerun.
+
+Normal push/0:0 proof, a fresh exact-pushed headed matrix, and cumulative
+adjudication remain mandatory.
