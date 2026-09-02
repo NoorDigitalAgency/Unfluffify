@@ -5362,3 +5362,63 @@ Steps:
 4. `el03-r5-review-push` -> 3
 5. `el03-r5-headed-conformance` -> 4
 6. `el03-r5-cumulative-audit` -> 5
+
+## 6. Implementation and pre-push evidence (2026-09-02)
+
+Implementation commit:
+
+- `7d1b596278f5583f78fe0a9f6d2a5269681f9690` —
+  `fix: make guardian repairs browser-idempotent`
+
+Automated evidence on the exact clean commit:
+
+- guardian regression suite: 17/17 tests passed, including browser-style zero
+  normalization, automatic/coalesced guard mutation delivery, finite repair,
+  hostile inline-style repair, and unrelated-subtree zero-churn coverage;
+- focused content/background regression set: 198/198 tests passed;
+- `pnpm check`: passed;
+- `pnpm verify`: passed with 149 test files and 1,675 tests, followed by the
+  production build and 7/7 generated-manifest permission checks;
+- `pnpm build:debug`: passed;
+- clean P17: 19/19 checks passed with `cleanSourceSet: true`
+  (`output/playwright/p17-preview/acceptance-2026-09-02T08-39-36-273Z.json`);
+- standalone P14: 192 scenarios passed with zero semantic, budget,
+  activation, mutation-pressure, input-long-task, cardinality, or environment
+  failures
+  (`output/playwright/p14-marking-performance/acceptance-2026-09-02T08-47-45-716Z.json`);
+- the first complete P25 attempt was rejected by strict parity even though all
+  seven component artifacts were functionally green: one of 16 relative-p95
+  checks, large-fixture silent activation, measured rewrite 228.2 ms versus
+  legacy 194.2 ms and a 203.91 ms limit. An unrelated repository's browser was
+  consuming substantial host CPU during that run. The result is retained here
+  as a rejected timing outlier, not counted as release evidence; no threshold
+  or source change followed;
+- after that unrelated workload ended and only newly generated artifacts were
+  removed, a fresh full P25 rerun passed unchanged. Its warm-up and all seven
+  children validated, with complete order, no missing/failed child, and clean,
+  stable source provenance
+  (`output/playwright/p25-parity/acceptance-2026-09-02T09-21-12-887Z.json`).
+
+Repository `live-browser` diagnostic evidence on the same source tree before
+the commit (no source change occurred between the build and commit):
+
+- the Aleris candidate page and real side panel opened responsively, eliminating
+  the previously repeatable page-main-thread starvation;
+- mobile was exact 412x960 at scale 0.734375 in an 850x705 visible tab;
+- mobile -> desktop reached exact 1920x1080 in 129 ms at fitted scale
+  0.4427083333333333, with no unsafe sampled frame;
+- desktop -> mobile reached exact geometry in 220 ms; the one transient
+  page-scale sample was fully covered by the opaque, interactive, last-in-root,
+  maximum-z guard;
+- resizing the visible tab to 570x455 produced the exact height-fitted mobile
+  scale 0.4739583333333333 and restoring it returned exactly to 0.734375;
+- deliberate debugger detach was observed at 26 ms, reattachment at 76 ms,
+  exact mobile restoration at 96 ms, and transparent release at 375 ms, with
+  zero unsafe sampled frames; and
+- hostile style mutation during guarding was repaired within 35 ms without
+  recursion; the deliberately disturbed transition failed safely back to the
+  prior exact mobile posture.
+
+These results satisfy `EL03-R5-AC-01` through `EL03-R5-AC-04`. Normal push,
+0:0 synchronization, exact-pushed-build Aleris/Acne/3DPrima headed conformance,
+and the cumulative EL-03 audit remain mandatory before production approval.
