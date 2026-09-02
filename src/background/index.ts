@@ -1782,10 +1782,19 @@ export function startRewriteBackground(): void {
       }
     }
     if (tabId > 0) {
+      // A popup-originated generation was still created and measured by the
+      // content guardian; the side panel only transports its acknowledgement
+      // around Chromium's occasionally delayed worker bounds event.
+      const retainedPresentationGeneration = request.presentationGeneration !== undefined &&
+          (contentOwnedRequest || meta.source === "popup")
+        ? request.presentationGeneration
+        : undefined;
       await renderEmulation.refit(tabId, {
-        source: contentOwnedRequest ? "content" : "popup",
-        ...(contentOwnedRequest && request.presentationGeneration !== undefined
-          ? { presentationGeneration: request.presentationGeneration }
+        source: retainedPresentationGeneration !== undefined || contentOwnedRequest
+          ? "content"
+          : "popup",
+        ...(retainedPresentationGeneration !== undefined
+          ? { presentationGeneration: retainedPresentationGeneration }
           : {}),
         ...(request.physicalViewportHint
           ? { physicalViewportHint: request.physicalViewportHint }

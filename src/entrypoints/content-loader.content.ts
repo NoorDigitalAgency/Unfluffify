@@ -76,6 +76,7 @@ import type { RenderInspectionSession } from "../messaging/render-inspection";
 import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
 import { pullRewriteSignals, type RewriteSignalBus } from "../messaging/rewrite-signals";
+import { installEmulationViewportGuardPortServer } from "../messaging/emulation-viewport-guard-port";
 import type { SelectorSet } from "../storage/config";
 import type { TransientSurfaceHandle } from "../ui/transient-surface-manager";
 
@@ -258,6 +259,7 @@ const contentToasts = createContentToastLifecycle();
 let interactionShield: InteractionShieldController | null = null;
 let renderInspectionCurtain: RenderInspectionCurtainController | null = null;
 let emulationTransitionGuardian: EmulationTransitionGuardian | null = null;
+let disposeEmulationViewportGuardPortServer: (() => void) | null = null;
 let emulationTransitionGuarding = false;
 let renderInspectionAdoptionGeneration = 0;
 let pendingRenderInspectionAdoptionGeneration: number | null = null;
@@ -4990,6 +4992,11 @@ export default defineContentScript({
     // Register the viewport guardian at document_start so unexpected debugger
     // detach/resize delivery cannot be preceded by page-owned resize handlers.
     ensureEmulationTransitionGuardian();
+    disposeEmulationViewportGuardPortServer?.();
+    disposeEmulationViewportGuardPortServer = installEmulationViewportGuardPortServer(
+      (getInstalledBrowserApi() ?? browser).runtime,
+      (mode) => ensureEmulationTransitionGuardian()?.guardPhysicalViewportChange(mode) ?? null,
+    );
     // Construct the inert input firewall at document_start. Once a shield lease
     // activates, this already-registered capture listener precedes page-owned
     // window listeners instead of racing them after authority resolution.
@@ -5021,6 +5028,8 @@ export default defineContentScript({
     };
     const unloadLocalSurfaces = (): void => {
       suspendLocalSurfaces();
+      disposeEmulationViewportGuardPortServer?.();
+      disposeEmulationViewportGuardPortServer = null;
       emulationTransitionGuardian?.dispose();
       emulationTransitionGuardian = null;
       disposeInteractionShield();
@@ -5054,6 +5063,8 @@ export default defineContentScript({
       requestTerminalShieldClear("extension-invalidation");
       terminateConsentSuppression({ terminal: true });
       terminateInteractionShieldAuthority({ failOpenCleanupFence: true });
+      disposeEmulationViewportGuardPortServer?.();
+      disposeEmulationViewportGuardPortServer = null;
       emulationTransitionGuardian?.dispose();
       emulationTransitionGuardian = null;
       transientSurfaces.dispose();

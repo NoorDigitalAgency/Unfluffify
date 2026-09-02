@@ -901,3 +901,28 @@ painted" decision from the replaced document.
   physical fit, or releases presentation. Fresh `tabs.get` geometry remains the
   sole scale-write/release authority, and identical, growth, or still-fitting
   bounds changes remain fast-guard-free.
+- EL-03 R11 CROSS-REALM REFIT ADMISSION AUTHORITY (2026-09-02; supersedes R10's
+  executor-local admission and growth exception): Chromium can deliver a
+  service-worker bounds event more than 100 ms after the side panel and website
+  observe the physical resize. The already-open side panel therefore primes a
+  top-frame `chrome.tabs.connect` guard channel at setup and sends the narrow
+  `emulationViewportGuard` request straight to the exact document on native
+  resize, with the typed tab message retained as a concurrent fallback. A
+  current panel-height shrink starts before any await; exact
+  `windows.getCurrent` bounds cover width-only, mixed-axis, and growth changes.
+  Confirmed growth is guarded because its old scale is physically safe but
+  visually stale; identical bounds remain zero-guard/zero-refit. Popup-carried
+  generations are trusted by the background only as content-measured authority.
+  Every popup/content or worker-bounds candidate joins one mutable admission
+  owned by the live `{tab, held-posture}` coordinator: the first valid exact
+  generation wakes even an executor already awaiting a slower candidate, so
+  never combine independent admissions with latency-poisoning `Promise.all`.
+  Executors re-adopt at each pre-presentation boundary; late, malformed,
+  rejected, timed-out, wrong-mode, or old-posture replies grant no write/release
+  authority. If the popup-to-worker handoff itself is delayed past that bound, a
+  fallback refit begin asks the content guardian to retain an already-opaque
+  `viewport-change`/`refit` generation. The guardian re-proves and returns that
+  active generation while advancing its replay floor past the speculative
+  worker generation; the runtime must settle the returned generation, never
+  manufacture a second entry. Fresh physical tab geometry remains the only CDP
+  scale-write and terminal-release proof.

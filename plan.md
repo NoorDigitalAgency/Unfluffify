@@ -6662,3 +6662,163 @@ No generated gate output or previously retained untracked acceptance artifact
 is part of the intended commit. Exact-pushed headed HumaNova/Aleris resize proof,
 the remaining supplied-property matrix, and cumulative expert adjudication are
 still mandatory and no production-readiness conclusion is declared here.
+
+# EL-03-R10 exact-pushed conformance rejection — 2026-09-02
+
+R10 is **REJECTED** on exact pushed commit
+`52783077526d86049394a64319a405ae15519429` (upstream 0:0). Clean P17 passed
+19/19, standalone P14 passed all 192 scenarios, and P25 passed its validated
+warm-up plus all seven children. The first headed HumaNova shrink had zero
+released animation frames before opacity, one correct scale write
+(`0.7791667 -> 0.4666667`), and a terminal idle guard, so the queue-independent
+content command closed the original visibility interval. It nevertheless
+created two presentation generations and therefore violates the one-generation
+burst contract.
+
+The trace proves the sequence: the content fast guard installed generation
+`1788372295101002` with cause `viewport-change`; nine milliseconds later the
+serialized refit installed independently generated
+`1788372310946001` with cause `refit`. The side panel's resize observation can
+enter `requestRefit` just before the background bounds callback. Once that
+observation is removed from `coordinator.pending` and waits/runs in the per-tab
+queue, R10's guard promise exists only on the later bounds observation and is
+invisible to the already-running executor. A raw exact-document command reply
+was separately captured and is fully valid (`ok`, mode `mobile`, stage
+`guarding`, opaque coverage, positive generation), ruling out content coverage
+or typed-response parsing as the root cause.
+
+Evidence:
+
+- `.temp/expert-live-r10/2026-09-02T18-05-19-763Z-resize.json`
+- `.temp/expert-live-r10/2026-09-02T18-06-11-090Z-raw-fast-guard.json`
+- `output/playwright/p17-preview/acceptance-2026-09-02T17-44-53-974Z.json`
+- `output/playwright/p14-marking-performance/acceptance-2026-09-02T17-45-18-612Z.json`
+- `output/playwright/p25-parity/acceptance-2026-09-02T18-03-59-756Z.json`
+
+# EL-03-R11 — Shared admission at every refit presentation boundary
+
+## Goal and decision
+
+Publish each bounds-triggered fast-guard promise on the live per-tab refit
+coordinator as well as its own observation. Every executor for that coordinator,
+including an observation already detached from `pending`, must merge and
+posture-fence the latest admission immediately before it creates or settles a
+presentation lease. The coordinator's lifetime bounds the shared admission; a
+new posture/coordinator cannot inherit it.
+
+## Acceptance criteria
+
+- `EL03-R11-AC-01` A side-panel/popup refit stalled before physical measurement,
+  followed by an unsafe bounds event, observes the already-shrunk tab after it
+  resumes and still begins with the fast guard's exact generation—never a newly
+  generated lease.
+- `EL03-R11-AC-02` Multiple admissions share first-valid arbitration; a lost or
+  slow response cannot poison a later valid generation, and all posture/mode
+  fences remain in force.
+- `EL03-R11-AC-03` Presentation creation and no-op settlement both re-read the
+  coordinator admission, closing arrivals that occur after an executor's first
+  snapshot. One physical burst produces one generation, one write when needed,
+  and one terminal settle/fade.
+- `EL03-R11-AC-04` Full automated/browser gates and exact-pushed HumaNova plus
+  authoritative Aleris traces pass before the wider supplied-property matrix
+  resumes.
+
+## Todo chain
+
+1. `el03-r11-shared-admission` -> 0
+2. `el03-r11-running-executor-regression` -> 1
+3. `el03-r11-full-gates` -> 2
+4. `el03-r11-review-push` -> 3
+5. `el03-r11-headed-conformance` -> 4
+6. `el03-r11-property-matrix` -> 5
+7. `el03-r11-cumulative-audit` -> 6
+
+## R11 live preflight amendment — side-panel pre-paint admission
+
+The first dirty-source Aleris preflight proved that shared coordinator adoption
+alone is insufficient. It used one generation and one correct write, but the
+page released 16 animation frames for 269 ms before opacity. A 12-cycle worker
+witness reproduced the mechanism: the side panel observed a shrink at
+`1788373270434`, while Chromium did not dispatch the matching
+`windows.onBoundsChanged` service-worker event (and therefore did not start the
+content guard send) until `1788373270560`, 126 ms later. Page animation frames
+continued throughout, so this was event delivery latency rather than a blocked
+renderer.
+
+R11 therefore also uses the already-open side panel's native `resize` event as
+a pre-paint admission lane. It sends `emulationViewportGuard` straight to the
+bound tab without an intervening `tabs.get`/query or service-worker hop, then
+passes the content-measured generation to `emulation.refit`. The background
+accepts that generation only from popup/content provenance and preserves the
+background bounds listener as the standing fallback when no panel exists.
+Bounds projections now fast-guard safe expansion only when the projection
+actually changes fitted scale; this makes the popup and worker signals converge
+on the same generation instead of creating a second growth lease.
+
+Dirty-source stress evidence after both changes:
+
+- `.temp/expert-live-r10/2026-09-02T18-31-23-860Z-resize-stress.json`: 20/20
+  alternating shrink/grow occurrences passed; every occurrence had one
+  generation, one write, and terminal idle; all ten shrink occurrences had zero
+  released pre-opaque frames.
+- `.temp/expert-live-r10/2026-09-02T18-31-31-802Z-take-worker-bounds-witness.json`:
+  Chromium delayed three worker bounds deliveries by 82–94 ms, including two
+  shrink occurrences; the popup lane still admitted the guard in 7–14 ms and
+  the page exposed zero unsafe shrink frames.
+
+These are diagnostic preflight artifacts, not acceptance evidence. Rename the
+final harness output to R11, finish automated review, commit/push, and repeat the
+headed proof from exact pushed source before closing `EL03-R11-AC-04`.
+
+## R11 implementation and pre-publication proof — 2026-09-02
+
+The R11 amendment is implemented and the dirty-source fix/review loop is clean.
+The final design has three cooperating admission paths:
+
+1. The side panel primes a top-frame `chrome.tabs.connect` channel during normal
+   setup. On native resize it sends the narrow guard request directly to the
+   document; the existing typed message is retained as a concurrent fallback.
+   Obvious height shrink starts before the first browser API await, while an
+   exact `windows.getCurrent` comparison covers width-only, mixed-axis, and
+   growth changes. Identical bounds remain guard/refit no-ops.
+2. The background publishes every worker-bounds or popup/content generation
+   into one mutable, posture-owned admission. An executor already awaiting a
+   slow worker candidate is woken by the first later valid content generation;
+   a failed/slow candidate cannot hold that valid authority behind
+   `Promise.all`. Executors re-read the shared admission at every
+   pre-presentation boundary, while fresh `tabs.get` remains the only write and
+   release authority.
+3. If Chromium delays both the worker's guard reply and the popup-to-worker
+   refit message beyond the bounded admission, a fallback `refit` begin may ask
+   the document to adopt its already-opaque `viewport-change`/`refit` guard.
+   The guardian returns that exact active generation, advances its replay floor
+   past the speculative worker generation, re-proves opacity, and later settles
+   the retained generation. It never creates a second visual entry.
+
+Regression proof covers the direct port's exact request/reply validation,
+timeout/disconnect/reconnect cleanup, popup shrink/growth ordering and identical
+no-op behavior, running-executor admission publication, slow-first/valid-later
+arbitration, worker fallback adoption, projection coalescing, and the guardian's
+retained-generation/replay-floor lifecycle.
+
+Validation on the current intended source:
+
+- focused runtime/guardian/port/popup suite: 4 files / 173 tests passed;
+- `pnpm verify`: 150 files / 1,712 tests passed; lint, all TypeScript projects,
+  generated assets, production build, and generated-manifest permissions 7/7
+  passed;
+- debug/live build: passed;
+- Aleris authoritative candidate 50-cycle alternating resize stress:
+  `.temp/expert-live-r11/2026-09-02T19-14-25-590Z-resize-stress.json` passed;
+  every occurrence used one generation, one write, and terminal idle, and all
+  25 unsafe shrink occurrences had zero released frames before opacity;
+- the slower Aleris shrink/grow/no-op sequence:
+  `.temp/expert-live-r11/2026-09-02T19-14-56-025Z-resize.json` passed;
+- pre-publication P17 exercised all 19 behavioral checks successfully and
+  correctly withheld acceptance solely because the intended source is still
+  uncommitted (`cleanSourceSet=false`).
+
+The clean P17/P14/P25 gates, exact-pushed HumaNova/Aleris headed proof, supplied
+17-property matrix, and cumulative expert adjudication remain pending until the
+reviewed commit is pushed. No production-readiness conclusion is declared by
+this pre-publication result.

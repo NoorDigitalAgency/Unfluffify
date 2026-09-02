@@ -1257,11 +1257,13 @@ describe("rewrite popup entrypoint", () => {
 
   it("requests a background refit when side-panel geometry changes without reapplying a mode", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
-    let resizeListener: (() => void) | null = null;
+    let resizeListener: ((event: Event) => void) | null = null;
     Object.assign(window, {
+      outerWidth: 1_200,
+      outerHeight: 900,
       setTimeout: globalThis.setTimeout.bind(globalThis),
       clearTimeout: globalThis.clearTimeout.bind(globalThis),
-      addEventListener: vi.fn((name: string, listener: () => void) => {
+      addEventListener: vi.fn((name: string, listener: (event: Event) => void) => {
         if (name === "resize") resizeListener = listener;
       }),
       removeEventListener: vi.fn(),
@@ -1270,9 +1272,29 @@ describe("rewrite popup entrypoint", () => {
     vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
     const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
     const runtime = makeRuntime(async (message) => replyFrame(message, []));
+    const tabsSendMessage = makeTabsSendMessage((_tabId, message) =>
+      message.type === "emulationViewportGuard"
+        ? {
+            ok: true,
+            tree: "rewrite",
+            mode: "mobile",
+            stage: "guarding",
+            guarded: true,
+            coverage: true,
+            generation: 88,
+          }
+        : { ok: true, tree: "rewrite" });
     globalThis.chrome = {
       runtime: { ...runtime },
-      tabs: { query, sendMessage: makeTabsSendMessage(() => ({ ok: true, tree: "rewrite" })) },
+      tabs: { query, sendMessage: tabsSendMessage },
+      windows: {
+        getCurrent(_getInfo: unknown, callback?: (window: chrome.windows.Window) => void) {
+          callback?.({
+            width: window.outerWidth,
+            height: window.outerHeight,
+          } as chrome.windows.Window);
+        },
+      },
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
@@ -1286,7 +1308,8 @@ describe("rewrite popup entrypoint", () => {
     const refitCount = runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "emulation.refit").length;
     (document.documentElement as { clientHeight: number }).clientHeight = 640;
     window.innerHeight = 640;
-    resizeListener?.();
+    (window as unknown as { outerHeight: number }).outerHeight = 800;
+    resizeListener?.({ type: "resize" } as Event);
     await waitFor(
       () => runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "emulation.refit").length > refitCount,
       "resized side-panel fit",
@@ -1294,12 +1317,57 @@ describe("rewrite popup entrypoint", () => {
 
     expect(runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "emulation.apply"))
       .toHaveLength(applyCount);
-    const refit = runtime.sendMessage.mock.calls.findLast(([frame]) => frame.name === "emulation.refit")?.[0];
+    const refitIndex = runtime.sendMessage.mock.calls.findLastIndex(([frame]) => frame.name === "emulation.refit");
+    const refit = runtime.sendMessage.mock.calls[refitIndex]?.[0];
+    const guardIndex = tabsSendMessage.mock.calls.findLastIndex(([_tabId, frame]) =>
+      (frame as BusFrame).name === "command.dispatch" &&
+      ((frame as BusFrame).payload as { name?: unknown })?.name === "emulationViewportGuard");
+    expect(guardIndex).toBeGreaterThanOrEqual(0);
+    expect(tabsSendMessage.mock.calls[guardIndex]).toEqual([
+      77,
+      contentCommand("emulationViewportGuard", { mode: "mobile" }),
+    ]);
+    expect(tabsSendMessage.mock.invocationCallOrder[guardIndex])
+      .toBeLessThan(runtime.sendMessage.mock.invocationCallOrder[refitIndex]!);
     expect(refit?.payload).toMatchObject({
       tabId: 77,
       source: "popup",
+      presentationGeneration: 88,
       physicalViewportHint: { height: 640 },
     });
+
+    const guardCount = tabsSendMessage.mock.calls.filter(([_tabId, frame]) =>
+      (frame as BusFrame).name === "command.dispatch" &&
+      ((frame as BusFrame).payload as { name?: unknown })?.name === "emulationViewportGuard").length;
+    const growthRefitCount = runtime.sendMessage.mock.calls.filter(([frame]) =>
+      frame.name === "emulation.refit").length;
+    (document.documentElement as { clientHeight: number }).clientHeight = 705;
+    window.innerHeight = 705;
+    (window as unknown as { outerHeight: number }).outerHeight = 900;
+    resizeListener?.({ type: "resize" } as Event);
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "emulation.refit").length > growthRefitCount,
+      "grown side-panel fit",
+    );
+    expect(tabsSendMessage.mock.calls.filter(([_tabId, frame]) =>
+      (frame as BusFrame).name === "command.dispatch" &&
+      ((frame as BusFrame).payload as { name?: unknown })?.name === "emulationViewportGuard"))
+      .toHaveLength(guardCount + 1);
+    const growthRefit = runtime.sendMessage.mock.calls.findLast(([frame]) =>
+      frame.name === "emulation.refit")?.[0];
+    expect(growthRefit?.payload).toMatchObject({
+      tabId: 77,
+      source: "popup",
+      presentationGeneration: 88,
+      physicalViewportHint: { height: 705 },
+    });
+
+    const identicalRefitCount = runtime.sendMessage.mock.calls.filter(([frame]) =>
+      frame.name === "emulation.refit").length;
+    resizeListener?.({ type: "resize" } as Event);
+    await flushEntrypointWork();
+    expect(runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "emulation.refit"))
+      .toHaveLength(identicalRefitCount);
   });
 
   it("acknowledges silent mode only after a desktop replacement document paints selectors", async () => {

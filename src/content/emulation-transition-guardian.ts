@@ -45,6 +45,9 @@ export type EmulationTransitionRequest =
       generation: number;
       mode: EmulationTransitionMode;
       cause: EmulationTransitionCause;
+      /** A refit worker that missed the content-owned admission may adopt the
+       * already-opaque viewport guard instead of superseding its generation. */
+      adoptExistingRefitGuard?: true;
     }>
   | Readonly<{
       phase: "settle";
@@ -196,6 +199,11 @@ export function parseEmulationTransitionRequest(
       generation: candidate.generation,
       mode: candidate.mode,
       cause: cause as EmulationTransitionCause,
+      ...(candidate.phase === "begin" &&
+          cause === "refit" &&
+          candidate.adoptExistingRefitGuard === true
+        ? { adoptExistingRefitGuard: true as const }
+        : {}),
     };
   }
   return null;
@@ -710,6 +718,62 @@ export function createEmulationTransitionGuardian(
   const begin = async (
     request: Extract<EmulationTransitionRequest, { phase: "begin" }>,
   ): Promise<EmulationTransitionResult> => {
+    const adoptableGeneration =
+      !disposed &&
+        !suspended &&
+        request.adoptExistingRefitGuard === true &&
+        request.cause === "refit" &&
+        active?.mode === request.mode &&
+        guarding &&
+        coverage() &&
+        (active.cause === "refit" || active.cause === "viewport-change") &&
+        (stage === "guarding" || stage === "paint-proven")
+        ? active.generation
+        : null;
+    if (adoptableGeneration !== null) {
+      // The opaque document is the only surface that can authoritatively name
+      // a guard the worker never heard back from. Retain that generation while
+      // advancing the replay floor past the worker's speculative replacement.
+      lastGeneration = Math.max(lastGeneration, request.generation);
+      abortSnapshot = null;
+      active = {
+        generation: adoptableGeneration,
+        mode: request.mode,
+        cause: "refit",
+      };
+      operationEpoch += 1;
+      const epoch = operationEpoch;
+      entering = false;
+      entryOpacity = "1";
+      retiring = false;
+      retireOpacity = "1";
+      paintProof = "none";
+      stage = "guarding";
+      setGuarding(true);
+      if (!ensureMounted(true)) {
+        stage = "rejected";
+        return result(false, "document-root-unavailable", request);
+      }
+      observe();
+      const beginProof = await waitForPaintProof(epoch, false);
+      if (
+        !beginProof ||
+        epoch !== operationEpoch ||
+        !active ||
+        active.generation !== adoptableGeneration
+      ) {
+        if (epoch === operationEpoch) stage = "rejected";
+        return result(
+          false,
+          beginProof ? "stale-generation" : "guard-paint-proof-failed",
+          request,
+        );
+      }
+      paintProof = beginProof;
+      stage = "paint-proven";
+      applyPresentation(true);
+      return result(true, "adopted-active-refit-guard", request);
+    }
     if (disposed || request.generation < lastGeneration) {
       return result(false, disposed ? "disposed" : "stale-generation", request);
     }
@@ -786,8 +850,7 @@ export function createEmulationTransitionGuardian(
       disposed ||
       !active ||
       request.generation !== active.generation ||
-      request.mode !== active.mode ||
-      request.generation < lastGeneration
+      request.mode !== active.mode
     ) {
       return result(false, disposed ? "disposed" : "stale-generation", request);
     }
@@ -857,8 +920,9 @@ export function createEmulationTransitionGuardian(
   ): Promise<EmulationTransitionResult> => {
     if (
       disposed ||
-      request.generation < lastGeneration ||
-      (active !== null && request.generation !== active.generation)
+      (active === null
+        ? request.generation < lastGeneration
+        : request.generation !== active.generation)
     ) {
       return result(
         false,
@@ -871,7 +935,7 @@ export function createEmulationTransitionGuardian(
       );
     }
     operationEpoch += 1;
-    lastGeneration = request.generation;
+    lastGeneration = Math.max(lastGeneration, request.generation);
     active = null;
     abortSnapshot = null;
     entering = false;

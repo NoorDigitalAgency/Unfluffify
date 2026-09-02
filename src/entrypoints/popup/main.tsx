@@ -34,6 +34,10 @@ import { createRealmBus } from "../../messaging/realms";
 import { createTabTransport } from "../../messaging/transports/tabs";
 import { createRuntimeTransport } from "../../messaging/transports/runtime";
 import { pullRewriteSignals, type RewriteSignalBus } from "../../messaging/rewrite-signals";
+import {
+  admittedEmulationViewportGuardGeneration,
+  createEmulationViewportGuardPortClient,
+} from "../../messaging/emulation-viewport-guard-port";
 import type { PropertyPublishRequest, PropertySaveRequest, SelectorSet } from "../../storage/config";
 import { canonicalPageKey } from "../../storage/property-snapshot-authority";
 import type { RenderMode } from "../../domain/schema/property";
@@ -131,6 +135,7 @@ type PopupBindingOccurrence = Readonly<{
 const operatorActionController = createOperatorActionController({ onChange: render });
 const PREVIEW_EXIT_ATTEMPT_TIMEOUT_MS = 2_000;
 const RENDER_EXIT_AUTHORITY_TIMEOUT_MS = 15_000;
+const PHYSICAL_VIEWPORT_GUARD_ADMISSION_TIMEOUT_MS = 250;
 const PREVIEW_EXIT_MAX_ATTEMPTS = 3;
 let previewExitOperation: Promise<void> | null = null;
 
@@ -798,6 +803,20 @@ function getPopupBus(): RewriteSignalBus {
     });
   }
   return popupBus;
+}
+
+let emulationViewportGuardPortClient: ReturnType<
+  typeof createEmulationViewportGuardPortClient
+> | null = null;
+
+function getEmulationViewportGuardPortClient() {
+  if (!emulationViewportGuardPortClient) {
+    emulationViewportGuardPortClient = createEmulationViewportGuardPortClient(
+      getRuntimeBrowser().tabs,
+      PHYSICAL_VIEWPORT_GUARD_ADMISSION_TIMEOUT_MS,
+    );
+  }
+  return emulationViewportGuardPortClient;
 }
 
 function getDebugTabId(): number | null {
@@ -2551,6 +2570,106 @@ function physicalViewportRequestFields(): Readonly<{
   return candidates.length > 0
     ? { physicalViewportHint: { height: Math.min(...candidates) } }
     : {};
+}
+
+function popupOuterViewport(): Readonly<{ width: number; height: number }> | null {
+  if (typeof window === "undefined") return null;
+  const width = Number(window.outerWidth);
+  const height = Number(window.outerHeight);
+  return Number.isFinite(width) && width > 0 &&
+    Number.isFinite(height) && height > 0
+    ? { width, height }
+    : null;
+}
+
+async function readPopupWindowBounds(): Promise<Readonly<{
+  width: number;
+  height: number;
+}> | null> {
+  if (typeof getRuntimeBrowser().windows?.getCurrent !== "function") return null;
+  try {
+    const current = await callBrowserApi<chrome.windows.Window>(
+      (api, callback) => api.windows.getCurrent({}, callback),
+      async (api) => await api.windows.getCurrent({}),
+    );
+    const width = Number(current?.width);
+    const height = Number(current?.height);
+    return Number.isFinite(width) && width > 0 &&
+      Number.isFinite(height) && height > 0
+      ? { width, height }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** `windows.onBoundsChanged` belongs to the extension service worker and
+ * Chromium may deliver it after the resized website has already painted. The
+ * side panel receives its own resize task at the compositor boundary and its
+ * `outerWidth`/`outerHeight` are the physical browser bounds, so a shrink can
+ * admit the content-owned opaque generation directly before asking the
+ * background to read geometry and refit. Confirmed growth is guarded too: its
+ * prior scale is physically safe but still stale geometry. Exact no-op events
+ * stay on the ordinary path. The background listener remains the standing
+ * fallback when no panel is open. */
+async function guardPhysicalViewportByTypedMessage(
+  tabId: number,
+  mode: "mobile" | "desktop",
+): Promise<number | undefined> {
+  if (tabId <= 0 || typeof getRuntimeBrowser().tabs?.sendMessage !== "function") {
+    return undefined;
+  }
+  const bus = createRealmBus({
+    realm: "popup",
+    transport: createTabTransport(getRuntimeBrowser().tabs, tabId),
+  });
+  try {
+    const response = await bus.request("command.dispatch", {
+      kind: "uf-command/1",
+      name: "emulationViewportGuard",
+      tabId,
+      payload: { mode },
+    }, {
+      target: "content",
+      timeoutMs: PHYSICAL_VIEWPORT_GUARD_ADMISSION_TIMEOUT_MS,
+    });
+    if (!response.ok || !response.data.ok) return undefined;
+    return admittedEmulationViewportGuardGeneration(response.data.data, mode) ?? undefined;
+  } catch {
+    return undefined;
+  } finally {
+    bus.dispose();
+  }
+}
+
+async function guardPhysicalViewportFromPopup(
+  tabId: number,
+  mode: "mobile" | "desktop",
+): Promise<number | undefined> {
+  const admissions = [
+    getEmulationViewportGuardPortClient().guard(tabId, mode),
+    guardPhysicalViewportByTypedMessage(tabId, mode),
+  ];
+  return await new Promise<number | undefined>((resolve) => {
+    let remaining = admissions.length;
+    let settled = false;
+    for (const admission of admissions) {
+      void admission.then((generation) => {
+        if (settled) return;
+        if (generation !== null && generation !== undefined) {
+          settled = true;
+          resolve(generation);
+          return;
+        }
+        remaining -= 1;
+        if (remaining === 0) resolve(undefined);
+      }, () => {
+        if (settled) return;
+        remaining -= 1;
+        if (remaining === 0) resolve(undefined);
+      });
+    }
+  });
 }
 
 type SessionEmulationTarget = Readonly<{
@@ -6030,25 +6149,81 @@ if (DEBUG_BUILD && typeof window !== "undefined") {
 const unsubscribeToast = toastController.subscribe(() => render());
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
   let lastPhysicalViewportSignature = "";
-  const requestPhysicalViewportRefit = (): void => {
+  let lastPopupOuterViewport = popupOuterViewport();
+  let lastPopupPanelHeight: number | null = null;
+  const requestPhysicalViewportRefit = (event?: Event): void => {
     const fields = physicalViewportRequestFields();
     const height = fields.physicalViewportHint?.height;
-    const signature = height === undefined ? "unavailable" : `height:${height}`;
-    if (signature === lastPhysicalViewportSignature) return;
-    lastPhysicalViewportSignature = signature;
-    void resolveTargetTabContext().then(async (context) => {
+    const physicalResizeOccurrence = event?.type === "resize";
+    const priorPanelHeight = lastPopupPanelHeight;
+    lastPopupPanelHeight = height ?? null;
+    const immediateVerticalShrink = physicalResizeOccurrence &&
+      height !== undefined &&
+      priorPanelHeight !== null &&
+      height < priorPanelHeight;
+    // Once bound, starting with the retained id avoids putting a tabs.get/query
+    // browser round-trip in front of the pre-paint guard admission.
+    const immediateContext = boundTabId === null
+      ? null
+      : { tabId: boundTabId, url: boundTabUrl };
+    void (async () => {
+      const context = immediateContext ?? await resolveTargetTabContext();
       if (!context) return;
+      if (!physicalResizeOccurrence) {
+        getEmulationViewportGuardPortClient().prime(context.tabId);
+      }
+      // Panel height is current inside the resize callback even on Chromium
+      // builds where outerWidth/outerHeight lag one event. Start that obvious
+      // shrink before the first await; an exact browser API read closes the
+      // width-only and mixed-axis cases a few milliseconds later.
+      let guardAdmission = immediateVerticalShrink
+        ? guardPhysicalViewportFromPopup(context.tabId, desiredEmulationMode())
+        : null;
+      const outerViewport = await readPopupWindowBounds();
+      const priorOuterViewport = lastPopupOuterViewport;
+      if (outerViewport) lastPopupOuterViewport = outerViewport;
+      const signature = outerViewport
+        ? `outer:${outerViewport.width}x${outerViewport.height};height:${height ?? "unavailable"}`
+        : physicalResizeOccurrence
+          ? `unavailable:${Date.now()};height:${height ?? "unavailable"}`
+          : height === undefined ? "unavailable" : `height:${height}`;
+      const changed = signature !== lastPhysicalViewportSignature;
+      if (changed) lastPhysicalViewportSignature = signature;
+      const boundsChanged = physicalResizeOccurrence && outerViewport !== null &&
+        priorOuterViewport !== null && (
+          outerViewport.width !== priorOuterViewport.width ||
+          outerViewport.height !== priorOuterViewport.height
+        );
+      if (
+        physicalResizeOccurrence &&
+        !guardAdmission &&
+        (boundsChanged || outerViewport === null)
+      ) {
+        guardAdmission = guardPhysicalViewportFromPopup(
+          context.tabId,
+          desiredEmulationMode(),
+        );
+      }
+      if (!changed && !guardAdmission) return;
+      const presentationGeneration = await guardAdmission ?? undefined;
       await getPopupBus().request(
         "emulation.refit",
-        { tabId: context.tabId, source: "popup", ...fields },
+        {
+          tabId: context.tabId,
+          source: "popup",
+          ...(presentationGeneration === undefined ? {} : { presentationGeneration }),
+          ...fields,
+        },
         { target: "background" },
       );
-    }).catch(() => undefined);
+    })().catch(() => undefined);
   };
   window.addEventListener("resize", requestPhysicalViewportRefit);
   requestPhysicalViewportRefit();
   const disposeTransientNotifications = (): void => {
     window.removeEventListener("resize", requestPhysicalViewportRefit);
+    emulationViewportGuardPortClient?.dispose();
+    emulationViewportGuardPortClient = null;
     unsubscribeToast();
     toastController.dispose();
     maintenanceController.dispose();

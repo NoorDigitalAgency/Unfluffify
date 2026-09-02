@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   EMULATION_TRANSITION_GUARD_ATTRIBUTE,
+  EMULATION_TRANSITION_GENERATION_ATTRIBUTE,
   EMULATION_TRANSITION_STAGE_ATTRIBUTE,
   createEmulationTransitionGuardian,
   parseEmulationTransitionRequest,
@@ -346,6 +347,19 @@ describe("emulation transition guardian", () => {
       generation: 3,
       cause: "restore",
     })).toEqual({ phase: "abort", generation: 3, cause: "restore" });
+    expect(parseEmulationTransitionRequest({
+      phase: "begin",
+      generation: 4,
+      mode: "mobile",
+      cause: "refit",
+      adoptExistingRefitGuard: true,
+    })).toEqual({
+      phase: "begin",
+      generation: 4,
+      mode: "mobile",
+      cause: "refit",
+      adoptExistingRefitGuard: true,
+    });
   });
 
   it("paint-proves an opaque interactive last-root guard before acknowledging begin", async () => {
@@ -389,6 +403,53 @@ describe("emulation transition guardian", () => {
       generation: 2,
       mode: "desktop",
       coverage: true,
+    });
+  });
+
+  it("adopts an active physical viewport guard when a refit worker missed its generation", async () => {
+    const { guardian } = fixture();
+    await guardian.handle(beginMobile);
+    await guardian.handle(settleMobile);
+    const physicalGuard = guardian.guardPhysicalViewportChange("mobile");
+
+    expect(physicalGuard).toMatchObject({
+      ok: true,
+      generation: 2,
+      stage: "guarding",
+      guarded: true,
+    });
+    await expect(guardian.handle({
+      phase: "begin",
+      generation: 100,
+      mode: "mobile",
+      cause: "refit",
+      adoptExistingRefitGuard: true,
+    })).resolves.toMatchObject({
+      ok: true,
+      generation: 2,
+      mode: "mobile",
+      stage: "paint-proven",
+      guarded: true,
+      reason: "adopted-active-refit-guard",
+    });
+    expect(guardian.element()?.getAttribute(EMULATION_TRANSITION_GENERATION_ATTRIBUTE))
+      .toBe("2");
+
+    await expect(guardian.handle({
+      phase: "settle",
+      generation: 2,
+      mode: "mobile",
+      cause: "refit",
+    })).resolves.toMatchObject({
+      ok: true,
+      generation: 2,
+      stage: "idle",
+      guarded: false,
+    });
+    expect(guardian.guardPhysicalViewportChange("mobile")).toMatchObject({
+      ok: true,
+      generation: 101,
+      stage: "guarding",
     });
   });
 

@@ -502,10 +502,16 @@ export function createRenderEmulationRuntime(input: Readonly<{
     coordinatorVersion: number;
     quietTimer?: ReturnType<typeof setTimeout>;
   };
+  type PhysicalGuardAdmission = Readonly<{
+    held: HeldPosture;
+    generation: Promise<number | null>;
+    add(candidate: Promise<number | null>): void;
+  }>;
   type RefitCoordinator = {
     pending: EmulationRefitObservation | null;
     processing: Promise<void> | null;
     version: number;
+    physicalGuardAdmission: PhysicalGuardAdmission | null;
   };
   const refitBursts = new Map<number, RefitBurst>();
   const refitCoordinators = new Map<number, RefitCoordinator>();
@@ -596,16 +602,25 @@ export function createRenderEmulationRuntime(input: Readonly<{
       tabId,
       Math.max(presentationGenerations.get(tabId) ?? 0, lease.generation),
     );
+    const request: Extract<EmulationTransitionRequest, { phase: "begin" }> = {
+      phase: "begin",
+      generation: lease.generation,
+      mode,
+      cause,
+      ...(cause === "refit" && preferredGeneration === undefined
+        ? { adoptExistingRefitGuard: true }
+        : {}),
+    };
     try {
-      const response = await present(tabId, {
-        phase: "begin",
-        generation: lease.generation,
-        mode,
-        cause,
-      });
+      const response = await present(tabId, request);
+      const adoptedExistingRefitGuard =
+        request.adoptExistingRefitGuard === true &&
+        response.reason === "adopted-active-refit-guard" &&
+        Number.isSafeInteger(response.generation) &&
+        response.generation > 0;
       if (
         !response.ok ||
-        response.generation !== lease.generation ||
+        (response.generation !== lease.generation && !adoptedExistingRefitGuard) ||
         response.mode !== mode ||
         response.stage !== "paint-proven" ||
         (response.paintProof !== "frame-two" &&
@@ -617,7 +632,9 @@ export function createRenderEmulationRuntime(input: Readonly<{
           response.reason || "guard-not-paint-proven",
         );
       }
-      return lease;
+      return response.generation === lease.generation
+        ? lease
+        : { ...lease, generation: response.generation };
     } catch (error) {
       await abortPresentation(tabId, lease).catch(() => undefined);
       throw error;
@@ -758,6 +775,9 @@ export function createRenderEmulationRuntime(input: Readonly<{
     const coordinator = refitCoordinators.get(tabId);
     if (coordinator) {
       coordinator.pending = null;
+      if (!coordinator.processing) {
+        refitCoordinators.delete(tabId);
+      }
     }
     lastPhysicalSignatures.delete(tabId);
   };
@@ -1338,11 +1358,17 @@ export function createRenderEmulationRuntime(input: Readonly<{
     held: HeldPosture,
     cause: EmulationTransitionCause,
     hint?: EmulationPhysicalViewportHint,
+    preferredPresentationGeneration?: number,
   ): ReturnType<typeof writeAndProvePosture> => {
     // The content plane is confirmed opaque before even the first debugger
     // attach. Attaching can add Chrome's debugger infobar and shrink the
     // physical tab rectangle before device metrics are written.
-    const presentation = await beginPresentation(tabId, held.mode, cause);
+    const presentation = await beginPresentation(
+      tabId,
+      held.mode,
+      cause,
+      preferredPresentationGeneration,
+    );
     const realUserAgent = await realUserAgentFor(tabId);
     if (!postureIsCurrent(tabId, held)) {
       throw new Error("Emulation posture was released");
@@ -1436,6 +1462,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
     held: HeldPosture,
     hint?: EmulationPhysicalViewportHint,
     cause: EmulationTransitionCause = "lease-recovery",
+    preferredPresentationGeneration?: number,
   ): Promise<void> => {
     if (!postureIsCurrent(tabId, held)) {
       return;
@@ -1446,6 +1473,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
         held,
         cause,
         hint,
+        preferredPresentationGeneration,
       );
       if (proof.failureReason !== null) {
         throw new Error(`Emulation proof failed: ${proof.failureReason}`);
@@ -1499,10 +1527,98 @@ export function createRenderEmulationRuntime(input: Readonly<{
       pending: null,
       processing: null,
       version: 0,
+      physicalGuardAdmission: null,
     };
     refitCoordinators.set(tabId, coordinator);
     return coordinator;
   };
+  const createPhysicalGuardAdmission = (
+    held: HeldPosture,
+    firstCandidate: Promise<number | null>,
+  ): PhysicalGuardAdmission => {
+    let settled = false;
+    let pendingCandidates = 0;
+    let resolveGeneration: (generation: number | null) => void = () => undefined;
+    const generation = new Promise<number | null>((resolve) => {
+      resolveGeneration = resolve;
+    });
+    const settle = (value: number | null): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolveGeneration(value);
+    };
+    const timer = setTimeout(() => {
+      settle(null);
+    }, PHYSICAL_VIEWPORT_GUARD_ADMISSION_TIMEOUT_MS);
+    (timer as unknown as { unref?: () => void }).unref?.();
+    const admission: PhysicalGuardAdmission = {
+      held,
+      generation,
+      add(candidate) {
+        if (settled) return;
+        pendingCandidates += 1;
+        const rejectCandidate = (): void => {
+          if (settled) return;
+          pendingCandidates -= 1;
+          if (pendingCandidates === 0) {
+            // Let same-turn bounds observations join before concluding that
+            // every available admission lane failed.
+            queueMicrotask(() => {
+              if (!settled && pendingCandidates === 0) settle(null);
+            });
+          }
+        };
+        void candidate.then(
+          (value) => {
+            if (settled) return;
+            if (Number.isSafeInteger(value) && Number(value) > 0) {
+              settle(Number(value));
+              return;
+            }
+            rejectCandidate();
+          },
+          rejectCandidate,
+        );
+      },
+    };
+    admission.add(firstCandidate);
+    return admission;
+  };
+  const publishPhysicalGuardAdmission = (
+    tabId: number,
+    held: HeldPosture,
+    candidate: Promise<number | null>,
+  ): PhysicalGuardAdmission => {
+    const coordinator = coordinatorFor(tabId);
+    const current = coordinator.physicalGuardAdmission;
+    if (current?.held === held) {
+      if (current.generation !== candidate) current.add(candidate);
+      return current;
+    }
+    const admission = createPhysicalGuardAdmission(held, candidate);
+    coordinator.physicalGuardAdmission = admission;
+    return admission;
+  };
+  const firstValidPhysicalGuardGeneration = (
+    first: Promise<number | null>,
+    second: Promise<number | null>,
+  ): Promise<number | null> => new Promise((resolve) => {
+    let settled = false;
+    let remaining = 2;
+    const accept = (generation: number | null): void => {
+      if (settled) return;
+      if (Number.isSafeInteger(generation) && Number(generation) > 0) {
+        settled = true;
+        resolve(Number(generation));
+        return;
+      }
+      remaining -= 1;
+      if (remaining === 0) resolve(null);
+    };
+    void first.then(accept, () => accept(null));
+    void second.then(accept, () => accept(null));
+  });
   const mergeRefitObservation = (
     current: EmulationRefitObservation | null,
     next: EmulationRefitObservation,
@@ -1550,15 +1666,10 @@ export function createRenderEmulationRuntime(input: Readonly<{
       next.physicalBoundsChanged === true;
     const physicalGuardGeneration = current.physicalGuardGeneration &&
         next.physicalGuardGeneration
-      ? Promise.all([
-          current.physicalGuardGeneration.catch(() => null),
-          next.physicalGuardGeneration.catch(() => null),
-        ]).then((generations) => {
-          const valid = generations.filter((generation): generation is number =>
-            Number.isSafeInteger(generation) && Number(generation) > 0
-          );
-          return valid.length > 0 ? Math.max(...valid) : null;
-        })
+      ? firstValidPhysicalGuardGeneration(
+          current.physicalGuardGeneration,
+          next.physicalGuardGeneration,
+        )
       : next.physicalGuardGeneration ?? current.physicalGuardGeneration;
     return {
       source: hasContentAuthority ? "content" : next.source,
@@ -1579,13 +1690,70 @@ export function createRenderEmulationRuntime(input: Readonly<{
       ...(physicalGuardGeneration ? { physicalGuardGeneration } : {}),
     };
   };
+  const adoptPhysicalGuardAdmission = async (
+    tabId: number,
+    held: HeldPosture,
+    observation: EmulationRefitObservation,
+  ): Promise<EmulationRefitObservation> => {
+    const coordinator = coordinatorFor(tabId);
+    let sharedAdmission = coordinator.physicalGuardAdmission;
+    if (
+      observation.physicalGuardGeneration &&
+      sharedAdmission?.generation !== observation.physicalGuardGeneration
+    ) {
+      sharedAdmission = publishPhysicalGuardAdmission(
+        tabId,
+        held,
+        observation.physicalGuardGeneration,
+      );
+    }
+    const sharedGeneration = sharedAdmission?.held === held
+      ? sharedAdmission.generation
+      : undefined;
+    const generationPromise = sharedGeneration ??
+      observation.physicalGuardGeneration;
+    if (!generationPromise) return observation;
+    const physicalGeneration = await generationPromise.catch(() => null);
+    if (
+      !postureIsCurrent(tabId, held) ||
+      !Number.isSafeInteger(physicalGeneration) ||
+      Number(physicalGeneration) <= 0
+    ) {
+      return observation;
+    }
+    return {
+      ...observation,
+      source: "content",
+      // An executor that started from an earlier side-panel/popup observation
+      // must retain this physical occurrence as a burst. Otherwise it can
+      // settle the newly adopted guard before the queued bounds observation
+      // joins it, producing two fades for one resize. An observation already
+      // carrying this retained generation keeps its own no-op semantics.
+      ...(observation.source === "content" &&
+          observation.presentationGeneration !== undefined
+        ? {}
+        : { physicalBoundsChanged: true }),
+      presentationGeneration: Math.max(
+        observation.presentationGeneration ?? 0,
+        Number(physicalGeneration),
+      ),
+    };
+  };
   const beginRefitPresentation = async (
     tabId: number,
     held: HeldPosture,
     observation: EmulationRefitObservation,
   ): Promise<PresentationLease> => {
-    const preferredGeneration = observation.source === "content"
-      ? observation.presentationGeneration
+    const admittedObservation = await adoptPhysicalGuardAdmission(
+      tabId,
+      held,
+      observation,
+    );
+    if (!postureIsCurrent(tabId, held)) {
+      throw new Error("Emulation posture was released");
+    }
+    const preferredGeneration = admittedObservation.source === "content"
+      ? admittedObservation.presentationGeneration
       : undefined;
     if (preferredGeneration !== undefined) {
       try {
@@ -1657,14 +1825,20 @@ export function createRenderEmulationRuntime(input: Readonly<{
     verified: VerifiedEmulationState,
     observation: EmulationRefitObservation,
   ): Promise<VerifiedEmulationState> => {
+    const admittedObservation = await adoptPhysicalGuardAdmission(
+      tabId,
+      held,
+      observation,
+    );
+    if (!postureIsCurrent(tabId, held)) return verified;
     if (
-      observation.source !== "content" ||
-      observation.presentationGeneration === undefined
+      admittedObservation.source !== "content" ||
+      admittedObservation.presentationGeneration === undefined
     ) {
       return verified;
     }
     try {
-      const lease = await beginRefitPresentation(tabId, held, observation);
+      const lease = await beginRefitPresentation(tabId, held, admittedObservation);
       await settlePresentation(tabId, lease);
       cancelReassertRetry(tabId);
       return verified;
@@ -1684,29 +1858,23 @@ export function createRenderEmulationRuntime(input: Readonly<{
     coordinatorVersion: number,
   ): Promise<VerifiedEmulationState | null> => {
     if (!postureIsCurrent(tabId, held)) return null;
-    const physicalGuardGeneration = observation.physicalGuardGeneration
-      ? await observation.physicalGuardGeneration.catch(() => null)
-      : null;
+    let effectiveObservation = await adoptPhysicalGuardAdmission(
+      tabId,
+      held,
+      observation,
+    );
     if (!postureIsCurrent(tabId, held)) return null;
-    const effectiveObservation =
-      Number.isSafeInteger(physicalGuardGeneration) &&
-        Number(physicalGuardGeneration) > 0
-        ? {
-            ...observation,
-            source: "content" as const,
-            presentationGeneration: Number(physicalGuardGeneration),
-          }
-        : observation;
     const projectedVerified = verifiedPostures.get(tabId);
+    const projectedPhysicalViewport = effectiveObservation.projectedPhysicalViewport;
     const projectionIsCurrent =
       effectiveObservation.projectedPostureEpoch === held.epoch &&
-      effectiveObservation.projectedPhysicalViewport !== undefined &&
+      projectedPhysicalViewport !== undefined &&
       projectedVerified?.active === true &&
       projectedVerified.mode === held.mode;
     const shouldPreguard = projectionIsCurrent
       ? !physicalViewportFits(
         projectedVerified,
-        effectiveObservation.projectedPhysicalViewport,
+        projectedPhysicalViewport,
       )
       : effectiveObservation.physicalBoundsChanged === true;
     let preguardedBurst: RefitBurst | null = null;
@@ -1747,6 +1915,12 @@ export function createRenderEmulationRuntime(input: Readonly<{
     }
     const attachmentCurrent = await debuggerAttachmentIsCurrent(tabId);
     if (!postureIsCurrent(tabId, held)) return null;
+    effectiveObservation = await adoptPhysicalGuardAdmission(
+      tabId,
+      held,
+      effectiveObservation,
+    );
+    if (!postureIsCurrent(tabId, held)) return null;
     const verified = verifiedPostures.get(tabId);
     if (!attachmentCurrent || !verified || verified.mode !== held.mode) {
       invalidateGeometry(tabId);
@@ -1755,6 +1929,9 @@ export function createRenderEmulationRuntime(input: Readonly<{
         held,
         effectiveObservation.physicalViewportHint,
         "refit",
+        effectiveObservation.source === "content"
+          ? effectiveObservation.presentationGeneration
+          : undefined,
       );
       return verifiedPostures.get(tabId) ?? null;
     }
@@ -1772,8 +1949,44 @@ export function createRenderEmulationRuntime(input: Readonly<{
         failureReason: "physical_fit_mismatch",
       };
     }
+    // A bounds event can publish its guard while an earlier popup/side-panel
+    // executor is already awaiting browser geometry. Re-read the shared lane at
+    // this last pre-presentation boundary so that executor adopts, rather than
+    // supersedes, the exact document's opaque generation.
+    effectiveObservation = await adoptPhysicalGuardAdmission(
+      tabId,
+      held,
+      effectiveObservation,
+    );
+    if (!postureIsCurrent(tabId, held)) return null;
     const signature = physicalSignature(physicalViewport);
-    const activeBurst = refitBursts.get(tabId);
+    let activeBurst = refitBursts.get(tabId);
+    if (
+      !activeBurst &&
+      effectiveObservation.source === "content" &&
+      effectiveObservation.presentationGeneration !== undefined &&
+      effectiveObservation.physicalBoundsChanged === true
+    ) {
+      try {
+        activeBurst = {
+          held,
+          lease: await beginRefitPresentation(tabId, held, effectiveObservation),
+          geometryGeneration: nextGeometryGeneration(tabId),
+          physicalSignature: signature,
+          hint: effectiveObservation.physicalViewportHint,
+          coordinatorVersion,
+        };
+        refitBursts.set(tabId, activeBurst);
+        preguardedBurst = activeBurst;
+      } catch {
+        scheduleReassertRetry(tabId, held);
+        return {
+          ...verified,
+          active: false,
+          failureReason: "presentation_unavailable",
+        };
+      }
+    }
     const fittedScale = fitDeviceScale(
       held.mode,
       physicalViewport,
@@ -2060,9 +2273,34 @@ export function createRenderEmulationRuntime(input: Readonly<{
     observation: EmulationRefitObservation,
   ): Promise<void> => {
     const coordinator = coordinatorFor(tabId);
+    const held = heldPostures.get(tabId);
+    let effectiveObservation = observation;
+    if (
+      held &&
+      observation.source === "content" &&
+      Number.isSafeInteger(observation.presentationGeneration) &&
+      Number(observation.presentationGeneration) > 0
+    ) {
+      const generation = Promise.resolve(Number(observation.presentationGeneration));
+      const admission = publishPhysicalGuardAdmission(tabId, held, generation);
+      effectiveObservation = {
+        ...observation,
+        physicalGuardGeneration: admission.generation,
+      };
+    } else if (held && observation.physicalGuardGeneration) {
+      const admission = publishPhysicalGuardAdmission(
+        tabId,
+        held,
+        observation.physicalGuardGeneration,
+      );
+      effectiveObservation = {
+        ...observation,
+        physicalGuardGeneration: admission.generation,
+      };
+    }
     coordinator.pending = mergeRefitObservation(
       coordinator.pending,
-      observation,
+      effectiveObservation,
     );
     coordinator.version += 1;
     if (coordinator.processing) return coordinator.processing;
@@ -2167,9 +2405,14 @@ export function createRenderEmulationRuntime(input: Readonly<{
       const projectionIsCurrent = validProjection !== null &&
         verified?.active === true &&
         verified.mode === held.mode;
+      const projectionNeedsRefit = projectionIsCurrent && validProjection
+        ? Math.abs(
+            fitDeviceScale(held.mode, validProjection, held.scale) - verified.scale,
+          ) > 0.001 || !physicalViewportFits(verified, validProjection)
+        : false;
       const shouldFastGuard = physicalBoundsChanged && (
         projectionIsCurrent
-          ? !physicalViewportFits(verified, validProjection)
+          ? projectionNeedsRefit
           : true
       );
       let physicalGuardGeneration: Promise<number | null> | undefined;
@@ -2189,6 +2432,13 @@ export function createRenderEmulationRuntime(input: Readonly<{
         } catch {
           physicalGuardGeneration = Promise.resolve(null);
         }
+      }
+      if (physicalGuardGeneration) {
+        physicalGuardGeneration = publishPhysicalGuardAdmission(
+          tabId,
+          held,
+          physicalGuardGeneration,
+        ).generation;
       }
       void requestRefit(tabId, {
         ...observation,
