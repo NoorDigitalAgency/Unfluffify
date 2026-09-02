@@ -22,6 +22,11 @@ export type SignalCursor = Readonly<{
    *  behind another sees the cursor the first one advanced, not the stale value
    *  from when it was queued. */
   serialize: <T>(body: (consumedThrough: number) => Promise<T>) => Promise<T>;
+  /** Runs an operator-critical read immediately, without joining the polling
+   *  FIFO. The body must still claim every signal it adopts. That monotonic
+   *  claim makes a delayed older polling batch harmless when it eventually
+   *  returns. */
+  prioritize: <T>(body: (consumedThrough: number) => Promise<T>) => Promise<T>;
   /** Forgets everything consumed — for a rebind, where the new tab's stream is
    *  unrelated to the old one's. */
   reset: () => void;
@@ -45,6 +50,9 @@ export function createSignalCursor(): SignalCursor {
       const queued = queue.then(run, run);
       queue = queued.catch(() => undefined);
       return queued;
+    },
+    prioritize(body) {
+      return body(consumedThrough);
     },
     reset() {
       consumedThrough = 0;

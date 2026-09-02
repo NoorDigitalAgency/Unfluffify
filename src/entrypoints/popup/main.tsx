@@ -22,6 +22,7 @@ import { createConfigurationController } from "../../popup/configuration-control
 import type { PopupState } from "../../popup/organ/machine";
 import { createPopupRootRecovery } from "../../popup/root-recovery";
 import type { BrainSignal } from "../../domain/schema/signals";
+import type { FactEnvelope } from "../../messaging/contracts";
 import type { AiRunPayloadSnapshot } from "../../domain/schema/submission";
 import {
   browser,
@@ -281,6 +282,7 @@ let fastSignalPollInFlight: Promise<void> | null = null;
 let fastSignalPollQueued = false;
 let boundSignalPullInFlight: Promise<void> | null = null;
 let boundSignalPullQueued = false;
+let backgroundPollingGeneration = 0;
 let saveInFlight: Promise<void> | null = null;
 let aiRunInFlight: Promise<void> | null = null;
 /** A slow authority pass may already be waiting on Hub when Run AI starts.
@@ -288,6 +290,7 @@ let aiRunInFlight: Promise<void> | null = null;
  * AI transaction must be able to publish its successful result and open the
  * Content List before a trailing authority retry changes the projection. */
 let authorityRefreshGeneration = 0;
+let authorityGenerationRetiredBySession = -1;
 let popupRefreshInFlight: Promise<void> | null = null;
 let popupRefreshQueued = false;
 let sessionTransitionQueue: Promise<void> = Promise.resolve();
@@ -1042,41 +1045,78 @@ async function pullSignals(
   tabId: number,
   requestKey = boundTabKey,
   timeoutMs?: number,
+  adoptIf: () => boolean = () => true,
 ): Promise<number> {
   return await brainSignals.serialize(async (consumedThrough) => {
+    if (!adoptIf()) {
+      return 0;
+    }
     const response = await pullRewriteSignals(getPopupBus(), {
       tabId,
       afterSeq: consumedThrough,
     }, timeoutMs);
-    if (!response.ok) {
+    if (!response.ok || !adoptIf()) {
       return 0;
     }
-    if (boundTabId !== tabId || boundTabKey !== requestKey) {
-      return 0;
-    }
-    let applied = 0;
-    let markingChanged = false;
-    for (const signal of response.data) {
-      if (!(signal && typeof signal === "object" && (signal as BrainSignal).kind === "uf-signal/1")) {
-        continue;
-      }
-      const brainSignal = signal as BrainSignal;
-      if (!consumeSignal(brainSignal, tabId, requestKey)) {
-        continue;
-      }
-      markingChanged = markingChanged || brainSignal.name === "markings.changed";
-      applied += 1;
-    }
-    if (markingChanged) {
-      // Rows no longer ride the signal, so fetch them once for the whole batch
-      // rather than once per signal.
-      await adoptMarkingRows(tabId, requestKey);
-    }
-    return applied;
+    return await adoptSignalBatch(response.data, tabId, requestKey);
   });
 }
 
-type BoundContextEmulationPolicy = "verify" | "binding-change-only";
+async function adoptSignalBatch(
+  signals: readonly unknown[],
+  tabId: number,
+  requestKey: string | null,
+  binding?: PopupBindingOccurrence,
+): Promise<number> {
+  if (
+    boundTabId !== tabId ||
+    boundTabKey !== requestKey ||
+    (binding && !bindingOccurrenceIsCurrent(binding))
+  ) {
+    return 0;
+  }
+  let applied = 0;
+  let markingChanged = false;
+  for (const signal of signals) {
+    if (!(signal && typeof signal === "object" && (signal as BrainSignal).kind === "uf-signal/1")) {
+      continue;
+    }
+    const brainSignal = signal as BrainSignal;
+    if (!consumeSignal(brainSignal, tabId, requestKey)) {
+      continue;
+    }
+    markingChanged = markingChanged || brainSignal.name === "markings.changed";
+    applied += 1;
+  }
+  if (markingChanged) {
+    // Rows no longer ride the signal, so fetch them once for the whole batch
+    // rather than once per signal.
+    await adoptMarkingRows(tabId, requestKey);
+  }
+  return applied;
+}
+
+/** Operator-critical preflight may pass an already-running polling transport.
+ * Sequence claims remain monotonic, so the older batch becomes a no-op when it
+ * eventually returns instead of delaying or overwriting this decision. */
+async function pullSignalsPriority(
+  tabId: number,
+  binding: PopupBindingOccurrence,
+  timeoutMs?: number,
+): Promise<number> {
+  return await brainSignals.prioritize(async (consumedThrough) => {
+    const response = await pullRewriteSignals(getPopupBus(), {
+      tabId,
+      afterSeq: consumedThrough,
+    }, timeoutMs);
+    if (!response.ok || !bindingOccurrenceIsCurrent(binding)) {
+      return 0;
+    }
+    return await adoptSignalBatch(response.data, tabId, binding.key, binding);
+  });
+}
+
+type BoundContextEmulationPolicy = "verify" | "binding-change-only" | "defer";
 
 async function handleBoundContext(
   context: TargetTabContext,
@@ -1110,7 +1150,7 @@ async function handleBoundContext(
   // only after the managed tab has the correct posture. An unchanged 500 ms
   // signal tick is deliberately local: resize/detach observers own immediate
   // posture repair and the 15-second authority lane is its idle backstop.
-  if (binding.changed || emulationPolicy === "verify") {
+  if (emulationPolicy !== "defer" && (binding.changed || emulationPolicy === "verify")) {
     const active = await ensureSessionEmulation(context).catch(() => false);
     if (!active) {
       logEvent("Device emulation failed", "the page is not in mobile simulation", "warn");
@@ -1659,16 +1699,20 @@ function resumeBackgroundPolling(forceAuthority = false): void {
     void refreshPopup();
     return;
   }
+  if (forceAuthority || authorityRefreshQueue.hasQueued()) {
+    // A forced authority pass includes the bound signal drain. Let it be the
+    // single trailing reconciliation instead of also replaying the 500 ms lane.
+    fastSignalPollQueued = false;
+    void queueAuthorityRefresh(true);
+    return;
+  }
   if (fastSignalPollQueued) {
     void queueFastSignalPoll();
   }
-  if (forceAuthority || authorityRefreshQueue.hasQueued()) {
-    void queueAuthorityRefresh(true);
-  }
 }
 
-async function pollFastSignalsOnce(): Promise<void> {
-  if (backgroundPollingPaused()) {
+async function pollFastSignalsOnce(generation = backgroundPollingGeneration): Promise<void> {
+  if (backgroundPollingPaused() || generation !== backgroundPollingGeneration) {
     fastSignalPollQueued = true;
     return;
   }
@@ -1676,15 +1720,28 @@ async function pollFastSignalsOnce(): Promise<void> {
   if (context === null) {
     return;
   }
+  if (backgroundPollingPaused() || generation !== backgroundPollingGeneration) {
+    fastSignalPollQueued = true;
+    return;
+  }
   const previousBindingKey = boundTabKey;
   const requestKey = await handleBoundContext(context, "binding-change-only");
+  if (backgroundPollingPaused() || generation !== backgroundPollingGeneration) {
+    fastSignalPollQueued = true;
+    return;
+  }
   if (previousBindingKey !== null && previousBindingKey !== requestKey) {
     // A new document/property binding invalidates the slow-lane cache. Queue a
     // forced authority pass; if one is already running it becomes the one
     // coalesced trailing pass instead of overlapping the stale request.
     void queueAuthorityRefresh(true);
   }
-  await pullSignals(context.tabId, requestKey);
+  await pullSignals(context.tabId, requestKey, undefined, () =>
+    generation === backgroundPollingGeneration && !backgroundPollingPaused());
+  if (backgroundPollingPaused() || generation !== backgroundPollingGeneration) {
+    fastSignalPollQueued = true;
+    return;
+  }
   if (previewStateIsOpen()) {
     // This is an extension-local structural-revision backstop. Content returns
     // only the retained projection identity while its bridge is unchanged; a
@@ -1707,15 +1764,25 @@ function queueBoundSignalPull(tabId: number): Promise<void> {
     boundSignalPullQueued = true;
     return boundSignalPullInFlight;
   }
+  const generation = backgroundPollingGeneration;
   const operation = (async () => {
     do {
       boundSignalPullQueued = false;
+      if (generation !== backgroundPollingGeneration || backgroundPollingPaused()) {
+        fastSignalPollQueued = true;
+        return;
+      }
       const requestKey: string | null = boundTabId === tabId ? boundTabKey : null;
       if (requestKey === null) {
         return;
       }
-      await pullSignals(tabId, requestKey);
-      if (boundTabId === tabId && boundTabKey === requestKey) {
+      await pullSignals(tabId, requestKey, undefined, () =>
+        generation === backgroundPollingGeneration && !backgroundPollingPaused());
+      if (
+        generation === backgroundPollingGeneration &&
+        boundTabId === tabId &&
+        boundTabKey === requestKey
+      ) {
         render();
       }
     } while (boundSignalPullQueued && !backgroundPollingPaused());
@@ -1731,6 +1798,12 @@ async function refreshAuthorityOnce(force: boolean): Promise<void> {
   const mayAdopt = (): boolean =>
     generation === authorityRefreshGeneration && !authorityPollingPaused();
   const defer = (): void => {
+    if (
+      generation !== authorityRefreshGeneration &&
+      generation <= authorityGenerationRetiredBySession
+    ) {
+      return;
+    }
     void authorityRefreshQueue.queue(force);
   };
   if (!mayAdopt()) {
@@ -2502,16 +2575,21 @@ async function runSessionTransition<T>(operation: () => Promise<T>): Promise<T> 
     rejectResult = reject;
   });
   sessionTransitionPending += 1;
+  backgroundPollingGeneration += 1;
+  authorityGenerationRetiredBySession = authorityRefreshGeneration;
+  authorityRefreshGeneration += 1;
+  // Every transition owns exactly one trailing local reconciliation. If an old
+  // poll is already running, its queue flag is retained until that request
+  // terminalizes; otherwise the pass starts when the final transition exits.
+  fastSignalPollQueued = true;
   sessionTransitionQueue = sessionTransitionQueue.then(async () => {
     try {
       // Freeze the replacement-document boundary before changing emulation.
-      // A Refresh or 500 ms signal tick that started first may finish, but no
-      // later poll may rebind/reconcile the tab while this transition owns it.
+      // An explicit Refresh still owns its binding/config adoption. Ordinary
+      // local and authority polls are generation-retired instead: a priority
+      // operator read advances the cursor while their older replies go stale.
       await Promise.allSettled([
         popupRefreshInFlight,
-        fastSignalPollInFlight,
-        boundSignalPullInFlight,
-        authorityRefreshQueue.current(),
       ].filter((pending): pending is Promise<void> => pending !== null));
       resolveResult(await operation());
     } catch (error) {
@@ -2844,6 +2922,7 @@ async function refreshLockDirective(
   options: Readonly<{
     refreshFence?: boolean;
     adoptIf?: () => boolean;
+    pullSignals?: boolean;
   }> = {},
 ): Promise<LockDirectiveResponse | null> {
   const lock = await requestLockDirective(context, options);
@@ -2864,7 +2943,14 @@ async function refreshLockDirective(
   configPresent = lock.configPresent;
   // The lock runtime reported facts before replying. Pull the brain's decided
   // edge so the popup organ enters or exits its lock overlay via the table.
-  await pullSignals(context.tabId, requestKey);
+  if (options.pullSignals !== false) {
+    await pullSignals(
+      context.tabId,
+      requestKey,
+      undefined,
+      options.adoptIf ?? (() => true),
+    );
+  }
   return lock;
 }
 
@@ -3064,7 +3150,7 @@ async function setMarkingEnabledOperation(
     render();
     return;
   }
-  const requestKey = await handleBoundContext(context);
+  const requestKey = await handleBoundContext(context, "defer");
   const binding = captureBindingOccurrence(requestKey);
   if (enabled && !renderModeSet()) {
     notifyBoundEvent(binding, "Enable marking refused", "choose a render mode first", "warn");
@@ -3073,7 +3159,7 @@ async function setMarkingEnabledOperation(
   }
   if (enabled && directModeActive) {
     ensureSignalPolling();
-    const transition = await runSessionTransition(async () => {
+    const transition = await (async () => {
       advanceOperatorAction(action, "emulation");
       const priorMode = desiredEmulationMode();
       const emulation = await applySessionEmulationResult(context, {
@@ -3136,14 +3222,19 @@ async function setMarkingEnabledOperation(
         await applySessionEmulation(activeContext, { mode: priorMode, allowReload: true });
       }
       return { ...activation, context: activeContext };
-    });
+    })();
     if (!bindingOccurrenceIsCurrent(binding)) {
       return;
     }
     if (transition.activated) {
       advanceOperatorAction(action, "rows");
       await adoptMarkingRows(transition.context.tabId, requestKey);
-      await reportPopupFact(transition.context, "debug-direct-marking-activated", { markingEnabled: true }, requestKey);
+      await reportPopupFactPriority(
+        transition.context,
+        "debug-direct-marking-activated",
+        { markingEnabled: true },
+        binding,
+      );
     }
     notifyBoundEvent(
       binding,
@@ -3160,9 +3251,9 @@ async function setMarkingEnabledOperation(
   if (enabled) {
     ensureSignalPolling();
     advanceOperatorAction(action, "signals");
-    await pullSignals(context.tabId, requestKey);
+    await pullSignalsPriority(context.tabId, binding);
     advanceOperatorAction(action, "lock");
-    const lock = await refreshLockDirective(context, requestKey);
+    const lock = await refreshLockDirective(context, requestKey, { pullSignals: false });
     if (!bindingOccurrenceIsCurrent(binding)) {
       return;
     }
@@ -3184,7 +3275,7 @@ async function setMarkingEnabledOperation(
             siteId: lock.siteId,
           }
         : null;
-    const transition = await runSessionTransition(async () => {
+    const transition = await (async () => {
       advanceOperatorAction(action, "emulation");
       const priorMode = desiredEmulationMode();
       const emulation = await applySessionEmulationResult(context, {
@@ -3241,7 +3332,11 @@ async function setMarkingEnabledOperation(
         activeRequestKey = await handleBoundContext(activeContext);
         activeBinding = captureBindingOccurrence(activeRequestKey);
         await refreshTodoContext(activeContext, activeRequestKey);
-        const revalidatedLock = await refreshLockDirective(activeContext, activeRequestKey);
+        const revalidatedLock = await refreshLockDirective(
+          activeContext,
+          activeRequestKey,
+          { pullSignals: false },
+        );
         if (
           !revalidatedLock ||
           !lockAllowsEditing(revalidatedLock) ||
@@ -3317,7 +3412,7 @@ async function setMarkingEnabledOperation(
         requestKey: activeRequestKey,
         binding: activeBinding,
       };
-    });
+    })();
     if (!bindingOccurrenceIsCurrent(transition.binding)) {
       return;
     }
@@ -3341,13 +3436,15 @@ async function setMarkingEnabledOperation(
         : transition.reason,
       activated ? "success" : "danger",
     );
-    await reportPopupFact(transition.context, activated ? "marking-activated" : "marking-activation-refused", {
-      markingEnabled: activated,
-    }, transition.requestKey);
-    await pullSignals(transition.context.tabId, transition.requestKey);
+    await reportPopupFactPriority(
+      transition.context,
+      activated ? "marking-activated" : "marking-activation-refused",
+      { markingEnabled: activated },
+      transition.binding,
+    );
   } else {
     advanceOperatorAction(action, "signals");
-    const transition = await runSessionTransition(async () => {
+    const transition = await (async () => {
       const contentDeactivated = await sendContentMessage(context.tabId, {
         type: "enterSilentContentMain",
         pageUrl: context.url,
@@ -3400,7 +3497,7 @@ async function setMarkingEnabledOperation(
         };
       }
       return { contentDeactivated, emulationApplied: true, context: reload.context, reason: "" };
-    });
+    })();
     if (!bindingOccurrenceIsCurrent(binding)) {
       return;
     }
@@ -3410,8 +3507,12 @@ async function setMarkingEnabledOperation(
       return;
     }
     logEvent("Marking disabled", "toggle");
-    await reportPopupFact(transition.context, "marking-deactivated", { markingEnabled: false }, requestKey);
-    await pullSignals(transition.context.tabId, requestKey);
+    await reportPopupFactPriority(
+      transition.context,
+      "marking-deactivated",
+      { markingEnabled: false },
+      binding,
+    );
     silentSelectorsAppliedKey = null;
     const silentPresentationAcknowledged = transition.emulationApplied
       ? await refreshSilentSelectorPreview(transition.context, requestKey)
@@ -3446,7 +3547,9 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
   }
   render();
   try {
-    await setMarkingEnabledOperation(enabled, action);
+    // Admission pauses both polling lanes synchronously, before context,
+    // signals, or lock preflight can queue behind unrelated backstop work.
+    await runSessionTransition(() => setMarkingEnabledOperation(enabled, action));
   } catch (error: unknown) {
     notifyEvent(
       enabled ? "Enable marking failed" : "Disable marking failed",
@@ -3464,6 +3567,26 @@ async function setMarkingEnabled(enabled: boolean): Promise<void> {
  *  brain still folds it and decides what signal it implies. Keys are omitted
  *  rather than passed as undefined, since the fold spreads the patch over the
  *  previous facts and an explicit undefined would erase a known value. */
+function popupFactEnvelope(
+  context: TargetTabContext,
+  reason: string,
+  facts: Record<string, unknown>,
+): FactEnvelope {
+  return {
+    kind: "uf-fact/1",
+    sensation: {
+      tabId: context.tabId,
+      source: "popup",
+      reason,
+      facts: {
+        tabId: context.tabId,
+        ...(context.url ? { pageUrl: context.url, baseUrl: safeOrigin(context.url) || undefined } : {}),
+        ...facts,
+      },
+    },
+  };
+}
+
 async function reportPopupFact(
   context: TargetTabContext,
   reason: string,
@@ -3474,22 +3597,49 @@ async function reportPopupFact(
     return false;
   }
   try {
-    await getPopupBus().emit("fact.reported", {
-      kind: "uf-fact/1",
-      sensation: {
-        tabId: context.tabId,
-        source: "popup",
-        reason,
-        facts: {
-          tabId: context.tabId,
-          ...(context.url ? { pageUrl: context.url, baseUrl: safeOrigin(context.url) || undefined } : {}),
-          ...facts,
-        },
-      },
-    }, { target: "background" });
+    await getPopupBus().emit(
+      "fact.reported",
+      popupFactEnvelope(context, reason, facts),
+      { target: "background" },
+    );
     return true;
   } catch (error) {
     console.error("[Unfluffify][rewrite] Unable to report a popup fact", error);
+    return false;
+  }
+}
+
+/** Atomically folds one terminal popup fact in the background brain and adopts
+ * its real decision without joining the ordinary polling FIFO. Persistence is
+ * already queued background-side before this acknowledgement is returned. */
+async function reportPopupFactPriority(
+  context: TargetTabContext,
+  reason: string,
+  facts: Record<string, unknown>,
+  binding: PopupBindingOccurrence,
+): Promise<boolean> {
+  if (!bindingOccurrenceIsCurrent(binding) || boundTabId !== context.tabId) {
+    return false;
+  }
+  try {
+    return await brainSignals.prioritize(async (consumedThrough) => {
+      const response = await getPopupBus().request("fact.reportAndPull", {
+        envelope: popupFactEnvelope(context, reason, facts),
+        afterSeq: consumedThrough,
+      }, { target: "background" });
+      if (
+        !response.ok ||
+        !response.data.accepted ||
+        !bindingOccurrenceIsCurrent(binding) ||
+        boundTabId !== context.tabId
+      ) {
+        return false;
+      }
+      await adoptSignalBatch(response.data.signals, context.tabId, binding.key, binding);
+      return true;
+    });
+  } catch (error) {
+    console.error("[Unfluffify][rewrite] Unable to report a priority popup fact", error);
     return false;
   }
 }
@@ -5879,30 +6029,25 @@ if (DEBUG_BUILD && typeof window !== "undefined") {
 }
 const unsubscribeToast = toastController.subscribe(() => render());
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
-  let emulationRefitTimer: number | null = null;
+  let lastPhysicalViewportSignature = "";
   const requestPhysicalViewportRefit = (): void => {
-    if (emulationRefitTimer !== null) window.clearTimeout(emulationRefitTimer);
-    emulationRefitTimer = window.setTimeout(() => {
-      emulationRefitTimer = null;
-      void resolveTargetTabContext().then(async (context) => {
-        if (!context) return;
-        await getPopupBus().request(
-          "emulation.refit",
-          { tabId: context.tabId, ...physicalViewportRequestFields() },
-          { target: "background" },
-        );
-      }).catch(() => undefined);
-    }, 40);
+    const fields = physicalViewportRequestFields();
+    const height = fields.physicalViewportHint?.height;
+    const signature = height === undefined ? "unavailable" : `height:${height}`;
+    if (signature === lastPhysicalViewportSignature) return;
+    lastPhysicalViewportSignature = signature;
+    void resolveTargetTabContext().then(async (context) => {
+      if (!context) return;
+      await getPopupBus().request(
+        "emulation.refit",
+        { tabId: context.tabId, source: "popup", ...fields },
+        { target: "background" },
+      );
+    }).catch(() => undefined);
   };
-  const viewportObserver = typeof ResizeObserver === "function"
-    ? new ResizeObserver(requestPhysicalViewportRefit)
-    : null;
-  viewportObserver?.observe(document.documentElement);
   window.addEventListener("resize", requestPhysicalViewportRefit);
   requestPhysicalViewportRefit();
   const disposeTransientNotifications = (): void => {
-    if (emulationRefitTimer !== null) window.clearTimeout(emulationRefitTimer);
-    viewportObserver?.disconnect();
     window.removeEventListener("resize", requestPhysicalViewportRefit);
     unsubscribeToast();
     toastController.dispose();

@@ -329,6 +329,68 @@ describe("P15 shield navigation/startup ordering", () => {
     Reflect.deleteProperty(globalThis, "chrome");
   });
 
+  it("returns the authoritative terminal marking decision before its queued durable write finishes", async () => {
+    const base = createMemoryStore();
+    let announceWriteStarted!: () => void;
+    let releaseWrite!: () => void;
+    let writeFinished = false;
+    const writeStarted = new Promise<void>((resolve) => { announceWriteStarted = resolve; });
+    const writeGate = new Promise<void>((resolve) => { releaseWrite = resolve; });
+    const store: KeyValueStore = {
+      get: (key) => base.get(key),
+      async set(key, value) {
+        if (key === "tabState:7") {
+          announceWriteStarted();
+          await writeGate;
+          writeFinished = true;
+        }
+        await base.set(key, value);
+      },
+      remove: (key) => base.remove(key),
+      clear: () => base.clear(),
+    };
+    installServicesWithStore(store);
+    const browser = installBrowserHarness();
+    const { startRewriteBackground } = await import("../../../src/background/index");
+    startRewriteBackground();
+    const call = caller(browser.listener());
+
+    const responsePromise = call("fact.reportAndPull", {
+      envelope: {
+        kind: "uf-fact/1",
+        sensation: {
+          tabId: 7,
+          source: "popup",
+          reason: "marking-activated",
+          facts: {
+            tabId: 7,
+            pageUrl: "https://example.com/jobs/1",
+            baseUrl: "https://example.com",
+            markingEnabled: true,
+          },
+        },
+      },
+      afterSeq: 0,
+    }, "popup");
+    await writeStarted;
+    const response = await responsePromise;
+
+    expect(writeFinished).toBe(false);
+    expect(response).toMatchObject({
+      ok: true,
+      payload: {
+        accepted: true,
+        signals: [{ name: "marking.enabled", source: "brain" }],
+      },
+    });
+
+    releaseWrite();
+    for (let index = 0; index < 5 && !writeFinished; index += 1) {
+      await Promise.resolve();
+    }
+    expect(writeFinished).toBe(true);
+  });
+
   it("waits for deferred old-document cleanup before page.context adopts the replacement document", async () => {
     const base = createMemoryStore();
     let holdTabFacts = false;

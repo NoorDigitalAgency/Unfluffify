@@ -846,3 +846,30 @@ painted" decision from the replaced document.
   cosmetic retirement frame must not roll back an otherwise exact settled
   posture, because rollback exposes the physical viewport and causes the visible
   mobile/desktop flicker this contract prevents.
+- EL-03 R8 REFIT BURST AUTHORITY (2026-09-02): popup, content, window-bounds,
+  side-panel, watchdog, and verification notifications are observations of one
+  per-tab physical-geometry burst. Measure before presentation for ordinary
+  no-ops; adopt one retained presentation generation when content already made
+  the page opaque; apply every newly safer shrink behind that lease immediately;
+  and permit one larger-scale write only after the 240 ms quiet proof, followed
+  by one settle/fade. Dimension signatures and the active lease absorb debugger
+  metrics echoes. Popup layout is not a geometry source: only immediate Window
+  resize observations with a changed physical-height signature may request a
+  refit.
+- EL-03 R8 OPERATOR-PRIORITY SIGNAL AUTHORITY (2026-09-02): Enable/Disable
+  marking enters the session transition before context, signal, and lock
+  preflight. Ordinary fast/bound/authority polling is generation-retired, while
+  the operator path may read and monotonically claim newer brain signals without
+  joining the polling FIFO. `fact.reportAndPull` is the internal atomic terminal
+  boundary: the background folds the real popup fact, queues its durable snapshot,
+  and returns the brain's decisions from the same lifecycle operation; persistence
+  and availability notifications do not hold visible acknowledgement open. A
+  delayed older reply is stale, and the final transition schedules exactly one
+  trailing local reconciliation.
+- EL-03 R8 ALT TRANSFER AUTHORITY (2026-09-02): when Alt moves an explicit
+  inclusion to a descendant, the clicked descendant remains the canonical
+  decision target, but reevaluation/repaint starts at the shallowest explicit
+  included ancestor removed by the mutation (or the enclosing explicit
+  exclusion when present). This retires the former owner's overlay in the same
+  acknowledged mutation and leaves exactly one explicit descendant in canonical
+  rows, painted layers, Content List projection, and submission payload.

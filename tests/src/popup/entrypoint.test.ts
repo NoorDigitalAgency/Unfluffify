@@ -396,6 +396,29 @@ function makeRuntime(
   return {
     sendMessage: vi.fn(async (message: unknown) => {
       const frame = message as BusFrame;
+      if (frame.name === "fact.reportAndPull") {
+        const request = frame.payload as {
+          envelope?: { sensation?: BrainSensation };
+          afterSeq?: number;
+        };
+        const sensation = request.envelope?.sensation;
+        const decisions = sensation ? factBrain.observe(sensation) : [];
+        // Preserve test-specific fact side effects while the returned decision
+        // itself still comes from the real brain, as production requires.
+        if (sensation) {
+          void Promise.resolve(handler({
+            ...frame,
+            frameType: "event",
+            name: "fact.reported",
+            payload: request.envelope,
+          })).catch(() => undefined);
+        }
+        deliveredSignalSeq = Math.max(deliveredSignalSeq, Number(request.afterSeq ?? 0));
+        return replyFrame(frame, {
+          accepted: sensation?.source === "popup",
+          signals: decisions.map((signal) => ({ ...signal, seq: ++deliveredSignalSeq })),
+        });
+      }
       if (frame.name === "fact.reported") {
         const sensation = (frame.payload as { sensation?: BrainSensation }).sensation;
         const observe = (): void => {
@@ -1257,8 +1280,12 @@ describe("rewrite popup entrypoint", () => {
       () => runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "emulation.refit"),
       "initial side-panel fit",
     );
+    await flushEntrypointWork();
+    await flushEntrypointWork();
     const applyCount = runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "emulation.apply").length;
     const refitCount = runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "emulation.refit").length;
+    (document.documentElement as { clientHeight: number }).clientHeight = 640;
+    window.innerHeight = 640;
     resizeListener?.();
     await waitFor(
       () => runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "emulation.refit").length > refitCount,
@@ -1270,7 +1297,8 @@ describe("rewrite popup entrypoint", () => {
     const refit = runtime.sendMessage.mock.calls.findLast(([frame]) => frame.name === "emulation.refit")?.[0];
     expect(refit?.payload).toMatchObject({
       tabId: 77,
-      physicalViewportHint: { height: 705 },
+      source: "popup",
+      physicalViewportHint: { height: 640 },
     });
   });
 
@@ -1456,6 +1484,107 @@ describe("rewrite popup entrypoint", () => {
     expect(props().diagnostics.contentActive).toBe(true);
     expect(props().refreshBusy).toBe(false);
   });
+
+  it.each(["fast", "bound"] as const)(
+    "lets Enable marking pass a stalled %s signal poll and runs one trailing pull",
+    async (stalledLane) => {
+      installEntrypointDom("chrome-extension://extension-id/popup.html");
+      const render = createReactRenderProbe();
+      vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+      const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/page" }]);
+      const tabsSendMessage = makeTabsSendMessage(() => ({
+        ok: true,
+        initialized: true,
+        tree: "rewrite",
+      }));
+      let stallNextPull = false;
+      let announceStalledPull!: () => void;
+      let releaseStalledPull!: () => void;
+      const stalledPullStarted = new Promise<void>((resolve) => { announceStalledPull = resolve; });
+      const stalledPullGate = new Promise<void>((resolve) => { releaseStalledPull = resolve; });
+      const runtime = makeRuntime(async (message) => {
+        if (message.name === "signals.pull") {
+          if (stallNextPull) {
+            stallNextPull = false;
+            announceStalledPull();
+            await stalledPullGate;
+          }
+        }
+        return replyFrame(message, []);
+      });
+      globalThis.chrome = {
+        runtime: { ...runtime },
+        tabs: { query, sendMessage: tabsSendMessage },
+      } as unknown as typeof chrome;
+
+      await import("../../../src/entrypoints/popup/main.tsx");
+      const props = () => render.mock.calls.at(-1)?.[0].props;
+      await confirmRenderMode(render);
+      const pullCount = () => runtime.sendMessage.mock.calls.filter(
+        ([frame]) => (frame as BusFrame).name === "signals.pull",
+      ).length;
+      const baselinePulls = pullCount();
+      stallNextPull = true;
+      if (stalledLane === "fast") {
+        const poll = globalThis.window.setInterval.mock.calls
+          .find(([, delay]) => delay === 500)?.[0] as (() => void) | undefined;
+        expect(poll).toBeTypeOf("function");
+        poll?.();
+      } else {
+        const popupRuntimeListener = runtime.onMessage.addListener.mock.calls.at(-1)?.[0] as ((
+          message: unknown,
+          sender: unknown,
+          sendResponse: (value: unknown) => void,
+        ) => unknown) | undefined;
+        expect(popupRuntimeListener).toBeTypeOf("function");
+        popupRuntimeListener?.({
+          kind: "uf-bus/1",
+          frameType: "event",
+          id: "stalled-bound-signal",
+          seq: 1,
+          name: "signals.available",
+          source: "background",
+          sourceInstance: "background:test",
+          target: "popup",
+          payload: { tabId: 77 },
+        } satisfies BusFrame, {}, () => undefined);
+      }
+      await stalledPullStarted;
+      expect(pullCount()).toBe(baselinePulls + 1);
+
+      const startedAt = Date.now();
+      props().onEnableChange(true);
+      await waitFor(
+        () => props().diagnostics.contentActive === true &&
+          props().diagnostics.stateName === "pre_ai_clean" &&
+          props().presentation.temporarilyDisabledOverlay === false,
+        `priority activation past ${stalledLane} poll`,
+      );
+      expect(Date.now() - startedAt).toBeLessThan(1_000);
+      expect(pullCount()).toBe(baselinePulls + 2);
+      expect(runtime.sendMessage.mock.calls.filter(
+        ([frame]) => (frame as BusFrame).name === "fact.reportAndPull",
+      )).toHaveLength(1);
+      const stages = globalThis.window.__UNFLUFFIFY_POPUP_DEBUG__.getActivity()
+        .filter((entry) => (entry as { detail?: string }).detail?.startsWith("marking-preflight · "))
+        .map((entry) => (entry as { label: string }).label)
+        .reverse();
+      expect(stages).toEqual([
+        "Operator action context",
+        "Operator action signals",
+        "Operator action lock",
+        "Operator action emulation",
+        "Operator action activation",
+        "Operator action rows",
+        "Operator action terminal",
+      ]);
+
+      releaseStalledPull();
+      await waitFor(() => pullCount() >= baselinePulls + 3, "one trailing signal pull");
+      await flushEntrypointWork();
+      expect(pullCount()).toBe(baselinePulls + 3);
+    },
+  );
 
   it("keeps authority refresh single-flight and no more frequent than every 15 seconds", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
@@ -2839,10 +2968,15 @@ describe("rewrite popup entrypoint", () => {
       .toBeLessThan(sentCommandNames.indexOf("resetContentMain"));
     const runtimeFrames = runtime.sendMessage.mock.calls.map(([frame]) => frame as {
       name?: string;
-      payload?: { signal?: { name?: string }; sensation?: { reason?: string } };
+      payload?: {
+        signal?: { name?: string };
+        sensation?: { reason?: string };
+        envelope?: { sensation?: { reason?: string } };
+      };
     });
     expect(runtimeFrames.filter(
-      (frame) => frame.name === "fact.reported" && frame.payload?.sensation?.reason === "marking-activated",
+      (frame) => frame.name === "fact.reportAndPull" &&
+        frame.payload?.envelope?.sensation?.reason === "marking-activated",
     )).toHaveLength(1);
     expect(runtimeFrames.filter((frame) => frame.name === "signals.emit").map((frame) => frame.payload?.signal?.name))
       .not.toEqual(expect.arrayContaining(["marking.enabled", "marking.disabled"]));

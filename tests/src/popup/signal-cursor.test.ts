@@ -151,6 +151,35 @@ describe("popup signal cursor", () => {
     expect(cursor.consumedThrough()).toBe(1);
   });
 
+  it("lets an operator-critical decision pass a stalled poll and makes its older reply stale", async () => {
+    const cursor = createSignalCursor();
+    let releasePoll!: () => void;
+    const pollGate = new Promise<void>((resolve) => { releasePoll = resolve; });
+    const adopted: number[] = [];
+
+    const stalledPoll = cursor.serialize(async (consumedThrough) => {
+      expect(consumedThrough).toBe(0);
+      await pollGate;
+      for (const seq of [1, 2]) {
+        if (cursor.claim(seq)) adopted.push(seq);
+      }
+    });
+    await Promise.resolve();
+
+    await cursor.prioritize(async (consumedThrough) => {
+      expect(consumedThrough).toBe(0);
+      for (const seq of [1, 2, 3]) {
+        if (cursor.claim(seq)) adopted.push(seq);
+      }
+    });
+    expect(adopted).toEqual([1, 2, 3]);
+    expect(cursor.consumedThrough()).toBe(3);
+
+    releasePoll();
+    await stalledPoll;
+    expect(adopted).toEqual([1, 2, 3]);
+  });
+
   it("forgets everything on a rebind, since the new tab's stream is unrelated", async () => {
     const cursor = createSignalCursor();
     cursor.claim(9);

@@ -477,6 +477,23 @@ describe("emulation transition guardian", () => {
     expect(onUnexpectedViewportChange).toHaveBeenCalledWith("mobile", 1);
   });
 
+  it("absorbs viewport echoes while the current transition already owns the guard", async () => {
+    const { guardian, window, onUnexpectedViewportChange } = fixture();
+    await guardian.handle(beginMobile);
+    expect(guardian.isGuarding()).toBe(true);
+
+    window.visualViewport.height = 945;
+    window.visualViewport.dispatch("resize");
+    await Promise.resolve();
+
+    expect(onUnexpectedViewportChange).not.toHaveBeenCalled();
+    expect(guardian.current()).toMatchObject({
+      generation: 1,
+      stage: "paint-proven",
+      guarded: true,
+    });
+  });
+
   it("rejects a stale release without tearing down a newer covered generation", async () => {
     const { guardian } = fixture();
     await guardian.handle({ ...beginMobile, generation: 2 });

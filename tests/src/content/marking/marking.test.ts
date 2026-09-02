@@ -636,10 +636,72 @@ describe("P6 content marking engine", () => {
       rows: [{ xpath: section.xpath, excluded: false, explicit: true }],
     });
 
-    store.toggle(child, "include");
+    const toggled = store.toggle(child, "include");
 
     expect(store.canonicalSet().rows).toEqual([
       { xpath: child.xpath, excluded: false, explicit: true },
+    ]);
+    expect(toggled.branchRoot).toBe(section);
+    expect(store.currentEvaluation().overlay.get(section.xpath)).toBe("implicit-include");
+    expect(store.currentEvaluation().overlay.get(child.xpath)).toBe("explicit-include");
+  });
+
+  it("transfers a nested Alt rescue inside an expanded exclusion without reviving either ancestor", () => {
+    const strong = leaf(
+      "strong",
+      "/html[1]/body[1]/section[1]/p[1]/span[1]/strong[1]",
+    );
+    const paragraph: EvaluationNode = {
+      key: "paragraph",
+      tagName: "P",
+      xpath: "/html[1]/body[1]/section[1]/p[1]",
+      visible: true,
+      ownsDirectText: true,
+      children: [{
+        key: "span",
+        tagName: "SPAN",
+        xpath: "/html[1]/body[1]/section[1]/p[1]/span[1]",
+        visible: true,
+        children: [strong],
+      }],
+    };
+    const section: EvaluationNode = {
+      key: "section",
+      tagName: "SECTION",
+      xpath: "/html[1]/body[1]/section[1]",
+      visible: true,
+      structuralBoundary: true,
+      children: [paragraph],
+    };
+    const store = createMarkingStore({ root: section }, {
+      rows: [
+        { xpath: section.xpath, excluded: true, explicit: true },
+        { xpath: paragraph.xpath, excluded: false, explicit: true },
+      ],
+    });
+
+    const transferred = store.toggle(strong, "include");
+
+    expect(transferred.branchRoot).toBe(paragraph);
+    expect(store.canonicalSet().rows).toEqual([
+      { xpath: section.xpath, excluded: true, explicit: true },
+      { xpath: strong.xpath, excluded: false, explicit: true },
+    ]);
+    expect(store.currentEvaluation().overlay.get(paragraph.xpath)).toBe("exception");
+    expect(store.currentEvaluation().overlay.get(strong.xpath)).toBe("explicit-include");
+    expect(store.rows()).toEqual([
+      { xpath: section.xpath, excluded: true, explicit: true },
+      { xpath: strong.xpath, excluded: false, explicit: true },
+    ]);
+
+    store.toggle(strong, "include");
+    expect(store.canonicalSet().rows).toEqual([
+      { xpath: section.xpath, excluded: true, explicit: true },
+    ]);
+    store.toggle(strong, "include");
+    expect(store.canonicalSet().rows).toEqual([
+      { xpath: section.xpath, excluded: true, explicit: true },
+      { xpath: strong.xpath, excluded: false, explicit: true },
     ]);
   });
 

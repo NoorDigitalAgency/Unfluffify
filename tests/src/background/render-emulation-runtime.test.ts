@@ -519,7 +519,7 @@ describe("render emulation runtime", () => {
     }]);
   });
 
-  it("settles an already-safe no-op refit so a synchronous resize guard cannot remain stuck", async () => {
+  it("keeps an already-safe non-content refit read-only", async () => {
     const presenter = transitionPresenter();
     const debuggerApi = fakeDebugger();
     const runtime = createRenderEmulationRuntime({
@@ -533,42 +533,49 @@ describe("render emulation runtime", () => {
 
     await runtime.refit(7);
 
-    expect(presenter.requests.map((request) => request.phase)).toEqual(["begin", "settle"]);
-    expect(presenter.requests[0]).toMatchObject({ cause: "refit", mode: "mobile" });
+    expect(presenter.requests).toEqual([]);
     expect(debuggerApi.sent.some((call) =>
       call.method === "Emulation.setDeviceMetricsOverride")).toBe(false);
   });
 
   it("keeps a real physical-shrink refit guarded from before metrics through exact settle", async () => {
-    const events: string[] = [];
-    const viewport = { width: 900, height: 720, windowId: 4 };
-    const presenter = transitionPresenter((request) => {
-      events.push(`present:${request.phase}`);
-      return { status: "ready", result: transitionAcknowledgement(request) };
-    });
-    const debuggerApi = fakeDebugger({
-      onMetricsCommand() {
-        events.push("metrics");
-      },
-    });
-    const runtime = createRenderEmulationRuntime({
-      debuggerApi: debuggerApi.api,
-      tabs: tabsWithViewport(viewport),
-      presentTransition: presenter.presentTransition,
-    });
-    await runtime.apply(7, "mobile", 1);
-    events.length = 0;
-    debuggerApi.sent.length = 0;
-    viewport.height = 480;
+    vi.useFakeTimers();
+    try {
+      const events: string[] = [];
+      const viewport = { width: 900, height: 720, windowId: 4 };
+      const presenter = transitionPresenter((request) => {
+        events.push(`present:${request.phase}`);
+        return { status: "ready", result: transitionAcknowledgement(request) };
+      });
+      const debuggerApi = fakeDebugger({
+        onMetricsCommand() {
+          events.push("metrics");
+        },
+      });
+      const runtime = createRenderEmulationRuntime({
+        debuggerApi: debuggerApi.api,
+        tabs: tabsWithViewport(viewport),
+        presentTransition: presenter.presentTransition,
+      });
+      await runtime.apply(7, "mobile", 1);
+      events.length = 0;
+      debuggerApi.sent.length = 0;
+      viewport.height = 480;
 
-    await runtime.refit(7);
+      await runtime.refit(7);
 
-    expect(events).toEqual(["present:begin", "metrics", "present:settle"]);
-    expect(debuggerApi.sent.filter((call) => call.method.startsWith("Emulation.")))
-      .toMatchObject([{
-        method: "Emulation.setDeviceMetricsOverride",
-        params: { width: 412, height: 960, mobile: true, scale: 0.5 },
-      }]);
+      expect(events).toEqual(["present:begin", "metrics"]);
+      await vi.advanceTimersByTimeAsync(240);
+      await flush();
+      expect(events).toEqual(["present:begin", "metrics", "present:settle"]);
+      expect(debuggerApi.sent.filter((call) => call.method.startsWith("Emulation.")))
+        .toMatchObject([{
+          method: "Emulation.setDeviceMetricsOverride",
+          params: { width: 412, height: 960, mobile: true, scale: 0.5 },
+        }]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reasserts a canceled mobile lease inside a debugger-detach presentation occurrence", async () => {
@@ -1241,6 +1248,94 @@ describe("render emulation runtime", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("owns a multi-source shrink/grow burst with one guard lease and one final fade", async () => {
+    vi.useFakeTimers();
+    try {
+      const presenter = transitionPresenter();
+      const debuggerApi = fakeDebugger();
+      const viewport = { width: 900, height: 720, windowId: 4 };
+      const runtime = createRenderEmulationRuntime({
+        debuggerApi: debuggerApi.api,
+        tabs: tabsWithViewport(viewport),
+        presentTransition: presenter.presentTransition,
+      });
+      await runtime.apply(7, "mobile", 1);
+      const retainedGeneration = presenter.requests.at(-1)?.generation ?? 1;
+      presenter.requests.length = 0;
+      debuggerApi.sent.length = 0;
+
+      viewport.height = 480;
+      await runtime.refit(7, { source: "window-bounds" });
+      const burstGeneration = presenter.requests[0]?.generation;
+      await runtime.refit(7, {
+        source: "content",
+        presentationGeneration: burstGeneration ?? retainedGeneration,
+      });
+      expect(presenter.requests.map((request) => request.phase)).toEqual(["begin"]);
+      expect(debuggerApi.sent.filter((call) =>
+        call.method === "Emulation.setDeviceMetricsOverride"
+      )).toHaveLength(1);
+
+      viewport.height = 700;
+      await Promise.all([
+        runtime.refit(7, { source: "window-bounds" }),
+        runtime.refit(7, {
+          source: "popup",
+          physicalViewportHint: { height: 700 },
+        }),
+      ]);
+      await vi.advanceTimersByTimeAsync(239);
+      await flush();
+      expect(debuggerApi.sent.filter((call) =>
+        call.method === "Emulation.setDeviceMetricsOverride"
+      )).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await flush();
+      const metrics = debuggerApi.sent.filter((call) =>
+        call.method === "Emulation.setDeviceMetricsOverride"
+      );
+      expect(metrics).toHaveLength(2);
+      expect(metrics.map((call) => call.params?.scale)).toEqual([
+        0.5,
+        700 / 960,
+      ]);
+      expect(presenter.requests.map((request) => request.phase)).toEqual([
+        "begin",
+        "settle",
+      ]);
+      expect(new Set(presenter.requests.map((request) => request.generation)).size).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("settles an already-opaque content no-op using its retained generation", async () => {
+    const presenter = transitionPresenter();
+    const debuggerApi = fakeDebugger();
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: tabsWithViewport({ width: 900, height: 720, windowId: 4 }),
+      presentTransition: presenter.presentTransition,
+    });
+    await runtime.apply(7, "mobile", 1);
+    const generation = (presenter.requests.at(-1)?.generation ?? 1) + 1;
+    presenter.requests.length = 0;
+    debuggerApi.sent.length = 0;
+
+    await runtime.refit(7, {
+      source: "content",
+      presentationGeneration: generation,
+    });
+
+    expect(presenter.requests.map((request) => request.phase)).toEqual([
+      "begin",
+      "settle",
+    ]);
+    expect(presenter.requests.every((request) => request.generation === generation)).toBe(true);
+    expect(debuggerApi.sent).toEqual([]);
   });
 
   it("invalidates a pending expansion when a newer physical generation arrives", async () => {

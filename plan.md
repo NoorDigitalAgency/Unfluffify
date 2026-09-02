@@ -5946,3 +5946,315 @@ Exact committed-source automated gates:
 Normal push/0:0 proof, exact-pushed production headed conformance, the pending
 reveal/freeze adjudication, and cumulative production-readiness review remain
 mandatory.
+
+## 12. Exact-pushed R7 headed verdict (2026-09-02)
+
+R7 is **REJECTED for production readiness** even though its intended
+frame-starvation remediation and every automated gate passed. The headed run
+used the repository `live-browser` against exact pushed commit `93a64a96` with
+production extension version `2.0.0.756`, provenance
+`729f0a5c-f093-4dec-a66a-5c6cfd70ad2d`, and no AI, Save, takeover, Lynx,
+deployment, or backend mutation.
+
+What passed:
+
+- responsive and deliberately starved renderers both terminalized with the
+  intended typed proof; exact 412x960 mobile and 1920x1080 desktop transitions
+  stayed behind the opaque input guard and controls remained truthful;
+- a deliberate debugger detach on Aleris was covered while the lease recovered
+  in about 85 ms, returned to exact 412x960, and released after about 734 ms;
+- Aleris reveal/freeze reached the true bottom within one pixel after dynamic
+  growth, froze lazy loading, returned to the start, painted no Silent layer
+  during motion, and restored Silent presentation afterward;
+- consent remained invisible, the owner label rule held, expanded exclusions
+  were hoverable and removable, Content List rows were semantic buttons, and
+  keyboard plus page/list routing worked after the deliberate scroll-stability
+  window; and
+- Acne's With-JavaScript load performed no render inspection. Its Render exit
+  reached the true bottom and returned to the original scroll position without
+  painting annotations during the ritual.
+
+Release findings retained from the same run:
+
+### `EL-03-F007` — Critical — physical resize is neither immediate nor one transaction
+
+- Shrinking the physical tab from 850x705 to 426x405 exposed the old fitted
+  scale for about 35 ms before the guard became opaque, then performed three
+  complete guard/refit/fade cycles instead of one.
+- Restoring the larger viewport safely retained the smaller scale at first but
+  performed about six complete cycles before increasing to the final fitted
+  scale 0.734375 roughly 2.26 seconds later.
+- A normal With-JavaScript reload also generated two redundant guarded refits
+  without a posture change.
+- Source inspection explains the churn: window-bounds, popup Window plus
+  `ResizeObserver`, content viewport, and watchdog sources independently call
+  `requestRefit`; each call invalidates geometry and starts presentation before
+  proving that a scale change exists; trailing requests retain only the hint;
+  and the debugger write's expected viewport echo can enqueue another refit.
+  The popup additionally waits 40 ms before reporting the first physical
+  change. R7 fixed false paint-proof rollback, not this multi-source ownership
+  defect.
+
+### `EL-03-F008` — High — popup polling can dominate Enable marking latency
+
+- Exact production Acne activation took 10.327 seconds from disabled click to
+  checked/ready UI even though only a small visible overlay set was painted.
+- A clean debug repeat took 1.490 seconds. Its stage history isolated 0.993
+  seconds before lock/emulation to the generic serialized signal drain;
+  emulation itself took 10 ms and content activation plus presentation settle
+  took 349 ms.
+- The enable path remains outside `runSessionTransition` while it awaits an
+  initial `pullSignals`, then `refreshLockDirective` performs another pull, and
+  the terminal fact performs a third. Concurrent 500 ms polling and
+  signals-available pulls share the same FIFO cursor, so an operator click can
+  queue behind unrelated backstop work. P14 measures the content engine, not
+  this popup transaction, and therefore did not detect the regression.
+
+### `EL-03-F009` — High — nested Alt inclusion leaves a stale explicit ancestor
+
+- With trusted Alt input, transferring an explicit inclusion from a textual
+  parent to its painted descendant left both parent and descendant visibly
+  explicit. Repeating the gesture continued to expose contradictory layers.
+- `applyToggle` correctly removes the ancestor from the canonical mark set, but
+  the store returns the descendant as `branchRoot`; branch-only reevaluation
+  and repaint therefore never retire the removed ancestor's evaluation and
+  overlay. Existing tests assert canonical rows/`hasExplicitMark` only and miss
+  the rendered-layer contradiction.
+
+3DPrima's candidate returned the site's own SQL `max_user_connections` failure
+during this matrix. Its reveal/complete-workflow cell is externally **BLOCKED**,
+not passed or failed. A partially loaded occurrence still passed exact device,
+consent, expanded-boundary, dirty-disable, and Content List checks. The error
+document also exposed a robustness concern (a Ready surface followed by a
+noncanonical/stuck guard), which remains diagnostic until reproduced on a
+valid document.
+
+`EL03-R7-AC-01` through `AC-04` and the automated portion of `AC-08` pass.
+`AC-05`, `AC-06`, `AC-07`, and cumulative `AC-08` fail or remain blocked.
+Production readiness is therefore **NO** and the delta below is mandatory.
+
+# EL-03-R8 — Coalesce physical refits and restore operator-critical marking semantics
+
+## 1. Goal
+
+Make physical resize one guarded, generation-owned transaction; make Enable
+marking independent of background polling latency; and make an Alt inclusion
+transfer atomically correct in canonical state, rendered annotations, Content
+List projection, and payload. Preserve every approved device, reveal, consent,
+session, payload, and safety contract.
+
+## 2. Decisions and non-goals
+
+- Chrome debugger emulation remains the authority. Mobile stays exact 412x960,
+  desktop stays exact 1920x1080, and scale continues to fit both physical axes.
+- Shrink is safety-critical and begins immediately. Growth remains a trailing
+  stable decision. A burst owns one opaque guard lease and one final fade.
+- Window, popup, content, watchdog, reload, and expected metrics-echo events
+  are observations of one per-tab physical-geometry generation, not independent
+  permission to repaint.
+- A no-op observation must not start a guard cycle. An already-opaque content
+  guard still receives a terminal acknowledgement.
+- Operator actions may consume newer signals ahead of an older polling reply by
+  monotonic sequence, but may not invent lock, binding, or brain state. Older
+  replies become harmless stale batches.
+- Alt still takes precedence over Ctrl. Shift and Meta remain inert. No
+  right-click marking UI returns.
+- Do not alter endpoint payload schemas, Save/Load authority, immutable or
+  hidden-element payload rules, consent suppression, or production services.
+
+## 3. Implementation phases
+
+### EL-03-R8-01 — Make Alt transfer's affected branch truthful
+
+Files:
+
+- `src/content/marking/store.ts`
+- `src/content/marking/engine.ts`
+- `tests/src/content/marking/marking.test.ts`
+- `tests/src/content/marking/dom-bridge.test.ts`
+
+Steps:
+
+1. Before an include mutation, find the shallowest explicit-inclusion ancestor
+   that the mutation removes. Return that ancestor as the evaluation/render
+   root while retaining the clicked descendant as the decision target.
+2. Reevaluate and repaint the complete affected branch once, removing the old
+   ancestor overlay and adding exactly one descendant explicit-inclusion layer.
+3. Assert canonical rows, rendered overlay classes/XPaths, preview rows,
+   captured submission rows, and repeated Alt toggles. Cover direct text plus a
+   nested `<span>`/`<strong>`, expanded-exclusion descendants, and no-ancestor
+   cases.
+
+### EL-03-R8-02 — Give each physical resize burst one transition owner
+
+Files:
+
+- `src/background/render-emulation-runtime.ts`
+- `src/background/index.ts`
+- `src/content/emulation-transition-guardian.ts`
+- `src/entrypoints/content-loader.content.ts`
+- `src/entrypoints/popup/main.tsx`
+- `src/messaging/realms.ts`
+- corresponding background/content/popup contract tests
+
+Steps:
+
+1. Add an internal refit observation carrying source, current presentation
+   generation where available, and a normalized physical-height hint. Keep it
+   internal; no public endpoint or permission changes.
+2. Replace the 40 ms popup debounce and UI-root-size trigger with an immediate,
+   dimension-signature-deduplicated physical viewport observation. Ordinary
+   popup content/layout changes must emit nothing.
+3. Replace the recursive queued/trailing sets with one per-tab burst
+   coordinator. It merges the latest physical dimensions and all safety flags,
+   adopts one opaque presentation lease, applies every newly smaller safe scale
+   immediately, and settles/fades once after terminal quiet.
+4. Treat larger scale as a generation-fenced trailing candidate. Confirm the
+   same final dimensions after the quiet interval, write once, prove exact
+   geometry, and settle the same lease.
+5. Absorb expected content viewport echoes from the coordinator's own metrics
+   writes. A foreign generation, debugger detach, navigation, or genuinely new
+   physical signature still schedules recovery.
+6. Read physical geometry before starting presentation for popup/window/watchdog
+   no-op observations. If content already raised the guard, explicitly settle
+   that exact generation even when no metrics write is necessary.
+7. Preserve fail-closed rollback, durable lease recovery, hostile-page guard
+   repair, scrollbar bounds, and starvation proof.
+
+### EL-03-R8-03 — Add a priority-safe Enable marking transaction
+
+Files:
+
+- `src/entrypoints/popup/main.tsx`
+- `src/popup/signal-cursor.ts`
+- `src/background/index.ts` and `src/messaging/realms.ts` only if an atomic
+  report-and-decide response is required
+- `tests/src/popup/entrypoint.test.ts`
+- `tests/src/popup/signal-cursor.test.ts`
+
+Steps:
+
+1. Enter `runSessionTransition` before context/signal/lock preflight so the
+   500 ms lane and signals-available backstop cannot enqueue more work ahead of
+   the click.
+2. Remove duplicate preflight pulls. Reuse the exact current binding and the
+   returned lock directive, then perform emulation and content activation.
+3. Give the terminal marking fact a priority-safe monotonic adoption path. If a
+   polling reply is older, it may finish but cannot delay or overwrite the
+   action result. Persist the fact asynchronously through the existing durable
+   queue; do not project a locally invented brain decision.
+4. Resume polling once with one trailing pass in `finally`. Preserve every
+   refusal toast, binding/lock fence, failure rollback, and clean-session seed.
+5. Add debug stage evidence and integration tests with stalled fast and bound
+   signal polls, signals-available races, duplicate clicks, binding changes,
+   lock loss, and activation refusal.
+
+### EL-03-R8-04 — Gates, publication, and exact headed revalidation
+
+1. Run focused marking, emulation, popup, messaging, startup, and shield tests;
+   then `pnpm check`, `pnpm verify`, and `pnpm build:debug`.
+2. Run clean P17, standalone P14, and unchanged P25. Add a popup-level
+   activation gate because P14 alone cannot prove operator latency.
+3. Review the diff, update durable knowledge, commit intended source/tests/plan,
+   push `re-write` normally, refresh the graph, and prove local/upstream 0/0.
+4. Repeat exact-pushed repository `live-browser` tests on Aleris and Acne plus
+   3DPrima when its candidate is healthy. Perform trusted resize shrink/grow,
+   mobile/desktop/mobile, detach, reload, Enable/Disable, nested Alt, expanded
+   exclusion, Content List, reveal/freeze, consent, and hygiene checks. Perform
+   no prohibited external mutation.
+5. Independently adjudicate every R8 and cumulative EL-03 criterion. Any failed,
+   partial, blocked, or untested required cell rejects production readiness and
+   opens the next delta.
+
+## 4. Acceptance criteria
+
+- `EL03-R8-AC-01` Parent-to-descendant Alt transfer leaves exactly one explicit
+  descendant in canonical state, visible layers, preview, and payload; the
+  ancestor is absent immediately after the acknowledged mutation.
+- `EL03-R8-AC-02` One physical shrink/grow burst produces one guard entry and
+  one fade, with no old-scale released sample, clipped device bottom, redundant
+  no-op cycle, or self-induced retry.
+- `EL03-R8-AC-03` Shrink applies the first safe scale at the earliest observed
+  physical event; growth applies exactly once after stable trailing proof. Both
+  modes remain exact and fully fit both axes.
+- `EL03-R8-AC-04` Detach, navigation, reload, starvation, hostile guard, and
+  genuine foreign viewport changes still recover or fail closed without stale
+  generation adoption.
+- `EL03-R8-AC-05` On an already prepared candidate, Enable marking becomes
+  checked and interaction-ready within 1,000 ms at p95 and 1,500 ms worst-case,
+  even with an older poll stalled. Emulation and content presentation remain
+  independently measured.
+- `EL03-R8-AC-06` The action consumes one authoritative terminal decision,
+  resumes one trailing poll, ignores older replies, and retains binding, lock,
+  duplicate-click, and failure rollback correctness.
+- `EL03-R8-AC-07` All unchanged automated gates pass and fresh Aleris/Acne/
+  healthy-3DPrima headed checks retain reveal, consent, labeling, annotation,
+  Content List, payload, and console/network hygiene contracts.
+- `EL03-R8-AC-08` Exact normal push/0:0 synchronization and a complete
+  cumulative matrix exist before any production-ready verdict.
+
+## 5. Todo chain
+
+1. `el03-r8-alt-transfer-projection` -> 0
+2. `el03-r8-refit-burst-coordinator` -> 1
+3. `el03-r8-priority-activation` -> 2
+4. `el03-r8-focused-full-gates` -> 3
+5. `el03-r8-review-push` -> 4
+6. `el03-r8-headed-conformance` -> 5
+7. `el03-r8-cumulative-audit` -> 6
+
+# EL-03-R8 pre-publication execution ledger — 2026-09-02
+
+## Implemented delta
+
+- `R8-01`: inclusion transfer now returns the shallowest removed explicit
+  ancestor as the affected evaluation/render branch while retaining the clicked
+  descendant as the canonical target. Nested, expanded-exclusion, repeated
+  toggle, overlay, Content List, and payload evidence was added.
+- `R8-02`: refit entrypoints now submit typed observations to one per-tab burst
+  coordinator. The coordinator measures before ordinary no-op presentation,
+  adopts an already-opaque content generation, performs immediate safety
+  shrink, holds growth for the stable trailing proof, and settles one lease.
+  Popup UI-root observation/debounce was removed in favor of immediate physical
+  height signatures.
+- `R8-03`: session-transition admission now precedes marking preflight. Polling
+  replies are generation-fenced, priority cursor claims are monotonic, duplicate
+  pulls were removed, and the internal atomic `fact.reportAndPull` command
+  returns the real brain terminal decision while durable persistence continues
+  through the existing ordered queue. One local reconciliation resumes after
+  the transition.
+
+## Final-tree evidence before clean-source publication gates
+
+- Focused marking/emulation/popup/messaging/startup/shield set: **PASS**, 9 files,
+  412 tests.
+- Full suite with file-level scheduling serialized because the host was under
+  unrelated CPU contention: **PASS**, 149 files, 1,695 tests, 158.88 seconds.
+- `pnpm lint`: **PASS**.
+- `pnpm check`: **PASS**, including generated page-world/icon checks and all
+  three TypeScript projects.
+- Production `pnpm build`: **PASS**; generated-manifest permission contract:
+  **PASS**, 7/7.
+- `pnpm build:debug`: **PASS**.
+- The default-concurrency test stage was also attempted twice. It produced
+  non-repeatable five-second timeouts in different heavy integration files
+  while unrelated desktop processes saturated the host; every timed-out file
+  passed its isolated serial rerun, and the exact complete test set passed twice
+  with file parallelism disabled. No deterministic assertion failure occurred.
+- Pre-commit P17 behavior: **PASS**, all 19/19 required checks and complete
+  cleanup. Its command correctly returned nonzero only because
+  `cleanSourceSet=false` while this implementation and ledger were uncommitted.
+
+## Review corrections
+
+- Removed the remaining serialized signal pull from the replacement-document
+  lock revalidation path so a reload cannot reintroduce the polling delay.
+- Attached terminal error handling to the deliberately asynchronous durable
+  fact write so persistence failure cannot become an unhandled rejection.
+
+## Publication boundary
+
+The clean-source P17, standalone P14, and unchanged P25 gates must be run from
+the committed tree. Exact headed Aleris/Acne/healthy-3DPrima evidence and the
+independent cumulative adjudication remain mandatory before a production-ready
+verdict; this ledger does not predeclare that verdict.

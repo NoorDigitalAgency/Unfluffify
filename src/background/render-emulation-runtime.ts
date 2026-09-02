@@ -48,6 +48,22 @@ export type EmulationPhysicalViewportHint = Readonly<{
   height: number;
 }>;
 
+export type EmulationRefitSource =
+  | "content"
+  | "popup"
+  | "window-bounds"
+  | "side-panel"
+  | "watchdog"
+  | "verification";
+
+/** Internal observation of one physical-geometry occurrence. Multiple browser
+ * surfaces can report the same occurrence; the runtime owns their coalescing. */
+export type EmulationRefitObservation = Readonly<{
+  source: EmulationRefitSource;
+  presentationGeneration?: number;
+  physicalViewportHint?: EmulationPhysicalViewportHint;
+}>;
+
 type PhysicalViewport = Readonly<{ width: number; height: number }>;
 
 /** Browser-owned ownership/fit backstop for a held debugger posture. Delivered
@@ -409,10 +425,6 @@ export function createRenderEmulationRuntime(input: Readonly<{
   const leaseWatchdogTimers = new Map<number, ReturnType<typeof setTimeout>>();
   const leaseWatchdogMs = input.leaseWatchdogMs ?? EMULATION_LEASE_WATCHDOG_MS;
   let scheduleLeaseWatchdog: (tabId: number) => void = () => undefined;
-  const refitTimers = new Map<number, ReturnType<typeof setTimeout>>();
-  const refitQueued = new Set<number>();
-  const refitTrailing = new Set<number>();
-  const refitHints = new Map<number, EmulationPhysicalViewportHint | undefined>();
   const geometryGenerations = new Map<number, number>();
   const presentationGenerations = new Map<number, number>();
   const REASSERT_RETRY_DELAYS_MS = [100, 250, 500, 1_000, 2_000, 5_000] as const;
@@ -443,6 +455,23 @@ export function createRenderEmulationRuntime(input: Readonly<{
     mode: EmulationMode;
     cause: EmulationTransitionCause;
   }>;
+  type RefitBurst = {
+    held: HeldPosture;
+    lease: PresentationLease;
+    geometryGeneration: number;
+    physicalSignature: string;
+    hint?: EmulationPhysicalViewportHint;
+    coordinatorVersion: number;
+    quietTimer?: ReturnType<typeof setTimeout>;
+  };
+  type RefitCoordinator = {
+    pending: EmulationRefitObservation | null;
+    processing: Promise<void> | null;
+    version: number;
+  };
+  const refitBursts = new Map<number, RefitBurst>();
+  const refitCoordinators = new Map<number, RefitCoordinator>();
+  const lastPhysicalSignatures = new Map<number, string>();
   const nextPresentationGeneration = (tabId: number): number => {
     // A service-worker restart forgets its in-memory counter while the current
     // document can retain the last accepted generation. A time-derived floor
@@ -453,6 +482,8 @@ export function createRenderEmulationRuntime(input: Readonly<{
     presentationGenerations.set(tabId, generation);
     return generation;
   };
+  const physicalSignature = (viewport: PhysicalViewport): string =>
+    `${viewport.width}x${viewport.height}`;
   const present = async (
     tabId: number,
     request: EmulationTransitionRequest,
@@ -511,12 +542,22 @@ export function createRenderEmulationRuntime(input: Readonly<{
     tabId: number,
     mode: EmulationMode,
     cause: EmulationTransitionCause,
+    preferredGeneration?: number,
   ): Promise<PresentationLease> => {
     const lease: PresentationLease = {
-      generation: nextPresentationGeneration(tabId),
+      generation:
+        typeof preferredGeneration === "number" &&
+        Number.isSafeInteger(preferredGeneration) &&
+        preferredGeneration > 0
+          ? preferredGeneration
+          : nextPresentationGeneration(tabId),
       mode,
       cause,
     };
+    presentationGenerations.set(
+      tabId,
+      Math.max(presentationGenerations.get(tabId) ?? 0, lease.generation),
+    );
     try {
       const response = await present(tabId, {
         phase: "begin",
@@ -665,16 +706,22 @@ export function createRenderEmulationRuntime(input: Readonly<{
       : held.scale;
   };
   const invalidateGeometry = (tabId: number): number => {
-    const timer = refitTimers.get(tabId);
-    if (timer !== undefined) clearTimeout(timer);
-    refitTimers.delete(tabId);
+    const burst = refitBursts.get(tabId);
+    if (burst?.quietTimer !== undefined) clearTimeout(burst.quietTimer);
+    refitBursts.delete(tabId);
+    const coordinator = refitCoordinators.get(tabId);
+    if (coordinator && !coordinator.pending && !coordinator.processing) {
+      refitCoordinators.delete(tabId);
+    }
     return nextGeometryGeneration(tabId);
   };
   const clearRefitTimer = (tabId: number): void => {
     invalidateGeometry(tabId);
-    refitQueued.delete(tabId);
-    refitTrailing.delete(tabId);
-    refitHints.delete(tabId);
+    const coordinator = refitCoordinators.get(tabId);
+    if (coordinator) {
+      coordinator.pending = null;
+    }
+    lastPhysicalSignatures.delete(tabId);
   };
   const cancelReassertRetry = (tabId: number): void => {
     const timer = reassertRetryTimers.get(tabId);
@@ -1350,28 +1397,128 @@ export function createRenderEmulationRuntime(input: Readonly<{
     cause: EmulationTransitionCause = "lease-recovery",
   ): Promise<void> =>
     withEmulationOperation(tabId, () => executeReassertPosture(tabId, held, undefined, cause));
-  const executeRefitPosture = async (
+  const coordinatorFor = (tabId: number): RefitCoordinator => {
+    const existing = refitCoordinators.get(tabId);
+    if (existing) return existing;
+    const coordinator: RefitCoordinator = {
+      pending: null,
+      processing: null,
+      version: 0,
+    };
+    refitCoordinators.set(tabId, coordinator);
+    return coordinator;
+  };
+  const mergeRefitObservation = (
+    current: EmulationRefitObservation | null,
+    next: EmulationRefitObservation,
+  ): EmulationRefitObservation => {
+    if (!current) return next;
+    const currentGeneration = current.presentationGeneration ?? 0;
+    const nextGeneration = next.presentationGeneration ?? 0;
+    const presentationGeneration = Math.max(currentGeneration, nextGeneration);
+    const hasContentAuthority =
+      current.source === "content" ||
+      next.source === "content";
+    return {
+      source: hasContentAuthority ? "content" : next.source,
+      ...(presentationGeneration > 0 ? { presentationGeneration } : {}),
+      ...(next.physicalViewportHint ?? current.physicalViewportHint
+        ? {
+            physicalViewportHint:
+              next.physicalViewportHint ?? current.physicalViewportHint,
+          }
+        : {}),
+    };
+  };
+  const beginRefitPresentation = async (
     tabId: number,
     held: HeldPosture,
-    allowExpansion: boolean,
-    hint?: EmulationPhysicalViewportHint,
-    expectedExpansionScale?: number,
-    expectedGeometryGeneration?: number,
-  ): Promise<VerifiedEmulationState | null> => {
-    if (!postureIsCurrent(tabId, held)) return null;
-    const attachmentCurrent = await debuggerAttachmentIsCurrent(tabId);
-    if (!postureIsCurrent(tabId, held)) return null;
-    const verified = verifiedPostures.get(tabId);
-    if (!attachmentCurrent || !verified || verified.mode !== held.mode) {
-      await executeReassertPosture(tabId, held, hint, "refit");
-      return verifiedPostures.get(tabId) ?? null;
+    observation: EmulationRefitObservation,
+  ): Promise<PresentationLease> => {
+    const preferredGeneration = observation.source === "content"
+      ? observation.presentationGeneration
+      : undefined;
+    if (preferredGeneration !== undefined) {
+      try {
+        // The document_start guardian has already made this retained generation
+        // opaque. Re-adopt it and prove paint instead of manufacturing a second
+        // visual entry for the same physical occurrence.
+        return await beginPresentation(
+          tabId,
+          held.mode,
+          "refit",
+          preferredGeneration,
+        );
+      } catch {
+        // A worker restart can make the content generation older than the
+        // background floor. Supersede it behind the already-opaque plane.
+      }
     }
-    let presentation: PresentationLease;
+    return await beginPresentation(tabId, held.mode, "refit");
+  };
+  const commitScaleOnlyRefit = async (
+    tabId: number,
+    held: HeldPosture,
+    scale: number,
+    hint?: EmulationPhysicalViewportHint,
+  ): Promise<VerifiedEmulationState | null> => {
+    const verified = verifiedPostures.get(tabId);
+    if (!verified || !postureIsCurrent(tabId, held)) return null;
+    const refitted = await writeScaleOnlyRefit(
+      tabId,
+      held,
+      verified,
+      scale,
+      hint,
+    );
+    if (!postureIsCurrent(tabId, held)) return null;
+    verifiedPostures.set(tabId, refitted);
+    await rememberSafeFittedScale(tabId, held, refitted.scale);
+    cancelReassertRetry(tabId);
+    return refitted;
+  };
+  const scheduleRefitBurstSettlement = (
+    tabId: number,
+    burst: RefitBurst,
+  ): void => {
+    if (burst.quietTimer !== undefined) clearTimeout(burst.quietTimer);
+    const expectedVersion = burst.coordinatorVersion;
+    const timer = setTimeout(() => {
+      if (refitBursts.get(tabId) !== burst) return;
+      burst.quietTimer = undefined;
+      const coordinator = coordinatorFor(tabId);
+      if (coordinator.version !== expectedVersion) {
+        return;
+      }
+      void withEmulationOperation(tabId, () =>
+        finalizeRefitBurst(tabId, burst)
+      ).catch(() => {
+        if (postureIsCurrent(tabId, burst.held)) {
+          invalidateGeometry(tabId);
+          scheduleReassertRetry(tabId, burst.held);
+        }
+      });
+    }, REFIT_SETTLE_MS);
+    (timer as unknown as { unref?: () => void }).unref?.();
+    burst.quietTimer = timer;
+  };
+  const settleUnexpectedNoopGuard = async (
+    tabId: number,
+    held: HeldPosture,
+    verified: VerifiedEmulationState,
+    observation: EmulationRefitObservation,
+  ): Promise<VerifiedEmulationState> => {
+    if (
+      observation.source !== "content" ||
+      observation.presentationGeneration === undefined
+    ) {
+      return verified;
+    }
     try {
-      // A content-side resize listener may already have made the retained plane
-      // opaque. Adopt a fresh generation even when the existing scale remains
-      // safe, so every no-op/deferred resize has an authoritative release path.
-      presentation = await beginPresentation(tabId, held.mode, "refit");
+      const lease = await beginRefitPresentation(tabId, held, observation);
+      await settlePresentation(tabId, lease);
+      cancelReassertRetry(tabId);
+      return verified;
     } catch {
       scheduleReassertRetry(tabId, held);
       return {
@@ -1380,7 +1527,33 @@ export function createRenderEmulationRuntime(input: Readonly<{
         failureReason: "presentation_unavailable",
       };
     }
-    const physicalViewport = await visibleTabViewport(tabId, hint);
+  };
+  const executeRefitObservation = async (
+    tabId: number,
+    held: HeldPosture,
+    observation: EmulationRefitObservation,
+    coordinatorVersion: number,
+  ): Promise<VerifiedEmulationState | null> => {
+    if (!postureIsCurrent(tabId, held)) return null;
+    const attachmentCurrent = await debuggerAttachmentIsCurrent(tabId);
+    if (!postureIsCurrent(tabId, held)) return null;
+    const verified = verifiedPostures.get(tabId);
+    if (!attachmentCurrent || !verified || verified.mode !== held.mode) {
+      invalidateGeometry(tabId);
+      await executeReassertPosture(
+        tabId,
+        held,
+        observation.physicalViewportHint,
+        "refit",
+      );
+      return verifiedPostures.get(tabId) ?? null;
+    }
+    // Measurement precedes presentation. Duplicate and no-op observations from
+    // popup/window/watchdog sources are therefore read-only and never flicker.
+    const physicalViewport = await visibleTabViewport(
+      tabId,
+      observation.physicalViewportHint,
+    );
     if (!physicalViewport) {
       scheduleReassertRetry(tabId, held);
       return {
@@ -1389,56 +1562,93 @@ export function createRenderEmulationRuntime(input: Readonly<{
         failureReason: "physical_fit_mismatch",
       };
     }
-    const fittedScale = fitDeviceScale(held.mode, physicalViewport, held.scale);
+    const signature = physicalSignature(physicalViewport);
+    const activeBurst = refitBursts.get(tabId);
+    const fittedScale = fitDeviceScale(
+      held.mode,
+      physicalViewport,
+      held.scale,
+    );
     if (!postureIsCurrent(tabId, held)) return null;
-    const delta = fittedScale - verified.scale;
-    if (
-      Math.abs(delta) <= 0.001 &&
-      physicalViewportFits(verified, physicalViewport)
-    ) {
-      const priorTimer = refitTimers.get(tabId);
-      if (priorTimer !== undefined) clearTimeout(priorTimer);
-      refitTimers.delete(tabId);
-      cancelReassertRetry(tabId);
-      try {
-        await settlePresentation(tabId, presentation);
-      } catch {
-        scheduleReassertRetry(tabId, held);
-        return {
-          ...verified,
-          active: false,
-          failureReason: "presentation_unavailable",
-        };
-      }
-      return verified;
-    }
-    const geometryGeneration = geometryGenerations.get(tabId) ?? 0;
-    const expansionIsConfirmed =
-      allowExpansion &&
-      expectedGeometryGeneration === geometryGeneration &&
-      expectedExpansionScale !== undefined &&
-      Math.abs(expectedExpansionScale - fittedScale) <= 0.001;
-    if (delta > 0 && !expansionIsConfirmed) {
-      const priorTimer = refitTimers.get(tabId);
-      if (priorTimer !== undefined) clearTimeout(priorTimer);
-      const timer = setTimeout(() => {
-        refitTimers.delete(tabId);
+    const needsScaleChange =
+      Math.abs(fittedScale - verified.scale) > 0.001 ||
+      !physicalViewportFits(verified, physicalViewport);
+    if (lastPhysicalSignatures.get(tabId) === signature) {
+      if (activeBurst && activeBurst.held === held) {
+        activeBurst.coordinatorVersion = coordinatorVersion;
+        if (observation.physicalViewportHint) {
+          activeBurst.hint = observation.physicalViewportHint;
+        }
         if (
-          postureIsCurrent(tabId, held) &&
-          (geometryGenerations.get(tabId) ?? 0) === geometryGeneration
+          needsScaleChange &&
+          (
+            fittedScale < verified.scale - 0.001 ||
+            !physicalViewportFits(verified, physicalViewport)
+          )
         ) {
-          void queueRefit(tabId, {
-            allowExpansion: true,
-            expectedExpansionScale: fittedScale,
-            expectedGeometryGeneration: geometryGeneration,
-            hint,
-          });
+          try {
+            await commitScaleOnlyRefit(
+              tabId,
+              held,
+              fittedScale,
+              observation.physicalViewportHint,
+            );
+          } catch {
+            scheduleRefitBurstSettlement(tabId, activeBurst);
+            return {
+              ...verified,
+              active: false,
+              failureReason: "physical_fit_mismatch",
+            };
+          }
         }
-      }, REFIT_SETTLE_MS);
-      refitTimers.set(tabId, timer);
+        scheduleRefitBurstSettlement(tabId, activeBurst);
+        return verifiedPostures.get(tabId) ?? verified;
+      }
+      if (needsScaleChange) {
+        // A prior attempt may have written conservatively and then lost its
+        // physical proof. Re-enter correction even though the dimensions did
+        // not change again; cached active state is not proof of browser state.
+      } else {
+        return await settleUnexpectedNoopGuard(
+          tabId,
+          held,
+          verified,
+          observation,
+        );
+      }
+    }
+    lastPhysicalSignatures.set(tabId, signature);
+    const geometryGeneration = nextGeometryGeneration(tabId);
+    if (!needsScaleChange) {
+      if (activeBurst && activeBurst.held === held) {
+        activeBurst.geometryGeneration = geometryGeneration;
+        activeBurst.physicalSignature = signature;
+        activeBurst.hint = observation.physicalViewportHint;
+        activeBurst.coordinatorVersion = coordinatorVersion;
+        scheduleRefitBurstSettlement(tabId, activeBurst);
+        return verified;
+      }
       cancelReassertRetry(tabId);
+      return await settleUnexpectedNoopGuard(
+        tabId,
+        held,
+        verified,
+        observation,
+      );
+    }
+    let burst = activeBurst?.held === held ? activeBurst : null;
+    if (!burst) {
       try {
-        await settlePresentation(tabId, presentation);
+        burst = {
+          held,
+          lease: await beginRefitPresentation(tabId, held, observation),
+          geometryGeneration,
+          physicalSignature: signature,
+          hint: observation.physicalViewportHint,
+          coordinatorVersion,
+        };
+        refitBursts.set(tabId, burst);
       } catch {
         scheduleReassertRetry(tabId, held);
         return {
@@ -1447,54 +1657,124 @@ export function createRenderEmulationRuntime(input: Readonly<{
           failureReason: "presentation_unavailable",
         };
       }
-      return verified;
+    } else {
+      burst.geometryGeneration = geometryGeneration;
+      burst.physicalSignature = signature;
+      burst.hint = observation.physicalViewportHint;
+      burst.coordinatorVersion = coordinatorVersion;
     }
-    const timer = refitTimers.get(tabId);
-    if (timer !== undefined) clearTimeout(timer);
-    refitTimers.delete(tabId);
+    // Every newly smaller fit is safety-critical and is written immediately
+    // behind the one retained lease. Growth waits for the quiet finalizer.
     if (
-      delta > 0 &&
-      expectedGeometryGeneration !== (geometryGenerations.get(tabId) ?? 0)
+      fittedScale < verified.scale - 0.001 ||
+      !physicalViewportFits(verified, physicalViewport)
     ) {
-      cancelReassertRetry(tabId);
       try {
-        await settlePresentation(tabId, presentation);
+        await commitScaleOnlyRefit(
+          tabId,
+          held,
+          fittedScale,
+          observation.physicalViewportHint,
+        );
       } catch {
-        scheduleReassertRetry(tabId, held);
+        if (postureIsCurrent(tabId, held)) {
+          scheduleRefitBurstSettlement(tabId, burst);
+        }
         return {
           ...verified,
           active: false,
-          failureReason: "presentation_unavailable",
+          failureReason: "physical_fit_mismatch",
         };
       }
-      return verified;
     }
-    try {
-      const refitted = await writeScaleOnlyRefit(tabId, held, verified, fittedScale, hint);
-      await settlePresentation(tabId, presentation);
-      if (!postureIsCurrent(tabId, held)) return null;
-      verifiedPostures.set(tabId, refitted);
-      await rememberSafeFittedScale(tabId, held, refitted.scale);
-      cancelReassertRetry(tabId);
-      return refitted;
-    } catch (error) {
-      if (postureIsCurrent(tabId, held)) {
-        if (error instanceof Error && /physical_fit_mismatch/i.test(error.message)) {
-          // The complete identity posture remains valid; a newer physical
-          // rectangle merely owes another immediate scale-only pass.
-          void queueRefit(tabId, { hint });
-          return {
-            ...verified,
-            active: false,
-            failureReason: "physical_fit_mismatch",
-          };
-        }
-        verifiedPostures.delete(tabId);
-        scheduleReassertRetry(tabId, held);
-      }
-      return null;
-    }
+    scheduleRefitBurstSettlement(tabId, burst);
+    return verifiedPostures.get(tabId) ?? verified;
   };
+  async function finalizeRefitBurst(
+    tabId: number,
+    burst: RefitBurst,
+  ): Promise<void> {
+    if (
+      refitBursts.get(tabId) !== burst ||
+      !postureIsCurrent(tabId, burst.held)
+    ) {
+      return;
+    }
+    const coordinator = coordinatorFor(tabId);
+    if (
+      coordinator.pending ||
+      coordinator.version !== burst.coordinatorVersion
+    ) {
+      return;
+    }
+    const attachmentCurrent = await debuggerAttachmentIsCurrent(tabId);
+    if (!postureIsCurrent(tabId, burst.held)) return;
+    if (!attachmentCurrent) {
+      invalidateGeometry(tabId);
+      await executeReassertPosture(tabId, burst.held, burst.hint, "refit");
+      return;
+    }
+    const physicalViewport = await visibleTabViewport(tabId, burst.hint);
+    const verified = verifiedPostures.get(tabId);
+    if (!physicalViewport || !verified || verified.mode !== burst.held.mode) {
+      invalidateGeometry(tabId);
+      scheduleReassertRetry(tabId, burst.held);
+      return;
+    }
+    const signature = physicalSignature(physicalViewport);
+    if (signature !== burst.physicalSignature) {
+      lastPhysicalSignatures.set(tabId, signature);
+      burst.geometryGeneration = nextGeometryGeneration(tabId);
+      burst.physicalSignature = signature;
+      const fittedScale = fitDeviceScale(
+        burst.held.mode,
+        physicalViewport,
+        burst.held.scale,
+      );
+      if (
+        fittedScale < verified.scale - 0.001 ||
+        !physicalViewportFits(verified, physicalViewport)
+      ) {
+        await commitScaleOnlyRefit(
+          tabId,
+          burst.held,
+          fittedScale,
+          burst.hint,
+        );
+      }
+      scheduleRefitBurstSettlement(tabId, burst);
+      return;
+    }
+    const fittedScale = fitDeviceScale(
+      burst.held.mode,
+      physicalViewport,
+      burst.held.scale,
+    );
+    if (
+      Math.abs(fittedScale - verified.scale) > 0.001 ||
+      !physicalViewportFits(verified, physicalViewport)
+    ) {
+      await commitScaleOnlyRefit(
+        tabId,
+        burst.held,
+        fittedScale,
+        burst.hint,
+      );
+    }
+    // A physical event arriving after the quiet proof belongs to the next
+    // burst; never release this lease and then reuse it for newer geometry.
+    if (coordinator.version !== burst.coordinatorVersion) {
+      return;
+    }
+    await settlePresentation(tabId, burst.lease);
+    if (refitBursts.get(tabId) === burst) {
+      refitBursts.delete(tabId);
+    }
+    if (!coordinator.pending && !coordinator.processing) {
+      refitCoordinators.delete(tabId);
+    }
+    cancelReassertRetry(tabId);
+  }
   /**
    * `onDetach` is the fastest path, but Chromium intentionally omits it for an
    * extension-originated or otherwise silent detach. A held posture is
@@ -1529,8 +1809,14 @@ export function createRenderEmulationRuntime(input: Readonly<{
         // A watchdog may make the already-held screen smaller for safety.
         // Expansion remains owned by generation-fenced resize/refit events so
         // an idle tick can never cause zoom oscillation.
-        invalidateGeometry(tabId);
-        await executeRefitPosture(tabId, held, false);
+        const coordinator = coordinatorFor(tabId);
+        coordinator.version += 1;
+        await executeRefitObservation(
+          tabId,
+          held,
+          { source: "watchdog" },
+          coordinator.version,
+        );
       }
     });
   };
@@ -1556,49 +1842,39 @@ export function createRenderEmulationRuntime(input: Readonly<{
     (timer as unknown as { unref?: () => void }).unref?.();
     leaseWatchdogTimers.set(tabId, timer);
   };
-  type RefitRequest = Readonly<{
-    allowExpansion?: boolean;
-    expectedExpansionScale?: number;
-    expectedGeometryGeneration?: number;
-    hint?: EmulationPhysicalViewportHint;
-  }>;
-  const queueRefit = async (tabId: number, request: RefitRequest = {}): Promise<void> => {
-    if (refitQueued.has(tabId)) {
-      refitTrailing.add(tabId);
-      if (request.hint) refitHints.set(tabId, request.hint);
-      return;
-    }
-    refitQueued.add(tabId);
-    try {
-      const held = await hydratePosture(tabId);
-      if (!held) return;
-      await withEmulationOperation(tabId, () =>
-        executeRefitPosture(
-          tabId,
-          held,
-          request.allowExpansion === true,
-          request.hint,
-          request.expectedExpansionScale,
-          request.expectedGeometryGeneration,
-        ));
-    } finally {
-      refitQueued.delete(tabId);
-      if (refitTrailing.delete(tabId)) {
-        const hint = refitHints.get(tabId);
-        refitHints.delete(tabId);
-        void queueRefit(tabId, { hint });
-      } else {
-        refitHints.delete(tabId);
-      }
-    }
-  };
-  const requestRefit = async (
+  const requestRefit = (
     tabId: number,
-    hint?: EmulationPhysicalViewportHint,
+    observation: EmulationRefitObservation,
   ): Promise<void> => {
-    invalidateGeometry(tabId);
-    if (hint) refitHints.set(tabId, hint);
-    await queueRefit(tabId, { hint });
+    const coordinator = coordinatorFor(tabId);
+    coordinator.pending = mergeRefitObservation(
+      coordinator.pending,
+      observation,
+    );
+    coordinator.version += 1;
+    if (coordinator.processing) return coordinator.processing;
+    const run = async (): Promise<void> => {
+      while (coordinator.pending) {
+        const next = coordinator.pending;
+        const version = coordinator.version;
+        coordinator.pending = null;
+        const held = await hydratePosture(tabId);
+        if (!held) continue;
+        await withEmulationOperation(tabId, () =>
+          executeRefitObservation(tabId, held, next, version)
+        );
+      }
+    };
+    const processing = run().finally(() => {
+      if (coordinator.processing === processing) {
+        coordinator.processing = null;
+      }
+      if (!coordinator.pending && !refitBursts.has(tabId)) {
+        refitCoordinators.delete(tabId);
+      }
+    });
+    coordinator.processing = processing;
+    return processing;
   };
   input.tabs?.onUpdated?.addListener((tabId, changeInfo) => {
     if (changeInfo.status !== "loading") {
@@ -1629,7 +1905,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       }
       // The page layout remains the same simulated device. Refit only the
       // compositor view scale; a resize must not churn identity/input posture.
-      void requestRefit(tabId);
+      void requestRefit(tabId, { source: "window-bounds" });
     }
   });
   if (input.postureRepo) {
@@ -1655,8 +1931,11 @@ export function createRenderEmulationRuntime(input: Readonly<{
     heldMode(tabId: number): EmulationMode | null {
       return heldPostures.get(tabId)?.mode ?? null;
     },
-    async refit(tabId: number, hint?: EmulationPhysicalViewportHint): Promise<void> {
-      await requestRefit(tabId, hint);
+    async refit(
+      tabId: number,
+      observation: EmulationRefitObservation = { source: "verification" },
+    ): Promise<void> {
+      await requestRefit(tabId, observation);
     },
     async current(
       tabId: number,
@@ -1692,7 +1971,17 @@ export function createRenderEmulationRuntime(input: Readonly<{
           // Verification may discover that physical geometry changed, but it
           // must not bypass the resize contract. Safety shrink remains
           // immediate; growth is scheduled after the stable trailing edge.
-          return executeRefitPosture(tabId, held, false, hint);
+          const coordinator = coordinatorFor(tabId);
+          coordinator.version += 1;
+          return executeRefitObservation(
+            tabId,
+            held,
+            {
+              source: "verification",
+              ...(hint ? { physicalViewportHint: hint } : {}),
+            },
+            coordinator.version,
+          );
         }
         // `verifiedPostures` is populated only after a complete proof and is
         // invalidated synchronously on navigation, browser-owned detach,

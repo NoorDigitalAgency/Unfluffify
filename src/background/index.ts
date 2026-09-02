@@ -40,6 +40,7 @@ import { actionIconStateForContext, createActionIconController } from "./action-
 import { clearDomainCache } from "../storage/domain-cache";
 import { createInitialTabFacts } from "./brain/fold";
 import type { TabFacts } from "../domain/schema/facts";
+import type { FactEnvelope } from "../messaging/contracts";
 import type { ShieldPostureProjection } from "../messaging/shield-posture";
 import {
   createPageWorldCapabilityRuntime,
@@ -1061,10 +1062,14 @@ export function startRewriteBackground(): void {
     },
   });
   api.sidePanel?.onOpened?.addListener((info) => {
-    if (typeof info.tabId === "number") void renderEmulation.refit(info.tabId);
+    if (typeof info.tabId === "number") {
+      void renderEmulation.refit(info.tabId, { source: "side-panel" });
+    }
   });
   api.sidePanel?.onClosed?.addListener((info) => {
-    if (typeof info.tabId === "number") void renderEmulation.refit(info.tabId);
+    if (typeof info.tabId === "number") {
+      void renderEmulation.refit(info.tabId, { source: "side-panel" });
+    }
   });
   const pageContextRuntime = createPageContextRuntime({
     currentEnvironmentKey: services.lynx.currentEnvironmentKey,
@@ -1476,6 +1481,105 @@ export function startRewriteBackground(): void {
     brain.markConsumed(request.organId, request.seq);
     return { ok: true as const };
   });
+  const observeReportedFact = async (
+    tabId: number,
+    envelope: FactEnvelope,
+    awaitNotifications: boolean,
+  ): Promise<Readonly<{
+    persistence: Promise<void> | null;
+  }>> => {
+    const brain = await runtime.getBrain(tabId);
+    brain.observe({
+      ...envelope.sensation,
+      tabId,
+      facts: {
+        ...envelope.sensation.facts,
+        tabId,
+      },
+    });
+    const snapshot = brain.snapshot();
+    const persistence = snapshot
+      ? enqueueFactPersistence(tabId, snapshot)
+      : null;
+    if (snapshot) {
+      // This fact belongs to the tab, not the popup. Publishing it here keeps
+      // heartbeats accurate while every UI surface is closed.
+      lockRuntime.unsavedChanged(tabId, snapshot.hasUnsavedWork);
+    }
+    const reportedFacts = envelope.sensation.facts;
+    if (
+      reportedFacts.markingEnabled === false ||
+      reportedFacts.savedSeq !== undefined ||
+      reportedFacts.discardedSeq !== undefined
+    ) {
+      // Run metadata belongs to the active marking session. Increment the
+      // continuation generation before clearing it so an in-flight stateless
+      // AI poll cannot recreate a retired local record after Disable,
+      // Discard, navigation, or Save ends that session.
+      await services.lynx.retireAiRunForTab(tabId);
+    }
+    const siteId = typeof envelope.sensation.facts.siteId === "number" ? envelope.sensation.facts.siteId : snapshot?.siteId ?? null;
+    if (envelope.sensation.reason === "activity-ping" && siteId !== null) {
+      lockRuntime.activity(tabId, siteId);
+    }
+    if (envelope.sensation.reason === "content-started") {
+      const baseUrl = typeof envelope.sensation.facts.baseUrl === "string" ? envelope.sensation.facts.baseUrl : "";
+      const pageUrl = typeof envelope.sensation.facts.pageUrl === "string" ? envelope.sensation.facts.pageUrl : "";
+      if (pageUrl) {
+        await lockRuntime.directive({ tabId, pageUrl, baseUrl, hasUnsavedChanges: false });
+      } else {
+        lockRuntime.republish(tabId, baseUrl);
+      }
+    }
+    const notifications = Promise.allSettled([
+      bus.emit("signals.available", { tabId }, { target: "popup" }),
+      emitSignalsAvailableToContent(tabId),
+    ]).then(() => undefined);
+    if (awaitNotifications) {
+      await notifications;
+    } else {
+      void notifications;
+    }
+    return { persistence };
+  };
+  bus.onCommand("fact.reportAndPull", async (request, meta) => {
+    const envelope = request.envelope;
+    const tabId = envelope.sensation.tabId === 0
+      ? parseSenderTabId(meta.sourceInstance) ?? 0
+      : envelope.sensation.tabId;
+    if (
+      meta.source !== "popup" ||
+      envelope.sensation.source !== "popup" ||
+      tabId <= 0 ||
+      tabTerminations.has(tabId)
+    ) {
+      return { accepted: false as const, signals: [] };
+    }
+    const result = await withTabLifecycleOperation(tabId, async () => {
+      if (tabTerminations.has(tabId) || await consentSuppressionDisabled(tabId)) {
+        return null;
+      }
+      const observed = await observeReportedFact(tabId, envelope, false);
+      const brain = await runtime.getBrain(tabId);
+      return {
+        ...observed,
+        signals: [...brain.pullSignals(request.afterSeq)],
+      };
+    });
+    if (!result) {
+      return { accepted: false as const, signals: [] };
+    }
+    // The durable write is already in the per-tab persistence queue. Operator
+    // acknowledgement follows the brain's decision now; storage latency is not
+    // allowed to hold the visible activation transaction open.
+    void result.persistence?.catch((error) => {
+      console.error("[Unfluffify][rewrite] Unable to persist priority popup fact", error);
+    });
+    return {
+      accepted: true as const,
+      signals: result.signals,
+    };
+  });
   bus.on("fact.reported", async (envelope, meta) => {
     const tabId = envelope.sensation.tabId === 0
       ? parseSenderTabId(meta.sourceInstance) ?? 0
@@ -1488,54 +1592,9 @@ export function startRewriteBackground(): void {
     if (tabTerminations.has(tabId) && meta.source !== "content") {
       return;
     }
-    const report = async (): Promise<Readonly<{ persistence: Promise<void> | null }>> => {
-      const brain = await runtime.getBrain(tabId);
-      brain.observe({
-        ...envelope.sensation,
-        tabId,
-        facts: {
-          ...envelope.sensation.facts,
-          tabId,
-        },
-      });
-      const snapshot = brain.snapshot();
-      const persistence = snapshot
-        ? enqueueFactPersistence(tabId, snapshot)
-        : null;
-      if (snapshot) {
-        // This fact belongs to the tab, not the popup. Publishing it here keeps
-        // heartbeats accurate while every UI surface is closed.
-        lockRuntime.unsavedChanged(tabId, snapshot.hasUnsavedWork);
-      }
-      const reportedFacts = envelope.sensation.facts;
-      if (
-        reportedFacts.markingEnabled === false ||
-        reportedFacts.savedSeq !== undefined ||
-        reportedFacts.discardedSeq !== undefined
-      ) {
-        // Run metadata belongs to the active marking session. Increment the
-        // continuation generation before clearing it so an in-flight stateless
-        // AI poll cannot recreate a retired local record after Disable,
-        // Discard, navigation, or Save ends that session.
-        await services.lynx.retireAiRunForTab(tabId);
-      }
-      const siteId = typeof envelope.sensation.facts.siteId === "number" ? envelope.sensation.facts.siteId : snapshot?.siteId ?? null;
-      if (envelope.sensation.reason === "activity-ping" && siteId !== null) {
-        lockRuntime.activity(tabId, siteId);
-      }
-      if (envelope.sensation.reason === "content-started") {
-        const baseUrl = typeof envelope.sensation.facts.baseUrl === "string" ? envelope.sensation.facts.baseUrl : "";
-        const pageUrl = typeof envelope.sensation.facts.pageUrl === "string" ? envelope.sensation.facts.pageUrl : "";
-        if (pageUrl) {
-          await lockRuntime.directive({ tabId, pageUrl, baseUrl, hasUnsavedChanges: false });
-        } else {
-          lockRuntime.republish(tabId, baseUrl);
-        }
-      }
-      await bus.emit("signals.available", { tabId }, { target: "popup" });
-      await emitSignalsAvailableToContent(tabId);
-      return { persistence };
-    };
+    const report = (): Promise<Readonly<{
+      persistence: Promise<void> | null;
+    }>> => observeReportedFact(tabId, envelope, true);
     if (meta.source === "content") {
       const documentId = parseSenderDocumentId(meta.sourceInstance);
       const authorizedSender = tabId > 0 &&
@@ -1682,7 +1741,15 @@ export function startRewriteBackground(): void {
       }
     }
     if (tabId > 0) {
-      await renderEmulation.refit(tabId, request.physicalViewportHint);
+      await renderEmulation.refit(tabId, {
+        source: contentOwnedRequest ? "content" : "popup",
+        ...(contentOwnedRequest && request.presentationGeneration !== undefined
+          ? { presentationGeneration: request.presentationGeneration }
+          : {}),
+        ...(request.physicalViewportHint
+          ? { physicalViewportHint: request.physicalViewportHint }
+          : {}),
+      });
     }
     return { status: "ok" as const };
   });

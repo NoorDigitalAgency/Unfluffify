@@ -255,6 +255,16 @@ export const applicationContract = defineContract({
       request: SignalPullRequestSchema,
       response: SignalFrameSchema.array(),
     },
+    "fact.reportAndPull": {
+      request: z.object({
+        envelope: FactEnvelopeSchema,
+        afterSeq: z.number().int().nonnegative(),
+      }).strict(),
+      response: z.object({
+        accepted: z.boolean(),
+        signals: SignalFrameSchema.array(),
+      }).strict(),
+    },
     "signals.consume": {
       request: SignalConsumeRequestSchema,
       response: z.object({ ok: z.literal(true) }),
@@ -493,6 +503,9 @@ export const applicationContract = defineContract({
         /** Content scripts name their sender-owned tab as zero; the background
          * resolves and fences that identity from transport metadata. */
         tabId: z.number().int().nonnegative(),
+        source: z.enum(["content", "popup"]).optional(),
+        /** Retained guard generation synchronously made opaque by content. */
+        presentationGeneration: z.number().int().positive().optional(),
         physicalViewportHint: EmulationPhysicalViewportHintSchema.optional(),
       }),
       response: z.object({ status: z.literal("ok") }),

@@ -6327,11 +6327,14 @@ describe("P6 DOM bridge", () => {
   it("keeps explicit inclusions plain-clearable while Alt transfers them to descendants", () => {
     const doc = new FakeDocument();
     const root = new FakeElement("SECTION", rect(0, 0, 300, 300), "Boundary");
-    const child = new FakeElement("P", rect(0, 0, 100, 20), "Child");
-    root.ownerDocument = doc;
-    child.ownerDocument = doc;
+    const child = new FakeElement("P", rect(0, 0, 140, 30));
+    const span = new FakeElement("SPAN", rect(5, 5, 120, 20));
+    const strong = new FakeElement("STRONG", rect(10, 5, 100, 20), "Nested child");
+    for (const element of [root, child, span, strong]) element.ownerDocument = doc;
     doc.documentElement.ownerDocument = doc;
     doc.documentElement.appendChild(root);
+    span.appendChild(strong);
+    child.appendChild(span);
     root.appendChild(child);
     doc.hits = [root];
     const engine = createMarkingEngine(root as unknown as Element, {
@@ -6359,9 +6362,41 @@ describe("P6 DOM bridge", () => {
     // that decision to the painted child instead of closing at the parent.
     doc.hits = [root];
     expect(engine.toggle(engine.resolveAtPoint(10, 10, "include")!, "include")).toBe(true);
-    doc.hits = [child, root];
+    doc.hits = [strong, span, child, root];
     const altChild = engine.resolveAtPoint(10, 10, "include");
-    expect(altChild?.xpath).toBe("/section[1]/p[1]");
+    expect(altChild?.xpath).toBe("/section[1]/p[1]/span[1]/strong[1]");
+    expect(engine.toggle(altChild!, "include")).toBe(true);
+    expect(engine.hasExplicitMark(altChild!)).toBe(true);
+    expect(engine.hasExplicitMark(plainOwner!)).toBe(false);
+    const painted = engine.overlayRoot().children.flatMap((layer) => layer.children);
+    const formerOwner = painted.find((box) =>
+      box.getAttribute("data-uf-overlay-xpath") === "/section[1]"
+    );
+    const transferredChild = painted.find((box) =>
+      box.getAttribute("data-uf-overlay-xpath") === "/section[1]/p[1]/span[1]/strong[1]"
+    );
+    expect(formerOwner?.className).not.toContain("uf-explicit-include");
+    expect(transferredChild?.className).toBe("uf-rect uf-explicit-include");
+
+    const preview = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: [],
+      exclusionSelectors: [],
+    });
+    expect(preview.rows.filter((row) => row.classification === "explicit-included"))
+      .toEqual([expect.objectContaining({ xpath: altChild?.xpath })]);
+    const submission = engine.buildSubmission({
+      baseUrl: "https://example.com",
+      renderMode: "rendered",
+      pageUrl: "https://example.com/page",
+    });
+    expect(submission.pages[0]?.renderedXPaths.filter((row) => row.explicit === true))
+      .toEqual([{ xpath: altChild?.xpath, excluded: false, explicit: true }]);
+
+    // Repeating Alt clears then recreates only the descendant decision. The
+    // former ancestor never regains an explicit layer or payload row.
+    expect(engine.toggle(altChild!, "include")).toBe(true);
+    expect(engine.hasExplicitMark(altChild!)).toBe(false);
+    expect(engine.hasExplicitMark(plainOwner!)).toBe(false);
     expect(engine.toggle(altChild!, "include")).toBe(true);
     expect(engine.hasExplicitMark(altChild!)).toBe(true);
     expect(engine.hasExplicitMark(plainOwner!)).toBe(false);

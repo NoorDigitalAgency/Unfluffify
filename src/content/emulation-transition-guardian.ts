@@ -669,7 +669,12 @@ export function createEmulationTransitionGuardian(
 
   const activateUnexpectedViewportGuard = (): void => {
     if (!active || disposed || suspended) return;
-    if (guarding && stage !== "settling" && !retiring) return;
+    // Viewport events emitted by a metrics write belong to the transition that
+    // already owns this opaque plane. Re-arming during settle/fade invalidates
+    // its proof and creates a second refit cycle. A genuinely new physical
+    // change is also observed by the browser/window/popup lanes while this
+    // guard remains safely opaque.
+    if (guarding || entering || retiring || stage !== "idle") return;
     operationEpoch += 1;
     active = { ...active, cause: "viewport-change" };
     entering = false;

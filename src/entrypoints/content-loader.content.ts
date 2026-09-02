@@ -2318,13 +2318,17 @@ function ensureEmulationTransitionGuardian(): EmulationTransitionGuardian | null
     async beforeSettle() {
       await refreshViewportDependentPresentation(true);
     },
-    onUnexpectedViewportChange() {
+    onUnexpectedViewportChange(_mode, presentationGeneration) {
       // Resize is observed in the inspected document before its next paint.
       // Ask the browser-owned authority to refit immediately; the standing
       // 50 ms lease watchdog remains only the silent-detach/host-event backstop.
       void getContentBus().request(
         "emulation.refit",
-        { tabId: 0 },
+        {
+          tabId: 0,
+          source: "content",
+          presentationGeneration,
+        },
         { target: "background" },
       ).catch(() => undefined);
     },

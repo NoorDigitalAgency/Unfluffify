@@ -134,6 +134,7 @@ export function createMarkingStore(domView: DomView, initialMarks: CanonicalMark
       mode: Exclude<MarkMode, "disabled" | "passthrough">,
     ): EvaluationResult & Readonly<{ branchRoot: EvaluationNode }> {
       let outermostExcludedAncestorRow: MarkRow | null = null;
+      let outermostExplicitIncludedAncestorRow: MarkRow | null = null;
       if (mode === "exclude") {
         for (const row of marks.rows) {
           if (!row.excluded || row.xpath === branchRoot.xpath || !isXPathInSubtree(branchRoot.xpath, row.xpath)) {
@@ -143,12 +144,38 @@ export function createMarkingStore(domView: DomView, initialMarks: CanonicalMark
             outermostExcludedAncestorRow = row;
           }
         }
+      } else {
+        for (const row of marks.rows) {
+          if (
+            row.excluded ||
+            row.explicit !== true ||
+            row.xpath === branchRoot.xpath ||
+            !isXPathInSubtree(branchRoot.xpath, row.xpath)
+          ) {
+            continue;
+          }
+          if (
+            !outermostExplicitIncludedAncestorRow ||
+            row.xpath.length < outermostExplicitIncludedAncestorRow.xpath.length
+          ) {
+            outermostExplicitIncludedAncestorRow = row;
+          }
+        }
       }
       const outermostExcludedAncestor = outermostExcludedAncestorRow
         ? nodeByXpath.get(outermostExcludedAncestorRow.xpath) ?? null
         : null;
+      const outermostExplicitIncludedAncestor = outermostExplicitIncludedAncestorRow
+        ? nodeByXpath.get(outermostExplicitIncludedAncestorRow.xpath) ?? null
+        : null;
       const existing = marks.rows.find((row) => row.xpath === branchRoot.xpath);
-      let evaluationRoot = outermostExcludedAncestor ?? branchRoot;
+      // Alt transfer removes every explicit-inclusion owner above the clicked
+      // descendant. Re-evaluate and repaint from the shallowest removed owner,
+      // while branchRoot remains the exact new canonical decision target.
+      let evaluationRoot =
+        outermostExcludedAncestor ??
+        outermostExplicitIncludedAncestor ??
+        branchRoot;
       if (existing && !existing.excluded && existing.explicit === true) {
         // Explicit inclusion is the one exception inside an expanded
         // exclusion: remove only that inclusion and preserve its ancestor.

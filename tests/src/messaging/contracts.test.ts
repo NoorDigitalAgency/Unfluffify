@@ -161,11 +161,24 @@ describe("corrective messaging application contracts", () => {
       scale: 1,
       physicalViewportHint,
     })).toMatchObject({ physicalViewportHint });
-    expect(refit.parse({ tabId: 7, physicalViewportHint })).toEqual({
+    expect(refit.parse({
       tabId: 7,
+      source: "popup",
+      physicalViewportHint,
+    })).toEqual({
+      tabId: 7,
+      source: "popup",
       physicalViewportHint,
     });
-    expect(refit.parse({ tabId: 0 })).toEqual({ tabId: 0 });
+    expect(refit.parse({
+      tabId: 0,
+      source: "content",
+      presentationGeneration: 42,
+    })).toEqual({
+      tabId: 0,
+      source: "content",
+      presentationGeneration: 42,
+    });
     expect(apply.safeParse({
       tabId: 7,
       mode: "mobile",
@@ -227,6 +240,27 @@ describe("corrective messaging application contracts", () => {
       afterSeq: 0,
       organId: "popup",
     });
+  });
+
+  it("defines an atomic popup fact decision without changing the public fact event", () => {
+    const envelope = {
+      kind: "uf-fact/1" as const,
+      sensation: {
+        tabId: 1,
+        source: "popup" as const,
+        reason: "marking-activated",
+        facts: { tabId: 1, markingEnabled: true },
+      },
+    };
+    expect(applicationContract.commands["fact.reportAndPull"].request.parse({
+      envelope,
+      afterSeq: 0,
+    })).toEqual({ envelope, afterSeq: 0 });
+    expect(applicationContract.commands["fact.reportAndPull"].response.parse({
+      accepted: true,
+      signals: [],
+    })).toEqual({ accepted: true, signals: [] });
+    expect(applicationContract.events["fact.reported"]).toBeDefined();
   });
 
   it("scopes AI resume to exact editor session, run generation, property, and page", () => {
