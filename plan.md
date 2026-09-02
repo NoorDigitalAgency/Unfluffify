@@ -5613,3 +5613,287 @@ standalone run and the complete unchanged rerun.
 
 Normal push/0:0 proof, a fresh exact-pushed headed matrix, and cumulative
 adjudication remain mandatory.
+
+## 7. Exact-pushed headed conformance rejection (2026-09-02)
+
+R6 automated and source conformance remains green, but its headed criterion is
+rejected on exact pushed commit
+`9eaf5320a58e6c9d7473bde2d578d54e19c44cb4`. A fresh repository
+`live-browser` production run and a clean debug-gated reproduction on 3DPrima
+proved a separate scheduler-starvation defect after the scrollbar fix:
+
+- the exact managed-browser production run could eventually recover and hold
+  412x960 mobile geometry for a stable sample, but a trusted popup-only Desktop
+  preview click rolled back and retained mobile;
+- debug launch provenance
+  `3d21e21e-259b-4404-8003-9c4381b1182e`, extension
+  `mfdmappjajojdcmkkmfbgocbgmlbkgaj`, tab `1926120225`, and the current
+  3DPrima candidate exposed repeated `guard-paint-proof-failed` and
+  `settle-proof-failed` terminals;
+- failed begin results often reported `coverage: true`; an exact mobile settle
+  reported `coverage: true`, `exactGeometry: true`, and still failed solely at
+  paint proof;
+- a trusted Desktop transition reached exact 1920x1080 inner/screen geometry,
+  a 1905x1080 scrollbar-bounded document/visual viewport, opaque full coverage,
+  and exact geometry, but `settle-proof-failed` rolled it back. The subsequent
+  recovery attempts alternated desktop, mobile, and physical 850x705 posture;
+- while the page remained `visibilityState: visible`, an isolated-world rAF
+  sample measured approximately 397, 1003, 1013, 1010, 997, 26, 977, and
+  1023 ms. The guardian currently requires two callbacks inside one 1000 ms
+  window and separately spends another full window on its entry/retire frame;
+  and
+- the operator surface truthfully rolled the Desktop checkbox back and recorded
+  `Device preview failed`, but that safe rollback is what makes the otherwise
+  exact device visibly flicker and temporarily expose a clipped physical page.
+
+Consent remained hidden (33 candidates, zero visible), ownership and the
+owner-label rule were correct, and no AI, Save, takeover, Lynx, deployment,
+backend write, or production mutation occurred. `EL03-R6-AC-05` and
+`EL03-R6-AC-06` therefore remain open and feed the delta remediation below.
+
+# EL-03-R7 — Make exact device transitions terminal under visible-frame starvation
+
+## 1. Goal
+
+Make the debugger-owned 412x960 mobile and 1920x1080 desktop postures switch
+atomically and remain continuously fitted even when a visible website document
+delivers animation frames at roughly one hertz. A valid, fully opaque,
+interactive, exact-generation guard must not be rejected merely because the
+second paint callback misses the deadline; an invalid, hidden, stale, clipped,
+zoomed, wrongly layered, or non-interactive guard must still fail closed.
+
+## 2. Current facts
+
+- `src/content/emulation-transition-guardian.ts:createEmulationTransitionGuardian()`
+  owns the retained page guard, generation, primary paint proof, exact geometry,
+  and entry/retire transitions.
+- `frame()` gives every requested frame its own `paintTimeoutMs` timer.
+  `begin()` ignores the first frame result before making the guard opaque, then
+  `waitForPaintProof()` requires two more real frames inside a new one-second
+  window. `settle()` repeats the proof and can fail a final retire frame after
+  already proving exact geometry.
+- `coverage()` already proves a visible, fixed, opaque, interactive,
+  maximum-z, visual-viewport-covering guard connected as the document root's
+  last element. It does not by itself prove the active generation/mode/cause
+  attributes.
+- `src/background/render-emulation-runtime.ts:beginPresentation()` and
+  `settlePresentation()` correctly refuse any non-terminal content response;
+  a settle failure is mutation-possible and invokes prior-posture restoration.
+- `src/entrypoints/content-loader.content.ts:ensureEmulationTransitionGuardian()`
+  already exposes debug-only lifecycle history without shipping production
+  diagnostics.
+- `src/content/render-inspection-curtain.ts` establishes the repository pattern:
+  two frames remain primary, while a one-second fallback may acknowledge only
+  the exact visible identity with a connected, opaque, interactive,
+  full-viewport maximum-z curtain.
+- R6 geometry rules are correct: mobile authority is exact 412x960 screen,
+  visual viewport, and document client viewport at scale 1; desktop remains
+  exact 1920x1080 with bounded scrollbar gutters; the fitted CDP scale must keep
+  the complete device screen inside the physical tab.
+
+## 3. Decisions already made
+
+- The user requires Chrome-debugger device emulation, continuous reinforcement
+  after user/browser detach, and the whole device screen scaled to remain
+  visible inside the physical browser viewport.
+- Two consecutive animation frames remain the primary paint acknowledgement.
+  R7 may not replace them with an unconditional timer or weaken coverage.
+- The starvation fallback follows the already-approved inspection safety model:
+  it is available only after the one-second primary deadline and only for the
+  exact current, visible, fully covered guard identity.
+- A bounded scheduling fallback may advance the cosmetic entry/retire opacity
+  transition after 20 ms, but it is never itself paint proof.
+- Consent suppression, marking/highlighting semantics, Render-mode behavior,
+  backend payloads, Save/Load, lock authority, and Lynx publication are outside
+  this delta and must not change.
+
+## 4. Open questions
+
+None. The required safety boundary and the user-visible outcome are determined
+by the current product authority and the existing guarded-fallback precedent.
+
+## 5. Non-goals
+
+- Do not remove the transition guard, acknowledge before it is opaque, detach
+  the durable debugger lease, focus/steal the user's browser window, or treat a
+  timer callback as a rendered frame.
+- Do not loosen mobile/desktop geometry, physical-fit, UA, touch, pointer,
+  media, document identity, navigation, generation, or rollback checks.
+- Do not change the 412x960 or 1920x1080 presets, add user-selectable scales, or
+  alter marking/session/payload contracts.
+- Do not perform AI, Save, takeover, Lynx, deployment, release promotion, or
+  production configuration mutation during acceptance.
+
+## 6. Implementation phases
+
+### EL-03-R7-01 — Separate presentation turns from paint authority
+
+Files:
+
+- `src/content/emulation-transition-guardian.ts`
+- `tests/src/content/emulation-transition-guardian.test.ts`
+
+Steps:
+
+1. Split the current per-call `frame()` behavior into a real-frame waiter used
+   only for paint proof and a bounded presentation-turn waiter that races rAF
+   with the repository's 20 ms presentation fallback.
+2. Use the bounded turn for the opacity-zero to opacity-one entry and for
+   starting retirement. A missing cosmetic rAF must not independently reject a
+   transition; stale epoch/generation checks remain mandatory after the turn.
+3. Keep a single one-second primary proof deadline per `begin` or `settle`
+   phase. Preserve two consecutive real-frame coverage samples as the primary
+   success path.
+4. At real-frame starvation only, run two strict fallback samples separated by
+   one bounded presentation turn. Each sample must prove the same epoch,
+   generation, mode, cause, stage attributes, visible document, connected
+   last-in-root guard, canonical inline presentation, fixed full visual-viewport
+   coverage, opacity >= 0.999, active pointer boundary, maximum z-index, and,
+   for settle, exact target geometry.
+5. Hidden documents continue waiting for `visibilitychange`. A stale identity,
+   changed epoch, missing/hostile guard, failed coverage, or inexact settle
+   rejects and leaves the safety plane fail-closed.
+6. Add an internal paint-proof discriminant (`none`, `frame-two`, or
+   `guarded-fallback`) to the transition result and retained rollback snapshot
+   so debug history and background validation identify how an acknowledgement
+   was earned. Production UI and endpoint schemas remain unchanged.
+
+Focused validation:
+
+`pnpm vitest run tests/src/content/emulation-transition-guardian.test.ts`
+
+Rollback rule: if the fallback cannot prove every listed condition without a
+new ownership source, retain the current fail-closed implementation and stop;
+do not acknowledge on elapsed time alone.
+
+### EL-03-R7-02 — Preserve background atomicity and add starvation regressions
+
+Files:
+
+- `src/background/index.ts`
+- `src/background/render-emulation-runtime.ts`
+- `tests/src/background/render-emulation-runtime.test.ts`
+- focused content/background integration and source-contract tests discovered
+  by the graph
+
+Steps:
+
+1. Parse and validate the new proof discriminant. `beginPresentation()` and
+   `settlePresentation()` accept only `frame-two` or `guarded-fallback`; missing,
+   malformed, or `none` proof remains unavailable and invokes existing rollback.
+2. Prove ordinary responsive frames still take the primary path, while a
+   visible starved renderer succeeds only after the strict guarded fallback for
+   both begin and exact settle.
+3. Prove a clipped guard, hidden document, stale generation, inexact target
+   geometry, hostile root/style mutation that cannot be repaired, and malformed
+   proof response still fail closed.
+4. Prove retire-frame starvation no longer converts an already exact,
+   proof-owned posture into rollback; the guard remains input-blocking through
+   its fade and ends transparent only after the bounded retire interval.
+5. Re-run existing hostile-page repair, scrollbar, debugger detach/watchdog,
+   physical shrink/grow, concurrent transition, and zero-idle-churn tests.
+
+Focused validation:
+
+`pnpm vitest run tests/src/content/emulation-transition-guardian.test.ts tests/src/background/render-emulation-runtime.test.ts tests/src/background/shield-posture-navigation-startup.test.ts tests/src/background/startup.test.ts tests/src/messaging/contracts.test.ts tests/src/popup/entrypoint.test.ts`
+
+### EL-03-R7-03 — Exact-source gates, review, commit, and push
+
+1. Run `pnpm check`, `pnpm verify`, and `pnpm build:debug`.
+2. Run clean P17, standalone P14, and the complete unchanged-threshold P25
+   composite on the exact candidate commit. Retain rejected outliers rather than
+   relabeling them.
+3. Perform a high-signal diff review, update durable guardian knowledge, commit
+   only intended source/tests/plan/knowledge, push `re-write` normally, refresh
+   the code graph after commit and push, and prove local/upstream 0/0.
+
+### EL-03-R7-04 — Fresh headed device and cumulative conformance
+
+1. Launch the exact pushed production build through repository `live-browser`
+   on 3DPrima, Aleris, and Acne; keep website-target debugger observers detached
+   during extension-owned transitions.
+2. On every candidate, drive trusted popup-only mobile -> desktop -> mobile,
+   Enable marking -> mobile, Disable/Discard -> retained Silent preference, and
+   deliberate debugger detach/recovery. Record frame-by-frame device, scale,
+   guard, checkbox/busy state, and attachment identity.
+3. Require exact 412x960 and 1920x1080 geometry, fitted scale satisfying both
+   physical axes, the complete device screen visible at every released frame,
+   no physical/hybrid flash, no repeated attach/detach or rollback loop, prompt
+   truthful controls, and a transparent idle guard.
+4. Resize smaller and restore larger. Shrink must be immediate and guarded;
+   growth must occur only after the retained stable trailing proof, with no
+   clipped bottom or opportunistic unsafe scale increase.
+5. Recheck the pending reveal/freeze suspicion from a clean owner flow: true
+   bottom, lazy-growth quiet proof, return to start, no Silent paint during the
+   ritual, and Silent restoration afterward. Classify it separately if it
+   reproduces; do not hide it under the emulation fix.
+6. Recheck consent, owner-label absence, Silent/Marking/Content List projection,
+   keyboard and page/list two-way routing, console/network/message hygiene, and
+   safe failure recovery. Perform no prohibited external mutation.
+7. Build the criterion-by-criterion R7 and cumulative EL-03 conformance matrix.
+   Any failed, partial, blocked, or not-tested required cell rejects approval and
+   starts the next delta plan.
+
+## 7. Test matrix
+
+| Surface | Primary evidence | Required result |
+| --- | --- | --- |
+| responsive renderer | guardian unit chronology | two real frames; `frame-two` |
+| visible starved renderer | fake timers + debug headed history | strict fallback only after deadline; `guarded-fallback` |
+| invalid/starved renderer | negative guardian fixtures | no acknowledgement; guard remains fail-closed |
+| background handshake | runtime/integration tests | only typed proved responses authorize or settle CDP mutation |
+| geometry/fit | R4-R6 tests + headed samples | exact preset and both physical axes fully fit |
+| detach/refit/concurrency | watchdog/runtime tests + headed detach | one serialized recovery, no stale mode or churn |
+| full regressions | check/verify/debug/P17/P14/P25 | all unchanged gates pass on exact source |
+| real workflow | 3DPrima/Aleris/Acne live-browser | no flicker, clipping, rollback loop, or hidden device bottom |
+| adjacent reveal/consent/UI | headed matrix | independently truthful PASS or a new retained finding |
+
+## 8. Regression risks
+
+- A permissive timer acknowledgement could expose page pixels during a metrics
+  mutation. Two exact fallback samples and the complete guard identity/coverage
+  predicate prevent elapsed time from becoming authority.
+- A late frame from an older generation could settle the wrong mode. Every
+  callback and fallback rechecks operation epoch, generation, mode, and cause.
+- Treating a bounded turn as paint proof could recreate the unsafe frame R4
+  removed. The code and tests keep turn scheduling and proof outcomes distinct.
+- Retiring without rAF could expose stale annotations. Retirement begins only
+  after exact settle proof and `beforeSettle` presentation refresh, remains
+  pointer-blocking through the fade, and releases after the bounded transition.
+- A fallback could mask wrong scrollbar or page-scale geometry. Settle fallback
+  calls the unchanged exact R6 geometry predicate.
+
+## 9. Acceptance criteria
+
+- `EL03-R7-AC-01` A responsive renderer still acknowledges begin and settle via
+  two consecutive real frames; the fallback does not win early.
+- `EL03-R7-AC-02` A visible one-hertz/starved renderer acknowledges only after
+  the one-second deadline and only with two exact guarded fallback samples.
+- `EL03-R7-AC-03` Hidden, stale, clipped, non-opaque, non-interactive,
+  wrongly-layered, detached, inexact, or malformed-proof cases remain
+  fail-closed and cannot authorize debugger mutation or retirement.
+- `EL03-R7-AC-04` Missing entry/retire animation frames cannot independently
+  cause rollback after strict paint authority; normal fades and input fencing
+  remain intact.
+- `EL03-R7-AC-05` Trusted headed mobile -> desktop -> mobile and marking/session
+  transitions finish without rollback/retry churn, physical/hybrid flashes, or
+  checkbox lies on 3DPrima, Aleris, and Acne.
+- `EL03-R7-AC-06` Every released mobile frame is exact 412x960 and every released
+  desktop frame is exact 1920x1080; fitted scale keeps the complete device width
+  and height inside the current physical viewport, including resize and detach
+  recovery.
+- `EL03-R7-AC-07` Consent, labeling, annotations, Content List, reveal/freeze,
+  console/network hygiene, and all prior R4-R6 safety contracts remain green or
+  receive an explicit new finding; none is inferred from emulation success.
+- `EL03-R7-AC-08` Focused/full/build/P17/P14/P25 gates pass unchanged on the exact
+  committed and pushed source, and cumulative conformance is independently
+  approved before production readiness.
+
+## 10. Todo chain
+
+1. `el03-r7-presentation-paint-separation` -> 0
+2. `el03-r7-starvation-regressions` -> 1
+3. `el03-r7-focused-full-gates` -> 2
+4. `el03-r7-review-push` -> 3
+5. `el03-r7-headed-conformance` -> 4
+6. `el03-r7-cumulative-audit` -> 5

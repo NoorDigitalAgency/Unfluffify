@@ -35,6 +35,7 @@ function emulationTransitionContentReply(message: unknown): BusFrame | undefined
         guarded: phase === "begin",
         coverage: phase === "begin",
         exactGeometry: phase === "settle",
+        paintProof: phase === "begin" || phase === "settle" ? "frame-two" : "none",
         reason: "",
         measured: {
           innerWidth: width,

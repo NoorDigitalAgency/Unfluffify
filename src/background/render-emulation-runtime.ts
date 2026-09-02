@@ -529,6 +529,8 @@ export function createRenderEmulationRuntime(input: Readonly<{
         response.generation !== lease.generation ||
         response.mode !== mode ||
         response.stage !== "paint-proven" ||
+        (response.paintProof !== "frame-two" &&
+          response.paintProof !== "guarded-fallback") ||
         !response.guarded ||
         !response.coverage
       ) {
@@ -565,6 +567,8 @@ export function createRenderEmulationRuntime(input: Readonly<{
       response.generation !== lease.generation ||
       response.mode !== lease.mode ||
       response.stage !== "idle" ||
+      (response.paintProof !== "frame-two" &&
+        response.paintProof !== "guarded-fallback") ||
       response.guarded ||
       !response.exactGeometry
     ) {

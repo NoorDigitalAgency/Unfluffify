@@ -258,6 +258,9 @@ function transitionAcknowledgement(
     guarded: request.phase === "begin",
     coverage: request.phase === "begin",
     exactGeometry: request.phase === "settle",
+    paintProof: request.phase === "begin" || request.phase === "settle"
+      ? "frame-two"
+      : "none",
     reason: "",
     measured: {
       innerWidth: preset.width,
@@ -350,6 +353,30 @@ describe("render emulation runtime", () => {
     const presenter = transitionPresenter(() => ({
       status: "no_receiver",
       reason: "no content receiver",
+    }));
+    const debuggerApi = fakeDebugger();
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: tabsWithViewport(),
+      presentTransition: presenter.presentTransition,
+    });
+
+    await expect(runtime.apply(7, "mobile", 1)).resolves.toMatchObject({
+      active: false,
+      failureReason: "presentation_unavailable",
+    });
+    expect(debuggerApi.attaches).toHaveLength(0);
+    expect(debuggerApi.sent).toHaveLength(0);
+    expect(presenter.requests.map((request) => request.phase)).toEqual(["begin", "abort"]);
+  });
+
+  it("rejects an unproved transition response before debugger mutation", async () => {
+    const presenter = transitionPresenter((request) => ({
+      status: "ready",
+      result: {
+        ...transitionAcknowledgement(request),
+        paintProof: "none",
+      },
     }));
     const debuggerApi = fakeDebugger();
     const runtime = createRenderEmulationRuntime({

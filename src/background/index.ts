@@ -124,6 +124,7 @@ function emulationTransitionResult(value: unknown): EmulationTransitionResult | 
     typeof candidate.guarded !== "boolean" ||
     typeof candidate.coverage !== "boolean" ||
     typeof candidate.exactGeometry !== "boolean" ||
+    !["none", "frame-two", "guarded-fallback"].includes(String(candidate.paintProof)) ||
     typeof candidate.reason !== "string"
   ) {
     return null;

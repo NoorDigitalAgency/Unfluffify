@@ -829,3 +829,20 @@ painted" decision from the replaced document.
   inspection remains the final no-annotation authority. Entering Marking or an
   interactive comparison clears ordinary Silent presentation without rebuilding
   retained classifications.
+- EL-03 TRANSITION PAINT AUTHORITY: Chromium may throttle a visible website's
+  `requestAnimationFrame` queue to roughly one frame per second while the side
+  panel owns focus. Device emulation must therefore keep two real animation
+  frames as its primary acknowledgement but, only after the single one-second
+  phase deadline expires, may accept two guarded fallback samples separated by
+  a bounded presentation turn. Every fallback sample must prove the exact
+  operation epoch/generation/mode/cause/stage, a visible document, the canonical
+  connected transition guard as the document root's last child, unchanged
+  inline presentation, full visual-viewport coverage, opacity, pointer capture,
+  maximum z-index, and (during settle) exact target geometry. A timer can advance
+  cosmetic entry/retirement but is never paint evidence. Hidden, stale, clipped,
+  hostile, or inexact states fail closed; successful results carry the internal
+  proof discriminant `frame-two` or `guarded-fallback`, and the background must
+  reject `none` or malformed proof before any debugger mutation. Missing only a
+  cosmetic retirement frame must not roll back an otherwise exact settled
+  posture, because rollback exposes the physical viewport and causes the visible
+  mobile/desktop flicker this contract prevents.

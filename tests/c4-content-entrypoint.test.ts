@@ -219,6 +219,9 @@ vi.mock("../src/content/emulation-transition-guardian", () => {
           guarded: guarding,
           coverage: guarding,
           exactGeometry: request.phase !== "begin",
+          paintProof: request.phase === "begin" || request.phase === "settle"
+            ? "frame-two"
+            : "none",
           reason: "",
           measured: {},
         };

@@ -360,6 +360,7 @@ describe("emulation transition guardian", () => {
       stage: "paint-proven",
       guarded: true,
       coverage: true,
+      paintProof: "frame-two",
     });
     expect(document.documentElement.lastElementChild).toBe(element);
     expect(element.getAttribute(EMULATION_TRANSITION_GUARD_ATTRIBUTE)).toBe("true");
@@ -507,13 +508,121 @@ describe("emulation transition guardian", () => {
     await expect(pending).resolves.toMatchObject({ ok: true, coverage: true });
   });
 
-  it("fails closed in bounded time when a visible renderer starves animation frames", async () => {
+  it("uses the strict guarded fallback when a visible renderer starves animation frames", async () => {
     vi.useFakeTimers();
     try {
       const { guardian } = fixture({
         paintTimeoutMs: 100,
         requestFrame: () => undefined,
       });
+      let resolved = false;
+      const pending = guardian.handle(beginMobile);
+      void pending.then(() => {
+        resolved = true;
+      });
+
+      await vi.advanceTimersByTimeAsync(99);
+      expect(resolved).toBe(false);
+      await vi.advanceTimersByTimeAsync(21);
+
+      await expect(pending).resolves.toMatchObject({
+        ok: true,
+        stage: "paint-proven",
+        guarded: true,
+        coverage: true,
+        paintProof: "guarded-fallback",
+      });
+
+      const settling = guardian.handle(settleMobile);
+      await vi.advanceTimersByTimeAsync(120);
+      await expect(settling).resolves.toMatchObject({
+        ok: true,
+        stage: "idle",
+        guarded: false,
+        exactGeometry: true,
+        paintProof: "guarded-fallback",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects a starved fallback whose guard does not cover the viewport", async () => {
+    vi.useFakeTimers();
+    try {
+      const { guardian } = fixture({
+        paintTimeoutMs: 100,
+        requestFrame: () => undefined,
+      });
+      const pending = guardian.handle(beginMobile);
+      const guard = guardian.element()!;
+      vi.spyOn(guard, "getBoundingClientRect").mockReturnValue({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 411,
+        bottom: 959,
+        width: 411,
+        height: 959,
+        toJSON: () => ({}),
+      } as DOMRect);
+
+      await vi.advanceTimersByTimeAsync(120);
+
+      await expect(pending).resolves.toMatchObject({
+        ok: false,
+        stage: "rejected",
+        reason: "guard-paint-proof-failed",
+        guarded: true,
+        coverage: false,
+        paintProof: "none",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not let a starved fallback mask inexact settled geometry", async () => {
+    vi.useFakeTimers();
+    try {
+      const { guardian, window } = fixture({
+        paintTimeoutMs: 100,
+        requestFrame: () => undefined,
+      });
+      const beginning = guardian.handle(beginMobile);
+      await vi.advanceTimersByTimeAsync(120);
+      await expect(beginning).resolves.toMatchObject({
+        ok: true,
+        paintProof: "guarded-fallback",
+      });
+
+      window.visualViewport.scale = 1.01;
+      const settling = guardian.handle(settleMobile);
+      await vi.advanceTimersByTimeAsync(120);
+
+      await expect(settling).resolves.toMatchObject({
+        ok: false,
+        stage: "rejected",
+        reason: "settle-proof-failed",
+        guarded: true,
+        coverage: true,
+        exactGeometry: false,
+        paintProof: "none",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never grants the starvation fallback while the document is hidden", async () => {
+    vi.useFakeTimers();
+    try {
+      const { document, guardian } = fixture({
+        paintTimeoutMs: 100,
+        requestFrame: () => undefined,
+      });
+      document.visibilityState = "hidden";
       const pending = guardian.handle(beginMobile);
 
       await vi.advanceTimersByTimeAsync(100);
@@ -523,8 +632,73 @@ describe("emulation transition guardian", () => {
         stage: "rejected",
         reason: "guard-paint-proof-failed",
         guarded: true,
-        coverage: true,
+        coverage: false,
+        paintProof: "none",
       });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cannot let an older starved proof acknowledge a newer generation", async () => {
+    vi.useFakeTimers();
+    try {
+      const { guardian } = fixture({
+        paintTimeoutMs: 100,
+        requestFrame: () => undefined,
+      });
+      const older = guardian.handle(beginMobile);
+      await vi.advanceTimersByTimeAsync(40);
+      const newer = guardian.handle({ ...beginMobile, generation: 2 });
+
+      await vi.advanceTimersByTimeAsync(130);
+
+      await expect(older).resolves.toMatchObject({
+        ok: false,
+        reason: "stale-generation",
+        generation: 2,
+        paintProof: "none",
+      });
+      await expect(newer).resolves.toMatchObject({
+        ok: true,
+        generation: 2,
+        stage: "paint-proven",
+        paintProof: "guarded-fallback",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not roll back exact settle when only the retire frame is starved", async () => {
+    vi.useFakeTimers();
+    try {
+      let requestedFrames = 0;
+      const { guardian } = fixture({
+        retireTransitionMs: 96,
+        requestFrame(callback) {
+          requestedFrames += 1;
+          if (requestedFrames <= 4) callback(Date.now());
+          return requestedFrames;
+        },
+      });
+      await expect(guardian.handle(beginMobile)).resolves.toMatchObject({
+        ok: true,
+        paintProof: "frame-two",
+      });
+
+      const settling = guardian.handle(settleMobile);
+      await vi.advanceTimersByTimeAsync(116);
+
+      await expect(settling).resolves.toMatchObject({
+        ok: true,
+        stage: "idle",
+        guarded: false,
+        exactGeometry: true,
+        paintProof: "frame-two",
+      });
+      expect(guardian.element()?.style.getPropertyValue("opacity")).toBe("0");
+      expect(guardian.element()?.style.getPropertyValue("pointer-events")).toBe("none");
     } finally {
       vi.useRealTimers();
     }

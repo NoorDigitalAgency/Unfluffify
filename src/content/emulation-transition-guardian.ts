@@ -34,6 +34,10 @@ export type EmulationTransitionStage =
   | "paint-proven"
   | "settling"
   | "rejected";
+export type EmulationTransitionPaintProof =
+  | "none"
+  | "frame-two"
+  | "guarded-fallback";
 
 export type EmulationTransitionRequest =
   | Readonly<{
@@ -81,6 +85,7 @@ export type EmulationTransitionResult = Readonly<{
   guarded: boolean;
   coverage: boolean;
   exactGeometry: boolean;
+  paintProof: EmulationTransitionPaintProof;
   reason: string;
   measured: EmulationTransitionMeasurement;
 }>;
@@ -133,9 +138,11 @@ type GuardianSnapshot = Readonly<{
   entryOpacity: string;
   retiring: boolean;
   retireOpacity: string;
+  paintProof: EmulationTransitionPaintProof;
 }>;
 
 const DEFAULT_PAINT_TIMEOUT_MS = 1_000;
+const PRESENTATION_TURN_FALLBACK_MS = 20;
 const DEFAULT_ENTER_TRANSITION_MS = 72;
 const DEFAULT_RETIRE_TRANSITION_MS = 96;
 const GUARD_BACKGROUND = "rgb(248, 250, 252)";
@@ -246,6 +253,7 @@ export function createEmulationTransitionGuardian(
   let entryOpacity = "1";
   let retiring = false;
   let retireOpacity = "1";
+  let paintProof: EmulationTransitionPaintProof = "none";
   let unexpectedChangeQueued = false;
   let abortSnapshot: Readonly<{
     generation: number;
@@ -329,6 +337,24 @@ export function createEmulationTransitionGuardian(
       rect.right >= left + width && rect.bottom >= top + height;
   };
 
+  const exactTransitionIdentity = (epoch: number): boolean =>
+    epoch === operationEpoch &&
+    !disposed &&
+    !suspended &&
+    guarding &&
+    active !== null &&
+    guard !== null &&
+    guard.getAttribute(EMULATION_TRANSITION_GUARD_ATTRIBUTE) === "true" &&
+    guard.getAttribute(EXTENSION_UI_ATTRIBUTE) === "true" &&
+    guard.getAttribute(INTERACTION_SHIELD_INPUT_BOUNDARY_ATTRIBUTE) === "true" &&
+    guard.getAttribute(EMULATION_TRANSITION_GENERATION_ATTRIBUTE) ===
+      String(active.generation) &&
+    guard.getAttribute(EMULATION_TRANSITION_MODE_ATTRIBUTE) === active.mode &&
+    guard.getAttribute(EMULATION_TRANSITION_STAGE_ATTRIBUTE) === stage &&
+    guard.getAttribute(EMULATION_TRANSITION_CAUSE_ATTRIBUTE) === active.cause &&
+    appliedInlineStyle !== null &&
+    guard.getAttribute("style") === appliedInlineStyle;
+
   const result = (
     ok: boolean,
     reason: string,
@@ -343,6 +369,7 @@ export function createEmulationTransitionGuardian(
       guarded: guarding,
       coverage: guarding && coverage(),
       exactGeometry: exactGeometry(active?.mode ?? null, measured),
+      paintProof,
       reason,
       measured,
     };
@@ -527,7 +554,7 @@ export function createEmulationTransitionGuardian(
     }
   };
 
-  const frame = (): Promise<boolean> => new Promise((resolve) => {
+  const frame = (timeoutMs = paintTimeoutMs): Promise<boolean> => new Promise((resolve) => {
     let settled = false;
     const finish = (painted: boolean): void => {
       if (settled) return;
@@ -540,7 +567,7 @@ export function createEmulationTransitionGuardian(
     // of leaving a background debugger operation waiting forever.
     const timeout = (view?.setTimeout ?? setTimeout)(
       () => finish(false),
-      paintTimeoutMs,
+      Math.max(0, timeoutMs),
     );
     const callback: FrameRequestCallback = () => finish(true);
     if (options.requestFrame) {
@@ -549,10 +576,16 @@ export function createEmulationTransitionGuardian(
     }
     if (typeof view?.requestAnimationFrame === "function") {
       view.requestAnimationFrame(callback);
-      return;
     }
-    (view?.setTimeout ?? setTimeout)(() => finish(true), 16);
   });
+
+  /** Allows a cosmetic opacity transition to advance even when Chromium
+   * throttles the visible website's rAF queue while the side panel owns focus.
+   * The timer branch is scheduling only: callers must never treat it as paint
+   * authority. */
+  const waitForPresentationTurn = async (): Promise<void> => {
+    await frame(PRESENTATION_TURN_FALLBACK_MS);
+  };
 
   const waitUntilVisible = async (epoch: number): Promise<boolean> => {
     if (document.visibilityState === "visible") return true;
@@ -575,10 +608,31 @@ export function createEmulationTransitionGuardian(
     });
   };
 
+  const strictPaintFallbackSample = (
+    epoch: number,
+    requireExactGeometry: boolean,
+  ): boolean => {
+    if (epoch !== operationEpoch || disposed || suspended || !ensureMounted(true)) return false;
+    return exactTransitionIdentity(epoch) &&
+      coverage() &&
+      (!requireExactGeometry || exactGeometry(active?.mode ?? null));
+  };
+
+  const guardedPaintFallback = async (
+    epoch: number,
+    requireExactGeometry: boolean,
+  ): Promise<EmulationTransitionPaintProof | null> => {
+    if (!strictPaintFallbackSample(epoch, requireExactGeometry)) return null;
+    await waitForPresentationTurn();
+    return strictPaintFallbackSample(epoch, requireExactGeometry)
+      ? "guarded-fallback"
+      : null;
+  };
+
   const waitForPaintProof = async (
     epoch: number,
     requireExactGeometry: boolean,
-  ): Promise<boolean> => {
+  ): Promise<EmulationTransitionPaintProof | null> => {
     const startedAt = Date.now();
     let consecutive = 0;
     while (
@@ -586,15 +640,20 @@ export function createEmulationTransitionGuardian(
       !disposed &&
       Date.now() - startedAt <= paintTimeoutMs
     ) {
-      if (!await waitUntilVisible(epoch)) return false;
+      if (!await waitUntilVisible(epoch)) return null;
       ensureMounted(true);
-      if (!await frame()) return false;
-      if (epoch !== operationEpoch || disposed) return false;
-      const valid = coverage() && (!requireExactGeometry || exactGeometry(active?.mode ?? null));
+      const remainingMs = paintTimeoutMs - (Date.now() - startedAt);
+      if (remainingMs <= 0 || !await frame(remainingMs)) {
+        return await guardedPaintFallback(epoch, requireExactGeometry);
+      }
+      if (epoch !== operationEpoch || disposed) return null;
+      const valid = exactTransitionIdentity(epoch) &&
+        coverage() &&
+        (!requireExactGeometry || exactGeometry(active?.mode ?? null));
       consecutive = valid ? consecutive + 1 : 0;
-      if (consecutive >= 2) return true;
+      if (consecutive >= 2) return "frame-two";
     }
-    return false;
+    return await guardedPaintFallback(epoch, requireExactGeometry);
   };
 
   const setGuarding = (next: boolean): void => {
@@ -615,6 +674,7 @@ export function createEmulationTransitionGuardian(
     active = { ...active, cause: "viewport-change" };
     entering = false;
     retiring = false;
+    paintProof = "none";
     stage = "guarding";
     setGuarding(true);
     ensureMounted(true);
@@ -663,6 +723,7 @@ export function createEmulationTransitionGuardian(
         entryOpacity,
         retiring,
         retireOpacity,
+        paintProof,
       },
     };
     lastGeneration = request.generation;
@@ -672,6 +733,7 @@ export function createEmulationTransitionGuardian(
       cause: request.cause,
     };
     stage = "guarding";
+    paintProof = "none";
     operationEpoch += 1;
     const epoch = operationEpoch;
     entering =
@@ -687,19 +749,22 @@ export function createEmulationTransitionGuardian(
     }
     observe();
     if (entering) {
-      await frame();
+      await waitForPresentationTurn();
       if (epoch !== operationEpoch || !active || active.generation !== request.generation) {
         return result(false, "stale-generation", request);
       }
       entryOpacity = "1";
       applyPresentation(false);
     }
-    if (!await waitForPaintProof(epoch, false)) {
-      if (epoch === operationEpoch && active?.generation === request.generation) {
-        stage = "rejected";
+    const beginProof = await waitForPaintProof(epoch, false);
+    if (!beginProof) {
+      if (epoch !== operationEpoch || !active || active.generation !== request.generation) {
+        return result(false, "stale-generation", request);
       }
+      stage = "rejected";
       return result(false, "guard-paint-proof-failed", request);
     }
+    paintProof = beginProof;
     entering = false;
     stage = "paint-proven";
     applyPresentation(true);
@@ -722,6 +787,7 @@ export function createEmulationTransitionGuardian(
     const epoch = operationEpoch;
     entering = false;
     retiring = false;
+    paintProof = "none";
     stage = "settling";
     setGuarding(true);
     ensureMounted(true);
@@ -732,12 +798,15 @@ export function createEmulationTransitionGuardian(
       stage = "rejected";
       return result(false, "settle-refresh-failed", request);
     }
-    if (!await waitForPaintProof(epoch, true)) {
-      if (epoch === operationEpoch && active?.generation === request.generation) {
-        stage = "rejected";
+    const settleProof = await waitForPaintProof(epoch, true);
+    if (!settleProof) {
+      if (epoch !== operationEpoch || !active || active.generation !== request.generation) {
+        return result(false, "stale-generation", request);
       }
+      stage = "rejected";
       return result(false, "settle-proof-failed", request);
     }
+    paintProof = settleProof;
     if (epoch !== operationEpoch || !active || active.generation !== request.generation) {
       return result(false, "stale-generation", request);
     }
@@ -752,13 +821,7 @@ export function createEmulationTransitionGuardian(
     setGuarding(false);
     applyPresentation(false);
     if (retiring) {
-      if (!await frame()) {
-        retiring = false;
-        stage = "rejected";
-        setGuarding(true);
-        applyPresentation(true);
-        return result(false, "retire-frame-starved", request);
-      }
+      await waitForPresentationTurn();
       if (epoch !== operationEpoch || !active || active.generation !== request.generation) {
         return result(false, "stale-generation", request);
       }
@@ -805,6 +868,7 @@ export function createEmulationTransitionGuardian(
     abortSnapshot = null;
     entering = false;
     retiring = false;
+    paintProof = "none";
     stage = "released";
     setGuarding(false);
     observer?.disconnect();
@@ -834,6 +898,7 @@ export function createEmulationTransitionGuardian(
     entryOpacity = prior.entryOpacity;
     retiring = prior.retiring;
     retireOpacity = prior.retireOpacity;
+    paintProof = prior.paintProof;
     setGuarding(prior.guarding);
     observer?.disconnect();
     if (!active) {
@@ -887,6 +952,7 @@ export function createEmulationTransitionGuardian(
       abortSnapshot = null;
       entering = false;
       retiring = false;
+      paintProof = "none";
       stage = "released";
       setGuarding(false);
       observer?.disconnect();
