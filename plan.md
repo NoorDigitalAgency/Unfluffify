@@ -5228,3 +5228,28 @@ Clean-commit P17/P25 provenance gates, non-force push/0:0 proof, headed
 repository `live-browser` conformance, and the cumulative EL-03 expert-check
 remain mandatory before production approval. No AI, Save, takeover, Lynx,
 deployment, backend write, or production mutation was used for R4 evidence.
+
+Clean-commit automated release evidence on 2026-09-02:
+
+- implementation commit `20eb6cf027920c0e694be28afdbab6501b13edfe`;
+- clean P17: 19/19 checks passed with `cleanSourceSet: true`
+  (`output/playwright/p17-preview/acceptance-2026-09-02T07-31-03-467Z.json`);
+- the first clean full P25 attempt correctly failed because one of 192 P14
+  scenarios observed a single 243 ms long task in the large-page rewrite
+  marking-scroll input window; all P14 timing summaries, semantics, source
+  identity, cardinality, and the other six P25 children passed;
+- the unchanged-threshold standalone P14 reproduction then passed all 192
+  scenarios with zero semantic, budget, activation, mutation-pressure, or
+  input-long-task failures
+  (`output/playwright/p14-marking-performance/acceptance-2026-09-02T07-50-36-508Z.json`);
+- a fresh unchanged-threshold full P25 orchestration subsequently passed its
+  deterministic warm-up and all seven retained children—P14, P15, P16, P17,
+  P18, P20, and P23—with `complete: true`, no missing children, and no failed
+  children
+  (`output/playwright/p25-parity/acceptance-2026-09-02T08-10-07-123Z.json`);
+  no performance budget or validator was weakened to obtain the pass; and
+- the generated gate outputs remain disposable evidence and are excluded from
+  the intended source commit.
+
+Normal push/0:0 synchronization, headed repository `live-browser` conformance,
+and cumulative EL-03 adjudication remain mandatory before production approval.
