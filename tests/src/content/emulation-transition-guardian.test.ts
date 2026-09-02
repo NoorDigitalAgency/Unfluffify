@@ -477,6 +477,72 @@ describe("emulation transition guardian", () => {
     expect(onUnexpectedViewportChange).toHaveBeenCalledWith("mobile", 1);
   });
 
+  it("admits a browser-owned physical guard synchronously and reuses its generation", async () => {
+    const { document, guardian, onUnexpectedViewportChange } = fixture();
+    await guardian.handle(beginMobile);
+    await guardian.handle(settleMobile);
+    const guard = guardian.element() as unknown as FakeElement;
+    const hostile = document.createElement();
+    document.documentElement.appendChild(hostile);
+
+    expect(guardian.guardPhysicalViewportChange("mobile")).toMatchObject({
+      ok: true,
+      generation: 2,
+      mode: "mobile",
+      stage: "guarding",
+      guarded: true,
+      coverage: true,
+      paintProof: "none",
+      reason: "physical-viewport-guarded",
+    });
+    expect(document.documentElement.lastElementChild).toBe(guard);
+    expect(guard.style.getPropertyValue("opacity")).toBe("1");
+    expect(guard.style.getPropertyValue("pointer-events")).toBe("auto");
+    expect(onUnexpectedViewportChange).not.toHaveBeenCalled();
+
+    expect(guardian.guardPhysicalViewportChange("mobile")).toMatchObject({
+      ok: true,
+      generation: 2,
+      stage: "guarding",
+      guarded: true,
+      coverage: true,
+      reason: "already-guarded",
+    });
+    expect(guardian.guardPhysicalViewportChange("desktop")).toMatchObject({
+      ok: false,
+      generation: 2,
+      mode: "mobile",
+      reason: "mode-mismatch",
+      guarded: true,
+      coverage: true,
+    });
+  });
+
+  it("invalidates an older settle epoch without allowing it to fade the physical guard", async () => {
+    const { guardian } = fixture();
+    await guardian.handle(beginMobile);
+
+    const staleSettle = guardian.handle(settleMobile);
+    const admitted = guardian.guardPhysicalViewportChange("mobile");
+    expect(admitted).toMatchObject({
+      ok: true,
+      generation: 2,
+      stage: "guarding",
+      guarded: true,
+      coverage: true,
+    });
+    await expect(staleSettle).resolves.toMatchObject({
+      ok: false,
+      reason: "stale-generation",
+      generation: 2,
+      stage: "guarding",
+      guarded: true,
+      coverage: true,
+    });
+    expect(guardian.element()?.style.getPropertyValue("opacity")).toBe("1");
+    expect(guardian.element()?.style.getPropertyValue("pointer-events")).toBe("auto");
+  });
+
   it("absorbs viewport echoes while the current transition already owns the guard", async () => {
     const { guardian, window, onUnexpectedViewportChange } = fixture();
     await guardian.handle(beginMobile);

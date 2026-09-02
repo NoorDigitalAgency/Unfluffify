@@ -2,6 +2,7 @@ import { createRewriteBrainRuntime } from "./rewrite-brain-runtime";
 import { createPropertyLockRuntime, PROPERTY_LOCK_HEARTBEAT_ALARM } from "./lock-runtime";
 import {
   createRenderEmulationRuntime,
+  PHYSICAL_VIEWPORT_GUARD_ADMISSION_TIMEOUT_MS,
   type EmulationTransitionDelivery,
 } from "./render-emulation-runtime";
 import {
@@ -1050,6 +1051,45 @@ export function startRewriteBackground(): void {
     }
     return { status: "no_receiver", reason: "content-receiver-unavailable" };
   };
+  const guardPhysicalEmulationViewport = async (
+    tabId: number,
+    mode: "mobile" | "desktop",
+  ): Promise<number | null> => {
+    if (!api.tabs?.sendMessage || tabId <= 0) return null;
+    const contentBus = createRealmBus({
+      realm: "background",
+      transport: createTabTransport(api.tabs, tabId),
+    });
+    try {
+      const response = await contentBus.request("command.dispatch", {
+        kind: "uf-command/1",
+        name: "emulationViewportGuard",
+        tabId,
+        payload: { mode },
+      }, {
+        target: "content",
+        timeoutMs: PHYSICAL_VIEWPORT_GUARD_ADMISSION_TIMEOUT_MS,
+      });
+      if (!response.ok || !response.data.ok) return null;
+      const result = emulationTransitionResult(response.data.data);
+      if (
+        !result?.ok ||
+        result.mode !== mode ||
+        (result.stage !== "guarding" && result.stage !== "paint-proven") ||
+        !result.guarded ||
+        !result.coverage ||
+        !Number.isSafeInteger(result.generation) ||
+        result.generation <= 0
+      ) {
+        return null;
+      }
+      return result.generation;
+    } catch {
+      return null;
+    } finally {
+      contentBus.dispose();
+    }
+  };
   let renderInspectionDetachHandler: ((tabId: number) => void) | null = null;
   const renderEmulation = createRenderEmulationRuntime({
     debuggerApi: api.debugger,
@@ -1057,6 +1097,7 @@ export function startRewriteBackground(): void {
     windows: api.windows,
     postureRepo: createEmulationPostureRepo(emulationPostureStore),
     presentTransition: presentEmulationTransition,
+    guardPhysicalViewport: guardPhysicalEmulationViewport,
     onDebuggerDetached(tabId) {
       renderInspectionDetachHandler?.(tabId);
     },

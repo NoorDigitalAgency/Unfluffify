@@ -885,3 +885,19 @@ painted" decision from the replaced document.
   window-handoff geometry fails closed. Authoritative handoff refreshes the
   window association, and posture release removes proven/projected baselines so
   an old window event cannot revive the lease.
+- EL-03 R10 QUEUE-INDEPENDENT PHYSICAL GUARD AUTHORITY (2026-09-02): when a
+  changed browser-window bounds occurrence has a current projection that would
+  clip the held device (or lacks a trustworthy projection), the bounds listener
+  sends one narrow `emulationViewportGuard` command immediately, before joining
+  the per-tab emulation-operation queue. The exact document's retained guardian
+  synchronously installs or repairs the canonical opaque input plane and returns
+  its mode-fenced positive generation; repeated fully-covered refit occurrences
+  reuse that generation, while an idle or stale transition is superseded and
+  cannot later fade over newer geometry. The queued coordinator may adopt a
+  successful response only while the same held posture object/epoch is current.
+  Delivery is bounded to 150 ms and malformed, failed, late, wrong-mode, or stale
+  replies grant no authority; R9's serialized guard remains the fail-closed
+  fallback. This early lane never reads page content, writes CDP metrics, proves
+  physical fit, or releases presentation. Fresh `tabs.get` geometry remains the
+  sole scale-write/release authority, and identical, growth, or still-fitting
+  bounds changes remain fast-guard-free.

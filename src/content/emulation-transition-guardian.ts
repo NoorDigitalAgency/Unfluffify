@@ -115,6 +115,9 @@ export type EmulationTransitionGuardianOptions = Readonly<{
 
 export type EmulationTransitionGuardian = Readonly<{
   handle: (request: EmulationTransitionRequest) => Promise<EmulationTransitionResult>;
+  guardPhysicalViewportChange: (
+    mode: EmulationTransitionMode,
+  ) => EmulationTransitionResult;
   refresh: () => void;
   suspend: () => void;
   resume: () => void;
@@ -925,6 +928,54 @@ export function createEmulationTransitionGuardian(
       if (request.phase === "settle") return await settle(request);
       if (request.phase === "abort") return await abort(request);
       return await release(request);
+    },
+    guardPhysicalViewportChange(mode) {
+      if (disposed || suspended || !active) {
+        return result(false, disposed
+          ? "disposed"
+          : suspended ? "suspended" : "no-active-posture");
+      }
+      if (active.mode !== mode) {
+        return result(false, "mode-mismatch");
+      }
+      if (
+        guarding &&
+        coverage() &&
+        (active.cause === "refit" || active.cause === "viewport-change") &&
+        (stage === "guarding" || stage === "paint-proven")
+      ) {
+        return result(true, "already-guarded");
+      }
+      const reuseGeneration = guarding && coverage() &&
+        (active.cause === "refit" || active.cause === "viewport-change");
+      const generation = reuseGeneration
+        ? active.generation
+        : Math.max(lastGeneration, active.generation) + 1;
+      if (!Number.isSafeInteger(generation) || generation <= 0) {
+        return result(false, "generation-exhausted");
+      }
+      // This browser-owned occurrence outranks an older enter/settle/abort
+      // epoch. Keep the canonical root fully opaque while the normal refit
+      // coordinator catches up; it alone may later prove and fade this lease.
+      operationEpoch += 1;
+      lastGeneration = Math.max(lastGeneration, generation);
+      active = { generation, mode, cause: "viewport-change" };
+      abortSnapshot = null;
+      entering = false;
+      entryOpacity = "1";
+      retiring = false;
+      retireOpacity = "1";
+      paintProof = "none";
+      stage = "guarding";
+      setGuarding(true);
+      if (!ensureMounted(true)) {
+        stage = "rejected";
+        return result(false, "document-root-unavailable");
+      }
+      observe();
+      return coverage()
+        ? result(true, "physical-viewport-guarded")
+        : result(false, "guard-coverage-failed");
     },
     refresh() {
       if (active && !disposed && !suspended) {

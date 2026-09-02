@@ -61,6 +61,7 @@ const inspectionCurtainHarness = vi.hoisted(() => ({
 const emulationGuardianHarness = vi.hoisted(() => ({
   instances: [] as Array<{
     handle: ReturnType<typeof vi.fn>;
+    guardPhysicalViewportChange: ReturnType<typeof vi.fn>;
     refresh: ReturnType<typeof vi.fn>;
     suspend: ReturnType<typeof vi.fn>;
     resume: ReturnType<typeof vi.fn>;
@@ -223,6 +224,37 @@ vi.mock("../src/content/emulation-transition-guardian", () => {
             ? "frame-two"
             : "none",
           reason: "",
+          measured: {},
+        };
+      }),
+      guardPhysicalViewportChange: vi.fn((requestedMode: "mobile" | "desktop") => {
+        if (!mode || mode !== requestedMode) {
+          return {
+            ok: false,
+            generation,
+            mode,
+            stage: guarding ? "paint-proven" : "idle",
+            guarded: guarding,
+            coverage: guarding,
+            exactGeometry: !guarding,
+            paintProof: guarding ? "frame-two" : "none",
+            reason: mode ? "mode-mismatch" : "no-active-posture",
+            measured: {},
+          };
+        }
+        if (!guarding) generation += 1;
+        guarding = true;
+        options.onGuardingChanged?.(true);
+        return {
+          ok: true,
+          generation,
+          mode,
+          stage: "guarding",
+          guarded: true,
+          coverage: true,
+          exactGeometry: true,
+          paintProof: "none",
+          reason: "physical-viewport-guarded",
           measured: {},
         };
       }),
@@ -867,6 +899,28 @@ describe("C4 rewrite content entrypoints", () => {
     expect(shield?.refresh).toHaveBeenCalled();
     expect(shield?.setActive).toHaveBeenCalledWith("emulation-transition", false);
     expect(shield?.blockNativeScroll?.()).toBe(false);
+
+    sendMessage.mockClear();
+    await expect(dispatchContentCommand(listener, "emulationViewportGuard", {
+      mode: "mobile",
+    })).resolves.toMatchObject({
+      ok: true,
+      data: {
+        ok: true,
+        generation: 8,
+        mode: "mobile",
+        stage: "guarding",
+        guarded: true,
+        coverage: true,
+        tree: "rewrite",
+      },
+    });
+    expect(guardian?.guardPhysicalViewportChange).toHaveBeenCalledWith("mobile");
+    expect(shield?.setActive).toHaveBeenCalledWith("emulation-transition", true);
+    expect(shield?.blockNativeScroll?.()).toBe(true);
+    expect(sendMessage.mock.calls.some(
+      ([frame]) => (frame as BusFrame).name === "emulation.refit",
+    )).toBe(false);
 
     await expect(dispatchContentCommand(listener, "emulationTransition", {
       phase: "release",

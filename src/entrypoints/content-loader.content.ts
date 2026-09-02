@@ -4736,6 +4736,28 @@ function createContentRouter() {
         return activateContentMain(payload);
       },
       getContentMainStatus: () => contentStatus(),
+      emulationViewportGuard: (payload) => {
+        const mode = payloadObject(payload).mode;
+        if (mode !== "mobile" && mode !== "desktop") {
+          return {
+            ok: false,
+            reason: "invalid-emulation-viewport-guard",
+            tree: "rewrite",
+          };
+        }
+        const guardian = ensureEmulationTransitionGuardian();
+        if (!guardian) {
+          return {
+            ok: false,
+            reason: "emulation-transition-guardian-unavailable",
+            tree: "rewrite",
+          };
+        }
+        return {
+          ...guardian.guardPhysicalViewportChange(mode),
+          tree: "rewrite",
+        };
+      },
       emulationTransition: async (payload) => {
         const request = parseEmulationTransitionRequest(payload);
         if (!request) {

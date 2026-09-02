@@ -1224,6 +1224,7 @@ describe("render emulation runtime", () => {
       const targetReadStarted = new Promise<void>((resolve) => {
         markTargetReadStarted = resolve;
       });
+      const guardPhysicalViewport = vi.fn(async () => null);
       const runtime = createRenderEmulationRuntime({
         debuggerApi: debuggerApi.api,
         tabs: {
@@ -1251,6 +1252,7 @@ describe("render emulation runtime", () => {
           onBoundsChanged: { addListener(listener) { boundsChanged = listener; } },
         },
         presentTransition: presenter.presentTransition,
+        guardPhysicalViewport,
       });
       await runtime.apply(7, "mobile", 1);
       presenter.requests.length = 0;
@@ -1275,6 +1277,7 @@ describe("render emulation runtime", () => {
       await targetReadStarted;
       await flush();
 
+      expect(guardPhysicalViewport).toHaveBeenCalledWith(7, "mobile");
       expect(presenter.requests.map((request) => request.phase)).toEqual(["begin"]);
       expect(debuggerApi.sent).toEqual([]);
 
@@ -1305,6 +1308,115 @@ describe("render emulation runtime", () => {
         "settle",
       ]);
       expect(new Set(presenter.requests.map((request) => request.generation)).size).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("admits an unsafe physical guard outside a stalled tab queue and adopts its generation", async () => {
+    vi.useFakeTimers();
+    try {
+      const presenter = transitionPresenter();
+      const debuggerApi = fakeDebugger();
+      const viewport = { width: 900, height: 720, windowId: 4 };
+      const outer = { id: 4, width: 1_200, height: 900 };
+      let boundsChanged: ((window: { id?: number; width?: number; height?: number }) => void) | undefined;
+      let returnPreResizeSnapshot = false;
+      const tabs = {
+        get: vi.fn((_tabId: number, callback?: (tab: typeof viewport) => void) => {
+          if (returnPreResizeSnapshot) {
+            returnPreResizeSnapshot = false;
+            callback?.({ ...viewport, height: 720 });
+            viewport.height = 480;
+            return;
+          }
+          callback?.(viewport);
+        }),
+        reload: vi.fn((_tabId: number, _options: unknown, callback?: () => void) => callback?.()),
+        sendMessage: vi.fn(),
+      };
+      const admissionEvents: string[] = [];
+      const guardPhysicalViewport = vi.fn(async () => {
+        admissionEvents.push("guarded");
+        return 88;
+      });
+      const runtime = createRenderEmulationRuntime({
+        debuggerApi: debuggerApi.api,
+        tabs,
+        windows: {
+          get: vi.fn((_windowId: number, _getInfo?: Record<string, unknown>, callback?: (window?: typeof outer) => void) => {
+            callback?.(outer);
+          }),
+          onBoundsChanged: { addListener(listener) { boundsChanged = listener; } },
+        },
+        presentTransition: presenter.presentTransition,
+        guardPhysicalViewport,
+      });
+      await runtime.apply(7, "mobile", 1);
+      presenter.requests.length = 0;
+      debuggerApi.sent.length = 0;
+
+      let releaseTargetRead: (() => void) | null = null;
+      let markTargetReadStarted: (() => void) | null = null;
+      const targetReadStarted = new Promise<void>((resolve) => {
+        markTargetReadStarted = resolve;
+      });
+      let delayTargetReads = true;
+      debuggerApi.api.getTargets = vi.fn((callback) => {
+        if (!delayTargetReads) {
+          callback?.([{ tabId: 7, attached: true }]);
+          return;
+        }
+        markTargetReadStarted?.();
+        releaseTargetRead = () => {
+          delayTargetReads = false;
+          callback?.([{ tabId: 7, attached: true }]);
+        };
+      });
+      returnPreResizeSnapshot = true;
+      const stalled = runtime.refit(7, { source: "popup" });
+      await targetReadStarted;
+
+      outer.height = 660;
+      boundsChanged?.({ ...outer });
+
+      expect(admissionEvents).toEqual(["guarded"]);
+      expect(guardPhysicalViewport).toHaveBeenCalledWith(7, "mobile");
+      expect(presenter.requests).toEqual([]);
+      expect(debuggerApi.sent).toEqual([]);
+
+      releaseTargetRead?.();
+      await stalled;
+      await flush();
+
+      const metrics = debuggerApi.sent.filter((call) =>
+        call.method === "Emulation.setDeviceMetricsOverride"
+      );
+      expect(metrics).toHaveLength(1);
+      expect(metrics[0]?.params).toMatchObject({
+        width: 412,
+        height: 960,
+        mobile: true,
+        scale: 0.5,
+      });
+      expect(presenter.requests).toEqual([
+        expect.objectContaining({
+          phase: "begin",
+          generation: 88,
+          mode: "mobile",
+          cause: "refit",
+        }),
+      ]);
+
+      await vi.advanceTimersByTimeAsync(240);
+      await flush();
+      expect(presenter.requests.map((request) => request.phase)).toEqual([
+        "begin",
+        "settle",
+      ]);
+      expect(new Set(presenter.requests.map((request) => request.generation))).toEqual(
+        new Set([88]),
+      );
     } finally {
       vi.useRealTimers();
     }
@@ -1427,6 +1539,7 @@ describe("render emulation runtime", () => {
     const debuggerApi = fakeDebugger();
     const viewport = { width: 900, height: 720, windowId: 4 };
     const outer = { id: 4, width: 1_200, height: 900 };
+    const guardPhysicalViewport = vi.fn(async () => 88);
     let boundsChanged: ((window: { id?: number; width?: number; height?: number }) => void) | undefined;
     const runtime = createRenderEmulationRuntime({
       debuggerApi: debuggerApi.api,
@@ -1438,6 +1551,7 @@ describe("render emulation runtime", () => {
         onBoundsChanged: { addListener(listener) { boundsChanged = listener; } },
       },
       presentTransition: presenter.presentTransition,
+      guardPhysicalViewport,
     });
     await runtime.apply(7, "mobile", 1);
     presenter.requests.length = 0;
@@ -1448,6 +1562,7 @@ describe("render emulation runtime", () => {
 
     expect(presenter.requests).toEqual([]);
     expect(debuggerApi.sent).toEqual([]);
+    expect(guardPhysicalViewport).not.toHaveBeenCalled();
   });
 
   it("does not pre-guard a bounds change whose projected viewport still fits", async () => {
@@ -1455,6 +1570,7 @@ describe("render emulation runtime", () => {
     const debuggerApi = fakeDebugger();
     const viewport = { width: 900, height: 720, windowId: 4 };
     const outer = { id: 4, width: 1_200, height: 900 };
+    const guardPhysicalViewport = vi.fn(async () => 88);
     let boundsChanged: ((window: { id?: number; width?: number; height?: number }) => void) | undefined;
     const runtime = createRenderEmulationRuntime({
       debuggerApi: debuggerApi.api,
@@ -1466,6 +1582,7 @@ describe("render emulation runtime", () => {
         onBoundsChanged: { addListener(listener) { boundsChanged = listener; } },
       },
       presentTransition: presenter.presentTransition,
+      guardPhysicalViewport,
     });
     await runtime.apply(7, "mobile", 1);
     presenter.requests.length = 0;
@@ -1478,6 +1595,7 @@ describe("render emulation runtime", () => {
 
     expect(presenter.requests).toEqual([]);
     expect(debuggerApi.sent).toEqual([]);
+    expect(guardPhysicalViewport).not.toHaveBeenCalled();
   });
 
   it("uses fresh tab geometry across a window handoff and retires the old window cache", async () => {
@@ -1562,6 +1680,9 @@ describe("render emulation runtime", () => {
       const targetReadStarted = new Promise<void>((resolve) => {
         markTargetReadStarted = resolve;
       });
+      const guardPhysicalViewport = vi.fn()
+        .mockRejectedValueOnce(new Error("first guard reply was lost"))
+        .mockResolvedValue(88);
       const runtime = createRenderEmulationRuntime({
         debuggerApi: debuggerApi.api,
         tabs: tabsWithViewport(viewport),
@@ -1572,6 +1693,7 @@ describe("render emulation runtime", () => {
           onBoundsChanged: { addListener(listener) { boundsChanged = listener; } },
         },
         presentTransition: presenter.presentTransition,
+        guardPhysicalViewport,
       });
       await runtime.apply(7, "mobile", 1);
       presenter.requests.length = 0;
@@ -1594,6 +1716,8 @@ describe("render emulation runtime", () => {
 
       outer.height = 660;
       boundsChanged?.({ ...outer });
+      outer.height = 600;
+      boundsChanged?.({ ...outer });
       outer.height = 900;
       boundsChanged?.({ ...outer });
       releaseTargetRead?.();
@@ -1601,6 +1725,8 @@ describe("render emulation runtime", () => {
       await flush();
 
       expect(presenter.requests.map((request) => request.phase)).toEqual(["begin"]);
+      expect(presenter.requests[0]).toMatchObject({ generation: 88 });
+      expect(guardPhysicalViewport).toHaveBeenCalledTimes(2);
       expect(debuggerApi.sent).toEqual([]);
 
       await vi.advanceTimersByTimeAsync(240);
@@ -1610,6 +1736,9 @@ describe("render emulation runtime", () => {
         "settle",
       ]);
       expect(new Set(presenter.requests.map((request) => request.generation)).size).toBe(1);
+      expect(new Set(presenter.requests.map((request) => request.generation))).toEqual(
+        new Set([88]),
+      );
     } finally {
       vi.useRealTimers();
     }

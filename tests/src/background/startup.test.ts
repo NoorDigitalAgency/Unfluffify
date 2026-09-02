@@ -9,12 +9,17 @@ function emulationTransitionContentReply(message: unknown): BusFrame | undefined
     name?: unknown;
     payload?: { phase?: unknown; generation?: unknown; mode?: unknown };
   } | undefined;
-  if (frame.name !== "command.dispatch" || envelope?.name !== "emulationTransition") {
+  if (
+    frame.name !== "command.dispatch" ||
+    (envelope?.name !== "emulationTransition" &&
+      envelope?.name !== "emulationViewportGuard")
+  ) {
     return undefined;
   }
   const request = envelope.payload ?? {};
   const phase = request.phase;
-  const mode = phase === "release" || phase === "abort"
+  const physicalGuard = envelope.name === "emulationViewportGuard";
+  const mode = !physicalGuard && (phase === "release" || phase === "abort")
     ? null
     : request.mode === "desktop" ? "desktop" : "mobile";
   const width = mode === "desktop" ? 1920 : 412;
@@ -29,13 +34,17 @@ function emulationTransitionContentReply(message: unknown): BusFrame | undefined
       ok: true,
       data: {
         ok: true,
-        generation: request.generation,
+        generation: physicalGuard ? 2 : request.generation,
         mode,
-        stage: phase === "begin" ? "paint-proven" : phase === "settle" ? "idle" : "released",
-        guarded: phase === "begin",
-        coverage: phase === "begin",
-        exactGeometry: phase === "settle",
-        paintProof: phase === "begin" || phase === "settle" ? "frame-two" : "none",
+        stage: physicalGuard
+          ? "guarding"
+          : phase === "begin" ? "paint-proven" : phase === "settle" ? "idle" : "released",
+        guarded: physicalGuard || phase === "begin",
+        coverage: physicalGuard || phase === "begin",
+        exactGeometry: physicalGuard || phase === "settle",
+        paintProof: !physicalGuard && (phase === "begin" || phase === "settle")
+          ? "frame-two"
+          : "none",
         reason: "",
         measured: {
           innerWidth: width,
@@ -486,6 +495,11 @@ describe("rewrite background startup", () => {
   it("serves CDP device emulation through the shipped typed bus", async () => {
     const addMessageListener = vi.fn();
     const debuggerCalls: unknown[] = [];
+    const viewport = { id: 5, width: 1_000, height: 1_000, windowId: 4 };
+    const outer = { id: 4, width: 1_200, height: 900 };
+    let boundsChanged: ((window: typeof outer) => void) | undefined;
+    const sendMessage = vi.fn((_tabId: number, message: unknown) =>
+      emulationTransitionContentReply(message));
     const realUserAgent = "Mozilla/5.0 Chrome/126.0.0.0 Safari/537.36";
     globalThis.chrome = {
       runtime: {
@@ -538,10 +552,19 @@ describe("rewrite background startup", () => {
       },
       tabs: {
         get(_tabId: number, callback: (tab: chrome.tabs.Tab) => void) {
-          callback({ id: 5, width: 1_000, height: 1_000, windowId: 4 } as chrome.tabs.Tab);
+          callback(viewport as chrome.tabs.Tab);
         },
-        sendMessage: vi.fn((_tabId: number, message: unknown) =>
-          emulationTransitionContentReply(message)),
+        sendMessage,
+      },
+      windows: {
+        get(_windowId: number, _getInfo: unknown, callback: (window: chrome.windows.Window) => void) {
+          callback(outer as chrome.windows.Window);
+        },
+        onBoundsChanged: {
+          addListener(listener: (window: chrome.windows.Window) => void) {
+            boundsChanged = listener as (window: typeof outer) => void;
+          },
+        },
       },
       action: {
         onClicked: { addListener: vi.fn() },
@@ -593,6 +616,20 @@ describe("rewrite background startup", () => {
         params: expect.objectContaining({ width: 412, height: 960, scale: 0.625 }),
       }),
     ]));
+
+    sendMessage.mockClear();
+    viewport.height = 360;
+    outer.height = 660;
+    boundsChanged?.({ ...outer });
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[1]).toMatchObject({
+      name: "command.dispatch",
+      payload: {
+        name: "emulationViewportGuard",
+        tabId: 5,
+        payload: { mode: "mobile" },
+      },
+    });
   });
 
   it("round-trips connection settings so the popup can configure the endpoints", async () => {

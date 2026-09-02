@@ -70,6 +70,9 @@ export type EmulationRefitObservation = Readonly<{
   /** A real outer-bounds occurrence. When its projection cannot be fenced to
    * the held posture, protection begins fail-closed before browser reads. */
   physicalBoundsChanged?: boolean;
+  /** Browser-bounds-only admission launched before the serialized emulation
+   * queue. Its generation is still posture-fenced before adoption. */
+  physicalGuardGeneration?: Promise<number | null>;
 }>;
 
 type PhysicalViewport = Readonly<{ width: number; height: number }>;
@@ -78,6 +81,10 @@ type PhysicalViewport = Readonly<{ width: number; height: number }>;
  * detach and geometry events remain immediate; this closes Chromium's silent
  * detach gap without polling or evaluating the inspected page. */
 export const EMULATION_LEASE_WATCHDOG_MS = 50;
+/** Bounds-to-content admission is only an early safety lane. If its reply is
+ * lost, the serialized refit must resume through the ordinary fail-closed
+ * presenter instead of retaining a long-lived per-event transport. */
+export const PHYSICAL_VIEWPORT_GUARD_ADMISSION_TIMEOUT_MS = 150;
 
 class PhysicalViewportUnavailableError extends Error {
   constructor() {
@@ -383,6 +390,10 @@ export function createRenderEmulationRuntime(input: Readonly<{
     tabId: number,
     request: EmulationTransitionRequest,
   ) => Promise<EmulationTransitionDelivery>;
+  guardPhysicalViewport?: (
+    tabId: number,
+    mode: EmulationMode,
+  ) => Promise<number | null>;
   onDebuggerDetached?: (tabId: number, reason?: string) => void;
   apiTimeoutMs?: number;
   apiMode?: "callback" | "promise";
@@ -1537,6 +1548,18 @@ export function createRenderEmulationRuntime(input: Readonly<{
     const physicalBoundsChanged =
       current.physicalBoundsChanged === true ||
       next.physicalBoundsChanged === true;
+    const physicalGuardGeneration = current.physicalGuardGeneration &&
+        next.physicalGuardGeneration
+      ? Promise.all([
+          current.physicalGuardGeneration.catch(() => null),
+          next.physicalGuardGeneration.catch(() => null),
+        ]).then((generations) => {
+          const valid = generations.filter((generation): generation is number =>
+            Number.isSafeInteger(generation) && Number(generation) > 0
+          );
+          return valid.length > 0 ? Math.max(...valid) : null;
+        })
+      : next.physicalGuardGeneration ?? current.physicalGuardGeneration;
     return {
       source: hasContentAuthority ? "content" : next.source,
       ...(presentationGeneration > 0 ? { presentationGeneration } : {}),
@@ -1553,6 +1576,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
           }
         : {}),
       ...(physicalBoundsChanged ? { physicalBoundsChanged: true } : {}),
+      ...(physicalGuardGeneration ? { physicalGuardGeneration } : {}),
     };
   };
   const beginRefitPresentation = async (
@@ -1660,39 +1684,52 @@ export function createRenderEmulationRuntime(input: Readonly<{
     coordinatorVersion: number,
   ): Promise<VerifiedEmulationState | null> => {
     if (!postureIsCurrent(tabId, held)) return null;
+    const physicalGuardGeneration = observation.physicalGuardGeneration
+      ? await observation.physicalGuardGeneration.catch(() => null)
+      : null;
+    if (!postureIsCurrent(tabId, held)) return null;
+    const effectiveObservation =
+      Number.isSafeInteger(physicalGuardGeneration) &&
+        Number(physicalGuardGeneration) > 0
+        ? {
+            ...observation,
+            source: "content" as const,
+            presentationGeneration: Number(physicalGuardGeneration),
+          }
+        : observation;
     const projectedVerified = verifiedPostures.get(tabId);
     const projectionIsCurrent =
-      observation.projectedPostureEpoch === held.epoch &&
-      observation.projectedPhysicalViewport !== undefined &&
+      effectiveObservation.projectedPostureEpoch === held.epoch &&
+      effectiveObservation.projectedPhysicalViewport !== undefined &&
       projectedVerified?.active === true &&
       projectedVerified.mode === held.mode;
     const shouldPreguard = projectionIsCurrent
       ? !physicalViewportFits(
         projectedVerified,
-        observation.projectedPhysicalViewport,
+        effectiveObservation.projectedPhysicalViewport,
       )
-      : observation.physicalBoundsChanged === true;
+      : effectiveObservation.physicalBoundsChanged === true;
     let preguardedBurst: RefitBurst | null = null;
     if (shouldPreguard) {
-      const projectedSignature = observation.projectedPhysicalViewport
-        ? physicalSignature(observation.projectedPhysicalViewport)
+      const projectedSignature = effectiveObservation.projectedPhysicalViewport
+        ? physicalSignature(effectiveObservation.projectedPhysicalViewport)
         : lastPhysicalSignatures.get(tabId) ?? `bounds:unknown:${coordinatorVersion}`;
       const existingBurst = refitBursts.get(tabId);
       if (existingBurst?.held === held) {
         existingBurst.coordinatorVersion = coordinatorVersion;
         existingBurst.physicalSignature = projectedSignature;
-        if (observation.physicalViewportHint) {
-          existingBurst.hint = observation.physicalViewportHint;
+        if (effectiveObservation.physicalViewportHint) {
+          existingBurst.hint = effectiveObservation.physicalViewportHint;
         }
         preguardedBurst = existingBurst;
       } else {
         try {
           preguardedBurst = {
             held,
-            lease: await beginRefitPresentation(tabId, held, observation),
+            lease: await beginRefitPresentation(tabId, held, effectiveObservation),
             geometryGeneration: nextGeometryGeneration(tabId),
             physicalSignature: projectedSignature,
-            hint: observation.physicalViewportHint,
+            hint: effectiveObservation.physicalViewportHint,
             coordinatorVersion,
           };
           refitBursts.set(tabId, preguardedBurst);
@@ -1716,7 +1753,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       await executeReassertPosture(
         tabId,
         held,
-        observation.physicalViewportHint,
+        effectiveObservation.physicalViewportHint,
         "refit",
       );
       return verifiedPostures.get(tabId) ?? null;
@@ -1725,7 +1762,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
     // popup/window/watchdog sources are therefore read-only and never flicker.
     const physicalViewport = await visibleTabViewport(
       tabId,
-      observation.physicalViewportHint,
+      effectiveObservation.physicalViewportHint,
     );
     if (!physicalViewport) {
       scheduleReassertRetry(tabId, held);
@@ -1750,8 +1787,8 @@ export function createRenderEmulationRuntime(input: Readonly<{
       if (activeBurst && activeBurst.held === held) {
         activeBurst.coordinatorVersion = coordinatorVersion;
         activeBurst.physicalSignature = signature;
-        if (observation.physicalViewportHint) {
-          activeBurst.hint = observation.physicalViewportHint;
+        if (effectiveObservation.physicalViewportHint) {
+          activeBurst.hint = effectiveObservation.physicalViewportHint;
         }
         if (
           needsScaleChange &&
@@ -1765,7 +1802,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
               tabId,
               held,
               fittedScale,
-              observation.physicalViewportHint,
+              effectiveObservation.physicalViewportHint,
             );
           } catch {
             scheduleRefitBurstSettlement(tabId, activeBurst);
@@ -1788,7 +1825,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
           tabId,
           held,
           verified,
-          observation,
+          effectiveObservation,
         );
       }
     }
@@ -1800,7 +1837,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       if (activeBurst && activeBurst.held === held) {
         activeBurst.geometryGeneration = geometryGeneration;
         activeBurst.physicalSignature = signature;
-        activeBurst.hint = observation.physicalViewportHint;
+        activeBurst.hint = effectiveObservation.physicalViewportHint;
         activeBurst.coordinatorVersion = coordinatorVersion;
         scheduleRefitBurstSettlement(tabId, activeBurst);
         return verified;
@@ -1810,7 +1847,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
         tabId,
         held,
         verified,
-        observation,
+        effectiveObservation,
       );
     }
     let burst = activeBurst?.held === held ? activeBurst : null;
@@ -1818,10 +1855,10 @@ export function createRenderEmulationRuntime(input: Readonly<{
       try {
         burst = {
           held,
-          lease: await beginRefitPresentation(tabId, held, observation),
+          lease: await beginRefitPresentation(tabId, held, effectiveObservation),
           geometryGeneration,
           physicalSignature: signature,
-          hint: observation.physicalViewportHint,
+          hint: effectiveObservation.physicalViewportHint,
           coordinatorVersion,
         };
         refitBursts.set(tabId, burst);
@@ -1836,7 +1873,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
     } else {
       burst.geometryGeneration = geometryGeneration;
       burst.physicalSignature = signature;
-      burst.hint = observation.physicalViewportHint;
+      burst.hint = effectiveObservation.physicalViewportHint;
       burst.coordinatorVersion = coordinatorVersion;
     }
     // Every newly smaller fit is safety-critical and is written immediately
@@ -1850,7 +1887,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
           tabId,
           held,
           fittedScale,
-          observation.physicalViewportHint,
+          effectiveObservation.physicalViewportHint,
         );
       } catch {
         if (postureIsCurrent(tabId, held)) {
@@ -2088,7 +2125,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       // that predates an occurrence whose dimensions Chrome omitted.
       lastWindowBounds.delete(windowId);
     }
-    for (const [tabId] of heldPostures) {
+    for (const [tabId, held] of heldPostures) {
       if (tabWindowIds.get(tabId) !== windowId) {
         continue;
       }
@@ -2096,14 +2133,13 @@ export function createRenderEmulationRuntime(input: Readonly<{
       // compositor view scale; a resize must not churn identity/input posture.
       const priorViewport = projectedPhysicalViewports.get(tabId) ??
         lastPhysicalViewports.get(tabId) ?? null;
-      const held = heldPostures.get(tabId);
       const projectedPhysicalViewport = priorBounds && nextBounds && priorViewport
         ? {
             width: priorViewport.width + nextBounds.width - priorBounds.width,
             height: priorViewport.height + nextBounds.height - priorBounds.height,
           }
         : null;
-      const validProjection = projectedPhysicalViewport && held &&
+      const validProjection = projectedPhysicalViewport &&
         Number.isFinite(projectedPhysicalViewport.width) &&
         projectedPhysicalViewport.width > 0 &&
         Number.isFinite(projectedPhysicalViewport.height) &&
@@ -2117,15 +2153,46 @@ export function createRenderEmulationRuntime(input: Readonly<{
       } else {
         projectedPhysicalViewports.delete(tabId);
       }
-      void requestRefit(tabId, {
+      const observation: EmulationRefitObservation = {
         source: "window-bounds",
         physicalBoundsChanged,
-        ...(validProjection && held
+        ...(validProjection
           ? {
               projectedPhysicalViewport: validProjection,
               projectedPostureEpoch: held.epoch,
             }
           : {}),
+      };
+      const verified = verifiedPostures.get(tabId);
+      const projectionIsCurrent = validProjection !== null &&
+        verified?.active === true &&
+        verified.mode === held.mode;
+      const shouldFastGuard = physicalBoundsChanged && (
+        projectionIsCurrent
+          ? !physicalViewportFits(verified, validProjection)
+          : true
+      );
+      let physicalGuardGeneration: Promise<number | null> | undefined;
+      if (shouldFastGuard && input.guardPhysicalViewport) {
+        try {
+          const admission = input.guardPhysicalViewport(tabId, held.mode);
+          physicalGuardGeneration = promiseWithTimeout(
+            admission,
+            PHYSICAL_VIEWPORT_GUARD_ADMISSION_TIMEOUT_MS,
+            "Physical viewport guard admission",
+          ).then((generation) =>
+            postureIsCurrent(tabId, held) &&
+              Number.isSafeInteger(generation) && Number(generation) > 0
+              ? Number(generation)
+              : null
+          ).catch(() => null);
+        } catch {
+          physicalGuardGeneration = Promise.resolve(null);
+        }
+      }
+      void requestRefit(tabId, {
+        ...observation,
+        ...(physicalGuardGeneration ? { physicalGuardGeneration } : {}),
       });
     }
   });

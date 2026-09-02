@@ -6482,3 +6482,183 @@ The reviewed delta still requires a normal commit/push and 0:0 proof. Clean
 P17, standalone P14, unchanged P25, exact-pushed headed resize/activation/Alt
 checks, the supplied property matrix, and cumulative expert adjudication remain
 mandatory; this ledger does not predeclare production readiness.
+
+# EL-03-R9 exact-pushed conformance rejection — 2026-09-02
+
+R9 plan conformance is **REJECTED** on pushed commit
+`42dbedbcc708b2a870bed25b112f4620b6528eb9` (`re-write`, upstream 0:0).
+The production bundle was rebuilt by repository `live-browser`; its attested
+Git tree is `2be8194f5de3c80920e2fa3c0e7484b55eb23a85`. The launcher's broad
+`source.clean` flag was false only because retained untracked acceptance
+artifacts remain in `output/playwright`; the tracked source and upstream were
+clean and identical.
+
+- Clean P17 passed 19/19, standalone P14 passed all 192 scenarios, and P25
+  passed with all seven children plus its deterministic warm-up validated.
+- HumaNova passed the strict shrink/grow/no-op probe. Its 1279x899 -> 855x599
+  shrink had zero released animation frames after the first bounds observation,
+  one guard generation, one fitted-scale write (0.7791667 -> 0.4666667), one
+  fade, and a 12 ms bounds-to-opaque interval.
+- The current extension-authoritative Aleris candidate
+  `/mage-tarm/kapselendoskopi/forberedelser/` failed the same required probe.
+  It exposed 10 released animation frames for 181 ms after the bounds event,
+  although the terminal result still had one generation, one scale write, one
+  fade, and correct 0.4666667 geometry. Growth and identical-bounds behavior
+  remained correct.
+- The new generation was created 168 ms after the Aleris bounds timestamp.
+  Because R9 creates its lease at the top of `executeRefitObservation`, before
+  either browser read, this proves the remaining delay is admission behind the
+  existing per-tab emulation-operation queue rather than the reads inside that
+  execution. `EL-03-F007` therefore remains open with a narrower queue-admission
+  root cause.
+
+Evidence:
+
+- `.temp/expert-live-r9/2026-09-02T17-20-14-402Z-resize.json`
+- `.temp/expert-live-r9/2026-09-02T17-21-53-707Z-resize.json`
+- `.temp/expert-live-r9/2026-09-02T17-21-34-218Z-snapshot.json`
+- `output/playwright/p17-preview/acceptance-2026-09-02T16-59-04-997Z.json`
+- `output/playwright/p14-marking-performance/acceptance-2026-09-02T16-59-31-676Z.json`
+- `output/playwright/p25-parity/acceptance-2026-09-02T17-18-11-325Z.json`
+
+# EL-03-R10 — Queue-independent physical resize admission
+
+## 1. Goal
+
+Make a proven-unsafe physical bounds occurrence synchronously re-arm the exact
+document's retained guard through the content command lane before it joins the
+per-tab emulation-operation queue. Preserve R9's authoritative geometry/write
+path and one-generation burst semantics.
+
+## 2. Decisions and non-goals
+
+- Add a narrow guardian operation for a browser-proven physical viewport
+  occurrence. It may only make the retained exact-mode document opaque and
+  return its generation; it cannot mutate emulation, classify content, or
+  settle/release presentation.
+- The first idle occurrence advances the content-owned presentation generation.
+  Repeated occurrences while the same guard is already fully opaque reuse that
+  generation. A physical occurrence during a stale settle/transition re-arms
+  guarding and invalidates that older paint epoch so it cannot fade over newer
+  geometry.
+- Background bounds admission starts this content operation immediately, outside
+  `withEmulationOperation`. Its result is adopted only while the same held
+  posture epoch remains current. Failed, stale, wrong-mode, unavailable, or
+  malformed delivery falls back to R9's serialized fail-closed path.
+- Fresh `tabs.get` remains the sole scale-write and release authority. Safe
+  growth, identical bounds, and still-fitting non-limiting changes do not invoke
+  the fast guard lane.
+
+## 3. Implementation and proof phases
+
+### EL-03-R10-01 — Add exact-document physical guard admission
+
+Files:
+
+- `src/content/emulation-transition-guardian.ts`
+- `src/entrypoints/content-loader.content.ts`
+- `src/background/index.ts`
+- `src/background/render-emulation-runtime.ts`
+- messaging/content/background unit tests
+
+Steps:
+
+1. Expose a mode-fenced synchronous guardian method that installs/repairs the
+   canonical opaque input guard, advances or reuses one safe generation, clears
+   stale abort authority, and never emits the ordinary viewport echo callback.
+2. Route one internal `emulationViewportGuard` content command and strictly
+   validate the returned guardian result before exposing only its positive
+   generation to the runtime.
+3. From `windows.onBoundsChanged`, invoke that lane immediately only when the
+   current R9 projection requires protection. Queue the normal refit with the
+   adopted generation after delivery; fence late responses by held object/epoch.
+4. Retain R9 early execution guarding as the fallback/backstop and preserve
+   conservative coalescing, actual-read writes, quiet growth, and cleanup.
+
+### EL-03-R10-02 — Prove queue bypass and transition races
+
+1. Stall an unrelated `current`/watchdog operation, fire an unsafe bounds event,
+   and prove the content fast guard is invoked and opaque while the serialized
+   browser read remains unresolved. After release, require adoption of exactly
+   that generation, one actual-geometry scale write, and one fade.
+2. Cover repeat-event generation reuse; safe/identical zero-fast-guard; failed
+   delivery fallback; wrong mode/posture epoch; active begin/settle invalidation;
+   navigation/disposal; and hostile-root repair.
+3. Re-run focused modules, full `pnpm verify`, debug build, clean P17,
+   standalone P14, and unchanged P25 on exact final source.
+
+### EL-03-R10-03 — Publish and repeat conformance
+
+1. Review, update durable knowledge/ledger, commit, push, and prove 0:0.
+2. Rebuild through `live-browser` and require zero released shrink samples on
+   both HumaNova and the authoritative Aleris candidate, with one generation,
+   one actual write, one fade, safe growth, and zero no-op work.
+3. Only after that blocker closes, execute the remaining activation, exact
+   nested Alt transfer, recovery, Content List, reveal/freeze, consent, hygiene,
+   and supplied-property matrix cells, then run independent cumulative review.
+
+## 4. Acceptance criteria
+
+- `EL03-R10-AC-01` An unsafe bounds event invokes an exact-mode document guard
+  before an already-stalled emulation operation resolves; the page is opaque and
+  input-fenced without waiting for that queue.
+- `EL03-R10-AC-02` The queued refit adopts the fast guard's generation and still
+  performs no write until fresh physical tab geometry proves the scale.
+- `EL03-R10-AC-03` A multi-event physical burst owns one generation/fade. Safe
+  growth, identical bounds, and still-fitting changes use zero fast-guard calls.
+- `EL03-R10-AC-04` Stale mode/document/posture responses, delivery failure,
+  navigation, detach, active transition, and hostile guard mutation cannot grant
+  stale write or release authority; all failure paths remain opaque or recover.
+- `EL03-R10-AC-05` Exact-pushed HumaNova and authoritative Aleris shrink traces
+  contain zero released frames after the first bounds observation, while all R8/
+  R9 automated and headed contracts remain passing.
+
+## 5. Todo chain
+
+1. `el03-r10-content-fast-guard` -> 0
+2. `el03-r10-background-admission` -> 1
+3. `el03-r10-race-regressions` -> 2
+4. `el03-r10-full-browser-gates` -> 3
+5. `el03-r10-review-push` -> 4
+6. `el03-r10-headed-matrix` -> 5
+7. `el03-r10-cumulative-audit` -> 6
+
+# EL-03-R10 implementation and pre-publication proof — 2026-09-02
+
+R10 is implemented on the working tree and its review/fix loop is clean. The
+new exact-document command is a synchronous presentation-only operation; the
+bounds listener launches it before `withEmulationOperation`, carries its bounded
+generation promise through refit coalescing, posture-fences the result, and
+retains fresh `tabs.get` as the only scale-write and release authority.
+
+Regression proof now covers:
+
+- synchronous idle admission, hostile-root repair, repeat-generation reuse,
+  wrong-mode refusal, and invalidation of an older settle epoch without a fade;
+- the shipped content command and interaction-shield reflection without an
+  ordinary `emulation.refit` echo;
+- the actual background typed-bus route being the first synchronous operation
+  emitted by a changed unsafe bounds event;
+- a deliberately stalled per-tab debugger operation, proving admission occurs
+  while the queue is unresolved and the eventual refit adopts generation 88,
+  performs one fresh-geometry scale write, and settles once;
+- failed/repeated admission replies during coalescing, plus zero fast-guard work
+  for identical or still-fitting projections.
+
+Validation on this exact source:
+
+- focused guardian/content/runtime/startup suite: 4 files, 137 tests passed;
+- `pnpm lint`: passed;
+- `pnpm check`: passed;
+- `pnpm verify`: 149 files / 1,705 tests passed, production build passed, and
+  generated-manifest permissions passed 7/7;
+- `pnpm build:debug`: passed;
+- pre-publication P17: all 19 functional checks passed, but the controller
+  correctly emitted no acceptance artifact because the intended tracked source
+  was not committed yet (`cleanSourceSet=false`). This is evidence only, not a
+  clean-gate pass; P17, P14, and P25 must be rerun after commit/push.
+
+No generated gate output or previously retained untracked acceptance artifact
+is part of the intended commit. Exact-pushed headed HumaNova/Aleris resize proof,
+the remaining supplied-property matrix, and cumulative expert adjudication are
+still mandatory and no production-readiness conclusion is declared here.
