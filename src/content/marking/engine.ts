@@ -1790,6 +1790,10 @@ export function createMarkingEngine(
     return silentEvaluationIndex;
   };
   const renderSilent = (): readonly string[] => {
+    // Structural maintenance deliberately retains classification boxes so a
+    // later Marking restore is allocation-free. Ordinary Silent presentation
+    // hides those retained boxes; an interactive comparison keeps them visible.
+    renderer.setSilentPresentation(!interactiveMarkingRendered);
     const byXpath = byXpathElements();
     const evaluation = store.currentEvaluation();
     const index = silentEvaluationIndexFor(evaluation);
@@ -1891,6 +1895,7 @@ export function createMarkingEngine(
     return xpaths;
   };
   const renderCurrent = (): void => {
+    renderer.setSilentPresentation(silentHighlightsArmed && !interactiveMarkingRendered);
     renderer.render(store.currentEvaluation(), byXpathElements(), bridgeGeneration);
     reportWorkStage("marking-render");
     if (silentHighlightsArmed) {
@@ -3141,6 +3146,7 @@ type DeferredBranchRenderChunk = Readonly<{
       beginWorkCycle();
       silentHighlightsArmed = false;
       interactiveMarkingRendered = true;
+      renderer.setSilentPresentation(false);
       renderer.attach();
       renderer.clearSilentHighlights();
       renderCurrent();
@@ -3480,6 +3486,7 @@ type DeferredBranchRenderChunk = Readonly<{
     },
     renderReadOnly(): void {
       interactiveMarkingRendered = true;
+      renderer.setSilentPresentation(false);
       renderCurrent();
     },
     hoverAtPoint(
@@ -3719,6 +3726,7 @@ type DeferredBranchRenderChunk = Readonly<{
       hoverResolution = null;
       silentHighlightsArmed = false;
       interactiveMarkingRendered = false;
+      renderer.setSilentPresentation(false);
       renderer.clear();
     },
     parkPresentation(): void {
@@ -3731,6 +3739,7 @@ type DeferredBranchRenderChunk = Readonly<{
       hoverResolution = null;
       silentHighlightsArmed = false;
       interactiveMarkingRendered = false;
+      renderer.setSilentPresentation(false);
       renderer.clear();
       renderer.detach();
     },

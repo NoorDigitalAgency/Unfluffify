@@ -9,6 +9,7 @@ export const MARKING_OVERLAY_CLASSES = [
   "uf-scrolling",
   "uf-marking-temporarily-disabled",
   "uf-page-inspection-active",
+  "uf-silent-presentation",
   "uf-preview-presentation",
   "uf-rect",
   "uf-hover",
@@ -77,6 +78,27 @@ export const MARKING_OVERLAY_STYLES = `
 .uf-marking-layer-root.uf-marking-temporarily-disabled .uf-layer[data-layer="hover"],
 .uf-marking-layer-root.uf-marking-temporarily-disabled .uf-layer[data-layer="interaction"] {
   opacity: 0;
+}
+.uf-marking-layer-root.uf-silent-presentation .uf-layer[data-layer="hard"],
+.uf-marking-layer-root.uf-silent-presentation .uf-layer[data-layer="default"],
+.uf-marking-layer-root.uf-silent-presentation .uf-layer[data-layer="saved-explicit-exclude"],
+.uf-marking-layer-root.uf-silent-presentation .uf-layer[data-layer="saved-explicit-include"],
+.uf-marking-layer-root.uf-silent-presentation .uf-layer[data-layer="ai-content"],
+.uf-marking-layer-root.uf-silent-presentation .uf-layer[data-layer="session-explicit-exclude"],
+.uf-marking-layer-root.uf-silent-presentation .uf-layer[data-layer="session-explicit-include"],
+.uf-marking-layer-root.uf-silent-presentation .uf-layer[data-layer="focus"],
+.uf-marking-layer-root.uf-silent-presentation .uf-layer[data-layer="hover"],
+.uf-marking-layer-root.uf-silent-presentation .uf-layer[data-layer="interaction"] {
+  /* Structural maintenance retains these boxes for an allocation-free return
+     to Marking. Retention is not presentation authority: ordinary Silent owns
+     only the three selector-result layers below. */
+  opacity: 0;
+}
+.uf-marking-layer-root.uf-silent-presentation .uf-layer[data-layer="silent-immutable"],
+.uf-marking-layer-root.uf-silent-presentation .uf-layer[data-layer="silent-content"],
+.uf-marking-layer-root.uf-silent-presentation .uf-layer[data-layer="silent-excluded"] {
+  opacity: 1;
+  filter: none;
 }
 .uf-marking-layer-root.uf-preview-presentation .uf-layer[data-layer="hard"],
 .uf-marking-layer-root.uf-preview-presentation .uf-layer[data-layer="default"],

@@ -662,8 +662,9 @@ describe("P6 content marking engine", () => {
   });
 
   it("maps every evaluation category into the legacy overlay grammar", () => {
-    expect(MARKING_OVERLAY_CLASSES).toHaveLength(15);
+    expect(MARKING_OVERLAY_CLASSES).toHaveLength(16);
     expect(MARKING_OVERLAY_CLASSES).toContain("uf-page-inspection-active");
+    expect(MARKING_OVERLAY_CLASSES).toContain("uf-silent-presentation");
     expect(MARKING_OVERLAY_CLASSES).toContain("uf-preview-presentation");
     expect(overlayClassFor("implicit-include")).toBe("uf-default");
     expect(overlayClassFor("explicit-include")).toBe("uf-explicit-include");
@@ -710,6 +711,30 @@ describe("P6 content marking engine", () => {
     expect(MARKING_OVERLAY_STYLES).not.toContain(
       ".uf-marking-layer-root.uf-page-inspection-active {\n  background:",
     );
+  });
+
+  it("gives ordinary Silent exactly its three-layer presentation vocabulary", () => {
+    expect(MARKING_OVERLAY_STYLES).toContain(
+      '.uf-marking-layer-root.uf-silent-presentation .uf-layer[data-layer="hard"],',
+    );
+    expect(MARKING_OVERLAY_STYLES).toContain(
+      '.uf-marking-layer-root.uf-silent-presentation .uf-layer[data-layer="interaction"] {\n' +
+        "  /* Structural maintenance retains these boxes",
+    );
+    expect(MARKING_OVERLAY_STYLES).toContain(
+      '.uf-marking-layer-root.uf-silent-presentation .uf-layer[data-layer="silent-immutable"],',
+    );
+    expect(MARKING_OVERLAY_STYLES).toContain(
+      '.uf-marking-layer-root.uf-silent-presentation .uf-layer[data-layer="silent-excluded"] {\n' +
+        "  opacity: 1;\n  filter: none;",
+    );
+    // Preview is a later, orthogonal state and must be able to reveal its focus
+    // layer even when it was opened from ordinary Silent.
+    expect(MARKING_OVERLAY_STYLES.indexOf("uf-preview-presentation .uf-layer"))
+      .toBeGreaterThan(MARKING_OVERLAY_STYLES.lastIndexOf("uf-silent-presentation .uf-layer"));
+    // Render/reveal suppression remains the final visual authority.
+    expect(MARKING_OVERLAY_STYLES.indexOf("uf-page-inspection-active .uf-layer"))
+      .toBeGreaterThan(MARKING_OVERLAY_STYLES.lastIndexOf("uf-preview-presentation .uf-layer"));
   });
 
   it("retains silent highlights with the shared visibility policy", () => {

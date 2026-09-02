@@ -1061,6 +1061,43 @@ describe("P6 DOM bridge", () => {
     expect(hasOverlayStyle()).toBe(false);
   });
 
+  it("switches ordinary Silent by root state without reallocating retained classifications", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const paragraph = new FakeElement("P", rect(10, 20, 180, 30), "Included paragraph");
+    for (const element of [root, paragraph]) element.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(paragraph);
+    doc.hits = [paragraph, root];
+    const engine = createMarkingEngine(root as unknown as Element, { render: true });
+    const overlay = engine.overlayRoot() as unknown as FakeElement;
+    const classificationBoxes = (): FakeElement[] => overlay.children
+      .filter((layer) => !String(layer.getAttribute("data-layer") ?? "").startsWith("silent-"))
+      .flatMap((layer) => layer.children)
+      .filter((box) => box.getAttribute("data-uf-overlay-xpath") !== null);
+    const retained = classificationBoxes();
+    expect(retained).not.toHaveLength(0);
+
+    // A non-interactive maintenance refresh may replace the evaluation model,
+    // but it deliberately leaves the already-allocated classification boxes in
+    // place. Silent presentation must hide them by class, not delete them.
+    engine.refresh({ render: false });
+    engine.renderSilentHighlights();
+    expect(overlay.className).toContain("uf-silent-presentation");
+    expect(classificationBoxes()).toEqual(retained);
+    const createdAfterFirstSilent = doc.createElementCount;
+
+    engine.renderSilentHighlights();
+    expect(doc.createElementCount).toBe(createdAfterFirstSilent);
+    expect(classificationBoxes()).toEqual(retained);
+
+    engine.renderMarking();
+    expect(overlay.className).not.toContain("uf-silent-presentation");
+    expect(classificationBoxes()).toEqual(retained);
+    engine.dispose();
+  });
+
   it("prewarms and reuses hover rectangles across target changes", () => {
     const doc = new FakeDocument();
     const first = new FakeElement("P", rect(10, 20, 140, 24), "First");
@@ -1423,6 +1460,7 @@ describe("P6 DOM bridge", () => {
     );
 
     expect(overlay.className).toContain("uf-preview-presentation");
+    expect(overlay.className).not.toContain("uf-silent-presentation");
     expect(layer("silent-content")?.children.length).toBeGreaterThan(0);
     expect(layer("silent-excluded")?.children.length).toBeGreaterThan(0);
     expect(engine.previewRowAtPoint(20, 30)).toEqual({
@@ -1440,6 +1478,7 @@ describe("P6 DOM bridge", () => {
     engine.retirePreviewProjection();
 
     expect(overlay.className).not.toContain("uf-preview-presentation");
+    expect(overlay.className).not.toContain("uf-silent-presentation");
     expect(layer("silent-content")?.children).toHaveLength(0);
     expect(layer("silent-excluded")?.children).toHaveLength(0);
     expect([
@@ -1449,6 +1488,53 @@ describe("P6 DOM bridge", () => {
       "session-explicit-exclude",
       "session-explicit-include",
     ].some((name) => (layer(name)?.children.length ?? 0) > 0)).toBe(true);
+    engine.dispose();
+  });
+
+  it("keeps ordinary Silent distinct from retained Marking and restores each origin exactly", () => {
+    const doc = new FakeDocument();
+    const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+    const paragraph = new FakeElement("P", rect(10, 20, 180, 30), "Included paragraph");
+    const footer = new FakeElement("FOOTER", rect(0, 200, 300, 80), "Excluded footer");
+    for (const element of [root, paragraph, footer]) element.ownerDocument = doc;
+    doc.documentElement.ownerDocument = doc;
+    doc.documentElement.appendChild(root);
+    root.appendChild(paragraph);
+    root.appendChild(footer);
+    doc.pointHits = (_x, y) => y < 100 ? [paragraph, root] : [footer, root];
+    const renderer = createRendererTestSeam();
+    const engine = createMarkingEngine(root as unknown as Element, {
+      instrumentation: { createRenderer: renderer.createRenderer },
+    });
+    const overlay = engine.overlayRoot() as unknown as FakeElement;
+
+    engine.renderSilentHighlights();
+    expect(overlay.className).toContain("uf-silent-presentation");
+    expect(overlay.className).not.toContain("uf-preview-presentation");
+    expect(renderer.markingRender).not.toHaveBeenCalled();
+
+    const projection = engine.projectPreview("https://example.com/page", {
+      inclusionSelectors: ["p"],
+      exclusionSelectors: ["footer"],
+    });
+    expect(projection.rows).not.toHaveLength(0);
+    expect(overlay.className).toContain("uf-silent-presentation");
+    expect(overlay.className).toContain("uf-preview-presentation");
+
+    engine.retirePreviewProjection();
+    expect(overlay.className).toContain("uf-silent-presentation");
+    expect(overlay.className).not.toContain("uf-preview-presentation");
+
+    engine.renderMarking();
+    expect(overlay.className).not.toContain("uf-silent-presentation");
+    expect(renderer.markingRender).toHaveBeenCalledOnce();
+
+    // Silent highlights intentionally armed over an interactive/read-only
+    // comparison do not suppress its classification presentation.
+    engine.renderSilentHighlights();
+    expect(overlay.className).not.toContain("uf-silent-presentation");
+    engine.renderReadOnly();
+    expect(overlay.className).not.toContain("uf-silent-presentation");
     engine.dispose();
   });
 

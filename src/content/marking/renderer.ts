@@ -468,6 +468,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   let passthroughActive = false;
   let inputTransparent = false;
   let scrolling = false;
+  let silentPresentationActive = false;
   let previewPresentationActive = false;
   let renderGeneration = 0;
   let paintOrder = 0;
@@ -1028,6 +1029,7 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     className:
       | "uf-scrolling"
       | "uf-marking-temporarily-disabled"
+      | "uf-silent-presentation"
       | "uf-preview-presentation"
       | "uf-page-inspection-active",
     active: boolean,
@@ -1572,6 +1574,19 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
         clearAcknowledgement();
       }
     },
+    setSilentPresentation(active: boolean): void {
+      if (silentPresentationActive === active) {
+        return;
+      }
+      silentPresentationActive = active;
+      setRootState("uf-silent-presentation", active);
+      if (active) {
+        hoverElement = null;
+        hoverXpath = "";
+        drawHover();
+        clearAcknowledgement();
+      }
+    },
     setPreviewPresentation(active: boolean): void {
       previewPresentationActive = active;
       setRootState("uf-preview-presentation", active);
@@ -1602,7 +1617,9 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
       clearBoxes();
     },
     dispose(): void {
+      silentPresentationActive = false;
       previewPresentationActive = false;
+      setRootState("uf-silent-presentation", false);
       clearBoxes();
       latestTargetByXpath.clear();
       root.remove();

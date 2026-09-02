@@ -4782,3 +4782,166 @@ Steps:
 6. `el03-r2-review-push` -> 5
 7. `el03-r2-headed-matrix` -> 6
 8. `el03-r2-conformance` -> 7
+
+# EL-03-R3 — Make ordinary Silent highlighting a single presentation vocabulary
+
+## 1. Goal
+
+Remove the ordinary-Silent double paint discovered during the exact R2 headed
+acceptance run. Silent mode must expose only its three approved dashed layers —
+immutable, content, and excluded — even while the engine retains and refreshes
+classification geometry for allocation-free restoration. Content List keeps the
+same Silent vocabulary plus its focus layer; Marking and AI comparison remain
+unchanged. Preserve the now-passing Render and continuous debugger-emulation
+contracts.
+
+## 2. Entering evidence and finding
+
+The exact pushed R2 production build at
+`49594d49bba236cca7dbed7c8a7726434bb952e5` passed the full automated matrix and
+the high-cadence Aleris Render/emulation checks:
+
+- mobile settled at exact 412x960 and physically fit 960 CSS px into the 705 px
+  tab height at scale 0.734375;
+- desktop settled at exact 1920x1080 and fully fit the tab;
+- a silent debugger detach autonomously recovered exact mobile in about 149 ms,
+  while delivered detach retains the immediate event path;
+- a physical shrink applied a conservative safe scale before acknowledgement,
+  and growth waited for the stable trailing fence;
+- Chrome emitted one intermediate compositor sample while replacing metrics,
+  but the retained overlay root was already opacity-zero and the final
+  acknowledged frame was exact and unclipped.
+
+### `EL-03-F006` — High — ordinary Silent paints retained Marking classifications
+
+- Headed Aleris evidence after exiting Content List showed the ordinary root
+  without `uf-preview-presentation`. Its hard/default/saved/session layers and
+  its Silent layers all had opacity 1.
+- A captured visible frame showed solid mutable/exclusion borders underneath
+  the dashed Silent selector borders. Content List did not reproduce the defect
+  because `.uf-preview-presentation` already hides classification layers.
+- `renderCurrent()` and progressive/branch maintenance intentionally retain and
+  refresh classification nodes even when `interactiveMarkingRendered` is false.
+  This is a performance optimization, not presentation authority.
+- `renderSilent()` paints Silent rows but sets no root presentation state. The
+  approved contract names exactly three ordinary-Silent layers, so retained
+  classifications must remain allocated but must not paint.
+
+No AI request, Save, takeover, Lynx publication, release, deployment, or
+production mutation occurred during this diagnosis.
+
+## 3. Decisions and non-goals
+
+1. Add a distinct `uf-silent-presentation` root state. It controls paint only;
+   unlike Preview it does not change Preview hit routing or focus semantics.
+2. Ordinary Silent hides hard/default/saved/AI/session/hover/interaction/focus
+   layers and exposes only `silent-immutable`, `silent-content`, and
+   `silent-excluded`.
+3. Content List continues to use `uf-preview-presentation`; a Preview opened
+   from Silent may carry both classes, with Preview retaining focus visibility.
+4. Marking and explicit read-only/AI-comparison rendering clear the ordinary
+   Silent state before classification paint. Silent overlays deliberately armed
+   over an interactive comparison do not hide the comparison classifications.
+5. Classification nodes and geometry stay retained. Do not clear, recreate, or
+   re-evaluate them merely to switch presentation.
+6. Do not change marking decisions, selector seeding, payloads, consent,
+   candidate rules, interaction shielding, Preview projection/routing, Render,
+   emulation, backend interfaces, or public permissions.
+
+## 4. Implementation phases
+
+### EL-03-R3-01 — Add the orthogonal ordinary-Silent presentation state
+
+Files:
+
+- `src/content/marking/overlay.ts`
+- `src/content/marking/renderer.ts`
+- `src/content/marking/engine.ts`
+
+Steps:
+
+1. Add `uf-silent-presentation` to the overlay grammar and renderer root-state
+   union, plus a renderer setter that only toggles the root class and retires
+   transient hover/acknowledgement paint when entering.
+2. Add CSS that hides every non-Silent layer under ordinary Silent. Keep the
+   three Silent layers visible and unfiltered. Preview rules remain later/more
+   specific so focus is visible in Content List, and page-inspection precedence
+   remains final and absolute.
+3. Have `renderSilent()` reconcile the class from
+   `!interactiveMarkingRendered`. Have `renderMarking()` and `renderReadOnly()`
+   clear it before classification rendering. Preview retirement re-enters the
+   correct origin presentation through the existing retained-state path.
+4. Reset renderer-local Silent presentation state on disposal while retaining
+   classification DOM during ordinary mode switches.
+
+### EL-03-R3-02 — Pin presentation and restoration regressions
+
+Files:
+
+- `tests/src/content/marking/marking.test.ts`
+- `tests/src/content/marking/dom-bridge.test.ts`
+- any directly affected P17/P23 source-contract test
+
+Cases:
+
+1. The overlay grammar includes `uf-silent-presentation`; its CSS exposes only
+   the three Silent layers, gives Preview focus precedence, and leaves
+   page-inspection suppression last.
+2. Ordinary `renderSilentHighlights()` sets Silent presentation without
+   clearing retained classification nodes; later structural/geometry work does
+   not remove the class.
+3. Entering Marking clears Silent presentation before paint and restores the
+   retained interactive vocabulary without rebuilding the bridge.
+4. Silent -> Content List -> Silent preserves Silent-only presentation and focus
+   behavior. Marking -> Content List -> Marking never adopts ordinary Silent.
+5. An intentionally interactive comparison with Silent overlays keeps its
+   classification layers visible.
+
+Focused validation:
+
+```bash
+pnpm vitest run tests/src/content/marking/marking.test.ts tests/src/content/marking/dom-bridge.test.ts tests/src/content/preview-controller.test.ts tests/p17-browser-preview-contract.test.ts tests/p23-frozen-presentation-contract.test.ts
+```
+
+### EL-03-R3-03 — Full gates, publication, and headed conformance
+
+1. Run focused tests, `pnpm check`, authoritative `pnpm verify`, production and
+   debug builds, clean P17, and the full unchanged-threshold P25 composite.
+2. Review the exact diff until clean, update durable knowledge with the
+   retained-DOM/presentation distinction, commit intended files only, push
+   `re-write` without force, refresh the graph, and prove 0/0 synchronization.
+3. Re-run repository `live-browser` on Aleris, Acne, and 3DPrima `/se`.
+   Ordinary Silent must show dashed-only presentation; Content List must remain
+   Silent-style and bidirectional from both origins; Marking must restore
+   immediately and retain scroll/resize fade behavior.
+4. Recheck With-JavaScript, Without-JavaScript, Render exit ordering, consent,
+   stable-owner label absence, exact 412x960/1920x1080 geometry, full physical
+   fit, resize, and debugger-detach reinforcement on the exact pushed build.
+
+## 5. Acceptance criteria
+
+- `EL03-R3-AC-01` Ordinary Silent paints only `silent-immutable`,
+  `silent-content`, and `silent-excluded`; every retained classification,
+  hover, focus, and interaction layer is physically non-painting.
+- `EL03-R3-AC-02` The mode switch changes root presentation only: retained
+  classification nodes, semantic decisions, bridge identity, geometry cache,
+  and paint index are not rebuilt or discarded.
+- `EL03-R3-AC-03` Content List remains Silent-style and bidirectional from both
+  Silent and Marking, with focus visible; exit restores the exact origin mode.
+- `EL03-R3-AC-04` Marking and interactive comparison retain their approved
+  classifications and latency, including immediate hover/toggle response and
+  shared scroll/resize fade.
+- `EL03-R3-AC-05` R1/R2 Render, consent, ownership-label, exact emulation,
+  complete physical fit, resize, and detach-reinforcement criteria remain green.
+- `EL03-R3-AC-06` Focused/full/build/P17/P25 gates and the three-property headed
+  matrix pass on the exact pushed commit with zero prohibited mutation.
+- `EL03-R3-AC-07` An independent cumulative EL-03 conformance audit approves
+  R1-R3 before the next outer expert-check iteration.
+
+## 6. Todo chain
+
+1. `el03-r3-silent-presentation` -> 0
+2. `el03-r3-regressions` -> 1
+3. `el03-r3-full-gates` -> 2
+4. `el03-r3-review-push` -> 3
+5. `el03-r3-headed-conformance` -> 4

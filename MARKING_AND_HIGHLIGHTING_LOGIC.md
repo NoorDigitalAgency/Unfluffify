@@ -1015,6 +1015,14 @@ Silent highlighting uses three overlay layers:
 2. `content`,
 3. `excluded` content.
 
+These three layers are the complete ordinary-Silent presentation vocabulary.
+The engine may keep ordinary marking classification rectangles allocated and
+refresh their geometry so returning to Marking is immediate, but those retained
+hard/default/saved/AI/session, hover, focus, and interaction layers do not paint
+while ordinary Silent presentation is active. Content List remains an
+orthogonal Preview presentation and may additionally expose its focus layer for
+two-way selection.
+
 The older 052c `links` silent layer for already-marked page anchors is not part
 of the current locked contract.
 

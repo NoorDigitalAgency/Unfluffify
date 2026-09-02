@@ -819,3 +819,13 @@ painted" decision from the replaced document.
   CDP command or page-main-thread work, never grows or changes mode, and
   `clear()`/tab removal retires the watchdog before debugger release so a stale
   tick cannot resurrect the posture.
+- EL-03 SILENT PRESENTATION OWNERSHIP: ordinary Silent highlighting is a paint
+  vocabulary, not a classification-storage mode. The marking engine may retain
+  and incrementally maintain hard/default/saved/AI/session classification DOM
+  for allocation-free restoration, but `uf-silent-presentation` makes every
+  such layer, including hover/focus/interaction, physically non-painting. Only
+  `silent-immutable`, `silent-content`, and `silent-excluded` paint. Preview is
+  orthogonal and may reveal its focus layer later in the CSS cascade; page
+  inspection remains the final no-annotation authority. Entering Marking or an
+  interactive comparison clears ordinary Silent presentation without rebuilding
+  retained classifications.
