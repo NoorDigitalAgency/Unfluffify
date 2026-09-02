@@ -101,6 +101,8 @@ function emulationTransitionResult(value: unknown): EmulationTransitionResult | 
   const numericMeasurements = [
     "innerWidth",
     "innerHeight",
+    "documentClientWidth",
+    "documentClientHeight",
     "screenWidth",
     "screenHeight",
     "visualViewportWidth",

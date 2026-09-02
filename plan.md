@@ -5422,3 +5422,165 @@ the commit (no source change occurred between the build and commit):
 These results satisfy `EL03-R5-AC-01` through `EL03-R5-AC-04`. Normal push,
 0:0 synchronization, exact-pushed-build Aleris/Acne/3DPrima headed conformance,
 and the cumulative EL-03 audit remain mandatory before production approval.
+
+# EL-03-R6 — Prove mobile geometry against the interactive viewport
+
+## 1. Goal
+
+Stop the debugger attach/apply/reject/detach loop exposed by 3DPrima pages that
+use classic scrollbars. A correctly fitted 412x960 mobile device must remain
+stable when scrollbar gutters make `window.innerWidth`/`innerHeight` larger
+than the actual interactive viewport, without weakening any proof against a
+clipped, zoomed, oversized, desktop, or otherwise inexact device.
+
+## 2. Entering evidence and root cause
+
+The exact pushed R5 production build at
+`dd02a0dc3d26998bd80cc29239c2b9a08907efaa` passed the complete automated gate
+set and fresh Aleris/Acne headed checks. The required 3DPrima
+`/se/3d-skrivare-mer/tillverkare/anycubic` pass then exposed a site-dependent
+emulation failure after a cross-property navigation:
+
+- the temporary ownership-loss label appeared only during its valid countdown
+  and disappeared afterward, while consent remained hidden;
+- the Silent UI reported mobile preference, but the debugger initially
+  remained detached and the website stayed at the physical 850x705 viewport;
+- an explicit Refresh did not restore the posture, and a typed
+  `emulation.apply` returned `settle-proof-failed`;
+- subsequent watchdog attempts visibly alternated attached/detached posture;
+  one attached sample reported scrollbar-inclusive `window.innerWidth`/
+  `innerHeight` of 417x972 while `screen`, `outerWidth`/`outerHeight`,
+  `visualViewport`, and `document.documentElement.clientWidth`/`clientHeight`
+  were all exactly 412x960 at page scale 1; and
+- the background posture verifier already treats the mobile visual viewport
+  and document client viewport as authoritative, but the content-side guardian
+  additionally requires scrollbar-inclusive `window.inner*` to equal the
+  preset. It therefore rejects the already-correct background proof at settle,
+  causing rollback and retry flicker.
+
+The earlier Content List keyboard concern was a diagnostic false positive and
+is not an R6 defect: the probe searched under a nonexistent root selector and
+then focused off-screen rows. A trusted Tab into an on-screen Aleris row painted
+the matching focus boundary, while trusted page clicks focused and scrolled the
+correct Aleris and Acne list rows. That evidence is retained explicitly so no
+unnecessary product change is made.
+
+No AI, Save, takeover, Lynx, deployment, backend write, or production mutation
+occurred.
+
+## 3. Implementation plan
+
+### EL-03-R6-01 — Align guardian geometry with mobile viewport authority
+
+Files:
+
+- `src/content/emulation-transition-guardian.ts`
+- the background transition-result parser
+
+Steps:
+
+1. Add document-client width and height to the internal transition measurement
+   so the content proof exposes the same interactive-layout authority as the
+   background proof.
+2. For mobile, require exact 412x960 screen, visual viewport, and document
+   client viewport dimensions plus page scale 1. Retain `window.inner*` as
+   diagnostic evidence but do not reject bounded browser scrollbar gutters.
+3. Preserve the existing desktop rule: exact 1920x1080 layout/screen with only
+   the bounded platform scrollbar allowance in its visual viewport.
+4. Keep guardian coverage, two-frame paint proof, hostile-page repair,
+   generation fencing, physical-fit checks, touch/pointer/UA checks, and
+   rollback behavior unchanged.
+
+### EL-03-R6-02 — Add positive and negative scrollbar regressions
+
+1. Extend the guardian harness with independent document-client dimensions.
+2. Prove a mobile settle succeeds when `window.inner*` includes realistic
+   vertical and horizontal scrollbar gutters but screen, visual viewport, and
+   document client viewport are exactly 412x960.
+3. Prove the same settle rejects clipped or oversized visual/document-client
+   dimensions, non-unit page scale, or wrong screen geometry.
+4. Update background/content transition fixtures so the expanded internal
+   measurement is parsed and enforced rather than silently ignored.
+
+### EL-03-R6-03 — Validate, publish, and repeat headed acceptance
+
+1. Run the focused guardian/background/emulation suites, `pnpm check`,
+   authoritative `pnpm verify`, debug build, clean P17, standalone P14, and the
+   full unchanged-threshold P25 composite.
+2. Review the exact diff, commit intended files only, push `re-write` normally,
+   refresh the code graph, and prove local/upstream 0/0 synchronization.
+3. Start a fresh repository `live-browser` production session. Reproduce
+   Aleris -> 3DPrima cross-property ownership handoff and require continuous
+   exact 412x960 mobile posture after the valid ownership fence, no debugger
+   churn, no visible geometry flicker, and a transparent idle guardian.
+4. Repeat exact mobile/desktop/reverse transitions, physical fit, consent,
+   annotation restoration, Content List keyboard/page two-way interaction, and
+   console/network hygiene on Aleris, Acne, and 3DPrima. Perform no AI, Save,
+   takeover, Lynx, deployment, or backend write.
+
+## 4. Acceptance criteria
+
+- `EL03-R6-AC-01` Classic scrollbar gutters cannot make an otherwise exact
+  412x960 mobile device fail guardian settlement or enter a debugger retry loop.
+- `EL03-R6-AC-02` Wrong screen, visual viewport, document client viewport, page
+  scale, pointer/touch/UA posture, or physical fit still fails closed.
+- `EL03-R6-AC-03` R4/R5 atomic guard, hostile-repair, generation, rollback, and
+  zero-churn contracts remain unchanged.
+- `EL03-R6-AC-04` Focused/full/build/P17/P14/P25 gates pass unchanged on the
+  exact committed source.
+- `EL03-R6-AC-05` Fresh Aleris/Acne/3DPrima repository-live-browser evidence
+  proves stable fitted emulation and the retained UI/UX contracts.
+- `EL03-R6-AC-06` Cumulative EL-03 conformance is independently approved before
+  the outer expert-check may declare production readiness.
+
+## 5. Todo chain
+
+1. `el03-r6-scrollbar-geometry-authority` -> 0
+2. `el03-r6-scrollbar-regressions` -> 1
+3. `el03-r6-focused-full-gates` -> 2
+4. `el03-r6-review-push` -> 3
+5. `el03-r6-headed-conformance` -> 4
+6. `el03-r6-cumulative-audit` -> 5
+
+## 6. Implementation and pre-push evidence (2026-09-02)
+
+The content transition measurement now carries document-client dimensions.
+Mobile guardian settlement requires exact screen, visual-viewport, and
+document-client 412x960 dimensions at page scale 1; scrollbar-inclusive
+`window.inner*` remains reported but is no longer a false rejection authority.
+Desktop's exact 1920x1080 inner/screen proof and bounded visual-scrollbar
+allowance are unchanged. The background transition parser requires and
+validates the expanded internal measurement.
+
+Focused pre-push evidence:
+
+- guardian/background/startup/content integration set: 132/132 tests passed;
+- `pnpm check`: passed; and
+- regression coverage accepts 417x972 scrollbar-inclusive inner geometry only
+  when document-client and visual viewport remain exactly 412x960, while wrong
+  document-client size, visual viewport, screen geometry, and page scale each
+  remain fail-closed.
+
+Repository `live-browser` production-build diagnostic evidence:
+
+- the original R5 bundle reproduced 3DPrima `settle-proof-failed`, detached
+  posture, and subsequent attach/detach retry churn while its interactive
+  viewport was already exact;
+- the R6 bundle completed a fresh Aleris -> 3DPrima cross-property navigation.
+  During the loaded 3DPrima document, scrollbar-inclusive `window.inner*`
+  varied through 424x988 and 434x1011 while screen, visual viewport, and
+  document client viewport remained exactly 412x960 at scale 1;
+- after the ordinary navigation boundary, the debugger stayed attached. The
+  ownership countdown expired with one guarded settle and no repeated detach,
+  and the guardian returned transparent idle;
+- 3DPrima desktop reached exact 1920x1080 at fitted scale
+  0.4427083333333333 in the 850x705 physical tab, and reverse mobile returned
+  exact interactive 412x960 at fitted scale 0.734375;
+- consent suppression retained 33 hidden and zero visible consent candidates;
+  Content List used Silent presentation, became interactive with semantic rows,
+  and a trusted page click focused the corresponding fourth list row; and
+- no AI, Save, takeover, Lynx, deployment, backend write, or production
+  mutation occurred.
+
+Clean committed-source release gates, normal push/0:0 proof, a fresh exact-
+pushed headed matrix, and cumulative adjudication remain mandatory.

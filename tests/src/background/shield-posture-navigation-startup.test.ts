@@ -69,6 +69,8 @@ function emulationTransitionContentReply(message: unknown): BusFrame | undefined
       measured: {
         innerWidth: width,
         innerHeight: height,
+        documentClientWidth: width,
+        documentClientHeight: height,
         screenWidth: width,
         screenHeight: height,
         visualViewportWidth: width,

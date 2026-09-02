@@ -96,6 +96,8 @@ class FakeElement extends FakeEventTarget {
   readonly attributes = new Map<string, string>();
   readonly children: FakeElement[] = [];
   parentElement: FakeElement | null = null;
+  clientWidth = 412;
+  clientHeight = 960;
 
   constructor(readonly ownerDocument: FakeDocument) {
     super();
@@ -639,6 +641,58 @@ describe("emulation transition guardian", () => {
       ok: true,
       exactGeometry: true,
       guarded: false,
+    });
+  });
+
+  it("settles exact mobile geometry when classic scrollbars enlarge window.inner dimensions", async () => {
+    const { document, guardian, window } = fixture();
+    window.innerWidth = 417;
+    window.innerHeight = 972;
+    document.documentElement.clientWidth = 412;
+    document.documentElement.clientHeight = 960;
+
+    await expect(guardian.handle(beginMobile)).resolves.toMatchObject({ ok: true });
+    await expect(guardian.handle(settleMobile)).resolves.toMatchObject({
+      ok: true,
+      exactGeometry: true,
+      guarded: false,
+      measured: {
+        innerWidth: 417,
+        innerHeight: 972,
+        documentClientWidth: 412,
+        documentClientHeight: 960,
+        visualViewportWidth: 412,
+        visualViewportHeight: 960,
+      },
+    });
+  });
+
+  it.each([
+    ["document-client width", ({ document }: ReturnType<typeof fixture>) => {
+      document.documentElement.clientWidth = 411;
+    }],
+    ["visual viewport height", ({ window }: ReturnType<typeof fixture>) => {
+      window.visualViewport.height = 959;
+    }],
+    ["screen width", ({ window }: ReturnType<typeof fixture>) => {
+      window.screen = { width: 411, height: 960 };
+    }],
+    ["page scale", ({ window }: ReturnType<typeof fixture>) => {
+      window.visualViewport.scale = 1.01;
+    }],
+  ])("rejects mobile settle with inexact %s", async (_label, makeInexact) => {
+    const current = fixture({ paintTimeoutMs: 100 });
+    current.window.innerWidth = 417;
+    current.window.innerHeight = 972;
+    makeInexact(current);
+
+    await expect(current.guardian.handle(beginMobile)).resolves.toMatchObject({ ok: true });
+    await expect(current.guardian.handle(settleMobile)).resolves.toMatchObject({
+      ok: false,
+      reason: "settle-proof-failed",
+      exactGeometry: false,
+      guarded: true,
+      coverage: true,
     });
   });
 

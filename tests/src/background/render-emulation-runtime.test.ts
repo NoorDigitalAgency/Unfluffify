@@ -262,6 +262,8 @@ function transitionAcknowledgement(
     measured: {
       innerWidth: preset.width,
       innerHeight: preset.height,
+      documentClientWidth: preset.width,
+      documentClientHeight: preset.height,
       screenWidth: preset.width,
       screenHeight: preset.height,
       visualViewportWidth: preset.width,

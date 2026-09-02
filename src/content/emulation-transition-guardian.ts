@@ -64,6 +64,8 @@ export type EmulationTransitionRequest =
 export type EmulationTransitionMeasurement = Readonly<{
   innerWidth: number;
   innerHeight: number;
+  documentClientWidth: number;
+  documentClientHeight: number;
   screenWidth: number;
   screenHeight: number;
   visualViewportWidth: number;
@@ -253,6 +255,8 @@ export function createEmulationTransitionGuardian(
   const measure = (): EmulationTransitionMeasurement => ({
     innerWidth: view?.innerWidth ?? 0,
     innerHeight: view?.innerHeight ?? 0,
+    documentClientWidth: document.documentElement?.clientWidth ?? view?.innerWidth ?? 0,
+    documentClientHeight: document.documentElement?.clientHeight ?? view?.innerHeight ?? 0,
     screenWidth: view?.screen?.width ?? 0,
     screenHeight: view?.screen?.height ?? 0,
     visualViewportWidth: view?.visualViewport?.width ?? view?.innerWidth ?? 0,
@@ -267,8 +271,6 @@ export function createEmulationTransitionGuardian(
     if (!mode) return false;
     const preset = DEVICE_EMULATION_PRESETS[mode];
     if (
-      measured.innerWidth !== preset.width ||
-      measured.innerHeight !== preset.height ||
       measured.screenWidth !== preset.width ||
       measured.screenHeight !== preset.height ||
       Math.abs(measured.visualViewportScale - 1) > 0.001
@@ -276,14 +278,23 @@ export function createEmulationTransitionGuardian(
       return false;
     }
     if (mode === "mobile") {
-      return measured.visualViewportWidth === preset.width &&
+      // Classic scrollbars are included by window.innerWidth/innerHeight on
+      // some documents even though the emulated screen and the interactive
+      // viewport are exact. The background posture proof already uses these
+      // two independent authorities; mirror it here so a correct mobile device
+      // cannot enter an apply/reject/detach loop merely because gutters exist.
+      return measured.documentClientWidth === preset.width &&
+        measured.documentClientHeight === preset.height &&
+        measured.visualViewportWidth === preset.width &&
         measured.visualViewportHeight === preset.height;
     }
     // Desktop scrollbars can subtract a platform-dependent strip from the
     // visual viewport while the emulated screen/layout remains exactly
     // 1920x1080. Bound that allowance so a collapsed or clipped visual viewport
     // can never be mistaken for an exact settled device.
-    return measured.visualViewportWidth <= preset.width &&
+    return measured.innerWidth === preset.width &&
+      measured.innerHeight === preset.height &&
+      measured.visualViewportWidth <= preset.width &&
       measured.visualViewportHeight <= preset.height &&
       measured.visualViewportWidth >= preset.width - DESKTOP_SCROLLBAR_TOLERANCE_PX &&
       measured.visualViewportHeight >= preset.height - DESKTOP_SCROLLBAR_TOLERANCE_PX;
