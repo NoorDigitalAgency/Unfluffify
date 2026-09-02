@@ -36,6 +36,13 @@ class FakeEventTarget {
 class FakeStyle {
   private readonly values = new Map<string, Readonly<{ value: string; priority: string }>>();
 
+  writeCount = 0;
+
+  constructor(
+    private readonly onChange: () => void = () => undefined,
+    private readonly normalizeZeroLengths = false,
+  ) {}
+
   getPropertyValue(property: string): string {
     return this.values.get(property)?.value ?? "";
   }
@@ -45,7 +52,33 @@ class FakeStyle {
   }
 
   setProperty(property: string, value: string, priority = ""): void {
-    this.values.set(property, { value, priority });
+    const normalized = this.normalizeZeroLengths && value === "0" && [
+      "inset",
+      "margin",
+      "padding",
+      "border",
+    ].includes(property)
+      ? "0px"
+      : value;
+    const previous = this.values.get(property);
+    if (previous?.value === normalized && previous.priority === priority) return;
+    this.values.set(property, { value: normalized, priority });
+    this.writeCount += 1;
+    this.onChange();
+  }
+
+  clear(): void {
+    if (this.values.size === 0) return;
+    this.values.clear();
+    this.writeCount += 1;
+    this.onChange();
+  }
+
+  serialize(): string {
+    return [...this.values]
+      .map(([property, { value, priority }]) =>
+        `${property}: ${value}${priority ? ` !${priority}` : ""};`)
+      .join(" ");
   }
 }
 
@@ -58,13 +91,25 @@ class FakeVisualViewport extends FakeEventTarget {
 }
 
 class FakeElement extends FakeEventTarget {
-  readonly style = new FakeStyle() as unknown as CSSStyleDeclaration;
+  readonly styleImplementation: FakeStyle;
+  readonly style: CSSStyleDeclaration;
   readonly attributes = new Map<string, string>();
   readonly children: FakeElement[] = [];
   parentElement: FakeElement | null = null;
 
   constructor(readonly ownerDocument: FakeDocument) {
     super();
+    const style = new FakeStyle(
+      () => {
+        const serialized = style.serialize();
+        if (serialized) this.attributes.set("style", serialized);
+        else this.attributes.delete("style");
+        this.ownerDocument.onStyleMutation(this);
+      },
+      ownerDocument.normalizeStyleZeros,
+    );
+    this.styleImplementation = style;
+    this.style = style as unknown as CSSStyleDeclaration;
   }
 
   get isConnected(): boolean {
@@ -90,6 +135,11 @@ class FakeElement extends FakeEventTarget {
   }
 
   removeAttribute(name: string): void {
+    if (name === "style") {
+      this.styleImplementation.clear();
+      this.attributes.delete(name);
+      return;
+    }
     this.attributes.delete(name);
   }
 
@@ -128,8 +178,9 @@ class FakeDocument extends FakeEventTarget {
   readonly documentElement: FakeElement;
   visibilityState: DocumentVisibilityState = "visible";
   defaultView!: FakeWindow;
+  onStyleMutation: (element: FakeElement) => void = () => undefined;
 
-  constructor() {
+  constructor(readonly normalizeStyleZeros = false) {
     super();
     this.documentElement = new FakeElement(this);
   }
@@ -193,6 +244,14 @@ class FakeMutationObserver {
   mutate(): void {
     this.callback([], this as unknown as MutationObserver);
   }
+
+  observesAttribute(target: FakeElement, attributeName: string): boolean {
+    return this.connected && this.observations.some(({ target: observed, options }) =>
+      observed === target as unknown as Node &&
+      options.attributes === true &&
+      (!options.attributeFilter || options.attributeFilter.includes(attributeName))
+    );
+  }
 }
 
 function fixture(timing: Readonly<{
@@ -200,11 +259,38 @@ function fixture(timing: Readonly<{
   retireTransitionMs?: number;
   paintTimeoutMs?: number;
   requestFrame?: (callback: FrameRequestCallback) => number | void;
+  normalizeStyleZeros?: boolean;
+  autoStyleMutationLimit?: number;
 }> = {}) {
-  const document = new FakeDocument();
+  const document = new FakeDocument(timing.normalizeStyleZeros === true);
   const window = new FakeWindow();
   document.defaultView = window;
   let observer: FakeMutationObserver | null = null;
+  let styleMutationQueued = false;
+  let styleMutationDeliveries = 0;
+  document.onStyleMutation = (element) => {
+    const limit = timing.autoStyleMutationLimit ?? 0;
+    if (
+      limit <= 0 ||
+      styleMutationQueued ||
+      styleMutationDeliveries >= limit ||
+      !observer?.observesAttribute(element, "style")
+    ) {
+      return;
+    }
+    styleMutationQueued = true;
+    queueMicrotask(() => {
+      styleMutationQueued = false;
+      if (
+        styleMutationDeliveries >= limit ||
+        !observer?.observesAttribute(element, "style")
+      ) {
+        return;
+      }
+      styleMutationDeliveries += 1;
+      observer.mutate();
+    });
+  };
   const beforeSettle = vi.fn();
   const onGuardingChanged = vi.fn();
   const onUnexpectedViewportChange = vi.fn();
@@ -231,6 +317,7 @@ function fixture(timing: Readonly<{
     onGuardingChanged,
     onUnexpectedViewportChange,
     observer: () => observer,
+    styleMutationDeliveries: () => styleMutationDeliveries,
   };
 }
 
@@ -450,6 +537,58 @@ describe("emulation transition guardian", () => {
     observer()?.mutate();
     await Promise.resolve();
     expect(document.documentElement.lastElementChild).toBe(guard);
+  });
+
+  it("does not recurse when CSSOM normalizes zero-length declarations", async () => {
+    const { guardian, styleMutationDeliveries } = fixture({
+      enterTransitionMs: 1,
+      normalizeStyleZeros: true,
+      autoStyleMutationLimit: 32,
+    });
+
+    await expect(guardian.handle(beginMobile)).resolves.toMatchObject({
+      ok: true,
+      stage: "paint-proven",
+      coverage: true,
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const style = (guardian.element() as unknown as FakeElement).styleImplementation;
+    const writesAfterBegin = style.writeCount;
+    guardian.refresh();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(style.getPropertyValue("inset")).toBe("0px");
+    expect(style.writeCount).toBe(writesAfterBegin);
+    expect(styleMutationDeliveries()).toBeLessThan(4);
+  });
+
+  it("repairs hostile inline style through one self-suppressed observer delivery", async () => {
+    const { guardian, styleMutationDeliveries } = fixture({
+      normalizeStyleZeros: true,
+      autoStyleMutationLimit: 32,
+    });
+    await guardian.handle(beginMobile);
+    await Promise.resolve();
+    const guard = guardian.element() as unknown as FakeElement;
+    const deliveriesBeforeTamper = styleMutationDeliveries();
+
+    guard.styleImplementation.setProperty("opacity", "0", "important");
+    guard.styleImplementation.setProperty("top", "100px", "important");
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(styleMutationDeliveries() - deliveriesBeforeTamper).toBe(1);
+    expect(guard.styleImplementation.getPropertyValue("opacity")).toBe("1");
+    expect(guard.styleImplementation.getPropertyValue("top")).toBe("");
+    expect(guardian.current()).toMatchObject({
+      stage: "paint-proven",
+      guarded: true,
+      coverage: true,
+    });
   });
 
   it("does not observe unrelated page-subtree mutations while retained", async () => {

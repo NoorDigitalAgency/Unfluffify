@@ -233,6 +233,8 @@ export function createEmulationTransitionGuardian(
   let stage: EmulationTransitionStage = "released";
   let guard: HTMLElement | null = null;
   let observer: MutationObserverLike | null = null;
+  let appliedStyleState = "";
+  let appliedInlineStyle: string | null = null;
   let operationEpoch = 0;
   let syncScheduled = false;
   let suspended = false;
@@ -412,8 +414,27 @@ export function createEmulationTransitionGuardian(
       cursor: inputBoundaryActive ? "wait" : "default",
       "z-index": MAXIMUM_DOCUMENT_Z_INDEX,
     };
-    for (const [property, value] of Object.entries(styles)) {
-      setImportantStyle(guard.style, property, value);
+    const styleState = JSON.stringify([
+      paintedOpacity,
+      transition,
+      inputBoundaryActive,
+    ]);
+    const currentInlineStyle = guard.getAttribute("style");
+    if (
+      styleState !== appliedStyleState ||
+      currentInlineStyle !== appliedInlineStyle
+    ) {
+      // CSSOM canonicalizes lexical inputs (`0` commonly becomes `0px`). Raw
+      // value comparison would therefore rewrite the same declaration forever
+      // when the observer sees the guard's own style mutation. Rebuild once,
+      // retain the browser-serialized identity, and use that identity to detect
+      // either a real presentation change or hostile inline tampering.
+      guard.removeAttribute("style");
+      for (const [property, value] of Object.entries(styles)) {
+        setImportantStyle(guard.style, property, value);
+      }
+      appliedStyleState = styleState;
+      appliedInlineStyle = guard.getAttribute("style");
     }
   };
 
@@ -423,6 +444,8 @@ export function createEmulationTransitionGuardian(
     }
     if (!guard) {
       guard = document.createElement("div");
+      appliedStyleState = "";
+      appliedInlineStyle = null;
     }
     applyPresentation(immediate);
     if (
@@ -441,7 +464,15 @@ export function createEmulationTransitionGuardian(
     queueMicrotask(() => {
       syncScheduled = false;
       if (!active || disposed) return;
+      // An observer-triggered repair must not subscribe to its own canonical
+      // style/attribute/last-child writes. Disconnect for the atomic repair and
+      // re-arm only while a non-idle transition still requires hostile-page
+      // monitoring.
+      observer?.disconnect();
       ensureMounted(true);
+      if (guarding || entering || retiring || stage !== "idle") {
+        observe();
+      }
     });
   };
 

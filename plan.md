@@ -5253,3 +5253,112 @@ Clean-commit automated release evidence on 2026-09-02:
 
 Normal push/0:0 synchronization, headed repository `live-browser` conformance,
 and cumulative EL-03 adjudication remain mandatory before production approval.
+
+# EL-03-R5 — Make guardian repair idempotent under real CSSOM normalization
+
+## 1. Goal
+
+Remove the real-browser main-thread starvation introduced by R4's retained
+emulation transition guardian without weakening its opaque paint/input fence,
+hostile-page repair, exact-generation lifecycle, or continuous-fit behavior.
+The guard must remain safe when Chromium canonicalizes requested inline CSS
+tokens, and its MutationObserver must never recursively consume the guard's own
+repair writes.
+
+## 2. Entering evidence and root cause
+
+The exact pushed R4 source at
+`c487b58c29ce71f089ee20e27450a989a8cce4f0` passed `pnpm verify`, clean P17,
+an unchanged-threshold standalone P14 reproduction, and a fresh complete P25.
+The first required repository `live-browser` launch then failed reproducibly on
+both Aleris `/kirurgi/brack/aderbrack/` and Acne `/` before the operator surface
+could open:
+
+- the website target stopped answering even a trivial CDP `Runtime.evaluate`;
+- `chrome.scripting.executeScript` from the otherwise responsive extension
+  worker consequently timed out and the launcher's exact tab binding failed;
+- Chrome reported the page target as debugger-detached, excluding an external
+  debugger ownership race; and
+- the retained guardian observes its own `style` attribute, while
+  `setImportantStyle()` compares requested lexical values directly with
+  CSSOM-normalized values. Chromium serializes values such as `inset: 0` as
+  `0px`, so a scheduled repair writes the same style again, queues another
+  observer delivery, and repeats through the microtask checkpoint without
+  yielding the page main thread.
+
+The unit fake returned requested style strings verbatim and required manual
+observer delivery, so it could not reproduce the browser normalization/self-
+notification cycle. The production launcher correctly exposed this gap; it
+must not be bypassed or given looser timeouts. No AI, Save, takeover, Lynx,
+deployment, backend write, or production mutation occurred.
+
+## 3. Implementation plan
+
+### EL-03-R5-01 — Make presentation repair canonical and self-suppressing
+
+Files:
+
+- `src/content/emulation-transition-guardian.ts`
+- focused guardian tests
+
+Steps:
+
+1. Track the last browser-serialized inline-style snapshot together with the
+   logical presentation state that produced it. Skip style writes only when
+   both still match; a hostile edit or logical opacity/input transition must
+   rebuild the authoritative style and refresh the snapshot.
+2. Run observer-triggered repair with mutation observation disconnected, then
+   re-arm the narrow document/root/guard subscriptions after the repair. Own
+   style, attribute, and last-child writes may not enqueue a recursive repair.
+3. Preserve synchronous viewport guarding, exact opaque coverage checks,
+   begin/settle/abort/release generation fencing, transparent-idle observer
+   disconnection, and last-in-root repair.
+
+### EL-03-R5-02 — Reproduce the real browser failure in regression coverage
+
+1. Make the guardian harness able to canonicalize CSS zero values as a browser
+   CSSStyleDeclaration does and to deliver observed guard mutations
+   automatically.
+2. Prove a transitioning begin reaches `paint-proven` with a bounded number of
+   repair/style writes rather than an unbounded microtask chain.
+3. Prove hostile style/root tampering still repairs to full opaque interactive
+   maximum-z coverage, and ordinary unrelated page-subtree mutations remain
+   unobserved.
+
+### EL-03-R5-03 — Validate, publish, and resume headed acceptance
+
+1. Run focused guardian/content/background tests, `pnpm check`, authoritative
+   `pnpm verify`, debug build, clean P17, standalone P14, and full unchanged-
+   threshold P25 on a clean commit.
+2. Review the exact diff, record truthful evidence, commit intended files only,
+   push `re-write` normally, refresh the graph, and prove upstream 0/0.
+3. Launch the exact pushed production bundle through repository `live-browser`
+   on Aleris, Acne, and 3DPrima `/se/3d-skrivare-mer/tillverkare/anycubic`.
+   Require a responsive page/operator surface, exact mobile/desktop device and
+   full physical fit, guarded shrink/growth and debugger-loss recovery, prompt
+   annotation restoration, and clean console/network behavior. Perform no AI,
+   Save, takeover, Lynx, deployment, or backend write.
+
+## 4. Acceptance criteria
+
+- `EL03-R5-AC-01` Browser-normalized CSS values cannot cause recursive guardian
+  repair or website main-thread starvation.
+- `EL03-R5-AC-02` Observer-triggered repair is finite, self-write-suppressed,
+  and still restores hostile style/root damage before acknowledging coverage.
+- `EL03-R5-AC-03` All R4 atomicity, exact geometry, physical-fit, generation,
+  rollback, and idle-zero-churn contracts remain green.
+- `EL03-R5-AC-04` Focused/full/build/P17/P14/P25 gates pass unchanged on exact
+  committed source.
+- `EL03-R5-AC-05` Fresh Aleris, Acne, and 3DPrima repository-live-browser runs
+  complete the safe headed matrix on exact pushed source.
+- `EL03-R5-AC-06` Cumulative EL-03 conformance is independently approved before
+  the outer expert-check may declare production readiness.
+
+## 5. Todo chain
+
+1. `el03-r5-guardian-idempotency` -> 0
+2. `el03-r5-browser-normalization-tests` -> 1
+3. `el03-r5-focused-full-gates` -> 2
+4. `el03-r5-review-push` -> 3
+5. `el03-r5-headed-conformance` -> 4
+6. `el03-r5-cumulative-audit` -> 5
