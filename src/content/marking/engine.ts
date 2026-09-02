@@ -1083,6 +1083,7 @@ export function createMarkingEngine(
     document: rootElement.ownerDocument,
   });
   let observerCleanup: (() => void) | null = null;
+  let settlePendingViewportPresentation = (): void => undefined;
   let renderScheduled = false;
   let renderFrameHandle = 0;
   let disposed = false;
@@ -2910,6 +2911,41 @@ type DeferredBranchRenderChunk = Readonly<{
       visualViewport?.pageTop ?? "",
       visualViewport?.scale ?? "",
     ].join(":");
+    const settleViewportPresentation = (): void => {
+      if (viewportGeometryHandle !== null) {
+        clearTimeout(viewportGeometryHandle);
+      }
+      viewportGeometryHandle = null;
+      viewportGeometryKind = null;
+      pendingScrollSignature = "";
+      pendingResizeSource = null;
+      pendingResizeSignature = "";
+      const settledSignature = currentViewportResizeSignature();
+      committedResizeSignatures.viewport = settledSignature;
+      committedResizeSignatures.root = settledSignature;
+      if (
+        renderScheduled &&
+        (scheduledWork === "geometry" || scheduledWork === "silent-geometry")
+      ) {
+        presentationClock.cancelFrame(renderFrameHandle);
+        renderFrameHandle = 0;
+        renderScheduled = false;
+        scheduledWork = null;
+      }
+      cancelProgressiveGeometryRender();
+      revealMarkingAfterRender = false;
+      renderer.setScrolling(false);
+      if (structuralDeferredForViewport) {
+        structuralDeferredForViewport = false;
+        scheduleStructuralRefresh(STRUCTURAL_CHILD_LIST_QUIET_MS);
+      }
+    };
+    settlePendingViewportPresentation = settleViewportPresentation;
+    cleanups.push(() => {
+      if (settlePendingViewportPresentation === settleViewportPresentation) {
+        settlePendingViewportPresentation = () => undefined;
+      }
+    });
     const finishViewportGeometry = (): void => {
       if (viewportGeometryKind === "resize" && pendingResizeSource) {
         committedResizeSignatures[pendingResizeSource] = pendingResizeSignature;
@@ -3152,6 +3188,12 @@ type DeferredBranchRenderChunk = Readonly<{
       renderCurrent();
     },
     settlePresentation(): Promise<void> {
+      // A debugger-owned viewport transition can emit Window,
+      // VisualViewport, and root ResizeObserver edges. The guardian already
+      // owns the exact terminal geometry, so retire their old debounce/frame
+      // transaction before sampling boxes; otherwise its delayed callback can
+      // fade and repaint the just-restored annotation layer after release.
+      settlePendingViewportPresentation();
       return new Promise((resolve) => {
         // Activation follows a long reveal/restore walk. Page-owned sticky
         // headers commonly commit their restored-scroll posture in the next

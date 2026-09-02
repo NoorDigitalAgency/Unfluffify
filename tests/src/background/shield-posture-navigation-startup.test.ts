@@ -35,6 +35,56 @@ type MessageListener = (
   sendResponse: (reply: BusFrame) => void,
 ) => boolean;
 
+function emulationTransitionContentReply(message: unknown): BusFrame | undefined {
+  const frame = message as BusFrame;
+  const envelope = frame.payload as {
+    name?: unknown;
+    payload?: { phase?: unknown; generation?: unknown; mode?: unknown };
+  } | undefined;
+  if (frame.name !== "command.dispatch" || envelope?.name !== "emulationTransition") {
+    return undefined;
+  }
+  const request = envelope.payload ?? {};
+  const phase = request.phase;
+  const mode = phase === "release" || phase === "abort"
+    ? null
+    : request.mode === "desktop" ? "desktop" : "mobile";
+  const width = mode === "desktop" ? 1920 : 412;
+  const height = mode === "desktop" ? 1080 : 960;
+  return {
+    ...frame,
+    frameType: "reply",
+    source: "content",
+    target: frame.source,
+    ok: true,
+    payload: { ok: true, data: {
+      ok: true,
+      generation: request.generation,
+      mode,
+      stage: phase === "begin" ? "paint-proven" : phase === "settle" ? "idle" : "released",
+      guarded: phase === "begin",
+      coverage: phase === "begin",
+      exactGeometry: phase === "settle",
+      reason: "",
+      measured: {
+        innerWidth: width,
+        innerHeight: height,
+        screenWidth: width,
+        screenHeight: height,
+        visualViewportWidth: width,
+        visualViewportHeight: height,
+        visualViewportScale: 1,
+      },
+    } },
+  };
+}
+
+function isEmulationTransitionMessage(message: unknown): boolean {
+  const frame = message as BusFrame;
+  return frame.name === "command.dispatch" &&
+    (frame.payload as { name?: unknown } | undefined)?.name === "emulationTransition";
+}
+
 type BrowserHarness = Readonly<{
   listener: () => MessageListener;
   commit: (tabId: number, documentId?: string, pageUrl?: string) => void;
@@ -1248,7 +1298,7 @@ describe("P15 shield navigation/startup ordering", () => {
       tabs: {
         sendMessage(_tabId, message) {
           tabMessages.push(message);
-          return undefined;
+          return emulationTransitionContentReply(message);
         },
       },
     });
@@ -1343,7 +1393,9 @@ describe("P15 shield navigation/startup ordering", () => {
         feedRevision: 1,
       }));
       await new Promise((resolve) => setTimeout(resolve, 0));
-      let messagesBeforeTermination = tabMessages.length;
+      const productTabMessages = () => tabMessages.filter((message) =>
+        !isEmulationTransitionMessage(message));
+      let messagesBeforeTermination = productTabMessages().length;
 
       const oldWrite = createWriteGate();
       nextLockFactWriteGate = oldWrite;
@@ -1376,7 +1428,7 @@ describe("P15 shield navigation/startup ordering", () => {
         });
       });
       await new Promise((resolve) => setTimeout(resolve, 0));
-      messagesBeforeTermination = tabMessages.length;
+      messagesBeforeTermination = productTabMessages().length;
 
       const terminalWrite = createWriteGate();
       nextLockFactWriteGate = terminalWrite;
@@ -1421,7 +1473,7 @@ describe("P15 shield navigation/startup ordering", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      expect(tabMessages).toHaveLength(messagesBeforeTermination);
+      expect(productTabMessages()).toHaveLength(messagesBeforeTermination);
       expect(await base.get("tabState:7")).toMatchObject({
         facts: {
           lockRole: "unknown",

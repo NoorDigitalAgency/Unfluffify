@@ -165,6 +165,7 @@ describe("corrective messaging application contracts", () => {
       tabId: 7,
       physicalViewportHint,
     });
+    expect(refit.parse({ tabId: 0 })).toEqual({ tabId: 0 });
     expect(apply.safeParse({
       tabId: 7,
       mode: "mobile",

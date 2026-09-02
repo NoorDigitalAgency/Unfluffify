@@ -218,6 +218,20 @@ describe("popup App surface", () => {
     expect(markup).not.toContain("alt-click to include and click to exclude");
   });
 
+  it("disables the confirmed device checkbox while a target posture is being proved", () => {
+    const silent = renderApp(
+      SILENT,
+      {},
+      EMPTY_POPUP_SETTINGS_FORM,
+      { ...FULL_HANDLERS, devicePreviewBusy: true },
+      EMPTY_POPUP_CREDENTIALS_FORM,
+      "silent",
+    );
+
+    expect(silent).toMatch(/id="desktop-preview-enabled"[^>]*disabled=""/);
+    expect(silent).toMatch(/id="desktop-preview-enabled"[^>]*aria-busy="true"/);
+  });
+
   it("keeps each view's controls off the other view", () => {
     // The point of the split: a half-built setup cannot be used to drive a
     // marking session, and marking controls do not clutter the repair screen.

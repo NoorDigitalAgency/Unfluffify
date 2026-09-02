@@ -1,6 +1,9 @@
 import { createRewriteBrainRuntime } from "./rewrite-brain-runtime";
 import { createPropertyLockRuntime, PROPERTY_LOCK_HEARTBEAT_ALARM } from "./lock-runtime";
-import { createRenderEmulationRuntime } from "./render-emulation-runtime";
+import {
+  createRenderEmulationRuntime,
+  type EmulationTransitionDelivery,
+} from "./render-emulation-runtime";
 import {
   createRenderInspectionRuntime,
 } from "./render-inspection-runtime";
@@ -46,6 +49,10 @@ import {
   createOffscreenDocumentOwner,
   type OffscreenDocumentApi,
 } from "./offscreen-document";
+import type {
+  EmulationTransitionRequest,
+  EmulationTransitionResult,
+} from "../content/emulation-transition-guardian";
 
 export { createRewriteBrain } from "./rewrite-brain";
 
@@ -84,6 +91,59 @@ type RewriteExtensionApi = InstalledBrowserApi & Readonly<{
     }>[]> | void;
   }>;
 }>;
+
+function emulationTransitionResult(value: unknown): EmulationTransitionResult | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  const measured = candidate.measured;
+  if (!measured || typeof measured !== "object" || Array.isArray(measured)) return null;
+  const measurement = measured as Record<string, unknown>;
+  const numericMeasurements = [
+    "innerWidth",
+    "innerHeight",
+    "screenWidth",
+    "screenHeight",
+    "visualViewportWidth",
+    "visualViewportHeight",
+    "visualViewportScale",
+  ];
+  if (numericMeasurements.some((key) =>
+    typeof measurement[key] !== "number" || !Number.isFinite(measurement[key]))) {
+    return null;
+  }
+  if (
+    typeof candidate.ok !== "boolean" ||
+    typeof candidate.generation !== "number" ||
+    !Number.isSafeInteger(candidate.generation) ||
+    candidate.generation <= 0 ||
+    (candidate.mode !== null && candidate.mode !== "mobile" && candidate.mode !== "desktop") ||
+    !["released", "idle", "guarding", "paint-proven", "settling", "rejected"]
+      .includes(String(candidate.stage)) ||
+    typeof candidate.guarded !== "boolean" ||
+    typeof candidate.coverage !== "boolean" ||
+    typeof candidate.exactGeometry !== "boolean" ||
+    typeof candidate.reason !== "string"
+  ) {
+    return null;
+  }
+  return candidate as EmulationTransitionResult;
+}
+
+function browserDeliveryDetail(value: unknown): string {
+  if (value instanceof Error) return value.message;
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    const candidate = value as Record<string, unknown>;
+    if (typeof candidate.message === "string") return candidate.message;
+    if (typeof candidate.code === "string") return candidate.code;
+  }
+  return String(value ?? "delivery-failed");
+}
+
+function contentReceiverUnavailable(value: unknown): boolean {
+  return /receiving end does not exist|no receiver|message port closed|could not establish connection|did not return one reply/i
+    .test(browserDeliveryDetail(value));
+}
 
 function renderInspectionCurtainProofExpression(identity: Readonly<{
   token: string;
@@ -927,12 +987,72 @@ export function startRewriteBackground(): void {
       contentBus.dispose();
     }
   };
+  const presentEmulationTransition = async (
+    tabId: number,
+    request: EmulationTransitionRequest,
+  ): Promise<EmulationTransitionDelivery> => {
+    if (!api.tabs?.sendMessage || tabId <= 0) {
+      return { status: "no_receiver", reason: "content-messaging-unavailable" };
+    }
+    const retryDelays = [0, 40, 80] as const;
+    for (let attempt = 0; attempt < retryDelays.length; attempt += 1) {
+      const delay = retryDelays[attempt]!;
+      if (delay > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, delay));
+      }
+      const contentBus = createRealmBus({
+        realm: "background",
+        transport: createTabTransport(api.tabs, tabId),
+      });
+      try {
+        const response = await contentBus.request("command.dispatch", {
+          kind: "uf-command/1",
+          name: "emulationTransition",
+          tabId,
+          payload: request,
+        }, { target: "content" });
+        if (!response.ok) {
+          if (contentReceiverUnavailable(response.failure)) {
+            if (attempt + 1 < retryDelays.length) continue;
+            return { status: "no_receiver", reason: browserDeliveryDetail(response.failure) };
+          }
+          const reason = browserDeliveryDetail(response.failure);
+          console.warn("[Unfluffify][rewrite] Emulation transition delivery failed", reason);
+          return { status: "failed", reason };
+        }
+        if (!response.data.ok) {
+          const reason = browserDeliveryDetail(response.data.failure);
+          console.warn("[Unfluffify][rewrite] Emulation transition command failed", reason);
+          return { status: "failed", reason };
+        }
+        const result = emulationTransitionResult(response.data.data);
+        if (!result) {
+          const reason = "invalid-emulation-transition-acknowledgement";
+          console.warn("[Unfluffify][rewrite] Emulation transition acknowledgement was invalid");
+          return { status: "failed", reason };
+        }
+        return { status: "ready", result };
+      } catch (error) {
+        if (contentReceiverUnavailable(error)) {
+          if (attempt + 1 < retryDelays.length) continue;
+          return { status: "no_receiver", reason: browserDeliveryDetail(error) };
+        }
+        const reason = browserDeliveryDetail(error);
+        console.warn("[Unfluffify][rewrite] Unable to present emulation transition", error);
+        return { status: "failed", reason };
+      } finally {
+        contentBus.dispose();
+      }
+    }
+    return { status: "no_receiver", reason: "content-receiver-unavailable" };
+  };
   let renderInspectionDetachHandler: ((tabId: number) => void) | null = null;
   const renderEmulation = createRenderEmulationRuntime({
     debuggerApi: api.debugger,
     tabs: api.tabs,
     windows: api.windows,
     postureRepo: createEmulationPostureRepo(emulationPostureStore),
+    presentTransition: presentEmulationTransition,
     onDebuggerDetached(tabId) {
       renderInspectionDetachHandler?.(tabId);
     },
@@ -1542,8 +1662,25 @@ export function startRewriteBackground(): void {
     await renderEmulation.clear(request.tabId);
     return { status: "ok" as const };
   });
-  bus.onCommand("emulation.refit", async (request) => {
-    await renderEmulation.refit(request.tabId, request.physicalViewportHint);
+  bus.onCommand("emulation.refit", async (request, meta) => {
+    const contentOwnedRequest = request.tabId === 0;
+    const tabId = contentOwnedRequest
+      ? parseSenderTabId(meta.sourceInstance) ?? 0
+      : request.tabId;
+    if (contentOwnedRequest) {
+      const documentId = parseSenderDocumentId(meta.sourceInstance);
+      const currentSender = meta.source === "content" &&
+        parseSenderFrameId(meta.sourceInstance) === 0 &&
+        tabId > 0 &&
+        documentId !== null &&
+        await isCurrentMainDocument(tabId, documentId);
+      if (!currentSender) {
+        return { status: "ok" as const };
+      }
+    }
+    if (tabId > 0) {
+      await renderEmulation.refit(tabId, request.physicalViewportHint);
+    }
     return { status: "ok" as const };
   });
   /** Render-mode knowledge is presentation data, not property classification.

@@ -3,6 +3,53 @@ import type { BusFrame } from "../../../src/messaging/contract";
 import { DEFAULT_EXCLUDED_IMMUTABLE_SELECTORS } from "../../../src/domain/constants";
 import { deriveGooglebotSmartphoneUserAgent } from "../../../src/content/stabilization/emulation";
 
+function emulationTransitionContentReply(message: unknown): BusFrame | undefined {
+  const frame = message as BusFrame;
+  const envelope = frame.payload as {
+    name?: unknown;
+    payload?: { phase?: unknown; generation?: unknown; mode?: unknown };
+  } | undefined;
+  if (frame.name !== "command.dispatch" || envelope?.name !== "emulationTransition") {
+    return undefined;
+  }
+  const request = envelope.payload ?? {};
+  const phase = request.phase;
+  const mode = phase === "release" || phase === "abort"
+    ? null
+    : request.mode === "desktop" ? "desktop" : "mobile";
+  const width = mode === "desktop" ? 1920 : 412;
+  const height = mode === "desktop" ? 1080 : 960;
+  return {
+    ...frame,
+    frameType: "reply",
+    source: "content",
+    target: frame.source,
+    ok: true,
+    payload: {
+      ok: true,
+      data: {
+        ok: true,
+        generation: request.generation,
+        mode,
+        stage: phase === "begin" ? "paint-proven" : phase === "settle" ? "idle" : "released",
+        guarded: phase === "begin",
+        coverage: phase === "begin",
+        exactGeometry: phase === "settle",
+        reason: "",
+        measured: {
+          innerWidth: width,
+          innerHeight: height,
+          screenWidth: width,
+          screenHeight: height,
+          visualViewportWidth: width,
+          visualViewportHeight: height,
+          visualViewportScale: 1,
+        },
+      },
+    },
+  };
+}
+
 describe("rewrite background startup", () => {
   afterEach(() => {
     vi.resetModules();
@@ -490,7 +537,8 @@ describe("rewrite background startup", () => {
         get(_tabId: number, callback: (tab: chrome.tabs.Tab) => void) {
           callback({ id: 5, width: 1_000, height: 1_000, windowId: 4 } as chrome.tabs.Tab);
         },
-        sendMessage: vi.fn(),
+        sendMessage: vi.fn((_tabId: number, message: unknown) =>
+          emulationTransitionContentReply(message)),
       },
       action: {
         onClicked: { addListener: vi.fn() },

@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createRenderEmulationRuntime } from "../../../src/background/render-emulation-runtime";
+import {
+  createRenderEmulationRuntime as createRenderEmulationRuntimeImplementation,
+  type EmulationTransitionDelivery,
+} from "../../../src/background/render-emulation-runtime";
+import type {
+  EmulationTransitionRequest,
+  EmulationTransitionResult,
+} from "../../../src/content/emulation-transition-guardian";
 import {
   createEmulationPostureRepo,
   createMemoryStore,
@@ -234,7 +241,339 @@ function tabsWithViewport(
   };
 }
 
+function transitionAcknowledgement(
+  request: EmulationTransitionRequest,
+): EmulationTransitionResult {
+  const mode = request.phase === "release" || request.phase === "abort" ? null : request.mode;
+  const preset = mode === "mobile"
+    ? { width: 412, height: 960 }
+    : { width: 1920, height: 1080 };
+  return {
+    ok: true,
+    generation: request.generation,
+    mode,
+    stage: request.phase === "begin"
+      ? "paint-proven"
+      : request.phase === "settle" ? "idle" : "released",
+    guarded: request.phase === "begin",
+    coverage: request.phase === "begin",
+    exactGeometry: request.phase === "settle",
+    reason: "",
+    measured: {
+      innerWidth: preset.width,
+      innerHeight: preset.height,
+      screenWidth: preset.width,
+      screenHeight: preset.height,
+      visualViewportWidth: preset.width,
+      visualViewportHeight: preset.height,
+      visualViewportScale: 1,
+    },
+  };
+}
+
+function transitionPresenter(
+  override?: (
+    request: EmulationTransitionRequest,
+  ) => Promise<EmulationTransitionDelivery> | EmulationTransitionDelivery,
+) {
+  const requests: EmulationTransitionRequest[] = [];
+  const presentTransition = vi.fn(async (
+    _tabId: number,
+    request: EmulationTransitionRequest,
+  ): Promise<EmulationTransitionDelivery> => {
+    requests.push(request);
+    return override?.(request) ?? {
+      status: "ready",
+      result: transitionAcknowledgement(request),
+    };
+  });
+  return { requests, presentTransition };
+}
+
+type RenderEmulationRuntimeInput = Parameters<
+  typeof createRenderEmulationRuntimeImplementation
+>[0];
+
+/** Production has no unguarded runtime constructor. Most focused tests are not
+ * about the presentation transport, so their harness supplies an exact guardian
+ * acknowledgement while the failure/ordering cases inject their own presenter. */
+function createRenderEmulationRuntime(
+  input: Omit<RenderEmulationRuntimeInput, "presentTransition"> &
+    Partial<Pick<RenderEmulationRuntimeInput, "presentTransition">>,
+) {
+  return createRenderEmulationRuntimeImplementation({
+    ...input,
+    presentTransition: input.presentTransition ?? transitionPresenter().presentTransition,
+  });
+}
+
 describe("render emulation runtime", () => {
+  it("paint-proves the transition guard before debugger attachment or metrics mutation", async () => {
+    const events: string[] = [];
+    let acknowledgeBegin: (() => void) | null = null;
+    const beginGate = new Promise<void>((resolve) => {
+      acknowledgeBegin = resolve;
+    });
+    const presenter = transitionPresenter(async (request) => {
+      events.push(`${request.phase}:requested`);
+      if (request.phase === "begin") {
+        await beginGate;
+        events.push("begin:paint-proven");
+      }
+      return { status: "ready", result: transitionAcknowledgement(request) };
+    });
+    const debuggerApi = fakeDebugger({
+      onMetricsCommand() {
+        events.push("metrics");
+      },
+    });
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: tabsWithViewport({ width: 900, height: 720, windowId: 4 }),
+      presentTransition: presenter.presentTransition,
+    });
+
+    const applying = runtime.apply(7, "mobile", 1);
+    await flush();
+    expect(debuggerApi.attaches).toHaveLength(0);
+    expect(debuggerApi.sent).toHaveLength(0);
+
+    acknowledgeBegin?.();
+    await expect(applying).resolves.toMatchObject({ active: true, mode: "mobile" });
+    expect(events.indexOf("begin:paint-proven")).toBeLessThan(events.indexOf("metrics"));
+    expect(events).toContain("settle:requested");
+  });
+
+  it("fails closed without touching the debugger when no transition guard answers", async () => {
+    const presenter = transitionPresenter(() => ({
+      status: "no_receiver",
+      reason: "no content receiver",
+    }));
+    const debuggerApi = fakeDebugger();
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: tabsWithViewport(),
+      presentTransition: presenter.presentTransition,
+    });
+
+    await expect(runtime.apply(7, "mobile", 1)).resolves.toMatchObject({
+      active: false,
+      failureReason: "presentation_unavailable",
+    });
+    expect(debuggerApi.attaches).toHaveLength(0);
+    expect(debuggerApi.sent).toHaveLength(0);
+    expect(presenter.requests.map((request) => request.phase)).toEqual(["begin", "abort"]);
+  });
+
+  it("refuses to clear or detach a held posture without a paint-proven guard", async () => {
+    let refuseClear = false;
+    const presenter = transitionPresenter((request) => refuseClear && request.cause === "clear"
+      ? { status: "no_receiver", reason: "no content receiver" }
+      : { status: "ready", result: transitionAcknowledgement(request) });
+    const debuggerApi = fakeDebugger();
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: tabsWithViewport(),
+      presentTransition: presenter.presentTransition,
+    });
+    await expect(runtime.apply(7, "mobile", 1)).resolves.toMatchObject({ active: true });
+    const callsBeforeClear = debuggerApi.sent.length;
+    const detachesBeforeClear = debuggerApi.detaches.length;
+    refuseClear = true;
+
+    await expect(runtime.clear(7)).rejects.toThrow(/presentation unavailable/i);
+
+    expect(runtime.heldMode(7)).toBe("mobile");
+    expect(debuggerApi.sent).toHaveLength(callsBeforeClear);
+    expect(debuggerApi.detaches).toHaveLength(detachesBeforeClear);
+    expect(presenter.requests.slice(-2)).toMatchObject([
+      { phase: "begin", cause: "clear", mode: "mobile" },
+      { phase: "abort", cause: "clear" },
+    ]);
+  });
+
+  it("paint-proves even an untracked neutral clear before its first debugger write", async () => {
+    const presenter = transitionPresenter(() => ({
+      status: "no_receiver",
+      reason: "no content receiver",
+    }));
+    const debuggerApi = fakeDebugger();
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: tabsWithViewport(),
+      presentTransition: presenter.presentTransition,
+    });
+
+    await expect(runtime.clear(7)).rejects.toThrow(/presentation unavailable/i);
+
+    expect(debuggerApi.attaches).toHaveLength(0);
+    expect(debuggerApi.sent).toHaveLength(0);
+    expect(debuggerApi.detaches).toHaveLength(0);
+  });
+
+  it("keeps the proven held posture when durable clear storage refuses the transition", async () => {
+    const baseRepo = createEmulationPostureRepo(createMemoryStore());
+    let refuseClear = false;
+    const postureRepo = {
+      load: baseRepo.load,
+      list: baseRepo.list,
+      save: baseRepo.save,
+      clear: vi.fn(async (tabId: number) => {
+        if (refuseClear) throw new Error("durable clear refused");
+        await baseRepo.clear(tabId);
+      }),
+    };
+    const presenter = transitionPresenter();
+    const debuggerApi = fakeDebugger();
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: tabsWithViewport({ width: 900, height: 720, windowId: 4 }),
+      postureRepo,
+      presentTransition: presenter.presentTransition,
+    });
+    await runtime.apply(7, "mobile", 1);
+    const sentBeforeClear = debuggerApi.sent.length;
+    const detachesBeforeClear = debuggerApi.detaches.length;
+    presenter.requests.length = 0;
+    refuseClear = true;
+
+    await expect(runtime.clear(7)).rejects.toThrow("durable clear refused");
+
+    expect(runtime.heldMode(7)).toBe("mobile");
+    expect(debuggerApi.sent).toHaveLength(sentBeforeClear);
+    expect(debuggerApi.detaches).toHaveLength(detachesBeforeClear);
+    await expect(baseRepo.load(7)).resolves.toMatchObject({
+      ok: true,
+      value: { mode: "mobile" },
+    });
+    expect(presenter.requests.map((request) => request.phase)).toEqual(["begin", "settle"]);
+  });
+
+  it("never detaches into browser-default geometry when durable rollback cannot commit", async () => {
+    const baseRepo = createEmulationPostureRepo(createMemoryStore());
+    let refuseMutations = false;
+    const postureRepo = {
+      load: baseRepo.load,
+      list: baseRepo.list,
+      save: vi.fn(async (record: Parameters<typeof baseRepo.save>[0]) => {
+        if (refuseMutations) throw new Error("durable save refused");
+        await baseRepo.save(record);
+      }),
+      clear: vi.fn(async (tabId: number) => {
+        if (refuseMutations) throw new Error("durable clear refused");
+        await baseRepo.clear(tabId);
+      }),
+    };
+    const presenter = transitionPresenter();
+    const debuggerApi = fakeDebugger();
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: tabsWithViewport({ width: 900, height: 720, windowId: 4 }),
+      postureRepo,
+      presentTransition: presenter.presentTransition,
+    });
+    await runtime.apply(7, "mobile", 1);
+    const sentBeforeTransition = debuggerApi.sent.length;
+    const detachesBeforeTransition = debuggerApi.detaches.length;
+    presenter.requests.length = 0;
+    refuseMutations = true;
+
+    await expect(runtime.apply(7, "desktop", 1)).rejects.toThrow("durable save refused");
+
+    expect(runtime.heldMode(7)).toBe("mobile");
+    expect(debuggerApi.sent).toHaveLength(sentBeforeTransition);
+    expect(debuggerApi.detaches).toHaveLength(detachesBeforeTransition);
+    expect(presenter.requests).toMatchObject([{
+      phase: "begin",
+      mode: "mobile",
+      cause: "restore",
+    }]);
+  });
+
+  it("settles an already-safe no-op refit so a synchronous resize guard cannot remain stuck", async () => {
+    const presenter = transitionPresenter();
+    const debuggerApi = fakeDebugger();
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: tabsWithViewport({ width: 900, height: 720, windowId: 4 }),
+      presentTransition: presenter.presentTransition,
+    });
+    await runtime.apply(7, "mobile", 1);
+    presenter.requests.length = 0;
+    debuggerApi.sent.length = 0;
+
+    await runtime.refit(7);
+
+    expect(presenter.requests.map((request) => request.phase)).toEqual(["begin", "settle"]);
+    expect(presenter.requests[0]).toMatchObject({ cause: "refit", mode: "mobile" });
+    expect(debuggerApi.sent.some((call) =>
+      call.method === "Emulation.setDeviceMetricsOverride")).toBe(false);
+  });
+
+  it("keeps a real physical-shrink refit guarded from before metrics through exact settle", async () => {
+    const events: string[] = [];
+    const viewport = { width: 900, height: 720, windowId: 4 };
+    const presenter = transitionPresenter((request) => {
+      events.push(`present:${request.phase}`);
+      return { status: "ready", result: transitionAcknowledgement(request) };
+    });
+    const debuggerApi = fakeDebugger({
+      onMetricsCommand() {
+        events.push("metrics");
+      },
+    });
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: tabsWithViewport(viewport),
+      presentTransition: presenter.presentTransition,
+    });
+    await runtime.apply(7, "mobile", 1);
+    events.length = 0;
+    debuggerApi.sent.length = 0;
+    viewport.height = 480;
+
+    await runtime.refit(7);
+
+    expect(events).toEqual(["present:begin", "metrics", "present:settle"]);
+    expect(debuggerApi.sent.filter((call) => call.method.startsWith("Emulation.")))
+      .toMatchObject([{
+        method: "Emulation.setDeviceMetricsOverride",
+        params: { width: 412, height: 960, mobile: true, scale: 0.5 },
+      }]);
+  });
+
+  it("reasserts a canceled mobile lease inside a debugger-detach presentation occurrence", async () => {
+    const presenter = transitionPresenter();
+    const debuggerApi = fakeDebugger();
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: tabsWithViewport({ width: 900, height: 720, windowId: 4 }),
+      presentTransition: presenter.presentTransition,
+    });
+    await runtime.apply(7, "mobile", 1);
+    presenter.requests.length = 0;
+    debuggerApi.sent.length = 0;
+
+    debuggerApi.detach(7, "canceled_by_user");
+    for (let attempt = 0; attempt < 10 &&
+      !presenter.requests.some((request) => request.phase === "settle"); attempt += 1) {
+      await flush();
+    }
+
+    expect(presenter.requests[0]).toMatchObject({
+      phase: "begin",
+      cause: "debugger-detach",
+      mode: "mobile",
+    });
+    expect(presenter.requests.at(-1)).toMatchObject({ phase: "settle", mode: "mobile" });
+    expect(debuggerApi.sent.find((call) =>
+      call.method === "Emulation.setDeviceMetricsOverride")?.params).toMatchObject({
+      width: 412,
+      height: 960,
+      mobile: true,
+    });
+  });
+
   it("fits the entire mobile and desktop screens to the visible tab viewport", async () => {
     const debuggerApi = fakeDebugger();
     const viewport = { width: 800, height: 700, windowId: 4 };
@@ -598,15 +937,18 @@ describe("render emulation runtime", () => {
     vi.useFakeTimers();
     try {
       const debuggerApi = fakeDebugger();
+      const presenter = transitionPresenter();
       const repo = createEmulationPostureRepo(createMemoryStore());
       const runtime = createRenderEmulationRuntime({
         debuggerApi: debuggerApi.api,
         tabs: tabsWithViewport({ width: 900, height: 720, windowId: 4 }),
         postureRepo: repo,
         leaseWatchdogMs: 50,
+        presentTransition: presenter.presentTransition,
       });
       await runtime.apply(7, mode, 1);
       debuggerApi.sent.length = 0;
+      presenter.requests.length = 0;
       const attachesBeforeLoss = debuggerApi.attaches.length;
 
       // This is the Chromium path that has no onDetach notification. No popup
@@ -624,6 +966,12 @@ describe("render emulation runtime", () => {
         .toHaveLength(1);
       expect(debuggerApi.sent.filter((call) => call.method === "Emulation.setUserAgentOverride"))
         .toHaveLength(1);
+      expect(presenter.requests[0]).toMatchObject({
+        phase: "begin",
+        cause: "lease-recovery",
+        mode,
+      });
+      expect(presenter.requests.at(-1)).toMatchObject({ phase: "settle", mode });
       await expect(runtime.current(7, mode, 1)).resolves.toMatchObject({
         active: true,
         mode,
@@ -641,19 +989,23 @@ describe("render emulation runtime", () => {
     vi.useFakeTimers();
     try {
       const debuggerApi = fakeDebugger();
+      const presenter = transitionPresenter();
       const repo = createEmulationPostureRepo(createMemoryStore());
       const runtime = createRenderEmulationRuntime({
         debuggerApi: debuggerApi.api,
         tabs: tabsWithViewport({ width: 900, height: 720, windowId: 4 }),
         postureRepo: repo,
         leaseWatchdogMs: 50,
+        presentTransition: presenter.presentTransition,
       });
       await runtime.apply(7, "desktop", 1);
       debuggerApi.sent.length = 0;
+      presenter.requests.length = 0;
 
       await vi.advanceTimersByTimeAsync(250);
       await flush();
       expect(debuggerApi.sent).toEqual([]);
+      expect(presenter.requests).toEqual([]);
 
       await runtime.clear(7);
       debuggerApi.sent.length = 0;

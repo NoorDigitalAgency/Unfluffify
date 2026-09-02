@@ -58,6 +58,22 @@ const inspectionCurtainHarness = vi.hoisted(() => ({
   create: vi.fn(),
 }));
 
+const emulationGuardianHarness = vi.hoisted(() => ({
+  instances: [] as Array<{
+    handle: ReturnType<typeof vi.fn>;
+    refresh: ReturnType<typeof vi.fn>;
+    suspend: ReturnType<typeof vi.fn>;
+    resume: ReturnType<typeof vi.fn>;
+    dispose: ReturnType<typeof vi.fn>;
+    current: ReturnType<typeof vi.fn>;
+    element: ReturnType<typeof vi.fn>;
+    isGuarding: ReturnType<typeof vi.fn>;
+    root: { marker: string };
+    unexpectedViewportChange: () => void;
+  }>,
+  create: vi.fn(),
+}));
+
 vi.mock("../src/content/interaction-shield", () => {
   shieldHarness.create.mockImplementation((options: {
     extensionSurfaces?: () => HTMLElement[];
@@ -161,6 +177,92 @@ vi.mock("../src/content/render-inspection-curtain", () => {
     return instance;
   });
   return { createRenderInspectionCurtain: inspectionCurtainHarness.create };
+});
+
+vi.mock("../src/content/emulation-transition-guardian", () => {
+  emulationGuardianHarness.create.mockImplementation((options: {
+    beforeSettle?: () => Promise<void> | void;
+    onGuardingChanged?: (guarding: boolean) => void;
+    onUnexpectedViewportChange?: (mode: "mobile" | "desktop", generation: number) => void;
+  }) => {
+    let guarding = false;
+    let generation = 0;
+    let mode: "mobile" | "desktop" | null = null;
+    const root = { marker: "emulation-transition-guardian" };
+    const instance = {
+      handle: vi.fn(async (request: {
+        phase: "begin" | "settle" | "abort" | "release";
+        generation: number;
+        mode?: "mobile" | "desktop";
+      }) => {
+        generation = request.generation;
+        if (request.phase === "begin") {
+          mode = request.mode ?? null;
+          guarding = true;
+          options.onGuardingChanged?.(true);
+        } else if (request.phase === "settle") {
+          await options.beforeSettle?.();
+          guarding = false;
+          options.onGuardingChanged?.(false);
+        } else {
+          mode = null;
+          guarding = false;
+          options.onGuardingChanged?.(false);
+        }
+        return {
+          ok: true,
+          generation,
+          mode,
+          stage: guarding
+            ? "paint-proven"
+            : request.phase === "release" || request.phase === "abort" ? "released" : "idle",
+          guarded: guarding,
+          coverage: guarding,
+          exactGeometry: request.phase !== "begin",
+          reason: "",
+          measured: {},
+        };
+      }),
+      refresh: vi.fn(),
+      suspend: vi.fn(),
+      resume: vi.fn(),
+      dispose: vi.fn(() => {
+        guarding = false;
+        options.onGuardingChanged?.(false);
+      }),
+      current: vi.fn(() => ({ generation, mode, guarded: guarding })),
+      element: vi.fn(() => mode ? root : null),
+      isGuarding: vi.fn(() => guarding),
+      root,
+      unexpectedViewportChange: () => {
+        if (mode) options.onUnexpectedViewportChange?.(mode, generation);
+      },
+    };
+    emulationGuardianHarness.instances.push(instance);
+    return instance;
+  });
+  return {
+    createEmulationTransitionGuardian: emulationGuardianHarness.create,
+    parseEmulationTransitionRequest: (value: unknown) => {
+      if (!value || typeof value !== "object") return null;
+      const request = value as { phase?: unknown; generation?: unknown; mode?: unknown };
+      if (
+        !["begin", "settle", "abort", "release"].includes(String(request.phase)) ||
+        typeof request.generation !== "number"
+      ) {
+        return null;
+      }
+      if (
+        request.phase !== "release" &&
+        request.phase !== "abort" &&
+        request.mode !== "mobile" &&
+        request.mode !== "desktop"
+      ) {
+        return null;
+      }
+      return value;
+    },
+  };
 });
 
 type TestListenerRegistry = Map<string, Set<EventListener>>;
@@ -618,6 +720,7 @@ describe("C4 rewrite content entrypoints", () => {
     vi.unstubAllGlobals();
     shieldHarness.instances.splice(0);
     inspectionCurtainHarness.instances.splice(0);
+    emulationGuardianHarness.instances.splice(0);
     delete globalThis.chrome;
     Reflect.deleteProperty(globalThis, "document");
     Reflect.deleteProperty(globalThis, "location");
@@ -684,6 +787,91 @@ describe("C4 rewrite content entrypoints", () => {
         reason: "no-document",
         tree: "rewrite",
       },
+    });
+  });
+
+  it("routes debugger transition generations through the document-start guardian", async () => {
+    const addListener = vi.fn();
+    installTestLocation();
+    installMinimalContentDom();
+    const sendMessage = vi.fn(async () => undefined);
+    globalThis.chrome = {
+      runtime: {
+        onMessage: { addListener },
+        sendMessage,
+      },
+    } as unknown as typeof chrome;
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as { main: () => void }).main();
+    const listener = addListener.mock.calls[0]?.[0] as (
+      message: unknown,
+      sender: unknown,
+      sendResponse: (value: unknown) => void,
+    ) => unknown;
+    const guardian = emulationGuardianHarness.instances.at(-1);
+    const shield = shieldHarness.instances.at(-1);
+    expect(guardian).toBeDefined();
+
+    await expect(dispatchContentCommand(listener, "emulationTransition", {
+      phase: "begin",
+      generation: 7,
+      mode: "mobile",
+      cause: "apply",
+    })).resolves.toMatchObject({
+      ok: true,
+      data: {
+        ok: true,
+        generation: 7,
+        mode: "mobile",
+        stage: "paint-proven",
+        guarded: true,
+        tree: "rewrite",
+      },
+    });
+    expect(guardian?.handle).toHaveBeenCalledWith(expect.objectContaining({
+      phase: "begin",
+      generation: 7,
+      mode: "mobile",
+    }));
+    expect(shield?.setActive).toHaveBeenCalledWith("emulation-transition", true);
+    expect(shield?.extensionSurfaces()).toContain(guardian?.root);
+    expect(shield?.blockNativeScroll?.()).toBe(true);
+
+    sendMessage.mockClear();
+    guardian?.unexpectedViewportChange();
+    await waitForCondition(() => sendMessage.mock.calls.some(
+      ([frame]) => (frame as BusFrame).name === "emulation.refit",
+    ));
+    const refit = sendMessage.mock.calls.find(
+      ([frame]) => (frame as BusFrame).name === "emulation.refit",
+    )?.[0] as BusFrame | undefined;
+    expect(refit).toMatchObject({ name: "emulation.refit", payload: { tabId: 0 } });
+
+    shield?.refresh.mockClear();
+    await expect(dispatchContentCommand(listener, "emulationTransition", {
+      phase: "settle",
+      generation: 7,
+      mode: "mobile",
+      cause: "apply",
+    })).resolves.toMatchObject({
+      ok: true,
+      data: { ok: true, stage: "idle", guarded: false, tree: "rewrite" },
+    });
+    expect(shield?.refresh).toHaveBeenCalled();
+    expect(shield?.setActive).toHaveBeenCalledWith("emulation-transition", false);
+    expect(shield?.blockNativeScroll?.()).toBe(false);
+
+    await expect(dispatchContentCommand(listener, "emulationTransition", {
+      phase: "release",
+      generation: 8,
+      cause: "clear",
+    })).resolves.toMatchObject({
+      ok: true,
+      data: { ok: true, stage: "released", guarded: false, tree: "rewrite" },
     });
   });
 

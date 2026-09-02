@@ -12,6 +12,11 @@ import {
 } from "../content/command-router";
 import { createConsentLifecycle } from "../content/consent-lifecycle";
 import {
+  createEmulationTransitionGuardian,
+  parseEmulationTransitionRequest,
+  type EmulationTransitionGuardian,
+} from "../content/emulation-transition-guardian";
+import {
   createContentTransientSurfaces,
   type ContentTransientSurfaces,
 } from "../content/transient-surfaces";
@@ -109,7 +114,10 @@ function createAuthoritativeMarkingEngine(
   retireSupersededMarkingRoots(typeof document === "undefined" ? null : document);
   const engine = createMarkingEngine(...args);
   engine.setPageInspectionActive?.(
-    pageInspectionActive || pageWorldCleanupFenceNonce !== "" || renderModeViewActive,
+    pageInspectionActive ||
+      pageWorldCleanupFenceNonce !== "" ||
+      renderModeViewActive ||
+      emulationTransitionGuarding,
   );
   return engine;
 }
@@ -249,6 +257,8 @@ let renderModeViewActive = false;
 const contentToasts = createContentToastLifecycle();
 let interactionShield: InteractionShieldController | null = null;
 let renderInspectionCurtain: RenderInspectionCurtainController | null = null;
+let emulationTransitionGuardian: EmulationTransitionGuardian | null = null;
+let emulationTransitionGuarding = false;
 let renderInspectionAdoptionGeneration = 0;
 let pendingRenderInspectionAdoptionGeneration: number | null = null;
 let provisionalBfcacheRenderInspectionFence = false;
@@ -281,6 +291,7 @@ const DURABLE_POSTURE_SHIELD_REASON = "durable-posture";
 const RENDER_INSPECTION_SHIELD_REASON = "render-inspection";
 const BF_CACHE_RENDER_INSPECTION_SHIELD_REASON = "bfcache-render-inspection";
 const PAGE_VISIT_INSPECTION_SHIELD_REASON = "page-visit-inspection";
+const EMULATION_TRANSITION_SHIELD_REASON = "emulation-transition";
 
 const CONTENT_LOCK_ACTION_LABEL: Readonly<Record<LockActionKind, string>> = {
   "continue-here": "Continue here",
@@ -2271,6 +2282,81 @@ contentToasts.subscribe(() => {
   }
 });
 
+function annotationPresentationSuppressed(): boolean {
+  return pageInspectionActive ||
+    pageWorldCleanupFenceNonce !== "" ||
+    renderModeViewActive ||
+    emulationTransitionGuarding;
+}
+
+async function refreshViewportDependentPresentation(
+  repaintSilent: boolean,
+): Promise<void> {
+  interactionShield?.refresh();
+  if (
+    repaintSilent &&
+    !markingActive &&
+    silentInteractionShieldActive &&
+    markingEngine
+  ) {
+    markingEngine.renderSilentHighlights();
+  }
+  await markingEngine?.settlePresentation?.();
+}
+
+function ensureEmulationTransitionGuardian(): EmulationTransitionGuardian | null {
+  if (
+    emulationTransitionGuardian ||
+    typeof document === "undefined" ||
+    typeof window === "undefined"
+  ) {
+    return emulationTransitionGuardian;
+  }
+  const guardian = createEmulationTransitionGuardian({
+    document,
+    window,
+    async beforeSettle() {
+      await refreshViewportDependentPresentation(true);
+    },
+    onUnexpectedViewportChange() {
+      // Resize is observed in the inspected document before its next paint.
+      // Ask the browser-owned authority to refit immediately; the standing
+      // 50 ms lease watchdog remains only the silent-detach/host-event backstop.
+      void getContentBus().request(
+        "emulation.refit",
+        { tabId: 0 },
+        { target: "background" },
+      ).catch(() => undefined);
+    },
+    onGuardingChanged(guarding) {
+      emulationTransitionGuarding = guarding;
+      markingEngine?.setPageInspectionActive?.(annotationPresentationSuppressed());
+      syncInteractionShield();
+      emulationTransitionGuardian?.refresh();
+    },
+    onStage(request, result) {
+      if (typeof __UF_DEBUG_BUILD__ === "undefined" || !__UF_DEBUG_BUILD__) {
+        return;
+      }
+      const debugGlobal = globalThis as typeof globalThis & {
+        __ufEmulationTransitionHistory?: unknown[];
+      };
+      const history = debugGlobal.__ufEmulationTransitionHistory ?? [];
+      history.push({
+        at: Date.now(),
+        request,
+        result,
+      });
+      if (history.length > 80) {
+        history.splice(0, history.length - 80);
+      }
+      debugGlobal.__ufEmulationTransitionHistory = history;
+    },
+  });
+  emulationTransitionGuardian = guardian;
+  return guardian;
+}
+
 function extensionSurfacesForShield(): HTMLElement[] {
   const surfaces: HTMLElement[] = [];
   const markingRoot = markingEngine?.overlayRoot?.();
@@ -2284,6 +2370,10 @@ function extensionSurfacesForShield(): HTMLElement[] {
   if (inspectionRoot) {
     surfaces.push(inspectionRoot);
   }
+  const emulationTransitionRoot = emulationTransitionGuardian?.element();
+  if (emulationTransitionRoot) {
+    surfaces.push(emulationTransitionRoot);
+  }
   return surfaces;
 }
 
@@ -2296,6 +2386,10 @@ function inputBoundarySurfacesForShield(): HTMLElement[] {
   if (inspectionRoot && renderInspectionCurtain?.current()) {
     surfaces.push(inspectionRoot);
   }
+  const emulationTransitionRoot = emulationTransitionGuardian?.element();
+  if (emulationTransitionRoot && emulationTransitionGuardian?.isGuarding()) {
+    surfaces.push(emulationTransitionRoot);
+  }
   return surfaces;
 }
 
@@ -2305,7 +2399,8 @@ function privilegedExtensionTargetsForShield(): HTMLElement[] {
 
 function inspectionOwnsScroll(): boolean {
   const renderInspection = renderInspectionCurtain?.current() ?? null;
-  return pageInspectionActive || provisionalBfcacheRenderInspectionFence ||
+  return emulationTransitionGuarding ||
+    pageInspectionActive || provisionalBfcacheRenderInspectionFence ||
     (renderInspection !== null && !renderInspection.javascriptEnabled);
 }
 
@@ -2363,7 +2458,9 @@ function syncInteractionShield(): void {
   const pageVisitInspectionActive =
     pageWorldCleanupFenceNonce !== "" ||
     (pageInspectionActive && interactionShieldAuthorityActive);
-  const shouldBeActive = inspectionActive || bfcacheInspectionActive || pageVisitInspectionActive || (
+  const emulationTransitionActive = emulationTransitionGuarding;
+  const shouldBeActive = emulationTransitionActive ||
+    inspectionActive || bfcacheInspectionActive || pageVisitInspectionActive || (
     interactionShieldAuthorityActive &&
     (silentActive || previewActive || blockedOrganActive || durablePostureShieldActive)
   );
@@ -2376,6 +2473,7 @@ function syncInteractionShield(): void {
     interactionShield?.setActive(RENDER_INSPECTION_SHIELD_REASON, false);
     interactionShield?.setActive(BF_CACHE_RENDER_INSPECTION_SHIELD_REASON, false);
     interactionShield?.setActive(PAGE_VISIT_INSPECTION_SHIELD_REASON, false);
+    interactionShield?.setActive(EMULATION_TRANSITION_SHIELD_REASON, false);
     return;
   }
   const controller = ensureInteractionShield();
@@ -2403,6 +2501,9 @@ function syncInteractionShield(): void {
   if (pageVisitInspectionActive) {
     controller.setActive(PAGE_VISIT_INSPECTION_SHIELD_REASON, true);
   }
+  if (emulationTransitionActive) {
+    controller.setActive(EMULATION_TRANSITION_SHIELD_REASON, true);
+  }
   markingEngine?.setInputTransparent?.(true);
   controller.setActive(SILENT_SHIELD_REASON, silentActive);
   controller.setActive(PREVIEW_SHIELD_REASON, previewActive);
@@ -2411,7 +2512,9 @@ function syncInteractionShield(): void {
   controller.setActive(RENDER_INSPECTION_SHIELD_REASON, inspectionActive);
   controller.setActive(BF_CACHE_RENDER_INSPECTION_SHIELD_REASON, bfcacheInspectionActive);
   controller.setActive(PAGE_VISIT_INSPECTION_SHIELD_REASON, pageVisitInspectionActive);
+  controller.setActive(EMULATION_TRANSITION_SHIELD_REASON, emulationTransitionActive);
   controller.refresh();
+  emulationTransitionGuardian?.refresh();
 }
 
 function disposeInteractionShield(): void {
@@ -2847,9 +2950,7 @@ function renderContentSurface(): void {
   // single pre-composited root class before any retained-surface signature
   // shortcut; this hides existing Marking, Silent, Preview, focus, and hover
   // paint without recomputing their rows or geometry.
-  markingEngine?.setPageInspectionActive?.(
-    pageInspectionActive || pageWorldCleanupFenceNonce !== "" || renderModeViewActive,
-  );
+  markingEngine?.setPageInspectionActive?.(annotationPresentationSuppressed());
   if (!interactionShieldAuthorityActive) {
     contentSurfaceRoot?.remove();
     contentSurfaceRoot = null;
@@ -4631,6 +4732,28 @@ function createContentRouter() {
         return activateContentMain(payload);
       },
       getContentMainStatus: () => contentStatus(),
+      emulationTransition: async (payload) => {
+        const request = parseEmulationTransitionRequest(payload);
+        if (!request) {
+          return {
+            ok: false,
+            reason: "invalid-emulation-transition",
+            tree: "rewrite",
+          };
+        }
+        const guardian = ensureEmulationTransitionGuardian();
+        if (!guardian) {
+          return {
+            ok: false,
+            reason: "emulation-transition-guardian-unavailable",
+            tree: "rewrite",
+          };
+        }
+        return {
+          ...await guardian.handle(request),
+          tree: "rewrite",
+        };
+      },
       syncContentSignals: async () => {
         await contentSignalScheduler.drain();
         return {
@@ -4641,24 +4764,14 @@ function createContentRouter() {
           tree: "rewrite",
         };
       },
-      refreshInteractionShieldViewport: (payload) => {
+      refreshInteractionShieldViewport: async (payload) => {
         // DevTools device metrics do not consistently dispatch a viewport event
         // into an already-running isolated world. Emulation therefore asks the
         // content owner for one explicit, synchronous remeasurement after CDP
         // confirms the new target posture.
-        interactionShield?.refresh();
-        if (
-          payloadObject(payload).repaintSilent === true &&
-          !markingActive &&
-          silentInteractionShieldActive &&
-          markingEngine
-        ) {
-          // Same-document metrics changes need a synchronous geometry repaint.
-          // Responsive identity changes take the reload path in the popup, where
-          // a fresh content document rebuilds selector ownership. The explicit
-          // flag prevents an expensive duplicate paint on that new document.
-          markingEngine.renderSilentHighlights();
-        }
+        await refreshViewportDependentPresentation(
+          payloadObject(payload).repaintSilent === true,
+        );
         const viewport = window.visualViewport;
         return {
           ok: true,
@@ -4848,6 +4961,9 @@ export default defineContentScript({
   runAt: "document_start",
   allFrames: false,
   main(ctx) {
+    // Register the viewport guardian at document_start so unexpected debugger
+    // detach/resize delivery cannot be preceded by page-owned resize handlers.
+    ensureEmulationTransitionGuardian();
     // Construct the inert input firewall at document_start. Once a shield lease
     // activates, this already-registered capture listener precedes page-owned
     // window listeners instead of racing them after authority resolution.
@@ -4874,10 +4990,13 @@ export default defineContentScript({
       // BFCache retains the page realm and all page listeners. Remove only the
       // physical layers; keep the document_start firewall registered so it
       // still precedes page listeners when pageshow remounts retained leases.
+      emulationTransitionGuardian?.suspend();
       interactionShield?.suspend();
     };
     const unloadLocalSurfaces = (): void => {
       suspendLocalSurfaces();
+      emulationTransitionGuardian?.dispose();
+      emulationTransitionGuardian = null;
       disposeInteractionShield();
       transientSurfaces.dispose();
       contentTransientSurfaces = null;
@@ -4895,6 +5014,7 @@ export default defineContentScript({
         // the inspection curtain; terminal/inactive answers leave it fail-open.
         if (localSurfacesSuspended) {
           localSurfacesSuspended = false;
+          emulationTransitionGuardian?.resume();
           contentToasts.resume();
           syncContentTransientPreviewContext();
           void adoptRenderInspectionSession();
@@ -4908,6 +5028,8 @@ export default defineContentScript({
       requestTerminalShieldClear("extension-invalidation");
       terminateConsentSuppression({ terminal: true });
       terminateInteractionShieldAuthority({ failOpenCleanupFence: true });
+      emulationTransitionGuardian?.dispose();
+      emulationTransitionGuardian = null;
       transientSurfaces.dispose();
       contentTransientSurfaces = null;
       contentToasts.dispose();

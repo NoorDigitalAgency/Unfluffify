@@ -336,6 +336,7 @@ function makeRuntime(
   options: Readonly<{
     configLoad?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
     emulationApply?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
+    emulationClear?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
     emulationCurrent?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
     renderInspectionCurrent?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
     lockDirective?: (frame: BusFrame) => Promise<BusFrame> | BusFrame;
@@ -504,6 +505,9 @@ function makeRuntime(
           : null);
       }
       if (frame.name === "emulation.clear") {
+        if (options.emulationClear) {
+          return await options.emulationClear(frame);
+        }
         emulationMode = null;
         return replyFrame(frame, { status: "ok" });
       }
@@ -1113,9 +1117,11 @@ describe("rewrite popup entrypoint", () => {
       "marking activation",
     );
     expect(emulationModes().at(-1)).toBe("mobile");
-    const viewportRefreshesAfterMobile = tabsSendMessage.mock.calls.filter(([, frame]) =>
-      ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "refreshInteractionShieldViewport");
-    expect(viewportRefreshesAfterMobile.length).toBeGreaterThan(0);
+    // Viewport-dependent presentation is refreshed by the content guardian
+    // while its opaque plane still owns paint, never by a late popup command.
+    expect(tabsSendMessage.mock.calls.filter(([, frame]) =>
+      ((frame as BusFrame).payload as { name?: string } | undefined)?.name ===
+        "refreshInteractionShieldViewport")).toHaveLength(0);
 
     props().onEnableChange(false);
     await waitFor(() => emulationModes().at(-1) === "desktop", "restored desktop silent posture");
@@ -1129,11 +1135,66 @@ describe("rewrite popup entrypoint", () => {
     expect(finalDesktopCall).toBeGreaterThanOrEqual(0);
     expect(tabsSendMessage.mock.invocationCallOrder[enterSilentCall]!)
       .toBeLessThan(runtime.sendMessage.mock.invocationCallOrder[finalDesktopCall]!);
-    const finalViewportRefresh = tabsSendMessage.mock.calls.findLastIndex(([, frame]) =>
-      ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "refreshInteractionShieldViewport");
-    expect(finalViewportRefresh).toBeGreaterThanOrEqual(0);
-    expect(runtime.sendMessage.mock.invocationCallOrder[finalDesktopCall]!)
-      .toBeLessThan(tabsSendMessage.mock.invocationCallOrder[finalViewportRefresh]!);
+  });
+
+  it("keeps desktop preview at the last confirmed mode while a failed target is pending", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
+    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
+    let releaseDesktop!: () => void;
+    const desktopGate = new Promise<void>((resolve) => {
+      releaseDesktop = resolve;
+    });
+    const runtime = makeRuntime(async (message) => replyFrame(message, []), "rendered", {
+      async emulationApply(frame) {
+        const mode = (frame.payload as { mode?: string }).mode;
+        if (mode === "desktop") {
+          await desktopGate;
+          return replyFrame(frame, {
+            mode: "desktop",
+            width: 1920,
+            height: 1080,
+            scale: 1,
+            active: false,
+            failureReason: "presentation_unavailable",
+          });
+        }
+        return replyFrame(frame, {
+          mode: "mobile",
+          width: 412,
+          height: 960,
+          scale: 1,
+          active: true,
+        });
+      },
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await confirmRenderMode(render);
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "emulation.apply"),
+      "initial mobile posture",
+    );
+    const props = () => render.mock.calls.at(-1)?.[0].props;
+    expect(props().presentation.desktopPreviewChecked).toBe(false);
+
+    props().onDesktopPreviewChange(true);
+    props().onDesktopPreviewChange(true);
+    await waitFor(() => props().devicePreviewBusy === true, "device target pending");
+    expect(props().presentation.desktopPreviewChecked).toBe(false);
+
+    releaseDesktop();
+    await waitFor(() => props().devicePreviewBusy === false, "device target rolled back");
+    expect(props().presentation.desktopPreviewChecked).toBe(false);
+    expect(runtime.sendMessage.mock.calls.filter(([frame]) =>
+      frame.name === "emulation.apply" && frame.payload.mode === "desktop"))
+      .toHaveLength(1);
   });
 
   it("rechecks background posture when a popup-local mode looks exact", async () => {
@@ -6052,6 +6113,57 @@ describe("rewrite popup entrypoint", () => {
       .map(([frame]) => (frame as { name?: string }).name)
       .filter((name) => name === "emulation.apply" || name === "emulation.clear");
     expect(emulationNames.slice(-2)).toEqual(["emulation.clear", "emulation.apply"]);
+  });
+
+  it("continues replacement-document reconciliation when guarded emulation clear is refused", async () => {
+    installEntrypointDom("chrome-extension://extension-id/popup.html");
+    const render = createReactRenderProbe();
+    vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
+    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com/a" }]);
+    let activeUrl = "https://example.com/a";
+    const get = vi.fn(async () => ({ id: 77, url: activeUrl }));
+    const tabsSendMessage = makeTabsSendMessage(() => ({
+      ok: true,
+      initialized: false,
+      tree: "rewrite",
+    }));
+    const runtime = makeRuntime(async (message) => replyFrame(message, []), "rendered", {
+      emulationClear: (frame) => failedReplyFrame(frame, "PRESENTATION_UNAVAILABLE"),
+    });
+    globalThis.chrome = {
+      runtime: { ...runtime },
+      tabs: { query, get, sendMessage: tabsSendMessage },
+    } as unknown as typeof chrome;
+
+    await import("../../../src/entrypoints/popup/main.tsx");
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "emulation.apply"),
+      "initial held posture",
+    );
+    activeUrl = "https://example.com/b";
+    const poll = globalThis.window.setInterval.mock.calls[0]?.[0] as () => void;
+    poll();
+    await waitFor(
+      () => render.mock.calls.at(-1)?.[0].props.diagnostics.pageUrl === activeUrl,
+      "replacement binding",
+    );
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.some(([frame]) =>
+        frame.name === "fact.reported" &&
+        (frame.payload as { sensation?: { reason?: string } }).sensation?.reason ===
+          "navigation-observed"),
+      "replacement navigation reconciliation",
+    );
+
+    expect(tabsSendMessage).toHaveBeenCalledWith(77, contentCommand("deactivateContentMain", {}));
+    expect(render.mock.calls.at(-1)?.[0].props.diagnostics.log).toContainEqual(
+      expect.objectContaining({
+        label: "Device emulation clear deferred",
+        tone: "warn",
+      }),
+    );
+    expect(runtime.sendMessage.mock.calls.some(([frame]) =>
+      frame.name === "emulation.current" || frame.name === "emulation.apply")).toBe(true);
   });
 
   it("keeps observing the opening tab when browser focus moves elsewhere", async () => {

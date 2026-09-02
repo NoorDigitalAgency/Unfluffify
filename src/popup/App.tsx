@@ -242,6 +242,7 @@ export function App({
   appearance = DEFAULT_POPUP_APPEARANCE,
   toast = null,
   refreshBusy = false,
+  devicePreviewBusy = false,
   onEnableChange,
   onDesktopPreviewChange,
   onRunAi,
@@ -288,6 +289,7 @@ export function App({
   appearance?: PopupAppearance;
   toast?: TransientToast | null;
   refreshBusy?: boolean;
+  devicePreviewBusy?: boolean;
   onEnableChange?: (enabled: boolean) => void;
   onDesktopPreviewChange?: (enabled: boolean) => void;
   onRunAi?: () => void;
@@ -1222,7 +1224,8 @@ export function App({
             id="desktop-preview-enabled"
             type="checkbox"
             checked={presentation.desktopPreviewChecked}
-            disabled={!onDesktopPreviewChange}
+            disabled={!onDesktopPreviewChange || devicePreviewBusy}
+            aria-busy={devicePreviewBusy || undefined}
             onChange={(event) => onDesktopPreviewChange?.(event.currentTarget.checked)}
           />
         </label>

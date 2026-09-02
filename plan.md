@@ -4945,3 +4945,286 @@ pnpm vitest run tests/src/content/marking/marking.test.ts tests/src/content/mark
 3. `el03-r3-full-gates` -> 2
 4. `el03-r3-review-push` -> 3
 5. `el03-r3-headed-conformance` -> 4
+
+# EL-03-R4 — Make held device emulation physically atomic and continuously fitted
+
+## 1. Goal
+
+Eliminate every exposed intermediate, detached, stale-scale, or physically
+clipped device frame while preserving Chrome debugger device emulation as the
+sole viewport authority. Mobile must continuously hold the intended 412x960
+device and desktop the intended 1920x1080 device, scaled so the complete device
+screen fits inside the user's actually visible tab viewport. If Chrome or the
+user drops the debugger posture, immediately reassert the currently intended
+mobile or desktop mode. A page frame may become visible only after exact
+document identity, layout, input/media identity, page scale, and physical-fit
+proof all agree.
+
+## 2. Entering evidence and root cause
+
+The exact pushed R3 build at
+`ccc423d366c55d2cbfae2b3a20dc6768a404892d` settles correctly, but a repository
+`live-browser` Aleris run exposed three user-visible atomicity gaps:
+
+- desktop-to-mobile briefly reported 412x960 screen/layout dimensions while
+  `visualViewport` was only about 401.95x936.59 at scale 1.025; exact 412x960 at
+  scale 1 arrived roughly 18–37 ms later. In that frame the bottom 23.4 CSS px
+  of the intended device were not visible;
+- shrinking the 1280x900 browser window to height 650 reduced the page tab from
+  705 to 455 physical px about 10.7 ms before the fitted compositor scale moved
+  from 0.734375 to 0.473958. The former scale physically required 705 px and
+  was therefore clipped during the gap;
+- a silent debugger detach exposed a distorted 397x945 visual viewport for
+  roughly 75 ms before the 250 ms lease backstop reattached and re-proved exact
+  412x960.
+
+The final held state remained correct and the durable mode record remained
+mobile. Direct CDP trials proved that command reordering, explicit
+`screenWidth`/`screenHeight`, positions, and the experimental viewport override
+do not remove Chrome's inserted 1.025 compositor/meta-viewport frame. The
+existing marking root does fade out on resize, but the page remains visible,
+and annotation restoration currently remains hidden for about two seconds then
+fades for roughly another second. This is presentation latency, not proof.
+
+No AI request, Save, takeover, Lynx publication, deployment, backend write, or
+production mutation occurred during this diagnosis.
+
+## 3. Decisions and non-goals
+
+1. Keep `chrome.debugger`/CDP device metrics, touch, media, UA, durable held
+   posture, generation fencing, and exact proof as the emulation authority. Do
+   not replace it with CSS transforms, responsive-window resizing, or a second
+   viewport implementation.
+2. Add a pre-mounted content-side emulation transition guardian. An explicit
+   transition must make the guardian fully opaque, interactive, full-viewport,
+   last in the document root, and paint-proven before the first visible CDP
+   write. While a posture is held, synchronous `resize` and `visualViewport`
+   listeners arm the already-composited guardian before an unexpected geometry
+   frame can paint.
+3. Chrome's unavoidable intermediate geometry may exist internally, but no
+   mismatched or physically clipped **page-content frame** may be exposed. The
+   guardian releases only for the matching lifecycle generation after the
+   background proves the complete intended posture and physical fit and the
+   content side observes two matching presentation frames.
+4. Requested transitions use a short deliberate fade into the guardian and a
+   short fade out after proof. Unexpected detach/shrink safety activates
+   immediately. Do not show a spinner for sub-second geometry repair and do not
+   reuse Render inspection or reveal/freeze presentation semantics.
+5. Keep the posture armed after settlement while leaving the guardian
+   non-painting and non-interactive. Clear removes both debugger posture and
+   guardian authority. Stale generations, released sessions, hidden documents,
+   missing receivers, and terminal failures must never release a newer guard.
+6. Reassert the durable intended mode. A user cancellation while desktop is
+   intended restores desktop; while mobile is intended it restores mobile.
+   Never infer a generic mobile fallback from marking state or a detached
+   debugger.
+7. A physical resize may retain a smaller already-safe scale while growth
+   settles, but shrink is corrected immediately. Page content is released only
+   when `deviceWidth * fittedScale <= visibleTabWidth` and
+   `deviceHeight * fittedScale <= visibleTabHeight`; the complete bottom and
+   right edges must be visible.
+8. The desktop-preview control represents confirmed state, exposes a bounded
+   busy transition, and rolls back on failure. It must not claim a new mode
+   before exact proof or persist a failed request.
+9. This cycle does not change marking decisions, selector/payload contracts,
+   consent, Render modes, backend/public APIs, extension permissions, or device
+   dimensions.
+
+## 4. Implementation phases
+
+### EL-03-R4-01 — Add the retained transition guardian and lifecycle contract
+
+Files:
+
+- a focused content module under `src/content/`
+- `src/entrypoints/content-loader.content.ts`
+- internal message/lifecycle types in the existing emulation or messaging seam
+- focused content tests
+
+Steps:
+
+1. Implement one allocation-stable guardian root with hostile-page-resistant
+   fixed/full-viewport/max-z presentation, no page-derived content, and explicit
+   `idle`, `guarding`, `settling`, and `released` states.
+2. `begin(generation, mode, cause)` mounts/moves it last, suppresses every
+   extension annotation plane, blocks page input, and acknowledges only after
+   two frames prove visible opaque coverage. Hidden documents wait for
+   `visibilitychange`; a bounded inability to prove coverage reports failure
+   without pretending the transition is safe.
+3. While a mode remains armed, window and visual-viewport resize listeners
+   synchronously enter safety presentation. They never activate when no posture
+   is held.
+4. `settle` accepts only the current generation/mode, checks exact 412x960 or
+   1920x1080 layout and visual scale 1, refreshes interaction/annotation
+   geometry while still covered, waits two matching frames, then smoothly
+   retires paint and input capture. `release` invalidates all generations and
+   removes listeners/root state.
+5. Expose debug-only lifecycle evidence (generation, cause, stage, measured
+   geometry, coverage result) for frame-level browser gates without adding a
+   production UI or network surface.
+
+### EL-03-R4-02 — Couple every debugger mutation to proof-owned presentation
+
+Files:
+
+- `src/background/render-emulation-runtime.ts`
+- `src/background/index.ts`
+- `src/content/stabilization/emulation.ts` only if the typed CDP boundary needs
+  a lifecycle hook
+- storage/message contracts and background tests
+
+Steps:
+
+1. Add an injected, best-effort content-presentation delivery seam returning
+   typed `ready`, `no_receiver`, or `failed` outcomes. Expected missing receivers
+   remain consumed; a present receiver's rejected coverage is debug evidence
+   and may not be treated as a guarded write.
+2. Give each held posture a monotonic presentation generation. Explicit apply,
+   reassert, mode restore, actual scale-only refit, and clear bracket their first
+   and last visible debugger mutations with matching begin/settle/release
+   notifications. Retry and rollback paths either settle a proven restored
+   posture or retain safety coverage; all terminal cleanup lives in `finally`
+   paths.
+3. Make window-bound changes signal transition intent before queued measurement.
+   If the old fitted posture still fits, settle it immediately and keep growth
+   generation-fenced; if it no longer fits, take the immediate scale-only shrink
+   path and release only after fresh physical proof.
+4. Reduce the browser-only silent-attachment watchdog interval from 250 ms to a
+   low-overhead 50 ms while keeping delivered `debugger.onDetach` immediate and
+   the exact idle path write-free. Both paths reassert the retained mode.
+5. Keep final physical proof authoritative and conservative across tab viewport,
+   non-emulated panel height hint, late shrink correction, navigation, worker
+   restart, and concurrent transition invalidation.
+
+### EL-03-R4-03 — Make popup state and annotation restoration transactional
+
+Files:
+
+- `src/entrypoints/popup/main.tsx`
+- `src/content/marking/engine.ts` and/or its geometry scheduler
+- focused popup and marking tests
+
+Steps:
+
+1. Treat desktop/mobile selection as requested-versus-confirmed state. Disable
+   duplicate toggles while the serialized transition owns the tab, persist/log
+   only success, and restore the prior checkbox/mode on every failure or stale
+   binding.
+2. Ensure every marking-enable, marking-disable, Save-to-Silent, reload, and
+   desktop-preview transition uses the same background-owned guardian lifecycle;
+   popup close or slow authority refresh may not strand or bypass it.
+3. After exact settlement, refresh viewport-dependent shields and annotation
+   geometry under the guardian, cancel stale scroll/layout fade timers, and
+   restore the correct Marking/Silent/Content List presentation within the
+   guardian's bounded retirement. Do not leave annotations invisible for the
+   current two-to-four-second tail.
+4. Preserve suitable gray marking boundaries during ordinary user scroll/resize
+   and the existing stable-edge recompute/reposition contract; the opaque
+   guardian is only for unproven device geometry.
+
+### EL-03-R4-04 — Regression, clean gates, publication, and headed proof
+
+1. Add deterministic tests for pre-write paint acknowledgement, Chrome's
+   1.025 intermediate frame, exact matching-generation release, hidden-document
+   waiting, stale/released generations, no receiver, rollback, same-mode
+   detach reinforcement, immediate shrink, settled growth, and zero idle CDP
+   writes.
+2. Extend the repository browser contract with frame samples proving that no
+   page-content frame is visible while geometry or physical fit is wrong, and
+   that both full device edges are visible at release.
+3. Run focused tests, `pnpm check`, authoritative `pnpm verify`, production and
+   debug builds, clean P17, and full unchanged-threshold P25.
+4. Review the exact diff, update durable knowledge, commit intended files only,
+   push `re-write` without force, refresh the graph, and prove 0/0 sync.
+5. Re-run repository `live-browser` on Aleris, Acne, and 3DPrima `/se`: sample
+   desktop/mobile transitions frame by frame, shrink/grow the physical window,
+   detach the debugger through delivered and silent paths, and verify exact
+   412x960/1920x1080 layout, visual scale 1, full physical fit, intended-mode
+   reinforcement, prompt annotation restoration, and clean console/network
+   behavior. Perform no AI, Save, takeover, Lynx, deployment, or backend write.
+
+## 5. Acceptance criteria
+
+- `EL03-R4-AC-01` Every extension-requested metrics mutation begins only after a
+  current guardian has two-frame proof of full opaque interactive coverage; no
+  intermediate mismatched page frame is user-visible.
+- `EL03-R4-AC-02` Unexpected resize or debugger loss activates the retained
+  guardian synchronously, repairs the retained mobile/desktop posture, and does
+  not expose clipped content before exact settlement.
+- `EL03-R4-AC-03` At release, mobile is exactly 412x960 and desktop exactly
+  1920x1080 with DPR/page scale/input/media/UA identity correct, and the complete
+  device rectangle physically fits the visible tab in both axes.
+- `EL03-R4-AC-04` Delivered detach is repaired immediately; silent detach is
+  detected on the 50 ms browser-owned lease without evaluating the page; idle
+  exact posture produces no debugger writes or presentation churn.
+- `EL03-R4-AC-05` Window shrink never exposes an oversize device, growth does
+  not oscillate, stale refits cannot overwrite a newer mode, and the retained
+  intended mode—not marking state—is always reinforced.
+- `EL03-R4-AC-06` Desktop-preview UI and persistence change only after proof,
+  roll back visibly on failure, and reject duplicate/stale transitions.
+- `EL03-R4-AC-07` Correct Marking/Silent/Content List annotations are measured
+  under cover and restored promptly after settlement; ordinary gray scroll/
+  resize fade behavior remains intact.
+- `EL03-R4-AC-08` Existing R1-R3 Render, reveal/freeze, consent, ownership,
+  marking, payload, Preview, and Silent-only presentation contracts remain green.
+- `EL03-R4-AC-09` Focused/full/build/P17/P25 gates and fresh headed Aleris/Acne/
+  3DPrima evidence pass on the exact pushed commit with zero prohibited mutation.
+- `EL03-R4-AC-10` An independent cumulative EL-03 conformance audit approves
+  R1-R4 before the expert-loop begins its next outer audit.
+
+## 6. Todo chain
+
+1. `el03-r4-transition-guardian` -> 0
+2. `el03-r4-runtime-lifecycle` -> 1
+3. `el03-r4-popup-restoration` -> 2
+4. `el03-r4-regression-matrix` -> 3
+5. `el03-r4-focused-full-gates` -> 4
+6. `el03-r4-review-push` -> 5
+7. `el03-r4-headed-conformance` -> 6
+8. `el03-r4-cumulative-audit` -> 7
+
+## 7. Implementation and pre-publication evidence
+
+Implemented on `re-write` from entering commit
+`ccc423d366c55d2cbfae2b3a20dc6768a404892d`:
+
+- added one retained document-start emulation transition guardian with exact
+  generation/mode fencing, two-frame paint proof, hostile-root repair, bounded
+  hidden/starved-document behavior, synchronous viewport safety, under-cover
+  annotation settlement, and debug-only lifecycle history;
+- separated an ungranted-begin `abort` from terminal `release`, so a failed or
+  lost newer handshake restores the prior opaque/idle generation and can never
+  tear down an older safety guard;
+- made the guardian presentation seam mandatory for all production emulation
+  runtime construction and bracketed full apply, rollback/restore, refit,
+  debugger-detach recovery, startup recovery, navigation recovery, and clear;
+- retained exact 412x960 mobile and 1920x1080 desktop layout/screen identity,
+  bounded desktop visual-viewport scrollbar tolerance, final physical-fit
+  proof, conservative immediate shrink, generation-fenced stable growth, and
+  the currently intended mode across delivered or silent debugger detach;
+- reduced the browser-owned silent-detach backstop to 50 ms while preserving a
+  zero-write exact idle path, narrowed the retained content observer to only
+  root/guard invalidation edges, and disconnected it completely while exact
+  and transparent;
+- made desktop-preview state transactional and confirmed-only, removed late
+  popup viewport repaint commands, and terminalized stale marking geometry
+  timers beneath the opaque plane before release;
+- made a refused guarded navigation clear retain the prior proven posture and
+  continue replacement-document reconciliation instead of aborting the page
+  binding; and
+- fenced content-originated immediate refit requests to the current main
+  document and added typed `presentation_unavailable` propagation.
+
+Pre-publication automated evidence on 2026-09-02:
+
+- focused guardian/runtime/startup/content regression set: 125/125 passed;
+- popup/navigation regression set: 71/71 passed;
+- authoritative `pnpm verify`: 149/149 files and 1673/1673 tests passed,
+  production build passed, generated manifest contract 7/7 passed;
+- `pnpm build:debug`: passed; and
+- `git diff --check`: passed.
+
+Clean-commit P17/P25 provenance gates, non-force push/0:0 proof, headed
+repository `live-browser` conformance, and the cumulative EL-03 expert-check
+remain mandatory before production approval. No AI, Save, takeover, Lynx,
+deployment, backend write, or production mutation was used for R4 evidence.

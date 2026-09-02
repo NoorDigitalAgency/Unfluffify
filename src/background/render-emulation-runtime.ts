@@ -12,6 +12,11 @@ import type {
   EmulationPostureRecord,
   EmulationPostureRepo,
 } from "../storage/repositories/emulation-posture";
+import type {
+  EmulationTransitionCause,
+  EmulationTransitionRequest,
+  EmulationTransitionResult,
+} from "../content/emulation-transition-guardian";
 
 export type EmulationFailureReason =
   | "viewport_mismatch"
@@ -22,7 +27,13 @@ export type EmulationFailureReason =
   | "pointer_media_mismatch"
   | "identity_unavailable"
   | "identity_mismatch"
-  | "proof_unavailable";
+  | "proof_unavailable"
+  | "presentation_unavailable";
+
+export type EmulationTransitionDelivery =
+  | Readonly<{ status: "ready"; result: EmulationTransitionResult }>
+  | Readonly<{ status: "no_receiver"; reason?: string }>
+  | Readonly<{ status: "failed"; reason: string }>;
 
 export type VerifiedEmulationState = EmulationState & Readonly<{
   identityStale: boolean;
@@ -42,12 +53,22 @@ type PhysicalViewport = Readonly<{ width: number; height: number }>;
 /** Browser-owned ownership/fit backstop for a held debugger posture. Delivered
  * detach and geometry events remain immediate; this closes Chromium's silent
  * detach gap without polling or evaluating the inspected page. */
-export const EMULATION_LEASE_WATCHDOG_MS = 250;
+export const EMULATION_LEASE_WATCHDOG_MS = 50;
 
 class PhysicalViewportUnavailableError extends Error {
   constructor() {
     super("Physical viewport is unavailable");
     this.name = "PhysicalViewportUnavailableError";
+  }
+}
+
+class EmulationPresentationUnavailableError extends Error {
+  constructor(
+    readonly detail: string,
+    readonly mutationPossible = false,
+  ) {
+    super(`Emulation transition presentation unavailable: ${detail}`);
+    this.name = "EmulationPresentationUnavailableError";
   }
 }
 
@@ -321,6 +342,10 @@ export function createRenderEmulationRuntime(input: Readonly<{
   tabs?: TabsApi;
   windows?: WindowsApi;
   postureRepo?: EmulationPostureRepo;
+  presentTransition: (
+    tabId: number,
+    request: EmulationTransitionRequest,
+  ) => Promise<EmulationTransitionDelivery>;
   onDebuggerDetached?: (tabId: number, reason?: string) => void;
   apiTimeoutMs?: number;
   apiMode?: "callback" | "promise";
@@ -389,6 +414,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
   const refitTrailing = new Set<number>();
   const refitHints = new Map<number, EmulationPhysicalViewportHint | undefined>();
   const geometryGenerations = new Map<number, number>();
+  const presentationGenerations = new Map<number, number>();
   const REASSERT_RETRY_DELAYS_MS = [100, 250, 500, 1_000, 2_000, 5_000] as const;
   const REFIT_SETTLE_MS = 240;
   const postureEpochs = new Map<number, number>();
@@ -411,6 +437,142 @@ export function createRenderEmulationRuntime(input: Readonly<{
     const generation = (geometryGenerations.get(tabId) ?? 0) + 1;
     geometryGenerations.set(tabId, generation);
     return generation;
+  };
+  type PresentationLease = Readonly<{
+    generation: number;
+    mode: EmulationMode;
+    cause: EmulationTransitionCause;
+  }>;
+  const nextPresentationGeneration = (tabId: number): number => {
+    // A service-worker restart forgets its in-memory counter while the current
+    // document can retain the last accepted generation. A time-derived floor
+    // keeps the new worker strictly ahead without persisting presentation-only
+    // state or weakening the content-side stale fence.
+    const workerFloor = Date.now() * 1_000;
+    const generation = Math.max(presentationGenerations.get(tabId) ?? 0, workerFloor) + 1;
+    presentationGenerations.set(tabId, generation);
+    return generation;
+  };
+  const present = async (
+    tabId: number,
+    request: EmulationTransitionRequest,
+  ): Promise<EmulationTransitionResult> => {
+    let delivery: EmulationTransitionDelivery;
+    try {
+      delivery = await input.presentTransition(tabId, request);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new EmulationPresentationUnavailableError(detail || "delivery-failed");
+    }
+    if (delivery.status !== "ready") {
+      throw new EmulationPresentationUnavailableError(
+        delivery.reason || delivery.status,
+      );
+    }
+    return delivery.result;
+  };
+  const releasePresentation = async (
+    tabId: number,
+    lease: PresentationLease,
+  ): Promise<void> => {
+    const response = await present(tabId, {
+      phase: "release",
+      generation: lease.generation,
+      cause: lease.cause,
+    });
+    if (
+      !response.ok ||
+      response.generation !== lease.generation ||
+      response.mode !== null ||
+      response.stage !== "released" ||
+      response.guarded ||
+      response.coverage
+    ) {
+      throw new EmulationPresentationUnavailableError(
+        response.reason || "presentation-not-released",
+        true,
+      );
+    }
+  };
+  const abortPresentation = async (
+    tabId: number,
+    lease: PresentationLease,
+  ): Promise<void> => {
+    // Abort is deliberately distinct from terminal release: the content owner
+    // can restore an older opaque/idle retained guard when this generation never
+    // reached debugger mutation authority.
+    await present(tabId, {
+      phase: "abort",
+      generation: lease.generation,
+      cause: lease.cause,
+    });
+  };
+  const beginPresentation = async (
+    tabId: number,
+    mode: EmulationMode,
+    cause: EmulationTransitionCause,
+  ): Promise<PresentationLease> => {
+    const lease: PresentationLease = {
+      generation: nextPresentationGeneration(tabId),
+      mode,
+      cause,
+    };
+    try {
+      const response = await present(tabId, {
+        phase: "begin",
+        generation: lease.generation,
+        mode,
+        cause,
+      });
+      if (
+        !response.ok ||
+        response.generation !== lease.generation ||
+        response.mode !== mode ||
+        response.stage !== "paint-proven" ||
+        !response.guarded ||
+        !response.coverage
+      ) {
+        throw new EmulationPresentationUnavailableError(
+          response.reason || "guard-not-paint-proven",
+        );
+      }
+      return lease;
+    } catch (error) {
+      await abortPresentation(tabId, lease).catch(() => undefined);
+      throw error;
+    }
+  };
+  const settlePresentation = async (
+    tabId: number,
+    lease: PresentationLease,
+  ): Promise<void> => {
+    let response: EmulationTransitionResult;
+    try {
+      response = await present(tabId, {
+        phase: "settle",
+        generation: lease.generation,
+        mode: lease.mode,
+        cause: lease.cause,
+      });
+    } catch (error) {
+      const detail = error instanceof EmulationPresentationUnavailableError
+        ? error.detail
+        : error instanceof Error ? error.message : String(error);
+      throw new EmulationPresentationUnavailableError(detail, true);
+    }
+    if (
+      !response.ok ||
+      response.generation !== lease.generation ||
+      response.mode !== lease.mode ||
+      response.stage !== "idle" ||
+      response.guarded ||
+      !response.exactGeometry
+    ) {
+      throw new EmulationPresentationUnavailableError(
+        response.reason || "exact-presentation-not-settled",
+        true,
+      );
+    }
   };
   const recordFor = (tabId: number, held: HeldPosture): EmulationPostureRecord => {
     const safe = safeFittedScales.get(tabId);
@@ -627,7 +789,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
     // the operator is still marking against. Re-establish it rather than waiting
     // for the next thing that happens to re-apply.
     void hydratePosture(tabId).then((held) => {
-      if (held) void reassertPosture(tabId, held);
+      if (held) void reassertPosture(tabId, held, "debugger-detach");
     });
   });
   const targetFor = (tabId: number): Debuggee => ({ tabId });
@@ -1025,6 +1187,26 @@ export function createRenderEmulationRuntime(input: Readonly<{
     }
     return { state, measured, failureReason };
   };
+  const writeProveAndPresentPosture = async (
+    tabId: number,
+    held: HeldPosture,
+    cause: EmulationTransitionCause,
+    hint?: EmulationPhysicalViewportHint,
+  ): ReturnType<typeof writeAndProvePosture> => {
+    // The content plane is confirmed opaque before even the first debugger
+    // attach. Attaching can add Chrome's debugger infobar and shrink the
+    // physical tab rectangle before device metrics are written.
+    const presentation = await beginPresentation(tabId, held.mode, cause);
+    const realUserAgent = await realUserAgentFor(tabId);
+    if (!postureIsCurrent(tabId, held)) {
+      throw new Error("Emulation posture was released");
+    }
+    const proof = await writeAndProvePosture(tabId, held, realUserAgent, hint);
+    if (proof.failureReason === null) {
+      await settlePresentation(tabId, presentation);
+    }
+    return proof;
+  };
   const restorePriorPosture = async (
     tabId: number,
     attempted: HeldPosture,
@@ -1044,8 +1226,11 @@ export function createRenderEmulationRuntime(input: Readonly<{
       scheduleLeaseWatchdog(tabId);
       try {
         await persistPosture(tabId, restored);
-        const realUserAgent = await realUserAgentFor(tabId);
-        const proof = await writeAndProvePosture(tabId, restored, realUserAgent);
+        const proof = await writeProveAndPresentPosture(
+          tabId,
+          restored,
+          "restore",
+        );
         if (proof.failureReason === null) {
           const verified: VerifiedEmulationState = {
             ...proof.state,
@@ -1070,16 +1255,31 @@ export function createRenderEmulationRuntime(input: Readonly<{
         // Fall through to the neutral browser posture.
       }
     }
+    // The failed attempted/prior write should already have retained an opaque
+    // plane, but do not make that an assumption at the terminal neutralization
+    // boundary. Re-adopt a fresh, paint-proven generation before any clear or
+    // detach can expose browser-default geometry.
+    const neutralPresentation = await beginPresentation(
+      tabId,
+      prior?.mode ?? attempted.mode,
+      "restore",
+    );
+    // Do not neutralize the live debugger while a stale durable lease can still
+    // resurrect on the next worker. Persistence must accept the terminal clear
+    // before the browser posture is released.
+    await input.postureRepo?.clear(tabId);
     releasePosture(tabId);
-    await input.postureRepo?.clear(tabId).catch(() => undefined);
     try {
       await clearEmulationViaCdp(
         { send: (method, params) => sendEmulationCommand(tabId, method, params) },
         { mode: attempted.mode, width: 412, height: 960, scale: attempted.scale, active: true },
       );
+      await waitForBrowserFrame(tabId).catch(() => undefined);
+      await waitForBrowserFrame(tabId).catch(() => undefined);
     } finally {
       await detach(tabId).catch(() => undefined);
       realUserAgents.delete(tabId);
+      await releasePresentation(tabId, neutralPresentation);
     }
   };
   /** Puts a dropped posture back. Deliberately does not reload: the operator is
@@ -1089,16 +1289,18 @@ export function createRenderEmulationRuntime(input: Readonly<{
     tabId: number,
     held: HeldPosture,
     hint?: EmulationPhysicalViewportHint,
+    cause: EmulationTransitionCause = "lease-recovery",
   ): Promise<void> => {
     if (!postureIsCurrent(tabId, held)) {
       return;
     }
     try {
-      const realUserAgent = await realUserAgentFor(tabId);
-      if (!postureIsCurrent(tabId, held)) {
-        return;
-      }
-      const proof = await writeAndProvePosture(tabId, held, realUserAgent, hint);
+      const proof = await writeProveAndPresentPosture(
+        tabId,
+        held,
+        cause,
+        hint,
+      );
       if (proof.failureReason !== null) {
         throw new Error(`Emulation proof failed: ${proof.failureReason}`);
       }
@@ -1138,8 +1340,12 @@ export function createRenderEmulationRuntime(input: Readonly<{
     }, delay);
     reassertRetryTimers.set(tabId, timer);
   }
-  const reassertPosture = (tabId: number, held: HeldPosture): Promise<void> =>
-    withEmulationOperation(tabId, () => executeReassertPosture(tabId, held));
+  const reassertPosture = (
+    tabId: number,
+    held: HeldPosture,
+    cause: EmulationTransitionCause = "lease-recovery",
+  ): Promise<void> =>
+    withEmulationOperation(tabId, () => executeReassertPosture(tabId, held, undefined, cause));
   const executeRefitPosture = async (
     tabId: number,
     held: HeldPosture,
@@ -1153,8 +1359,22 @@ export function createRenderEmulationRuntime(input: Readonly<{
     if (!postureIsCurrent(tabId, held)) return null;
     const verified = verifiedPostures.get(tabId);
     if (!attachmentCurrent || !verified || verified.mode !== held.mode) {
-      await executeReassertPosture(tabId, held, hint);
+      await executeReassertPosture(tabId, held, hint, "refit");
       return verifiedPostures.get(tabId) ?? null;
+    }
+    let presentation: PresentationLease;
+    try {
+      // A content-side resize listener may already have made the retained plane
+      // opaque. Adopt a fresh generation even when the existing scale remains
+      // safe, so every no-op/deferred resize has an authoritative release path.
+      presentation = await beginPresentation(tabId, held.mode, "refit");
+    } catch {
+      scheduleReassertRetry(tabId, held);
+      return {
+        ...verified,
+        active: false,
+        failureReason: "presentation_unavailable",
+      };
     }
     const physicalViewport = await visibleTabViewport(tabId, hint);
     if (!physicalViewport) {
@@ -1176,6 +1396,16 @@ export function createRenderEmulationRuntime(input: Readonly<{
       if (priorTimer !== undefined) clearTimeout(priorTimer);
       refitTimers.delete(tabId);
       cancelReassertRetry(tabId);
+      try {
+        await settlePresentation(tabId, presentation);
+      } catch {
+        scheduleReassertRetry(tabId, held);
+        return {
+          ...verified,
+          active: false,
+          failureReason: "presentation_unavailable",
+        };
+      }
       return verified;
     }
     const geometryGeneration = geometryGenerations.get(tabId) ?? 0;
@@ -1203,6 +1433,16 @@ export function createRenderEmulationRuntime(input: Readonly<{
       }, REFIT_SETTLE_MS);
       refitTimers.set(tabId, timer);
       cancelReassertRetry(tabId);
+      try {
+        await settlePresentation(tabId, presentation);
+      } catch {
+        scheduleReassertRetry(tabId, held);
+        return {
+          ...verified,
+          active: false,
+          failureReason: "presentation_unavailable",
+        };
+      }
       return verified;
     }
     const timer = refitTimers.get(tabId);
@@ -1213,10 +1453,21 @@ export function createRenderEmulationRuntime(input: Readonly<{
       expectedGeometryGeneration !== (geometryGenerations.get(tabId) ?? 0)
     ) {
       cancelReassertRetry(tabId);
+      try {
+        await settlePresentation(tabId, presentation);
+      } catch {
+        scheduleReassertRetry(tabId, held);
+        return {
+          ...verified,
+          active: false,
+          failureReason: "presentation_unavailable",
+        };
+      }
       return verified;
     }
     try {
       const refitted = await writeScaleOnlyRefit(tabId, held, verified, fittedScale, hint);
+      await settlePresentation(tabId, presentation);
       if (!postureIsCurrent(tabId, held)) return null;
       verifiedPostures.set(tabId, refitted);
       await rememberSafeFittedScale(tabId, held, refitted.scale);
@@ -1353,7 +1604,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       if (!held) return;
       invalidateGeometry(tabId);
       verifiedPostures.delete(tabId);
-      void reassertPosture(tabId, held);
+      void reassertPosture(tabId, held, "navigation");
     });
   });
   input.tabs?.onRemoved?.addListener((tabId) => {
@@ -1386,7 +1637,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
         if (!await visibleTabViewport(tabId)) return;
         hydratedTabs.add(tabId);
         const held = adoptDurableRecord(record, expectedEpoch);
-        if (held) await reassertPosture(tabId, held);
+        if (held) await reassertPosture(tabId, held, "startup");
       }));
     }).catch(() => undefined);
   }
@@ -1463,6 +1714,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       await hydratePosture(tabId);
       return withEmulationOperation(tabId, async () => {
         const priorHeld = heldPostures.get(tabId);
+        const priorVerified = verifiedPostures.get(tabId);
         const held: HeldPosture = {
           mode,
           scale,
@@ -1479,8 +1731,12 @@ export function createRenderEmulationRuntime(input: Readonly<{
           // anywhere after this point can recover the same target, never infer a
           // generic mobile fallback.
           await persistPosture(tabId, held);
-          const realUserAgent = await realUserAgentFor(tabId);
-          const proof = await writeAndProvePosture(tabId, held, realUserAgent, hint);
+          const proof = await writeProveAndPresentPosture(
+            tabId,
+            held,
+            "apply",
+            hint,
+          );
           if (!postureIsCurrent(tabId, held)) {
             throw new Error("Emulation posture was released");
           }
@@ -1543,6 +1799,42 @@ export function createRenderEmulationRuntime(input: Readonly<{
           };
         } catch (error) {
           if (
+            error instanceof EmulationPresentationUnavailableError &&
+            !error.mutationPossible &&
+            postureIsCurrent(tabId, held)
+          ) {
+            // The guard was never acknowledged, so the debugger posture was not
+            // touched. Roll durable intent back without performing a redundant
+            // CDP restore that would itself require a presentation boundary.
+            if (priorHeld) {
+              const restored: HeldPosture = {
+                mode: priorHeld.mode,
+                scale: priorHeld.scale,
+                revision: nextPostureRevision(tabId),
+                epoch: nextPostureEpoch(tabId),
+              };
+              heldPostures.set(tabId, restored);
+              if (priorVerified) {
+                verifiedPostures.set(tabId, priorVerified);
+              }
+              scheduleLeaseWatchdog(tabId);
+              await persistPosture(tabId, restored).catch(() => undefined);
+            } else {
+              releasePosture(tabId);
+              await input.postureRepo?.clear(tabId).catch(() => undefined);
+            }
+            const preset = DEVICE_EMULATION_PRESETS[mode];
+            return {
+              mode,
+              width: preset.width,
+              height: preset.height,
+              scale: fitDeviceScale(mode, await visibleTabViewport(tabId, hint), scale),
+              active: false,
+              identityStale: false,
+              failureReason: "presentation_unavailable",
+            };
+          }
+          if (
             error instanceof PhysicalViewportUnavailableError &&
             postureIsCurrent(tabId, held)
           ) {
@@ -1565,14 +1857,16 @@ export function createRenderEmulationRuntime(input: Readonly<{
             try {
               await restorePriorPosture(tabId, held, priorHeld);
             } catch {
-              // Restoration itself is best-effort, but a failed attempt may not
-              // remain the desired posture or keep a half-applied debugger state.
-              if (postureIsCurrent(tabId, held)) {
-                releasePosture(tabId);
-                await input.postureRepo?.clear(tabId).catch(() => undefined);
+              // A failed restoration is not authority to expose browser-default
+              // geometry. Keep whichever lease the restoration made current and
+              // repair it behind the still-opaque presentation. In particular,
+              // never detach here: dropping overrides would manufacture the exact
+              // desktop/mobile flash this rollback boundary exists to prevent.
+              const retained = heldPostures.get(tabId);
+              if (retained) {
+                verifiedPostures.delete(tabId);
+                scheduleReassertRetry(tabId, retained);
               }
-              await detach(tabId).catch(() => undefined);
-              realUserAgents.delete(tabId);
             }
           }
           throw error;
@@ -1580,15 +1874,39 @@ export function createRenderEmulationRuntime(input: Readonly<{
       });
     },
     async clear(tabId: number) {
-      // Invalidate the desired posture before the first CDP await. An onDetach
-      // callback or already-running reassertion may otherwise retain the old
-      // object and attach/set overrides after this clear has completed.
-      releasePosture(tabId);
-      hydratedTabs.add(tabId);
+      // A restarted worker may not have adopted its durable lease yet. Hydrate
+      // before deciding that there is no held posture to guard or release.
+      await hydratePosture(tabId);
       return withEmulationOperation(tabId, async () => {
+        const priorHeld = heldPostures.get(tabId);
+        // Clearing changes visible geometry even when the in-memory lease is
+        // absent (for example after a worker restart). It is therefore never
+        // allowed to fall through when the content plane cannot be paint-proven.
+        const presentation = await beginPresentation(
+          tabId,
+          priorHeld?.mode ?? "mobile",
+          "clear",
+        );
+        // Invalidate the desired posture after the non-CDP guard handshake but
+        // before the first debugger mutation. Any already-queued reassertion now
+        // observes a stale object and cannot become the final writer.
         try {
           await input.postureRepo?.clear(tabId);
-          return await clearEmulationViaCdp(
+        } catch (error) {
+          // Nothing browser-visible changed. Restore the existing proven page
+          // presentation when possible; if exactness cannot be re-proved, keep
+          // the safety plane and let the still-held lease repair it.
+          if (priorHeld) {
+            await settlePresentation(tabId, presentation).catch(() => undefined);
+          } else {
+            await releasePresentation(tabId, presentation).catch(() => undefined);
+          }
+          throw error;
+        }
+        releasePosture(tabId);
+        hydratedTabs.add(tabId);
+        try {
+          const cleared = await clearEmulationViaCdp(
             { send: (method, params) => sendEmulationCommand(tabId, method, params) },
             {
               mode: "mobile",
@@ -1598,6 +1916,11 @@ export function createRenderEmulationRuntime(input: Readonly<{
               active: true,
             },
           );
+          // Give the natural browser viewport two compositor opportunities
+          // behind the opaque plane before the debugger is detached.
+          await waitForBrowserFrame(tabId).catch(() => undefined);
+          await waitForBrowserFrame(tabId).catch(() => undefined);
+          return cleared;
         } finally {
           // Detaching drops every override with it, including the user agent, so
           // the next attach must read the browser's own identity again. Cleanup
@@ -1605,6 +1928,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
           // debugger or block the next transition.
           await detach(tabId).catch(() => undefined);
           realUserAgents.delete(tabId);
+          await releasePresentation(tabId, presentation);
         }
       });
     },

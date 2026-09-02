@@ -1082,12 +1082,26 @@ async function handleBoundContext(
   context: TargetTabContext,
   emulationPolicy: BoundContextEmulationPolicy = "verify",
 ): Promise<string> {
+  const priorAppliedEmulationMode = appliedEmulationMode;
   const binding = bindToTab(context);
   if (binding.sameTabNavigation) {
+    // `bindToTab` resets document-scoped state, but a failed guarded clear means
+    // the browser-owned posture is deliberately still held. Preserve that local
+    // fact long enough for `ensureSessionEmulation` to verify or reassert it on
+    // the replacement document rather than treating a presentation refusal as a
+    // successful release and aborting the rest of navigation reconciliation.
+    appliedEmulationMode = priorAppliedEmulationMode;
     // Navigation invalidates the prior document posture. Clear it before the
     // standing posture is re-applied; clearing after a fire-and-forget apply was
     // the race that left the new document in desktop mode until the toggle moved.
-    await clearSessionEmulation(context);
+    const cleared = await clearSessionEmulation(context).catch(() => false);
+    if (!cleared) {
+      logEvent(
+        "Device emulation clear deferred",
+        "the prior posture remains held until the replacement document can be proven",
+        "warn",
+      );
+    }
     await sendContentMessage(context.tabId, { type: "deactivateContentMain" });
     await reportPopupFact(context, "navigation-observed", {}, binding.key);
     await pullSignals(context.tabId, binding.key);
@@ -2548,15 +2562,11 @@ async function applySessionEmulationResult(
       response.data.identityStale === true;
     active = exact || reloadExpected;
     failureReason = response.ok ? response.data.failureReason ?? "" : response.failure.code;
-    appliedEmulationMode = active ? target.mode : null;
+    // A reload request is intent, not a confirmed replacement-document posture.
+    // Likewise, a failed target may have restored the prior browser-held mode.
+    // Change the popup cache only after this exact document is proved active.
     if (exact) {
-      // The CDP override can settle without a resize event in the content
-      // isolated world. Complete the serialized posture only after the active
-      // interaction shield has explicitly remeasured the confirmed viewport.
-      await requestContentMessage(context.tabId, {
-        type: "refreshInteractionShieldViewport",
-        repaintSilent: true,
-      });
+      appliedEmulationMode = target.mode;
     }
   });
   emulationApplyQueue = operation.catch(() => undefined);
@@ -2568,7 +2578,16 @@ async function applySessionEmulation(
   context: TargetTabContext,
   target: SessionEmulationTarget,
 ): Promise<boolean> {
-  return (await applySessionEmulationResult(context, target)).active;
+  const applied = await applySessionEmulationResult(context, target);
+  if (!applied.active) return false;
+  if (!applied.reloadExpected) return true;
+  const reload = await waitForEmulationReload(
+    context,
+    { mode: target.mode },
+    undefined,
+    applied.priorDocumentNonce,
+  );
+  return reload.status === "ready";
 }
 
 async function verifySessionEmulation(
@@ -2636,10 +2655,6 @@ async function waitForEmulationReload(
         reason: proof.failureReason || "exact emulation proof failed",
       };
     }
-    await requestContentMessage(transition.context.tabId, {
-      type: "refreshInteractionShieldViewport",
-      repaintSilent: false,
-    });
   }
   return transition;
 }
@@ -2693,9 +2708,19 @@ async function ensureSessionEmulationTarget(
   });
 }
 
-async function clearSessionEmulation(context: TargetTabContext): Promise<void> {
-  await getPopupBus().request("emulation.clear", { tabId: context.tabId }, { target: "background" });
+async function clearSessionEmulation(context: TargetTabContext): Promise<boolean> {
+  const response = await getPopupBus().request(
+    "emulation.clear",
+    { tabId: context.tabId },
+    { target: "background" },
+  );
+  if (!response.ok) {
+    // A failed guarded clear leaves the prior debugger lease intentionally
+    // active. Do not let popup-local state claim it was released.
+    return false;
+  }
   appliedEmulationMode = null;
+  return true;
 }
 
 async function refineSubmissionXpaths(snapshot: AiRunPayloadSnapshot): Promise<AiRunPayloadSnapshot> {
@@ -3995,18 +4020,23 @@ async function cancelRenderMode(): Promise<void> {
 }
 
 async function setDesktopPreviewEnabled(enabled: boolean): Promise<void> {
-  desktopPreviewEnabled = enabled;
-  store.setDesktopPreview(enabled);
-  logEvent("Device preview", enabled ? "desktop" : "mobile");
-  render();
-  const context = await resolveTargetTabContext();
-  if (context === null) {
+  if (enabled === desktopPreviewEnabled || sessionTransitionPending > 0) {
     return;
   }
-  const binding = captureBindingOccurrence();
+  let binding: PopupBindingOccurrence | null = null;
+  let contextUnavailable = false;
   // No armed-session requirement: this control lives on the silent view, which is
   // precisely where marking is off. Turning it off returns the tab to mobile.
-  const transitioned = await runSessionTransition(async () => {
+  // Enter the shared transition queue before resolving the tab so a double click,
+  // Marking toggle, Refresh, or background poll cannot overtake this intent during
+  // the asynchronous Chrome tab lookup.
+  const transition = runSessionTransition(async () => {
+    const context = await resolveTargetTabContext();
+    if (context === null) {
+      contextUnavailable = true;
+      return false;
+    }
+    binding = captureBindingOccurrence();
     const emulation = await applySessionEmulationResult(context, {
       mode: enabled ? "desktop" : "mobile",
       allowReload: true,
@@ -4025,8 +4055,42 @@ async function setDesktopPreviewEnabled(enabled: boolean): Promise<void> {
     );
     return reload.status === "ready";
   });
+  // The checkbox continues to represent the last confirmed mode while the
+  // serialized target is pending. Disable it rather than optimistically
+  // claiming a posture the background has not yet paint/fit-proved.
+  render();
+  let transitioned = false;
+  let transitionFailure =
+    "the complete device posture could not be proven; the prior preview remains active";
+  try {
+    transitioned = await transition;
+  } catch {
+    transitionFailure =
+      "the device transition could not be completed; the prior preview remains active";
+  }
+  if (contextUnavailable) {
+    notifyEvent("Device preview failed", "no bound browser tab is available", "warn");
+    render();
+    return;
+  }
+  if (!binding || !bindingOccurrenceIsCurrent(binding)) {
+    render();
+    return;
+  }
+  if (transitioned) {
+    desktopPreviewEnabled = enabled;
+    store.setDesktopPreview(enabled);
+    logEvent("Device preview", enabled ? "desktop" : "mobile");
+  }
   if (!transitioned) {
-    notifyBoundEvent(binding, "Device preview failed", "emulation could not be applied", "warn");
+    // `desktopPreviewEnabled` and the store were never changed, so the control
+    // visibly remains at the complete prior confirmed posture.
+    notifyBoundEvent(
+      binding,
+      "Device preview failed",
+      transitionFailure,
+      "warn",
+    );
   }
   render();
 }
@@ -5699,7 +5763,11 @@ function getDebugViewState(): Record<string, unknown> {
       discard: actionButtons.discard,
       preview: actionButtons.preview,
       enable: { checked: presentation.enableToggleChecked },
-      desktopPreview: { checked: presentation.desktopPreviewChecked },
+      desktopPreview: {
+        checked: presentation.desktopPreviewChecked,
+        busy: sessionTransitionPending > 0,
+        confirmedMode: appliedEmulationMode,
+      },
     },
   };
 }
@@ -5753,6 +5821,7 @@ function render(): void {
       appearance={appearance}
       toast={toastController.current()}
       refreshBusy={popupRefreshInFlight !== null}
+      devicePreviewBusy={sessionTransitionPending > 0}
       onToastDismiss={(id) => { toastController.dismiss(id); }}
       onEnableChange={(enabled) => { void setMarkingEnabled(enabled); }}
       onDesktopPreviewChange={(enabled) => { void setDesktopPreviewEnabled(enabled); }}

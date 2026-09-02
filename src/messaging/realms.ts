@@ -147,6 +147,7 @@ const EmulationStateResponseSchema = z.object({
     "identity_unavailable",
     "identity_mismatch",
     "proof_unavailable",
+    "presentation_unavailable",
     "consent_suppression_disabled",
   ]).optional(),
 });
@@ -489,7 +490,9 @@ export const applicationContract = defineContract({
     },
     "emulation.refit": {
       request: z.object({
-        tabId: z.number().int().positive(),
+        /** Content scripts name their sender-owned tab as zero; the background
+         * resolves and fences that identity from transport metadata. */
+        tabId: z.number().int().nonnegative(),
         physicalViewportHint: EmulationPhysicalViewportHintSchema.optional(),
       }),
       response: z.object({ status: z.literal("ok") }),

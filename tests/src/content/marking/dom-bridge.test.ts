@@ -4882,6 +4882,55 @@ describe("P6 DOM bridge", () => {
     }
   });
 
+  it("terminalizes a pending resize fade before guardian settlement acknowledges paint", async () => {
+    vi.useFakeTimers();
+    try {
+      const doc = new FakeDocument();
+      const animationFrames: Array<() => void> = [];
+      const listeners = new Map<string, (event?: Event) => void>();
+      Object.assign(doc.defaultView, {
+        requestAnimationFrame(callback: () => void) {
+          animationFrames.push(callback);
+          return animationFrames.length;
+        },
+        cancelAnimationFrame: vi.fn(),
+        addEventListener(type: string, listener: (event?: Event) => void) {
+          listeners.set(type, listener);
+        },
+        removeEventListener(type: string) {
+          listeners.delete(type);
+        },
+      });
+      const root = new FakeElement("MAIN", rect(0, 0, 300, 300));
+      const paragraph = new FakeElement("P", rect(10, 10, 120, 20), "First");
+      root.ownerDocument = doc;
+      paragraph.ownerDocument = doc;
+      doc.documentElement.ownerDocument = doc;
+      doc.documentElement.appendChild(root);
+      root.appendChild(paragraph);
+      doc.pointHits = () => [paragraph, root];
+      const engine = createMarkingEngine(root as unknown as Element, { render: true });
+
+      listeners.get("resize")?.({ target: doc.defaultView } as unknown as Event);
+      expect(engine.overlayRoot().className).toContain("uf-scrolling");
+
+      const settled = engine.settlePresentation();
+      expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
+      expect(animationFrames).toHaveLength(1);
+      animationFrames.shift()?.();
+      animationFrames.shift()?.();
+      await settled;
+      const framesAfterSettlement = animationFrames.length;
+
+      vi.advanceTimersByTime(500);
+      expect(animationFrames).toHaveLength(framesAfterSettlement);
+      expect(engine.overlayRoot().className).not.toContain("uf-scrolling");
+      engine.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("retains silent nodes while one quiet scroll transaction repositions them", () => {
     vi.useFakeTimers();
     try {
