@@ -873,3 +873,15 @@ painted" decision from the replaced document.
   exclusion when present). This retires the former owner's overlay in the same
   acknowledged mutation and leaves exactly one explicit descendant in canonical
   rows, painted layers, Content List projection, and submission payload.
+- EL-03 R9 PHYSICAL SHRINK PRE-GUARD AUTHORITY (2026-09-02): retain the latest
+  browser-proven physical tab viewport and its owning window's complete outer
+  bounds, with a separate per-tab projection carried only across successive
+  bounds events. An exact outer width/height delta may decide that the existing
+  held device would clip and therefore begin/reuse its one opaque refit lease
+  before `debugger.getTargets()` or `tabs.get()` resolves. Projection never
+  authorizes a scale write, fit proof, or release: only fresh tab geometry does.
+  A current verified projection that still fits preserves the zero-guard no-op
+  path; a real bounds occurrence with missing, invalid, stale-posture, or
+  window-handoff geometry fails closed. Authoritative handoff refreshes the
+  window association, and posture release removes proven/projected baselines so
+  an old window event cannot revive the lease.

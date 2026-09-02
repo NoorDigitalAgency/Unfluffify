@@ -6258,3 +6258,227 @@ The clean-source P17, standalone P14, and unchanged P25 gates must be run from
 the committed tree. Exact headed Aleris/Acne/healthy-3DPrima evidence and the
 independent cumulative adjudication remain mandatory before a production-ready
 verdict; this ledger does not predeclare that verdict.
+
+# EL-03-R8 exact-pushed conformance rejection — 2026-09-02
+
+R8 plan conformance is **REJECTED** on pushed commit
+`ad6f545f6eb10a9e6b1595596cae022e31ea150e` (`re-write`, upstream 0:0).
+The repository `live-browser` production bundle used managed Chromium only;
+no AI, Save, Lynx publication, deployment, or backend mutation occurred.
+
+- `EL03-R8-AC-02` and `EL03-R8-AC-03` fail. On HumaNova, a physical
+  1279x899 -> 855x599 shrink produced one released animation frame and a 38 ms
+  interval between the first popup/bounds resize observation and the first
+  opaque input guard. On a current authoritative Aleris candidate, the same
+  shrink produced 14 released animation frames and a 248 ms interval. The
+  prior fitted mobile scale remained 0.7791667 during those intervals even
+  though the eventual safe scale was 0.4666667, so the simulated 412x960 device
+  could be physically clipped before protection.
+- The coalescing half of R8 is proven: each shrink and growth used one guard
+  generation, one posture write, and one fade; the identical-bounds no-op used
+  zero guards and zero posture writes. The residual is therefore retained as
+  `EL-03-F007`, not reopened churn.
+- Exact source inspection identifies the remaining ordering defect:
+  `executeRefitObservation` awaits debugger-attachment and `tabs.get` physical
+  geometry before `beginRefitPresentation`. The Aleris trace created its new
+  presentation generation about 240 ms after the bounds event. A real shrink
+  is already visible while those asynchronous reads are queued.
+- The R8 priority activation change has supporting live evidence: after the
+  one-time HumaNova reveal/freeze preparation, a trusted disable/re-enable
+  reached checked, interactive marking in 243 ms. The cold document's reveal
+  preparation is retained separately and is not counted as a warm activation
+  sample.
+- General trusted marking gestures and native right-click behavior passed on
+  HumaNova. Exact nested transfer, remaining recovery cells, the user-supplied
+  property matrix, and cumulative adjudication are deferred to the delta result
+  because one failed required criterion already rejects this inner loop.
+
+Evidence:
+
+- `.temp/expert-live-r8/2026-09-02T16-17-02-288Z-resize.json`
+- `.temp/expert-live-r8/2026-09-02T16-23-18-724Z-resize.json`
+- `.temp/expert-live-r8/2026-09-02T16-16-37-367Z-activate.json`
+- `.temp/expert-live-r8/2026-09-02T16-19-01-636Z-gestures.json`
+
+# EL-03-R9 — Pre-guard proven unsafe physical shrink
+
+## 1. Goal
+
+Close the residual `EL-03-F007` exposure window without regressing R8's single
+burst ownership or no-op behavior. A bounds event that can already prove the
+held device no longer fits must begin one opaque presentation lease before any
+potentially delayed debugger/tab read; actual browser geometry remains the sole
+authority for the scale write and terminal proof.
+
+## 2. Decisions and non-goals
+
+- Cache only last-proven physical tab and outer-window geometry. A new bounds
+  event may derive a conservative projected tab viewport from the exact outer
+  delta solely to decide whether protection must begin early.
+- Projected geometry may begin/reuse the safety lease, but may never authorize
+  a debugger write, a final fitted scale, or release. Fresh `tabs.get` geometry,
+  exact device verification, and the existing trailing proof retain those
+  authorities.
+- Growth is safe at the smaller prior scale and keeps the existing trailing
+  path. A duplicate event, identical bounds, or a changed non-limiting axis that
+  still fits must not begin a guard or write metrics.
+- If the projection is unavailable, stale, changes window ownership, or races a
+  transition, fall back to the current fail-closed serialized path. Do not
+  guess a tab size.
+- Preserve exact 412x960 mobile and 1920x1080 desktop identity, one burst/one
+  fade, expected-echo absorption, debugger recovery, navigation fences,
+  hostile guard repair, permissions, public schemas, and all R8 marking work.
+
+## 3. Implementation phases
+
+### EL-03-R9-01 — Maintain generation-safe physical geometry baselines
+
+Files:
+
+- `src/background/render-emulation-runtime.ts`
+- `tests/src/background/render-emulation-runtime.test.ts`
+
+Steps:
+
+1. Retain the latest successfully read effective physical tab viewport per tab
+   and the matching normalized outer bounds per owning window. Initialize the
+   outer baseline when a tab/window association is first proved; update it on
+   each complete bounds event and clear both caches on release/removal.
+2. For a bounds event with complete prior/current geometry, project the new tab
+   viewport by applying the exact outer width/height delta to the last-proven
+   tab viewport. Fence the projection by tab, window, held posture epoch, and
+   positive finite dimensions.
+3. Carry that projection only in the internal refit observation/coordinator.
+   Merge repeated sources conservatively and never expose it through popup or
+   public message schemas.
+
+### EL-03-R9-02 — Begin the shrink lease before delayed reads
+
+Files:
+
+- `src/background/render-emulation-runtime.ts`
+- `tests/src/background/render-emulation-runtime.test.ts`
+
+Steps:
+
+1. At the first coordinator execution turn, compare a current verified posture
+   with the fenced projection. If it proves clipping, begin or reuse the one
+   refit lease before awaiting `debugger.getTargets` or `tabs.get`.
+2. Continue through the existing authoritative physical read. Apply an
+   immediate scale-only shrink only from that fresh value, refresh the burst's
+   exact signature, and retain one quiet settlement/fade.
+3. If authoritative measurement contradicts the projection, settle the same
+   lease without a metrics write. If attachment, navigation, or presentation
+   ownership changes, keep the page guarded and enter the existing recovery
+   path without adopting stale geometry.
+4. Keep growth, popup/content observation merging, self-echo absorption, and
+   identical/non-limiting no-op observations on their existing zero-guard path.
+
+### EL-03-R9-03 — Prove ordering, failure containment, and full regression
+
+Files:
+
+- `tests/src/background/render-emulation-runtime.test.ts`
+- affected emulation/background/browser contract tests
+
+Steps:
+
+1. Add a deferred `getTargets`/`tabs.get` regression showing an unsafe shrink's
+   `begin` is delivered before either read resolves and before its metrics write.
+2. Cover one exact scale write/lease/fade across multi-source bursts; no guard
+   for identical bounds or a still-fitting non-limiting change; conservative
+   contradiction settlement; missing baseline fallback; stale window/posture
+   fences; detach/navigation during the pre-guard; and cache cleanup.
+3. Run the focused emulation/startup/shield set, full `pnpm verify`, debug build,
+   clean P17, standalone P14, and unchanged P25 on the exact final source.
+
+### EL-03-R9-04 — Publish and repeat exact headed conformance
+
+1. Review all intended changes, update durable knowledge and this ledger,
+   commit normally, push `re-write`, and prove upstream 0:0.
+2. Restart repository `live-browser` from the pushed bundle. On at least
+   HumaNova and a current authoritative Aleris candidate, require zero released
+   page animation/compositor samples from the first unsafe shrink observation
+   through opaque guard paint, one generation/write/fade, safe trailing growth,
+   and zero identical-bounds work.
+3. Re-run warm Enable marking samples, nested parent-to-descendant Alt transfer,
+   mobile/desktop/mobile, detach/reload, Content List, consent, reveal/freeze,
+   and hygiene checks across the user-supplied property URLs. Derive candidate
+   pages only from the extension's authoritative candidate controls. Keep
+   unavailable/non-candidate/site-owned failures outside the pass denominator.
+4. Independently adjudicate all R8/R9 and cumulative EL-03 criteria. Any failed,
+   partial, blocked, or untested required cell opens the next delta and cannot
+   produce a production-ready verdict.
+
+## 4. Acceptance criteria
+
+- `EL03-R9-AC-01` With debugger and tab reads deliberately stalled, an unsafe
+  bounds shrink makes the exact current document guard opaque before either
+  read resolves; no metrics write occurs until fresh physical geometry arrives.
+- `EL03-R9-AC-02` Fresh headed shrink evidence contains zero released page or
+  compositor samples after the first unsafe physical event, while retaining
+  exactly one guard generation, one safe scale write, and one fade.
+- `EL03-R9-AC-03` Growth writes once only after stable quiet. Identical bounds
+  and a changed but still-fitting non-limiting axis produce zero guard entries
+  and zero debugger/posture writes.
+- `EL03-R9-AC-04` A wrong/missing projection, window handoff, posture change,
+  detach, navigation, reload, starvation, or hostile guard cannot authorize a
+  stale write or exposed release; recovery remains generation-fenced and
+  fail-closed.
+- `EL03-R9-AC-05` R8's Alt transfer and priority activation criteria remain
+  fully passing in automated and exact-pushed headed evidence.
+- `EL03-R9-AC-06` All unchanged repository/browser gates pass, the supplied
+  property matrix is truthfully classified, and the exact reviewed commit is
+  pushed and synchronized 0:0 before cumulative review.
+
+## 5. Todo chain
+
+1. `el03-r9-physical-baseline` -> 0
+2. `el03-r9-early-shrink-lease` -> 1
+3. `el03-r9-focused-full-gates` -> 2
+4. `el03-r9-review-push` -> 3
+5. `el03-r9-headed-conformance` -> 4
+6. `el03-r9-cumulative-audit` -> 5
+
+# EL-03-R9 pre-publication execution ledger — 2026-09-02
+
+## Implemented delta
+
+- The runtime now retains browser-proven physical tab rectangles and complete
+  owning-window bounds separately from short-lived successive-event
+  projections. A window handoff invalidates the old tab projection; release or
+  removal retires all tab geometry and the last unused window baseline.
+- A complete bounds delta is fenced to the exact tab/window/held-posture epoch.
+  If that projection proves the current device would clip, the runtime begins
+  or reuses the burst's opaque presentation lease before debugger-target or tab
+  geometry reads. A genuine bounds occurrence with no current projection also
+  guards fail-closed.
+- Fresh `tabs.get` geometry remains the only scale-write and settlement
+  authority. A contradicted projection settles its one lease with no metrics
+  write; identical bounds and changed non-limiting geometry retain zero guard
+  and zero write behavior.
+
+## Exact-source automated evidence
+
+- Focused runtime: **PASS**, 1 file, 62 tests. This includes independently
+  deferred `debugger.getTargets` and `tabs.get`, missing-baseline fail-closed,
+  contradicted projection, identical/non-limiting no-op, authoritative window
+  handoff, old-window retirement, and post-clear cache retirement cases.
+- Cross-module emulation/guardian/startup/marking/messaging/popup set: **PASS**,
+  9 files, 437 tests.
+- `pnpm lint`: **PASS**.
+- `pnpm check`: **PASS**, including generated page-world/icon checks and all
+  three TypeScript projects.
+- Full `pnpm verify`: **PASS** at default concurrency, 149 files and 1,702
+  tests, production build, and generated-manifest permission contract 7/7.
+- `pnpm build:debug`: **PASS**.
+- The preferred codebase knowledge-graph transport was retried during source
+  discovery but remained unavailable with `Transport closed`; targeted local
+  source inspection was used as the documented fallback.
+
+## Publication boundary
+
+The reviewed delta still requires a normal commit/push and 0:0 proof. Clean
+P17, standalone P14, unchanged P25, exact-pushed headed resize/activation/Alt
+checks, the supplied property matrix, and cumulative expert adjudication remain
+mandatory; this ledger does not predeclare production readiness.

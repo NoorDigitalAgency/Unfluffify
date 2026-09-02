@@ -62,6 +62,14 @@ export type EmulationRefitObservation = Readonly<{
   source: EmulationRefitSource;
   presentationGeneration?: number;
   physicalViewportHint?: EmulationPhysicalViewportHint;
+  /** Bounds-listener-only safety projection. It may raise the paint/input
+   * guard before delayed browser reads, but it never authorizes a metrics
+   * write or terminal fit proof. */
+  projectedPhysicalViewport?: PhysicalViewport;
+  projectedPostureEpoch?: number;
+  /** A real outer-bounds occurrence. When its projection cannot be fenced to
+   * the held posture, protection begins fail-closed before browser reads. */
+  physicalBoundsChanged?: boolean;
 }>;
 
 type PhysicalViewport = Readonly<{ width: number; height: number }>;
@@ -292,8 +300,21 @@ type TabsApi = Readonly<{
   onRemoved?: Readonly<{ addListener(listener: (tabId: number) => void): void }>;
 }>;
 type WindowsApi = Readonly<{
+  get?(windowId: number, getInfo?: Record<string, unknown>, callback?: (window?: Readonly<{
+    id?: number;
+    width?: number;
+    height?: number;
+  }>) => void): Promise<Readonly<{
+    id?: number;
+    width?: number;
+    height?: number;
+  }>> | void;
   onBoundsChanged?: Readonly<{
-    addListener(listener: (window: Readonly<{ id?: number }>) => void): void;
+    addListener(listener: (window: Readonly<{
+      id?: number;
+      width?: number;
+      height?: number;
+    }>) => void): void;
   }>;
 }>;
 
@@ -420,6 +441,12 @@ export function createRenderEmulationRuntime(input: Readonly<{
     scale: number;
   }>>();
   const tabWindowIds = new Map<number, number>();
+  const lastPhysicalViewports = new Map<number, PhysicalViewport>();
+  const projectedPhysicalViewports = new Map<number, PhysicalViewport>();
+  const lastWindowBounds = new Map<number, Readonly<{
+    width: number;
+    height: number;
+  }>>();
   const reassertRetryTimers = new Map<number, ReturnType<typeof setTimeout>>();
   const reassertRetryAttempts = new Map<number, number>();
   const leaseWatchdogTimers = new Map<number, ReturnType<typeof setTimeout>>();
@@ -748,7 +775,52 @@ export function createRenderEmulationRuntime(input: Readonly<{
     heldPostures.delete(tabId);
     verifiedPostures.delete(tabId);
     safeFittedScales.delete(tabId);
+    lastPhysicalViewports.delete(tabId);
+    projectedPhysicalViewports.delete(tabId);
+    const windowId = tabWindowIds.get(tabId);
     tabWindowIds.delete(tabId);
+    if (
+      windowId !== undefined &&
+      ![...tabWindowIds.values()].includes(windowId)
+    ) {
+      lastWindowBounds.delete(windowId);
+    }
+  };
+  const normalizedWindowBounds = (
+    window: Readonly<{ width?: number; height?: number }> | null | undefined,
+  ): Readonly<{ width: number; height: number }> | null => {
+    const width = Number(window?.width);
+    const height = Number(window?.height);
+    return Number.isFinite(width) && width > 0 &&
+      Number.isFinite(height) && height > 0
+      ? { width, height }
+      : null;
+  };
+  const readWindowBounds = async (
+    windowId: number,
+  ): Promise<Readonly<{ width: number; height: number }> | null> => {
+    if (!input.windows?.get) return null;
+    try {
+      const window = await invokeBrowserApi<Readonly<{
+        id?: number;
+        width?: number;
+        height?: number;
+      }>>(
+        () => input.windows!.get!(windowId) as Promise<Readonly<{
+          id?: number;
+          width?: number;
+          height?: number;
+        }>> | void,
+        (callback) => input.windows!.get!(windowId, {}, callback),
+        "Window bounds read",
+      );
+      if (window?.id !== undefined && window.id !== windowId) return null;
+      const bounds = normalizedWindowBounds(window);
+      if (bounds) lastWindowBounds.set(windowId, bounds);
+      return bounds;
+    } catch {
+      return null;
+    }
   };
   const visibleTabViewport = async (
     tabId: number,
@@ -774,18 +846,30 @@ export function createRenderEmulationRuntime(input: Readonly<{
       const width = Number(tab?.width);
       const height = Number(tab?.height);
       if (Number.isInteger(tab?.windowId)) {
-        tabWindowIds.set(tabId, Number(tab?.windowId));
+        const windowId = Number(tab?.windowId);
+        const priorWindowId = tabWindowIds.get(tabId);
+        if (priorWindowId !== undefined && priorWindowId !== windowId) {
+          lastPhysicalViewports.delete(tabId);
+          projectedPhysicalViewports.delete(tabId);
+        }
+        tabWindowIds.set(tabId, windowId);
+        if (priorWindowId !== windowId || !lastWindowBounds.has(windowId)) {
+          await readWindowBounds(windowId);
+        }
       }
       if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
         return null;
       }
       const hintedHeight = Number(hint?.height);
-      return {
+      const viewport = {
         width,
         height: Number.isFinite(hintedHeight) && hintedHeight > 0
           ? Math.min(height, hintedHeight)
           : height,
       };
+      lastPhysicalViewports.set(tabId, viewport);
+      projectedPhysicalViewports.delete(tabId);
+      return viewport;
     } catch {
       return null;
     }
@@ -1419,6 +1503,40 @@ export function createRenderEmulationRuntime(input: Readonly<{
     const hasContentAuthority =
       current.source === "content" ||
       next.source === "content";
+    const currentProjection = current.projectedPhysicalViewport &&
+        current.projectedPostureEpoch !== undefined
+      ? {
+          viewport: current.projectedPhysicalViewport,
+          epoch: current.projectedPostureEpoch,
+        }
+      : null;
+    const nextProjection = next.projectedPhysicalViewport &&
+        next.projectedPostureEpoch !== undefined
+      ? {
+          viewport: next.projectedPhysicalViewport,
+          epoch: next.projectedPostureEpoch,
+        }
+      : null;
+    const mergedProjection = currentProjection && nextProjection
+      ? currentProjection.epoch === nextProjection.epoch
+        ? {
+            viewport: {
+              width: Math.min(
+                currentProjection.viewport.width,
+                nextProjection.viewport.width,
+              ),
+              height: Math.min(
+                currentProjection.viewport.height,
+                nextProjection.viewport.height,
+              ),
+            },
+            epoch: currentProjection.epoch,
+          }
+        : null
+      : nextProjection ?? currentProjection;
+    const physicalBoundsChanged =
+      current.physicalBoundsChanged === true ||
+      next.physicalBoundsChanged === true;
     return {
       source: hasContentAuthority ? "content" : next.source,
       ...(presentationGeneration > 0 ? { presentationGeneration } : {}),
@@ -1428,6 +1546,13 @@ export function createRenderEmulationRuntime(input: Readonly<{
               next.physicalViewportHint ?? current.physicalViewportHint,
           }
         : {}),
+      ...(mergedProjection
+        ? {
+            projectedPhysicalViewport: mergedProjection.viewport,
+            projectedPostureEpoch: mergedProjection.epoch,
+          }
+        : {}),
+      ...(physicalBoundsChanged ? { physicalBoundsChanged: true } : {}),
     };
   };
   const beginRefitPresentation = async (
@@ -1535,6 +1660,54 @@ export function createRenderEmulationRuntime(input: Readonly<{
     coordinatorVersion: number,
   ): Promise<VerifiedEmulationState | null> => {
     if (!postureIsCurrent(tabId, held)) return null;
+    const projectedVerified = verifiedPostures.get(tabId);
+    const projectionIsCurrent =
+      observation.projectedPostureEpoch === held.epoch &&
+      observation.projectedPhysicalViewport !== undefined &&
+      projectedVerified?.active === true &&
+      projectedVerified.mode === held.mode;
+    const shouldPreguard = projectionIsCurrent
+      ? !physicalViewportFits(
+        projectedVerified,
+        observation.projectedPhysicalViewport,
+      )
+      : observation.physicalBoundsChanged === true;
+    let preguardedBurst: RefitBurst | null = null;
+    if (shouldPreguard) {
+      const projectedSignature = observation.projectedPhysicalViewport
+        ? physicalSignature(observation.projectedPhysicalViewport)
+        : lastPhysicalSignatures.get(tabId) ?? `bounds:unknown:${coordinatorVersion}`;
+      const existingBurst = refitBursts.get(tabId);
+      if (existingBurst?.held === held) {
+        existingBurst.coordinatorVersion = coordinatorVersion;
+        existingBurst.physicalSignature = projectedSignature;
+        if (observation.physicalViewportHint) {
+          existingBurst.hint = observation.physicalViewportHint;
+        }
+        preguardedBurst = existingBurst;
+      } else {
+        try {
+          preguardedBurst = {
+            held,
+            lease: await beginRefitPresentation(tabId, held, observation),
+            geometryGeneration: nextGeometryGeneration(tabId),
+            physicalSignature: projectedSignature,
+            hint: observation.physicalViewportHint,
+            coordinatorVersion,
+          };
+          refitBursts.set(tabId, preguardedBurst);
+        } catch {
+          scheduleReassertRetry(tabId, held);
+          return projectedVerified
+            ? {
+                ...projectedVerified,
+                active: false,
+                failureReason: "presentation_unavailable",
+              }
+            : null;
+        }
+      }
+    }
     const attachmentCurrent = await debuggerAttachmentIsCurrent(tabId);
     if (!postureIsCurrent(tabId, held)) return null;
     const verified = verifiedPostures.get(tabId);
@@ -1576,6 +1749,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
     if (lastPhysicalSignatures.get(tabId) === signature) {
       if (activeBurst && activeBurst.held === held) {
         activeBurst.coordinatorVersion = coordinatorVersion;
+        activeBurst.physicalSignature = signature;
         if (observation.physicalViewportHint) {
           activeBurst.hint = observation.physicalViewportHint;
         }
@@ -1619,7 +1793,9 @@ export function createRenderEmulationRuntime(input: Readonly<{
       }
     }
     lastPhysicalSignatures.set(tabId, signature);
-    const geometryGeneration = nextGeometryGeneration(tabId);
+    const geometryGeneration = preguardedBurst === activeBurst
+      ? preguardedBurst.geometryGeneration
+      : nextGeometryGeneration(tabId);
     if (!needsScaleChange) {
       if (activeBurst && activeBurst.held === held) {
         activeBurst.geometryGeneration = geometryGeneration;
@@ -1899,13 +2075,58 @@ export function createRenderEmulationRuntime(input: Readonly<{
     if (typeof windowId !== "number") {
       return;
     }
+    const priorBounds = lastWindowBounds.get(windowId) ?? null;
+    const nextBounds = normalizedWindowBounds(window);
+    const physicalBoundsChanged = priorBounds && nextBounds
+      ? priorBounds.width !== nextBounds.width ||
+        priorBounds.height !== nextBounds.height
+      : true;
+    if (nextBounds) {
+      lastWindowBounds.set(windowId, nextBounds);
+    } else {
+      // Do not pair the next authoritative tab rectangle with an outer baseline
+      // that predates an occurrence whose dimensions Chrome omitted.
+      lastWindowBounds.delete(windowId);
+    }
     for (const [tabId] of heldPostures) {
       if (tabWindowIds.get(tabId) !== windowId) {
         continue;
       }
       // The page layout remains the same simulated device. Refit only the
       // compositor view scale; a resize must not churn identity/input posture.
-      void requestRefit(tabId, { source: "window-bounds" });
+      const priorViewport = projectedPhysicalViewports.get(tabId) ??
+        lastPhysicalViewports.get(tabId) ?? null;
+      const held = heldPostures.get(tabId);
+      const projectedPhysicalViewport = priorBounds && nextBounds && priorViewport
+        ? {
+            width: priorViewport.width + nextBounds.width - priorBounds.width,
+            height: priorViewport.height + nextBounds.height - priorBounds.height,
+          }
+        : null;
+      const validProjection = projectedPhysicalViewport && held &&
+        Number.isFinite(projectedPhysicalViewport.width) &&
+        projectedPhysicalViewport.width > 0 &&
+        Number.isFinite(projectedPhysicalViewport.height) &&
+        projectedPhysicalViewport.height > 0
+        ? projectedPhysicalViewport
+        : null;
+      if (validProjection) {
+        // Carry successive drag deltas forward immediately. Fresh tabs.get
+        // samples replace this estimate before any debugger write or release.
+        projectedPhysicalViewports.set(tabId, validProjection);
+      } else {
+        projectedPhysicalViewports.delete(tabId);
+      }
+      void requestRefit(tabId, {
+        source: "window-bounds",
+        physicalBoundsChanged,
+        ...(validProjection && held
+          ? {
+              projectedPhysicalViewport: validProjection,
+              projectedPostureEpoch: held.epoch,
+            }
+          : {}),
+      });
     }
   });
   if (input.postureRepo) {
