@@ -1,10 +1,13 @@
-import type {
-  RenderInspectionPropertyScope,
-  RenderInspectionSession,
-  RenderInspectionTerminalReason,
+import {
+  RENDER_INSPECTION_DURABLE_TIMEOUT_MS,
+  type RenderInspectionPropertyScope,
+  type RenderInspectionSession,
+  type RenderInspectionTerminalReason,
 } from "../messaging/render-inspection";
 
-export const RENDER_MODE_INSPECTION_WATCHDOG_MS = 20_000;
+export const RENDER_MODE_INSPECTION_WATCHDOG_GRACE_MS = 10_000;
+export const RENDER_MODE_INSPECTION_WATCHDOG_MS =
+  RENDER_INSPECTION_DURABLE_TIMEOUT_MS + RENDER_MODE_INSPECTION_WATCHDOG_GRACE_MS;
 export const RENDER_MODE_INSPECTION_POLL_MS = 250;
 
 export type InspectedRenderModeView = "unknown" | "with_javascript" | "without_javascript";

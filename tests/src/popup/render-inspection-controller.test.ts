@@ -1,11 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type {
-  RenderInspectionCurrentResponse,
-  RenderInspectionMutationResponse,
-  RenderInspectionSession,
-  RenderInspectionStartResponse,
+import {
+  RENDER_INSPECTION_DURABLE_TIMEOUT_MS,
+  type RenderInspectionCurrentResponse,
+  type RenderInspectionMutationResponse,
+  type RenderInspectionSession,
+  type RenderInspectionStartResponse,
 } from "../../../src/messaging/render-inspection";
+import {
+  RENDER_MODE_INSPECTION_WATCHDOG_MS,
+  watchRenderModeInspection,
+} from "../../../src/popup/render-mode-inspection";
 import {
   createPopupRenderInspectionController,
   type PopupRenderInspectionOwner,
@@ -209,6 +214,54 @@ describe("popup render-inspection controller", () => {
       view: "with_javascript",
       busy: false,
     });
+  });
+
+  it("adopts a terminal reload after the former popup deadline but before durable authority expires", async () => {
+    vi.useFakeTimers();
+    try {
+      expect(RENDER_MODE_INSPECTION_WATCHDOG_MS)
+        .toBeGreaterThan(RENDER_INSPECTION_DURABLE_TIMEOUT_MS);
+      const lateTerminalMs = RENDER_INSPECTION_DURABLE_TIMEOUT_MS - 1_000;
+      expect(lateTerminalMs).toBeGreaterThan(20_000);
+      const terminal = session({
+        phase: "terminal",
+        updatedAt: lateTerminalMs,
+        deadlineAt: RENDER_INSPECTION_DURABLE_TIMEOUT_MS,
+        terminalReason: "reload-acknowledged",
+        javascriptEnabled: true,
+      });
+      const harness = createHarness({
+        start: vi.fn(async () => await new Promise<RenderInspectionPortResult<RenderInspectionStartResponse>>(
+          (resolve) => {
+            setTimeout(() => resolve({
+              ok: true,
+              data: { status: "started", session: terminal },
+            }), lateTerminalMs);
+          },
+        )),
+        watch: watchRenderModeInspection,
+      });
+
+      const outcome = harness.controller.start(OWNER_A, PROPERTY, true);
+      expect(harness.controller.snapshot()).toMatchObject({ busy: true, view: "unknown" });
+      await vi.advanceTimersByTimeAsync(20_001);
+      expect(harness.controller.snapshot()).toMatchObject({
+        busy: true,
+        view: "unknown",
+        detail: "",
+      });
+
+      await vi.advanceTimersByTimeAsync(lateTerminalMs - 20_001);
+      await expect(outcome).resolves.toBe("terminal");
+      expect(harness.controller.snapshot()).toMatchObject({
+        busy: false,
+        view: "with_javascript",
+        detail: "",
+        watchdogReleased: false,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("projects an already-active start conflict without cancelling background authority", async () => {

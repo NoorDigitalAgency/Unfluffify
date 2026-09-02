@@ -5,6 +5,7 @@ import type { BrainSensation } from "../../../src/background/brain/fold";
 import type { ConfigSnapshot } from "../../../src/storage/config";
 import type { RenderInspectionSession } from "../../../src/messaging/render-inspection";
 import { SIGNAL_PULL_TIMEOUT_MS } from "../../../src/messaging/rewrite-signals";
+import { RENDER_MODE_INSPECTION_WATCHDOG_MS } from "../../../src/popup/render-mode-inspection";
 
 function backendConfig(): ConfigSnapshot {
   const page = (pageKey: string) => ({
@@ -268,6 +269,34 @@ function makeTabsSendMessage(
       const acknowledged = rawData &&
         typeof rawData === "object" &&
         (rawData as { ok?: unknown }).ok === true;
+      let contentStatusDefaults: Record<string, unknown> = {};
+      if (command.name === "getContentMainStatus" && acknowledged) {
+        const rawStatus = rawData as Record<string, unknown>;
+        let pageUrl = typeof rawStatus.pageUrl === "string" ? rawStatus.pageUrl : null;
+        if (pageUrl === null) {
+          const activeTabs = await globalThis.chrome?.tabs?.query?.({ active: true, currentWindow: true }) ?? [];
+          pageUrl = activeTabs.find((tab) => tab.id === tabId)?.url ?? activeTabs[0]?.url ?? "";
+        }
+        let environmentKey = "example.com";
+        try {
+          environmentKey = new URL(pageUrl).hostname;
+        } catch {
+          // The debugTabId harness intentionally has no active-tab URL. Its
+          // mocked property authority remains the canonical example property.
+        }
+        contentStatusDefaults = {
+          pageUrl,
+          ...(!Object.prototype.hasOwnProperty.call(rawStatus, "authority")
+            ? {
+                authority: {
+                  environmentKey,
+                  siteId: 1,
+                  lockBlocked: false,
+                },
+              }
+            : {}),
+        };
+      }
       const data = command.name === "activateContentMain" && acknowledged
         ? {
             interactionsReady: true,
@@ -282,7 +311,12 @@ function makeTabsSendMessage(
                 ritual: { status: "prepared", frozenAtBottom: true },
                 ...rawData as Record<string, unknown>,
               }
-            : rawData;
+            : command.name === "getContentMainStatus" && acknowledged
+              ? {
+                  ...contentStatusDefaults,
+                  ...rawData as Record<string, unknown>,
+                }
+              : rawData;
       return contentReplyFrame(frame, data);
     }
     if (frame?.kind === "uf-bus/1" && frame.frameType === "request" && frame.target === "content") {
@@ -1194,7 +1228,14 @@ describe("rewrite popup entrypoint", () => {
           original: { tabId: number; url: string };
           contentReady: (context: { tabId: number; url: string }) => Promise<boolean>;
         }) => {
-          replacementChecks.push(await options.contentReady(options.original));
+          const ready = await options.contentReady(options.original);
+          // Render-exit authority now uses the same transition primitive. It is
+          // already exact and must not be captured by this test's later
+          // emulation-replacement gate.
+          if (ready) {
+            return { status: "ready" as const, context: options.original };
+          }
+          replacementChecks.push(false);
           await replacementGate;
           documentNonce = "document-b";
           replacementChecks.push(await options.contentReady(options.original));
@@ -1738,7 +1779,7 @@ describe("rewrite popup entrypoint", () => {
         renderModeDetail: "",
       });
 
-      await vi.advanceTimersByTimeAsync(20_000);
+      await vi.advanceTimersByTimeAsync(RENDER_MODE_INSPECTION_WATCHDOG_MS);
       for (let index = 0; index < 20; index += 1) {
         await Promise.resolve();
       }
@@ -2033,7 +2074,37 @@ describe("rewrite popup entrypoint", () => {
     expect(props().diagnostics.renderModeDetail).toContain("retry this view");
   });
 
-  it("does not open connection settings until the static tab confirms the JavaScript reload", async () => {
+  it("waits for exact replacement authority and one transient receiver before leaving Render mode", async () => {
+    let replacementAuthorityReady = false;
+    let releaseReplacementAuthority!: () => void;
+    const replacementAuthorityGate = new Promise<void>((resolve) => {
+      releaseReplacementAuthority = resolve;
+    });
+    const replacementAuthorityChecks: boolean[] = [];
+    vi.doMock("../../../src/popup/emulation-reload-transition", async () => {
+      const actual = await vi.importActual<typeof import("../../../src/popup/emulation-reload-transition")>(
+        "../../../src/popup/emulation-reload-transition",
+      );
+      return {
+        ...actual,
+        waitForReloadTransition: vi.fn(async (options: {
+          original: { tabId: number; url: string };
+          contentReady: (context: { tabId: number; url: string }) => Promise<boolean>;
+        }) => {
+          const ready = await options.contentReady(options.original);
+          if (ready) {
+            return { status: "ready" as const, context: options.original };
+          }
+          replacementAuthorityChecks.push(false);
+          await replacementAuthorityGate;
+          const replacementReady = await options.contentReady(options.original);
+          replacementAuthorityChecks.push(replacementReady);
+          return replacementReady
+            ? { status: "ready" as const, context: options.original }
+            : { status: "timed_out" as const };
+        }),
+      };
+    });
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
@@ -2069,6 +2140,7 @@ describe("rewrite popup entrypoint", () => {
     );
     let holdExitSilentProjection = false;
     let releaseExitSilentProjection: (() => void) | null = null;
+    let prepareAttempts = 0;
     const tabsSendMessage = makeTabsSendMessage(async (_tabId, message) => {
       if (message.type === "applySilentSelectors") {
         if (holdExitSilentProjection) {
@@ -2082,7 +2154,21 @@ describe("rewrite popup entrypoint", () => {
         };
       }
       if (message.type === "getContentMainStatus") {
-        return { ok: true, active: false, documentNonce: "render-exit-document" };
+        return {
+          ok: true,
+          active: false,
+          pageUrl: "https://example.com/page",
+          documentNonce: "render-exit-document",
+          authority: replacementAuthorityReady
+            ? { environmentKey: "example.com", siteId: 1, lockBlocked: false }
+            : null,
+        };
+      }
+      if (message.type === "preparePageVisit") {
+        prepareAttempts += 1;
+        if (prepareAttempts === 1) {
+          throw new Error("Could not establish connection. Receiving end does not exist.");
+        }
       }
       return { ok: true, active: false };
     });
@@ -2135,6 +2221,15 @@ describe("rewrite popup entrypoint", () => {
       }),
     }));
     await waitFor(
+      () => replacementAuthorityChecks.includes(false),
+      "replacement authority fence",
+    );
+    expect(prepareAttempts).toBe(0);
+    expect(props().view).toBe("render-mode");
+
+    replacementAuthorityReady = true;
+    releaseReplacementAuthority();
+    await waitFor(
       () => tabsSendMessage.mock.calls.some(([, frame]) =>
         ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "preparePageVisit"),
       "reveal/freeze request after JavaScript reload",
@@ -2149,6 +2244,8 @@ describe("rewrite popup entrypoint", () => {
     );
     expect(exitCommands.indexOf("preparePageVisit")).toBeGreaterThanOrEqual(0);
     expect(exitCommands.indexOf("preparePageVisit")).toBeLessThan(exitCommands.lastIndexOf("applySilentSelectors"));
+    expect(replacementAuthorityChecks).toContain(true);
+    expect(prepareAttempts).toBe(2);
 
     holdExitSilentProjection = false;
     releaseExitSilentProjection?.();
@@ -2491,7 +2588,7 @@ describe("rewrite popup entrypoint", () => {
         await vi.advanceTimersByTimeAsync(0);
       }
       expect(runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "renderInspection.start")).toBe(true);
-      await vi.advanceTimersByTimeAsync(20_000);
+      await vi.advanceTimersByTimeAsync(RENDER_MODE_INSPECTION_WATCHDOG_MS);
       for (let index = 0; index < 10; index += 1) {
         await Promise.resolve();
       }
@@ -6550,7 +6647,13 @@ describe("rewrite popup entrypoint", () => {
       createRoot: vi.fn(() => ({ render })),
     }));
     const query = vi.fn();
-    const tabsSendMessage = makeTabsSendMessage(() => ({ ok: true, initialized: true, tree: "rewrite" }));
+    const tabsSendMessage = makeTabsSendMessage((_tabId, message) => message.type === "getContentMainStatus"
+      ? {
+          ok: true,
+          pageUrl: "",
+          authority: { environmentKey: "example.com", siteId: 1, lockBlocked: false },
+        }
+      : { ok: true, initialized: true, tree: "rewrite" });
     const runtime = makeRuntime((message) => replyFrame(message, []));
     globalThis.chrome = {
       runtime: {

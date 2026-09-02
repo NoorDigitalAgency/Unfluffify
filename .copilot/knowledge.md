@@ -798,3 +798,24 @@ painted" decision from the replaced document.
   without tinting the page, rebuilding rows, or rereading geometry. Newly
   created engines adopt the same state immediately. Clear the class only after
   Render view exits and the exact cleanup fence is gone; then Silent may paint.
+- EL-03 DURABLE RESTORATION HANDOFF: the background render-inspection occurrence
+  owns the shared 30-second terminal deadline; the popup observer is derived as
+  that deadline plus bounded grace and may never abandon a still-valid durable
+  reload. After an exact JavaScript-on `reload-acknowledged` terminal, Render
+  exit waits for `getContentMainStatus` on the same tab, normalized URL,
+  environment, site, and unblocked editor authority before issuing
+  `preparePageVisit`. One missing-receiver or explicit
+  `property-authority-unavailable` refusal may reconcile and retry within the
+  same deadline, because neither proves a ritual ran. Binding/identity/lock
+  changes fail closed with a visible reason. Silent projection and Render-view
+  lease release happen only after the one successful reveal/freeze ritual.
+- EL-03 CONTINUOUS DEBUGGER LEASE: a durable mobile/desktop posture is a held
+  browser lease, not a one-time CDP write. Delivered `debugger.onDetach` remains
+  the immediate repair path; a per-tab browser-only watchdog closes Chromium's
+  silent-detach gap by reading `debugger.getTargets()` and `tabs.get()` through
+  the existing serialized operation queue. Missing attachment reasserts the
+  exact held mode at the last safe fitted scale or smaller; physical clipping
+  performs only an immediate same-mode metrics shrink. An exact tick emits no
+  CDP command or page-main-thread work, never grows or changes mode, and
+  `clear()`/tab removal retires the watchdog before debugger release so a stale
+  tick cannot resurrect the posture.

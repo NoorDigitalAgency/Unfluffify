@@ -39,6 +39,11 @@ export type EmulationPhysicalViewportHint = Readonly<{
 
 type PhysicalViewport = Readonly<{ width: number; height: number }>;
 
+/** Browser-owned ownership/fit backstop for a held debugger posture. Delivered
+ * detach and geometry events remain immediate; this closes Chromium's silent
+ * detach gap without polling or evaluating the inspected page. */
+export const EMULATION_LEASE_WATCHDOG_MS = 250;
+
 class PhysicalViewportUnavailableError extends Error {
   constructor() {
     super("Physical viewport is unavailable");
@@ -319,6 +324,9 @@ export function createRenderEmulationRuntime(input: Readonly<{
   onDebuggerDetached?: (tabId: number, reason?: string) => void;
   apiTimeoutMs?: number;
   apiMode?: "callback" | "promise";
+  /** Test seam. Zero disables the standing lease; production uses the bounded
+   * browser-owned default above. */
+  leaseWatchdogMs?: number;
 }>) {
   const apiTimeoutMs = input.apiTimeoutMs ?? 5_000;
   const apiMode = input.apiMode ?? (
@@ -373,6 +381,9 @@ export function createRenderEmulationRuntime(input: Readonly<{
   const tabWindowIds = new Map<number, number>();
   const reassertRetryTimers = new Map<number, ReturnType<typeof setTimeout>>();
   const reassertRetryAttempts = new Map<number, number>();
+  const leaseWatchdogTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  const leaseWatchdogMs = input.leaseWatchdogMs ?? EMULATION_LEASE_WATCHDOG_MS;
+  let scheduleLeaseWatchdog: (tabId: number) => void = () => undefined;
   const refitTimers = new Map<number, ReturnType<typeof setTimeout>>();
   const refitQueued = new Set<number>();
   const refitTrailing = new Set<number>();
@@ -427,6 +438,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       epoch: nextPostureEpoch(tabId),
     };
     heldPostures.set(tabId, held);
+    scheduleLeaseWatchdog(tabId);
     if (record.fittedScale !== undefined) {
       safeFittedScales.set(tabId, {
         mode: record.mode,
@@ -506,7 +518,17 @@ export function createRenderEmulationRuntime(input: Readonly<{
     }
     reassertRetryAttempts.delete(tabId);
   };
+  const cancelLeaseWatchdog = (tabId: number): void => {
+    const timer = leaseWatchdogTimers.get(tabId);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      leaseWatchdogTimers.delete(tabId);
+    }
+  };
   const releasePosture = (tabId: number): void => {
+    // Retire the standing lease before any intentional debugger detach. A
+    // trailing watchdog must never resurrect a posture the operator released.
+    cancelLeaseWatchdog(tabId);
     cancelReassertRetry(tabId);
     clearRefitTimer(tabId);
     nextPostureEpoch(tabId);
@@ -1019,6 +1041,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
         epoch: nextPostureEpoch(tabId),
       };
       heldPostures.set(tabId, restored);
+      scheduleLeaseWatchdog(tabId);
       try {
         await persistPosture(tabId, restored);
         const realUserAgent = await realUserAgentFor(tabId);
@@ -1217,6 +1240,67 @@ export function createRenderEmulationRuntime(input: Readonly<{
       return null;
     }
   };
+  /**
+   * `onDetach` is the fastest path, but Chromium intentionally omits it for an
+   * extension-originated or otherwise silent detach. A held posture is
+   * therefore a lease: verify browser ownership at a bounded cadence and
+   * repair it without waiting for a popup action. The exact attached path reads
+   * only browser target/tab metadata and emits no CDP writes or page-main-thread
+   * work.
+   */
+  const reconcileLeaseWatchdog = async (tabId: number): Promise<void> => {
+    const held = heldPostures.get(tabId);
+    if (!held) return;
+    await withEmulationOperation(tabId, async () => {
+      if (!postureIsCurrent(tabId, held)) return;
+      const attachmentCurrent = await debuggerAttachmentIsCurrent(tabId);
+      if (!postureIsCurrent(tabId, held)) return;
+      if (!attachmentCurrent) {
+        invalidateGeometry(tabId);
+        await executeReassertPosture(tabId, held);
+        return;
+      }
+      const verified = verifiedPostures.get(tabId);
+      if (!verified || verified.mode !== held.mode) {
+        await executeReassertPosture(tabId, held);
+        return;
+      }
+      const physicalViewport = await visibleTabViewport(tabId);
+      if (
+        postureIsCurrent(tabId, held) &&
+        physicalViewport &&
+        !physicalViewportFits(verified, physicalViewport)
+      ) {
+        // A watchdog may make the already-held screen smaller for safety.
+        // Expansion remains owned by generation-fenced resize/refit events so
+        // an idle tick can never cause zoom oscillation.
+        invalidateGeometry(tabId);
+        await executeRefitPosture(tabId, held, false);
+      }
+    });
+  };
+  scheduleLeaseWatchdog = (tabId: number): void => {
+    if (
+      leaseWatchdogMs <= 0 ||
+      !input.postureRepo ||
+      !input.debuggerApi?.getTargets ||
+      !input.tabs?.get ||
+      !heldPostures.has(tabId) ||
+      leaseWatchdogTimers.has(tabId)
+    ) {
+      return;
+    }
+    const timer = setTimeout(() => {
+      leaseWatchdogTimers.delete(tabId);
+      void reconcileLeaseWatchdog(tabId).finally(() => {
+        if (heldPostures.has(tabId)) scheduleLeaseWatchdog(tabId);
+      });
+    }, Math.max(25, leaseWatchdogMs));
+    // Node test timers should not keep a completed Vitest worker alive. Browser
+    // timer ids are numbers and simply skip this optional method.
+    (timer as unknown as { unref?: () => void }).unref?.();
+    leaseWatchdogTimers.set(tabId, timer);
+  };
   type RefitRequest = Readonly<{
     allowExpansion?: boolean;
     expectedExpansionScale?: number;
@@ -1309,7 +1393,9 @@ export function createRenderEmulationRuntime(input: Readonly<{
 
   return {
     async hydrate(tabId: number): Promise<EmulationMode | null> {
-      return (await hydratePosture(tabId))?.mode ?? null;
+      const held = await hydratePosture(tabId);
+      if (held) scheduleLeaseWatchdog(tabId);
+      return held?.mode ?? null;
     },
     heldMode(tabId: number): EmulationMode | null {
       return heldPostures.get(tabId)?.mode ?? null;
@@ -1386,6 +1472,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
         cancelReassertRetry(tabId);
         clearRefitTimer(tabId);
         heldPostures.set(tabId, held);
+        scheduleLeaseWatchdog(tabId);
         verifiedPostures.delete(tabId);
         try {
           // Durable intent precedes the first CDP write. A worker suspended

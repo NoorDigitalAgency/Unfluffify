@@ -586,6 +586,206 @@ describe("render emulation runtime", () => {
       .toHaveLength(1);
   });
 
+  it.each([
+    { mode: "mobile" as const, width: 412, height: 960, scale: 0.75 },
+    { mode: "desktop" as const, width: 1_920, height: 1_080, scale: 900 / 1_920 },
+  ])("autonomously repairs a silently lost $mode debugger lease while the tab is idle", async ({
+    mode,
+    width,
+    height,
+    scale,
+  }) => {
+    vi.useFakeTimers();
+    try {
+      const debuggerApi = fakeDebugger();
+      const repo = createEmulationPostureRepo(createMemoryStore());
+      const runtime = createRenderEmulationRuntime({
+        debuggerApi: debuggerApi.api,
+        tabs: tabsWithViewport({ width: 900, height: 720, windowId: 4 }),
+        postureRepo: repo,
+        leaseWatchdogMs: 50,
+      });
+      await runtime.apply(7, mode, 1);
+      debuggerApi.sent.length = 0;
+      const attachesBeforeLoss = debuggerApi.attaches.length;
+
+      // This is the Chromium path that has no onDetach notification. No popup
+      // current/refit/apply call follows it.
+      debuggerApi.loseAttachmentSilently();
+      await vi.advanceTimersByTimeAsync(50);
+      await flush();
+
+      expect(debuggerApi.attaches.length).toBeGreaterThan(attachesBeforeLoss);
+      expect(debuggerApi.sent.filter((call) => call.method === "Emulation.setDeviceMetricsOverride"))
+        .toHaveLength(1);
+      expect(debuggerApi.sent.filter((call) => call.method === "Emulation.setTouchEmulationEnabled"))
+        .toHaveLength(1);
+      expect(debuggerApi.sent.filter((call) => call.method === "Emulation.setEmulatedMedia"))
+        .toHaveLength(1);
+      expect(debuggerApi.sent.filter((call) => call.method === "Emulation.setUserAgentOverride"))
+        .toHaveLength(1);
+      await expect(runtime.current(7, mode, 1)).resolves.toMatchObject({
+        active: true,
+        mode,
+        width,
+        height,
+      });
+      expect((await runtime.current(7, mode, 1))?.scale).toBeCloseTo(scale);
+      await runtime.clear(7);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps an exact idle lease read-only and cancels it before clear", async () => {
+    vi.useFakeTimers();
+    try {
+      const debuggerApi = fakeDebugger();
+      const repo = createEmulationPostureRepo(createMemoryStore());
+      const runtime = createRenderEmulationRuntime({
+        debuggerApi: debuggerApi.api,
+        tabs: tabsWithViewport({ width: 900, height: 720, windowId: 4 }),
+        postureRepo: repo,
+        leaseWatchdogMs: 50,
+      });
+      await runtime.apply(7, "desktop", 1);
+      debuggerApi.sent.length = 0;
+
+      await vi.advanceTimersByTimeAsync(250);
+      await flush();
+      expect(debuggerApi.sent).toEqual([]);
+
+      await runtime.clear(7);
+      debuggerApi.sent.length = 0;
+      await vi.advanceTimersByTimeAsync(250);
+      await flush();
+      expect(runtime.heldMode(7)).toBeNull();
+      expect(debuggerApi.sent).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses the idle lease only for an immediate physical shrink, never growth or full churn", async () => {
+    vi.useFakeTimers();
+    try {
+      const debuggerApi = fakeDebugger();
+      const repo = createEmulationPostureRepo(createMemoryStore());
+      const viewport = { width: 900, height: 720, windowId: 4 };
+      const runtime = createRenderEmulationRuntime({
+        debuggerApi: debuggerApi.api,
+        tabs: tabsWithViewport(viewport),
+        postureRepo: repo,
+        leaseWatchdogMs: 50,
+      });
+      await runtime.apply(7, "mobile", 1);
+      debuggerApi.sent.length = 0;
+
+      viewport.height = 480;
+      await vi.advanceTimersByTimeAsync(50);
+      await flush();
+
+      const metrics = debuggerApi.sent.filter((call) =>
+        call.method === "Emulation.setDeviceMetricsOverride");
+      expect(metrics).toHaveLength(1);
+      expect(metrics[0]?.params).toMatchObject({
+        width: 412,
+        height: 960,
+        mobile: true,
+        scale: 0.5,
+      });
+      expect(debuggerApi.sent.some((call) =>
+        call.method === "Emulation.setTouchEmulationEnabled" ||
+        call.method === "Emulation.setEmulatedMedia" ||
+        call.method === "Emulation.setUserAgentOverride"
+      )).toBe(false);
+
+      debuggerApi.sent.length = 0;
+      viewport.height = 720;
+      await vi.advanceTimersByTimeAsync(250);
+      await flush();
+      expect(debuggerApi.sent).toEqual([]);
+      await runtime.clear(7);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels the idle lease when the tab is removed and never resurrects its posture", async () => {
+    vi.useFakeTimers();
+    try {
+      const debuggerApi = fakeDebugger();
+      const repo = createEmulationPostureRepo(createMemoryStore());
+      let onRemoved: ((tabId: number) => void) | undefined;
+      const runtime = createRenderEmulationRuntime({
+        debuggerApi: debuggerApi.api,
+        tabs: {
+          ...tabsWithViewport({ width: 900, height: 720, windowId: 4 }),
+          onRemoved: { addListener(listener) { onRemoved = listener; } },
+        },
+        postureRepo: repo,
+        leaseWatchdogMs: 50,
+      });
+      await runtime.apply(7, "mobile", 1);
+      debuggerApi.sent.length = 0;
+      const attachesBeforeRemoval = debuggerApi.attaches.length;
+
+      onRemoved?.(7);
+      await flush();
+      await vi.advanceTimersByTimeAsync(250);
+      await flush();
+
+      expect(runtime.heldMode(7)).toBeNull();
+      await expect(repo.load(7)).resolves.toEqual({ ok: true, value: null });
+      expect(debuggerApi.attaches).toHaveLength(attachesBeforeRemoval);
+      expect(debuggerApi.sent).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("serializes an idle lease tick behind a mode transition without a stale-mode write", async () => {
+    vi.useFakeTimers();
+    try {
+      const debuggerApi = fakeDebugger();
+      const repo = createEmulationPostureRepo(createMemoryStore());
+      const runtime = createRenderEmulationRuntime({
+        debuggerApi: debuggerApi.api,
+        tabs: tabsWithViewport({ width: 900, height: 720, windowId: 4 }),
+        postureRepo: repo,
+        leaseWatchdogMs: 50,
+      });
+      await runtime.apply(7, "mobile", 1);
+      debuggerApi.sent.length = 0;
+
+      const deferred = debuggerApi.deferNextCommand("Emulation.setPageScaleFactor");
+      const transition = runtime.apply(7, "desktop", 1);
+      await deferred.started;
+      await vi.advanceTimersByTimeAsync(50);
+      deferred.release();
+      await expect(transition).resolves.toMatchObject({
+        active: true,
+        mode: "desktop",
+        width: 1_920,
+        height: 1_080,
+      });
+      await flush();
+
+      const metrics = debuggerApi.sent.filter((call) =>
+        call.method === "Emulation.setDeviceMetricsOverride");
+      expect(metrics).toHaveLength(1);
+      expect(metrics[0]?.params).toMatchObject({
+        width: 1_920,
+        height: 1_080,
+        mobile: false,
+      });
+      expect(runtime.heldMode(7)).toBe("desktop");
+      await runtime.clear(7);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("re-fits the held mode after committed window bounds without an opposite-mode flash", async () => {
     const debuggerApi = fakeDebugger();
     const viewport = { width: 900, height: 720, windowId: 4 };

@@ -61,6 +61,7 @@ import { pageTypeForCandidate } from "../../domain/todo";
 import { createTodoController } from "../../popup/todo-controller";
 import { createAuthorityRefreshQueue } from "../../popup/authority-refresh-queue";
 import {
+  normalizedTransitionUrl,
   replacementContentStatusReady,
   waitForReloadTransition,
   type ReloadPropertyIdentity,
@@ -128,6 +129,7 @@ type PopupBindingOccurrence = Readonly<{
 }>;
 const operatorActionController = createOperatorActionController({ onChange: render });
 const PREVIEW_EXIT_ATTEMPT_TIMEOUT_MS = 2_000;
+const RENDER_EXIT_AUTHORITY_TIMEOUT_MS = 15_000;
 const PREVIEW_EXIT_MAX_ATTEMPTS = 3;
 let previewExitOperation: Promise<void> | null = null;
 
@@ -3724,6 +3726,89 @@ async function enterRenderModePage(
   return suspended;
 }
 
+type RenderExitAuthorityResult =
+  | Readonly<{ status: "ready"; context: TargetTabContext }>
+  | Readonly<{
+      status: "binding_changed" | "identity_changed" | "blocked" | "timed_out";
+      reason: string;
+    }>;
+
+async function waitForRenderExitAuthority(
+  original: TargetTabContext,
+  binding: PopupBindingOccurrence,
+  expectedProperty: ReloadPropertyIdentity,
+  deadlineAt: number,
+): Promise<RenderExitAuthorityResult> {
+  let terminalReason: string | null = null;
+  const transition = await waitForReloadTransition({
+    original,
+    resolveContext: async () => {
+      if (!bindingOccurrenceIsCurrent(binding) || terminalReason !== null) {
+        // A mismatched sentinel lets the shared waiter terminate immediately;
+        // the exact reason is projected below rather than being misreported as
+        // a replacement URL.
+        return { tabId: -1, url: original.url };
+      }
+      return await resolveTargetTabContext();
+    },
+    contentReady: async (current) => {
+      if (!bindingOccurrenceIsCurrent(binding)) return false;
+      const delivery = await requestContentDelivery(
+        current.tabId,
+        { type: "getContentMainStatus" },
+        { quietNoReceiver: true },
+      );
+      if (delivery.status !== "delivered") return false;
+      if (
+        delivery.data &&
+        typeof delivery.data === "object" &&
+        (delivery.data as { ok?: unknown }).ok === true &&
+        normalizedTransitionUrl(String((delivery.data as { pageUrl?: unknown }).pageUrl ?? "")) ===
+          normalizedTransitionUrl(current.url)
+      ) {
+        const authority = (delivery.data as { authority?: unknown }).authority;
+        if (authority && typeof authority === "object") {
+          const candidate = authority as {
+            environmentKey?: unknown;
+            siteId?: unknown;
+            lockBlocked?: unknown;
+          };
+          if (
+            candidate.environmentKey === expectedProperty.environmentKey &&
+            candidate.siteId === expectedProperty.siteId &&
+            candidate.lockBlocked === true
+          ) {
+            terminalReason = "the replacement page is blocked by the property lock";
+            return false;
+          }
+        }
+      }
+      return replacementContentStatusReady(delivery.data, current.url, expectedProperty);
+    },
+    wait: async (delayMs) => await new Promise<void>((resolve) => {
+      globalThis.setTimeout(resolve, delayMs);
+    }),
+    timeoutMs: Math.max(0, deadlineAt - Date.now()),
+    intervalMs: 100,
+  });
+  if (!bindingOccurrenceIsCurrent(binding)) {
+    return { status: "binding_changed", reason: "the panel binding changed" };
+  }
+  if (terminalReason !== null) {
+    return { status: "blocked", reason: terminalReason };
+  }
+  if (transition.status === "ready") {
+    return { status: "ready", context: transition.context };
+  }
+  if (transition.status === "identity_changed") {
+    return { status: "identity_changed", reason: "the tab or page changed during restoration" };
+  }
+  return {
+    status: "timed_out",
+    reason: "the replacement page did not regain exact editor authority in time",
+  };
+}
+
 async function preparePageAfterRenderMode(): Promise<PreparedRenderModePage | null> {
   const context = await resolveTargetTabContext();
   if (context === null) {
@@ -3731,29 +3816,96 @@ async function preparePageAfterRenderMode(): Promise<PreparedRenderModePage | nu
   }
   const requestKey = await handleBoundContext(context);
   const binding = captureBindingOccurrence(requestKey);
-  const delivery = await requestContentDelivery(
-    context.tabId,
-    { type: "preparePageVisit" },
-    { quietNoReceiver: true },
-  );
-  if (!bindingOccurrenceIsCurrent(binding)) {
+  const managedProperty = managedRenderInspectionPropertyFor(context, requestKey);
+  if (!managedProperty) {
+    notifyBoundEvent(
+      binding,
+      "Page preparation failed",
+      "the managed property authority is unavailable; stay here and retry",
+      "warn",
+    );
+    render();
     return null;
   }
-  const response = delivery.status === "delivered" && delivery.data && typeof delivery.data === "object"
-    ? delivery.data as Record<string, unknown>
-    : null;
-  const prepared = response?.ok === true && response.prepared === true;
-  if (!prepared) {
-    const reason = response && typeof response.reason === "string"
+  const expectedProperty: ReloadPropertyIdentity = {
+    environmentKey: managedProperty.environmentKey,
+    siteId: managedProperty.siteId,
+  };
+  const deadlineAt = Date.now() + RENDER_EXIT_AUTHORITY_TIMEOUT_MS;
+  let readiness = await waitForRenderExitAuthority(
+    context,
+    binding,
+    expectedProperty,
+    deadlineAt,
+  );
+  if (readiness.status !== "ready") {
+    if (readiness.status !== "binding_changed") {
+      logEvent("Page preparation skipped", readiness.reason, "warn");
+      notifyBoundEvent(
+        binding,
+        "Page preparation failed",
+        `${readiness.reason}; stay here and retry`,
+        "warn",
+      );
+      render();
+    }
+    return null;
+  }
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const delivery = await requestContentDelivery(
+      readiness.context.tabId,
+      { type: "preparePageVisit" },
+      { quietNoReceiver: true },
+    );
+    if (!bindingOccurrenceIsCurrent(binding)) {
+      return null;
+    }
+    const response = delivery.status === "delivered" && delivery.data && typeof delivery.data === "object"
+      ? delivery.data as Record<string, unknown>
+      : null;
+    if (response?.ok === true && response.prepared === true) {
+      render();
+      return { context: readiness.context, requestKey };
+    }
+    const responseReason = response && typeof response.reason === "string"
       ? response.reason
-      : contentReachable ? "page preparation was not acknowledged" : "no content script on this tab";
+      : "";
+    const transientBootstrapGap = attempt === 0 && (
+      delivery.status === "no_receiver" || responseReason === "property-authority-unavailable"
+    );
+    if (transientBootstrapGap && Date.now() < deadlineAt) {
+      readiness = await waitForRenderExitAuthority(
+        context,
+        binding,
+        expectedProperty,
+        deadlineAt,
+      );
+      if (readiness.status === "ready") {
+        continue;
+      }
+      if (readiness.status === "binding_changed") return null;
+      logEvent("Page preparation skipped", readiness.reason, "warn");
+      notifyBoundEvent(
+        binding,
+        "Page preparation failed",
+        `${readiness.reason}; stay here and retry`,
+        "warn",
+      );
+      render();
+      return null;
+    }
+    const reason = responseReason || (delivery.status === "no_receiver"
+      ? "no content script on this tab"
+      : delivery.status === "failed"
+        ? "the page preparation request failed"
+        : "page preparation was not acknowledged");
     logEvent("Page preparation skipped", reason, "warn");
     notifyBoundEvent(binding, "Page preparation failed", `${reason}; stay here and retry`, "warn");
     render();
     return null;
   }
-  render();
-  return { context, requestKey };
+  return null;
 }
 
 async function completeRenderModeExit(

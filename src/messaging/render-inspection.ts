@@ -1,5 +1,9 @@
 import { z } from "zod";
 
+/** The durable background occurrence owns this deadline. Popup observers may
+ * add bounded grace, but must never expire before this authority does. */
+export const RENDER_INSPECTION_DURABLE_TIMEOUT_MS = 30_000;
+
 export const RenderInspectionPropertyScopeSchema = z.object({
   environmentKey: z.string().trim().min(1),
   siteId: z.number().int().positive(),

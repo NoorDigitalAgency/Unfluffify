@@ -4519,3 +4519,266 @@ pnpm vitest run tests/src/popup/app.test.ts tests/src/background/render-emulatio
 6. `el03-r1-headed-aleris` -> 5
 7. `el03-r1-headed-candidate-matrix` -> 6
 8. `el03-r1-conformance` -> 7
+
+# EL-03-R2 — Make slow Render restoration and exit preparation authoritative
+
+## 1. Goal
+
+Remove the slow-replacement race found by the R1 headed acceptance pass. A
+valid JavaScript-on replacement must not be abandoned by a popup watchdog
+before the durable background occurrence reaches its own terminal deadline,
+and Render exit must not ask for reveal/freeze until the exact replacement
+document has recovered the same property and editor authority. The successful
+path remains restore JavaScript, reveal/lazy-load/freeze, then one Silent
+projection; every failed or stale path remains presentation-suspended in the
+Render view with a visible reason.
+
+## 2. Entering expert-check evidence
+
+The exact pushed production build at
+`0a693e28a3a64a7342109270d66ddd566ebf2cd0` passed the R1 automated matrix and
+the primary Aleris contracts. The fresh headed Acne candidate then exposed two
+connected release blockers.
+
+### `EL-03-F003` — Critical — popup watchdog expires before durable authority
+
+- `src/background/render-inspection-runtime.ts` gives the authoritative
+  occurrence 30 seconds to terminalize.
+- `src/popup/render-mode-inspection.ts` gives the popup observer only 20
+  seconds. `createPopupRenderInspectionController.start()` races the entire
+  start-and-poll transaction against that shorter timer, publishes “The page
+  reload timed out,” invalidates its local observer epoch, and returns while
+  the background occurrence is still legitimate.
+- On Acne, JavaScript restoration later reached the exact replacement document
+  and the page was complete at 412x960, but `restoreJavascriptView()` had
+  already inspected the abandoned local projection and returned false. Render
+  mode stayed open and the exit ritual never began.
+- A presentation observer must never declare a durable occurrence timed out
+  before the durable authority can do so.
+
+### `EL-03-F004` — High — Render exit can outrun replacement property authority
+
+- `preparePageAfterRenderMode()` sends `preparePageVisit` immediately after
+  JavaScript reload confirmation. The replacement content script can already
+  acknowledge document identity while its property/lock authority is still
+  being re-established.
+- `preparePageVisit` correctly refuses reveal/freeze while
+  `interactionShieldAuthorityActive` is false, but the popup performs no
+  exact-binding readiness wait or retry. It therefore leaves Render mode open
+  after a transient `property-authority-unavailable`/receiver gap even when the
+  same replacement document becomes authoritative moments later.
+- Headed status after the failed exit showed `renderModeViewActive: true`,
+  `ritual: null`, zero scroll movement, zero annotations, and a complete page.
+  Sending the same typed preparation after authority recovery succeeded with
+  `lazyExpansions: 1`, `frozenAtBottom: true`, document height growth from
+  11,489 to 12,359 px, and scroll restoration to 0. The next ordinary Cancel
+  then projected Silent and exited. The reveal engine is not the cause; the
+  popup handoff is.
+
+### `EL-03-F005` — Critical — a silently lost debugger lease leaves a clipped hybrid viewport
+
+- The emulation runtime reinforces a delivered `chrome.debugger.onDetach`
+  event and checks `debugger.getTargets()` inside explicit `current`/`refit`
+  operations. It has no standing attachment reconciliation while a posture is
+  held. Chromium also does not deliver `onDetach` when the extension-side
+  debugger session is silently dropped, a case the source comments acknowledge.
+- Fresh repository `live-browser` evidence reproduced the missing path on
+  Aleris. Before the drop, mobile was exact: attached, 412x960 layout/screen/
+  visual viewport, DPR 1, and fitted scale `0.734375` inside an 850x705 physical
+  tab. After a silent detach, storage still held that exact mobile target, but
+  the page remained detached for more than 2.5 seconds with desktop screen
+  metrics 1920x1080, DPR 2, and only a 397x945 visual viewport. The bottom and
+  right edges were therefore no longer represented by the active visual
+  viewport even though the stale layout dimensions still said 412x960.
+- Idle authority polling did not recover the debugger. A later explicit mode
+  transition reattached and restored exact mobile, proving the durable target
+  and CDP writer are sound; the missing component is continuous ownership and
+  physical-fit enforcement.
+- This reopens the prior R22 headed approval. Exact settled samples and
+  event-delivered detach tests did not cover a silent ownership loss, so they
+  could not justify the stronger product claim that the complete device stays
+  visible continuously.
+
+### Retained passing evidence
+
+- JavaScript-on produced zero curtain or annotation nodes on Aleris and Acne.
+- JavaScript-off retained its exact `paint-acknowledged` path.
+- Aleris Preview exposed 67 semantic buttons, Silent-style annotations, and
+  working list-to-page plus page-to-list focus.
+- The Aleris broad exclusion painted and highlighted at its literal boundary;
+  plain click removed it and rehydrated defaults. The remaining modifier sample
+  was correctly rejected when Hub authority went unavailable rather than being
+  misreported as product evidence.
+- Consent remained hidden and stable owners had no page label.
+- Aleris and Acne held exact 412x960 mobile geometry. Acne transitioned through
+  durable revisions mobile 1 -> desktop 2 -> mobile 3; desktop was exact
+  1920x1080 at fitted scale 0.4427083 and mobile at 0.734375. Deliberate debugger
+  detach recovered both modes without an opposite-mode terminal frame.
+- No AI, Save, takeover, Lynx publication, release, deployment, or production
+  mutation occurred.
+
+## 3. Decisions
+
+1. Define one shared durable inspection timeout. The popup observer watchdog
+   must exceed it by a bounded grace interval; background authority remains the
+   only source of terminal truth.
+2. A popup watchdog may release controls and report a problem, but
+   `restoreJavascriptView()` may proceed only after re-observing an exact
+   JavaScript-on `reload-acknowledged` terminal. It may never infer success from
+   elapsed time, page appearance, or an inactive record that contradicts the
+   held replacement identity.
+3. Before `preparePageVisit`, wait for `getContentMainStatus` on the same tab,
+   normalized URL, environment, site, and unblocked editor authority. Fence the
+   wait on the captured binding occurrence.
+4. Treat a missing receiver and `property-authority-unavailable` during the
+   bounded replacement bootstrap as retryable. Consent failure, navigation,
+   property change, explicit lock blocking, ritual failure, or an expired
+   readiness deadline remains terminal and keeps Render presentation parked.
+5. Invoke the expensive ritual once after readiness. Silent projection remains
+   strictly after a successful preparation response and never runs during the
+   readiness wait or reveal/freeze.
+6. Treat mobile/desktop emulation as a standing debugger lease, not a completed
+   command. While a posture is held, a browser-owned watchdog must verify
+   attachment without scheduling page-main-thread work. A silent loss triggers
+   one serialized reassertion of the exact held mode at the last proven safe
+   fitted scale; delivered detach remains the immediate path.
+7. The same watchdog may read browser-owned tab geometry and request an
+   immediate scale-only shrink when the proven device no longer physically
+   fits. It may not opportunistically grow, rewrite an already exact posture,
+   change modes, clear emulation, or run a page proof on every tick. Intentional
+   `clear()`/tab removal cancels the watchdog before debugger release.
+
+There are no open product or architecture questions.
+
+## 4. Implementation phases
+
+### EL-03-R2-01 — Align popup observation with durable inspection authority
+
+Files:
+
+- `src/messaging/render-inspection.ts`
+- `src/background/render-inspection-runtime.ts`
+- `src/popup/render-mode-inspection.ts`
+- `src/popup/render-inspection-controller.ts`
+- focused controller/inspection tests
+
+Steps:
+
+1. Move the 30-second durable occurrence duration to the shared internal
+   render-inspection contract while preserving the background export used by
+   existing tests.
+2. Derive the popup watchdog from that duration plus explicit grace. Pin the
+   invariant in tests so a future edit cannot make the observer shorter than
+   the authority again.
+3. Add a delayed replacement regression whose exact reload terminal arrives
+   after 20 seconds but before the durable deadline. It must remain busy,
+   adopt `reload-acknowledged`, and never publish the timeout detail.
+4. Preserve bounded fail-open behavior for a genuinely hung port or a durable
+   timeout terminal; do not turn the watcher into an unbounded wait.
+
+### EL-03-R2-02 — Fence Render-exit preparation on replacement authority
+
+Files:
+
+- `src/popup/emulation-reload-transition.ts` or a narrowly named shared
+  replacement-readiness helper
+- `src/entrypoints/popup/main.tsx:preparePageAfterRenderMode`
+- focused helper and popup entrypoint tests
+
+Steps:
+
+1. Reuse the exact normalized tab/URL/property readiness predicate already
+   proven for replacement-document emulation transitions.
+2. Capture the current binding and expected managed property, poll typed
+   `getContentMainStatus` through the single content-message wrapper, and
+   proceed only when environment/site match and `lockBlocked === false`.
+3. If the receiver or property authority is transiently unavailable, retry
+   inside one bounded readiness occurrence. Abort immediately on binding or
+   identity change. Emit one reason-specific warning on terminal failure.
+4. Send one `preparePageVisit` after readiness. If the narrow authority race is
+   still reported, perform one trailing readiness reconciliation before the
+   deadline; never overlap or duplicate a running ritual.
+5. Retain the Render-view physical no-annotation lease until preparation and
+   Silent acknowledgement both succeed.
+
+### EL-03-R2-03 — Enforce the debugger posture as a continuous lease
+
+Files:
+
+- `src/background/render-emulation-runtime.ts`
+- focused runtime/startup/emulation tests
+
+Steps:
+
+1. Add one bounded per-tab browser-ownership watchdog for every hydrated or
+   newly held posture. Coalesce it with the existing per-tab operation queue and
+   cancel it on release/removal before any intentional detach.
+2. Probe `debugger.getTargets()` and physical `tabs.get()` geometry only. A
+   missing attachment immediately invalidates stale proof and reasserts the
+   exact held mode at its safe fitted scale; a physical-fit violation performs
+   an immediate scale-only shrink. Exact attached posture is a read-only tick.
+3. Retain the existing bounded ownership-conflict retry and durable target.
+   Never allow the watchdog, popup cache, navigation, or refit work to install
+   an opposite/neutral posture or an oversized scale.
+4. Pin the live failure: silently drop attachment without firing `onDetach`,
+   leave the tab idle, and require autonomous exact recovery. Also cover normal
+   delivered detach, desktop recovery, clear/remove cancellation, concurrent
+   transitions, physical shrink, exact idle command quiescence, and timer
+   cleanup.
+
+### EL-03-R2-04 — Regression, full gates, and headed revalidation
+
+1. Add entrypoint regressions for slow reload success, transient replacement
+   authority, no-receiver recovery, binding change, terminal preparation
+   failure, one ritual, and prepare-before-Silent ordering.
+2. Re-run the complete R1 focused matrix, `pnpm check`, `pnpm verify`,
+   production/debug builds, clean P17, and the full unchanged-threshold P25.
+3. Review, commit, push `re-write`, refresh the graph, and prove exact upstream
+   synchronization.
+4. Repeat Aleris, Acne, and 3DPrima `/se` with repository `live-browser`.
+   Require first-attempt Render exit after static inspection, bottom proof,
+   scroll restoration, zero annotation paint during the ritual, then Silent.
+5. Re-run Content List two-way sync, consent/banner checks, exact mobile and
+   desktop fit, transition revisions, delivered debugger-detach recovery, and
+   the newly pinned silent-detach recovery without any operator follow-up.
+
+## 5. Acceptance criteria
+
+- `EL03-R2-AC-01` The popup watchdog is strictly longer than the durable
+  inspection deadline and a terminal arriving between the former 20-second
+  boundary and 30 seconds is adopted without a timeout warning.
+- `EL03-R2-AC-02` A genuine durable timeout, hung port, stale generation, or
+  identity change remains bounded, visible, fail-open for JavaScript, and
+  presentation-suspended in Render view.
+- `EL03-R2-AC-03` Render exit waits for the exact replacement tab/URL/property
+  editor authority and recovers a transient no-receiver or authority gap
+  without operator retry.
+- `EL03-R2-AC-04` Exactly one reveal/lazy-load/freeze ritual runs after
+  readiness, reaches/freeze-proves the bottom, restores the starting scroll,
+  and completes before one Silent selector projection.
+- `EL03-R2-AC-05` Consent remains hidden and every Marking, Silent, Preview,
+  hover, focus, and interaction annotation remains physically absent during
+  Render view, readiness waiting, and the entire ritual.
+- `EL03-R2-AC-06` Existing Aleris marking/Preview contracts and R22 exact fitted
+  412x960/1920x1080 posture, resize fencing, and detach reinforcement remain
+  unchanged.
+- `EL03-R2-AC-07` Focused/full/build/P17/P25 gates and fresh Aleris/Acne/
+  3DPrima headed evidence pass on the exact pushed commit with zero prohibited
+  egress or production mutation.
+- `EL03-R2-AC-08` An independent cumulative EL-03 audit approves every R1/R2
+  criterion before the next outer expert-check iteration.
+- `EL03-R2-AC-09` A silently lost debugger attachment is detected and repaired
+  autonomously while idle. Mobile returns to exact 412x960 and desktop to exact
+  1920x1080 at the last safe fitted scale or smaller; clear/removal never
+  resurrects a released posture, and an exact idle lease emits no CDP writes.
+
+## 6. Todo chain
+
+1. `el03-r2-durable-watchdog` -> 0
+2. `el03-r2-exit-authority` -> 1
+3. `el03-r2-emulation-lease` -> 2
+4. `el03-r2-regression-matrix` -> 3
+5. `el03-r2-focused-full-gates` -> 4
+6. `el03-r2-review-push` -> 5
+7. `el03-r2-headed-matrix` -> 6
+8. `el03-r2-conformance` -> 7

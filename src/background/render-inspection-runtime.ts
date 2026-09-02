@@ -1,4 +1,5 @@
 import {
+  RENDER_INSPECTION_DURABLE_TIMEOUT_MS,
   RenderInspectionSessionSchema,
   type RenderInspectionAdoptResponse,
   type RenderInspectionCurrentResponse,
@@ -14,7 +15,7 @@ import {
   type RenderInspectionRepo,
 } from "../storage/repositories/render-inspection";
 
-export const RENDER_INSPECTION_TIMEOUT_MS = 30_000;
+export const RENDER_INSPECTION_TIMEOUT_MS = RENDER_INSPECTION_DURABLE_TIMEOUT_MS;
 export const RENDER_INSPECTION_DEADLINE_ALARM = "rewrite-render-inspection-deadline";
 export const RENDER_INSPECTION_RESTORE_RETRY_MS = 1_000;
 export const RENDER_INSPECTION_STATIC_HOLD_MS = 30_000;
