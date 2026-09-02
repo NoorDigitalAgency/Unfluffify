@@ -5897,3 +5897,52 @@ Focused validation:
 4. `el03-r7-review-push` -> 3
 5. `el03-r7-headed-conformance` -> 4
 6. `el03-r7-cumulative-audit` -> 5
+
+## 11. Implementation and exact-candidate evidence (2026-09-02)
+
+Implementation checkpoint `93cd2f8e` separates cosmetic presentation turns
+from transition paint authority. The guardian retains two consecutive real
+animation frames as the primary proof, and only after the single one-second
+phase deadline permits two strict guarded fallback samples. Results now carry
+the internal `none | frame-two | guarded-fallback` discriminant; the background
+rejects missing, malformed, and `none` proof before debugger mutation. Entry and
+retirement animation starvation can no longer independently roll an exact
+posture back to the physical viewport.
+
+Focused and live diagnostic evidence:
+
+- the expanded guardian/runtime/startup/content regression set passes 223/223;
+- clipped coverage, hidden documents, stale generations, inexact settle
+  geometry, unproved responses, and hostile presentation remain fail-closed;
+- a clean repository `live-browser` debug run on the authorized 3DPrima
+  candidate completed trusted mobile -> desktop -> mobile at exact 412x960 and
+  1920x1080 geometry with truthful controls and no rollback;
+- with the website's isolated-world `requestAnimationFrame` deliberately
+  starved, trusted desktop transition begin, settle, and the trailing refit all
+  completed with `paintProof: "guarded-fallback"`, exact 1920x1080 settled
+  geometry, full guard coverage before mutation, and no physical/hybrid flash;
+  the original frame primitive was restored immediately afterward; and
+- consent suppression retained 33 hidden and zero visible consent candidates.
+  No AI, Save, takeover, Lynx, deployment, backend write, or production mutation
+  occurred.
+
+Exact committed-source automated gates:
+
+- `pnpm check`: passed;
+- `pnpm verify`: passed with 149 test files and 1,686 tests, generated
+  page-world/icon checks, production build, and 7/7 manifest checks;
+- `pnpm build:debug`: passed;
+- clean P17: 19/19 checks passed with complete teardown, artifact
+  `output/playwright/p17-preview/acceptance-2026-09-02T11-16-16-711Z.json`;
+- standalone P14: all 192 scenarios passed with zero semantic, budget,
+  activation, mutation-pressure, or input-long-task failures, artifact
+  `output/playwright/p14-marking-performance/acceptance-2026-09-02T11-16-44-900Z.json`;
+  and
+- full unchanged-threshold P25: deterministic warm-up and all seven retained
+  P14/P15/P16/P17/P18/P20/P23 children passed with no missing or failed gate,
+  artifact
+  `output/playwright/p25-parity/acceptance-2026-09-02T11-36-27-513Z.json`.
+
+Normal push/0:0 proof, exact-pushed production headed conformance, the pending
+reveal/freeze adjudication, and cumulative production-readiness review remain
+mandatory.
