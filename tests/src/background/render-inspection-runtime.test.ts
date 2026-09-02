@@ -210,6 +210,67 @@ describe("durable render inspection runtime", () => {
     expect(h.javascript.at(-1)).toEqual({ tabId: 7, enabled: true });
   });
 
+  it("terminalizes JavaScript-on from document adoption only and mode-gates both acknowledgements", async () => {
+    const h = harness();
+    const started = await h.runtime.start({
+      tabId: 7,
+      property: PROPERTY,
+      pageUrl: PAGE_URL,
+      javascriptEnabled: true,
+      sourceDocumentId: "document-a",
+    });
+    if (started.status !== "started") throw new Error("reload did not start");
+    await h.runtime.navigationCommitted({
+      tabId: 7,
+      documentId: "document-b",
+      pageUrl: PAGE_URL,
+    });
+    await h.runtime.adopt({
+      tabId: 7,
+      documentId: "document-b",
+      pageUrl: PAGE_URL,
+      documentNonce: "nonce-b",
+    });
+    const fence = {
+      tabId: 7,
+      token: started.session.token,
+      generation: started.session.generation,
+      documentId: "document-b",
+      pageUrl: PAGE_URL,
+      documentNonce: "nonce-b",
+    };
+
+    await expect(h.runtime.acknowledgePaint(fence)).resolves.toMatchObject({
+      status: "stale",
+      reason: "inspection-acknowledgement-mode-mismatch",
+      session: { phase: "adopted", javascriptEnabled: true },
+    });
+    await expect(h.runtime.acknowledgeReload(fence)).resolves.toMatchObject({
+      status: "ok",
+      session: {
+        phase: "terminal",
+        terminalReason: "reload-acknowledged",
+        javascriptEnabled: true,
+      },
+    });
+    expect(h.javascript).toEqual([{ tabId: 7, enabled: true }]);
+    expect(h.reloads).toEqual([7]);
+
+    const staticHarness = harness();
+    const staticStarted = await startStatic(staticHarness);
+    if (staticStarted.status !== "started") throw new Error("static inspection did not start");
+    await bindReplacement(staticHarness);
+    await expect(staticHarness.runtime.acknowledgeReload({
+      ...fence,
+      token: staticStarted.session.token,
+      generation: staticStarted.session.generation,
+    })).resolves.toMatchObject({
+      status: "stale",
+      reason: "inspection-acknowledgement-mode-mismatch",
+      session: { phase: "adopted", javascriptEnabled: false },
+    });
+  });
+
   it("rejects the source document, a different page, and a second navigation", async () => {
     const source = harness();
     await startStatic(source);

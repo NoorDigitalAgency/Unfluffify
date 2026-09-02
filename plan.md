@@ -4176,3 +4176,346 @@ deployment was attempted.
 closed at the extension's acknowledgement boundary. This does not approve the
 whole rewrite for production; the expert-loop continues with the remaining
 cross-feature findings and a fresh independent audit.
+
+# EL-03-R1 — Separate JavaScript reload from inspection and hard-fence reveal paint
+
+## 1. Goal
+
+Make the Render view and post-Render transition match the approved product
+contract exactly: **With JavaScript** performs only an enabled-JavaScript page
+reload under the already-held Render-view presentation lease; only **Without
+JavaScript** performs a curtain-backed paint inspection. Leaving Render view
+then performs the ordinary reveal/lazy-load/freeze ritual before Silent
+highlighting can paint. Any already-materialized marking, Silent, or Preview
+annotations are physically suppressed for the complete ritual. Preserve the
+already-correct consent, Preview, ownership-label, marking, and debugger-device
+emulation behavior.
+
+## 2. Entering expert-check evidence and findings
+
+The EL-03 audit ran from synchronized `re-write` commit
+`c1f47eec31c1d8f084860ee797445feef8a109d7` with a clean tracked worktree and a
+repository `live-browser` production bundle on the Aleris candidate page
+`/kirurgi/brack/aderbrack/`.
+
+### `EL-03-F001` — High — With-JavaScript is still a headless paint inspection
+
+- `src/entrypoints/popup/main.tsx:loadRenderModeView()` sends both buttons to
+  `renderInspectionController.start()`.
+- `src/content/render-inspection-curtain.ts:ensureMounted()` avoids the visible
+  curtain for JavaScript-on, but `schedulePaintAcknowledgement()` still runs two
+  animation frames (or the one-second fallback), reports inspection lifecycle
+  stages, and terminates as `paint-acknowledged`.
+- `restoreJavascriptView()` likewise refuses to regard the JavaScript reload as
+  restored until that inspection result arrives. Headed evidence showed a
+  plain-looking reload, but the popup remained busy for the headless proof.
+- This contradicts the locked contract. JavaScript-on is a reload-only view: it
+  must not run reveal/freeze, mount a curtain, inspect paint, schedule a paint
+  fallback, or activate marking/Silent/Preview annotations. A document-identity
+  acknowledgement may retain the durable cross-document Render-view lease, but
+  it is not a paint inspection.
+
+### `EL-03-F002` — Medium — reveal owns logical suppression but not a physical annotation lease
+
+- `src/entrypoints/content-loader.content.ts:runActivationStabilization()` sets
+  `pageInspectionActive` before reveal and clears it after the terminal cleanup.
+  `applySilentSelectors()` and durable Silent adoption correctly refuse new
+  presentation while that flag or a pending ritual is active.
+- `src/content/marking/overlay.ts` already defines
+  `.uf-page-inspection-active` to suppress every annotation layer, but
+  `src/content/marking/renderer.ts:setRootState()` cannot set that class and no
+  caller drives it. Thus a previously materialized root is protected only by
+  control flow; a retained/stale paint can remain visible throughout a renewed
+  reveal/freeze ritual.
+- The common headed Render-exit path happened to park the surface and painted
+  Silent only after preparation, so this is a latent but real lifecycle gap,
+  not evidence that the user's rule is optional.
+
+### Audited user-reported cells that currently pass
+
+- Consent suppression is resumed before Render-view suspension and remains
+  effective in every tested view. Aleris Cookiebot candidates were hidden,
+  non-interactive, and absent from extension presentation.
+- `renderPreviewPresentation()` sets Preview presentation and CSS exposes only
+  Silent/focus layers; marking layers are hidden. Aleris produced 67 semantic
+  button rows, silent-style page annotations, and working list-to-page focus and
+  scroll activation.
+- Aleris's large expanded exclusion boundary highlighted and toggled at its
+  edge with plain click, highlighted/toggled under Ctrl expansion semantics,
+  ignored Alt, and treated Shift as inert. Content List headings suspected to
+  be descendants were proved to be siblings outside the excluded subtree.
+- Stable editable ownership emitted no page banner. Banner projection remains
+  limited to non-owner, ownership-loss, and non-candidate states.
+- R22 emulation is already present on this exact head: Chrome Debugger is the
+  only device authority; held mode and last safe scale are durable; debugger
+  cancellation is reasserted; shrink is immediate and stable growth is fenced.
+  The prior headed matrix proved the full 412x960 or 1920x1080 screen fit every
+  acknowledged frame. EL-03 will re-run that proof because it is a user-visible
+  release contract, not because a second emulation rewrite is justified.
+
+No AI request, Save, takeover, final Lynx publication, release, deployment, or
+production configuration mutation occurred during EL-03 diagnosis.
+
+## 3. Decisions already made
+
+1. **With JavaScript** enables script execution and reloads the current page.
+   It performs no reveal/freeze and no paint inspection. The replacement
+   document remains presentation-suspended while Render view is open.
+2. **Without JavaScript** retains the durable exact-document curtain, two-frame
+   paint proof, guarded one-second starvation fallback, and
+   `paint-acknowledged` terminal contract.
+3. Leaving Render view first restores JavaScript when necessary, then runs the
+   full reveal/lazy-load/freeze preparation, and only after successful
+   preparation adopts Silent highlighting.
+4. No Marking, Silent, or Preview annotation is visible or interactive inside
+   Render view or while reveal/freeze is active. The physical layer lease is
+   authoritative even if an annotation root was materialized earlier.
+5. Consent elements remain suppressed on every candidate page in every mode.
+6. Content List annotations use Silent styling and clickable two-way sync in
+   both Silent and Marking entry paths.
+7. The page label is absent for a stable owner on a candidate page; it appears
+   only for a non-owner, during ownership loss, or on a non-candidate page.
+8. Mobile/desktop emulation retains the R22 Chrome Debugger contract: exact
+   device dimensions, complete physical fit, durable exact-mode reinforcement,
+   immediate safe shrink, and generation-fenced stable growth.
+
+There are no open product or architecture questions.
+
+## 4. Non-goals
+
+- Do not change Hub/Lynx endpoints, AI/configuration payloads, public extension
+  permissions, candidate-page rules, consent selector policy, marking decision
+  semantics, Preview row semantics, owner-lock authority, or publication gates.
+- Do not weaken or replace the JavaScript-off curtain/fallback proof.
+- Do not add CSS/page-owned viewport simulation or alter the R22 debugger
+  device presets, identity posture, safe-scale persistence, or resize cadence.
+- Do not invoke AI, Save, takeover, Lynx publication, release, deployment, or a
+  production mutation in automated or headed acceptance.
+
+## 5. Implementation phases
+
+### EL-03-R1-01 — Give JavaScript reload a typed non-paint terminal path
+
+Files and symbols:
+
+- `src/messaging/render-inspection.ts`
+- `src/messaging/realms.ts:applicationContract`
+- `src/background/render-inspection-runtime.ts`
+- `src/background/index.ts:startRewriteBackground`
+- `src/content/render-inspection-curtain.ts:createRenderInspectionCurtain`
+- `src/entrypoints/content-loader.content.ts:ensureRenderInspectionCurtain`
+- `src/entrypoints/popup/main.tsx:restoreJavascriptView`
+
+Steps:
+
+1. Add the terminal reason `reload-acknowledged` and a typed
+   `renderInspection.ackReload` document-fenced command. Keep the existing
+   durable occurrence, navigation/document identity, deadline, and Render-view
+   presentation lease; this is an internal compatibility extension, not a new
+   external interface.
+2. Add background `acknowledgeReload()` beside `acknowledgePaint()`. It may
+   terminalize only the exact adopted occurrence when `javascriptEnabled` is
+   true. Conversely, paint acknowledgement must reject a JavaScript-on
+   occurrence, and reload acknowledgement must reject a JavaScript-off one.
+   Identity mismatch remains `stale`; mode mismatch is a typed stale/rejected
+   result and never clears the current occurrence.
+3. Extend the content lifecycle controller with an `onReloadReady` callback.
+   For JavaScript-on adoption, remove/avoid every curtain node and observer,
+   skip animation frames, skip the paint fallback, skip curtain lifecycle
+   stages, and invoke reload-ready as soon as the authoritative replacement
+   document root is connected. Keep exact identity and deadline fencing.
+4. Send `renderInspection.ackReload` through a generation/document-fenced
+   content helper and reconcile its exact terminal response just as safely as
+   paint acknowledgement.
+5. Update `restoreJavascriptView()` to accept only an exact terminal
+   JavaScript-on `reload-acknowledged` occurrence (or an already inactive
+   JavaScript-on state where restoration is not needed). Static inspection
+   success remains `paint-acknowledged`.
+
+Expected intermediate state: the With-JavaScript button still survives reload
+and keeps every extraction annotation parked, but creates no inspection curtain,
+frame work, or fallback and becomes ready on replacement-document adoption.
+
+Focused validation:
+
+```bash
+pnpm vitest run tests/src/content/render-inspection-curtain.test.ts tests/src/background/render-inspection-runtime.test.ts tests/src/background/render-inspection-startup.test.ts tests/src/popup/render-mode-inspection.test.ts tests/src/popup/render-inspection-controller.test.ts tests/src/popup/entrypoint.test.ts tests/c4-content-entrypoint.test.ts
+```
+
+Fallback rule: do not remove the durable occurrence to make the test green; if
+the replacement document can paint extraction annotations before Render exit,
+retain the occurrence and repair the reload-ready identity handshake.
+
+### EL-03-R1-02 — Drive the physical reveal annotation-suspension lease
+
+Files and symbols:
+
+- `src/content/marking/renderer.ts:setRootState`
+- `src/content/marking/engine.ts:AuthoritativeMarkingEngine`
+- `src/entrypoints/content-loader.content.ts:renderContentSurface`
+- `src/content/marking/overlay.ts`
+
+Steps:
+
+1. Add a narrow renderer/engine operation that toggles
+   `uf-page-inspection-active` on the existing trusted overlay root without
+   rebuilding rows, selectors, targets, geometry, or the paint index.
+2. Reconcile that operation from the authoritative physical-ritual state:
+   `pageInspectionActive || pageWorldCleanupFenceNonce !== "" ||
+   renderModeViewActive`. Set it before any reveal movement and retain it
+   through failure cleanup; clear it only after the exact cleanup fence is gone
+   and Render view has exited.
+3. Keep Preview presentation and scroll fade classes orthogonal. Page
+   inspection wins visually over all Marking, Silent, Preview, hover, focus, and
+   interaction layers, and none of those layers becomes pointer-active under
+   the curtain.
+4. Ensure creating or reusing an engine while the ritual flag is held adopts
+   the physical suppression state immediately, so no late materialization can
+   flash one annotation frame.
+
+Expected intermediate state: logical guards still prevent new Silent adoption,
+and every retained/new annotation root is physically invisible for the full
+reveal/freeze/cleanup interval without a geometry rebuild.
+
+Focused validation:
+
+```bash
+pnpm vitest run tests/src/content/marking/marking.test.ts tests/src/content/marking/dom-bridge.test.ts tests/c4-content-entrypoint.test.ts tests/p23-frozen-presentation-contract.test.ts
+```
+
+Fallback rule: if adding the class causes overlay reconstruction or changes
+marking decisions, stop and expose only a root-state setter; do not route this
+through `renderMarking()` or `renderSilentHighlights()`.
+
+### EL-03-R1-03 — Pin the reported behavior matrix with regressions
+
+Files:
+
+- the focused test files above
+- `tests/src/popup/app.test.ts`
+- `tests/src/background/render-emulation-runtime.test.ts`
+- `tests/p25-live-probes.test.ts` only if an existing assertion needs the new
+  reload terminal reason
+
+Cases:
+
+1. JavaScript-on adoption emits exactly one reload acknowledgement and zero
+   curtain, `requestAnimationFrame`, paint-fallback, `ackPaint`, reveal, freeze,
+   marking, Silent, or Preview action.
+2. JavaScript-off still requires the mounted last-root full-viewport curtain,
+   two frames or the guarded fallback, and exact `paint-acknowledged` terminal.
+3. Stale/mismatched reload acknowledgements cannot terminalize a newer
+   generation; JS-on cannot use paint ACK and JS-off cannot use reload ACK.
+4. Render exit orders `preparePageVisit` completion before one Silent selector
+   application. Failure retains Render-view suspension and paints no partial
+   Silent surface.
+5. A pre-existing Marking, Silent, and Preview root receives the inspection
+   class before reveal movement, stays hidden through freeze and cleanup retry,
+   and clears once after successful cleanup; selector/row/geometry render counts
+   remain unchanged by the toggle.
+6. Consent remains active for JS-on, JS-off, reveal, Marking, Silent, and
+   Preview paths. Stable-owner candidate banner remains absent; the three
+   sanctioned banner states remain covered.
+7. Preview from either entry path keeps semantic buttons, Silent-style page
+   annotations, and bidirectional activation. Aleris expanded exclusion
+   descendants remain omitted from Preview unless they independently qualify.
+8. R22 tests retain exact mobile/desktop dimensions, physical-fit inequalities,
+   detach reinforcement, immediate shrink, and stable-only growth.
+
+Focused validation is the union of Phase 1/2 commands plus:
+
+```bash
+pnpm vitest run tests/src/popup/app.test.ts tests/src/background/render-emulation-runtime.test.ts
+```
+
+### EL-03-R1-04 — Full gates, publication, and headed acceptance
+
+1. Run focused tests, `pnpm check`, authoritative `pnpm verify`, production and
+   debug builds, clean P17, and the full unchanged-threshold P25 composite.
+2. Review the exact diff, update `.copilot/knowledge.md` with the reusable split
+   reload/inspection and physical reveal-paint contracts, commit only intended
+   source/tests/docs, push `re-write` without force, refresh the graph, and prove
+   exact local/upstream synchronization.
+3. Restart repository `live-browser` on Aleris and at least Acne plus 3DPrima
+   `/se`. Run With-JavaScript and Without-JavaScript separately. Record command,
+   curtain, overlay-root, lifecycle, scroll, freeze, consent, banner, Preview,
+   and console/network observations at high cadence.
+4. Exit Render view and prove visible reveal/freeze completes before Silent
+   annotations appear. Repeat from a pre-materialized Silent/Preview root and
+   require zero annotation visibility during the ritual.
+5. Recheck Aleris expanded boundary plain/Ctrl/Alt/Shift behavior, semantic
+   Content List two-way sync, stable-owner label absence, and consent hiding.
+6. Re-run R22 mobile/desktop posture, physical fit, resize, and deliberate
+   debugger-cancel recovery on the same exact build. Observers must remain
+   detached from the target while extension-owned emulation is active.
+
+## 6. Test matrix
+
+| Layer | Required proof |
+|---|---|
+| Schema/messaging | `ackReload` is exact-document typed; incompatible mode ACKs fail closed |
+| Background | durable JS reload terminalizes as `reload-acknowledged`; static paint proof is unchanged |
+| Content unit | JS-on schedules no paint machinery; physical reveal class toggles without redraw |
+| Popup | With-JavaScript/restoration uses reload result; Render exit remains prepare-then-Silent |
+| Integration | replacement-document suspension, consent, stale generations, cleanup retry, no overlay flash |
+| Full repository | `pnpm check`, `pnpm verify`, production/debug build, P17, complete P25 |
+| Headed candidate | Aleris/Acne/3DPrima Render, reveal, Preview, consent, banner, marking, emulation, console/network |
+
+## 7. Regression risks and protections
+
+- **Cross-document annotation flash:** removing the durable session entirely
+  would let the replacement document start normal presentation. Retain the
+  durable Render-view lease and change only its JS-on completion proof.
+- **Static inspection weakening:** mode-gate both ACK handlers and retain every
+  curtain coverage/fallback assertion for JS-off.
+- **Stuck Render exit:** reconcile reload terminal identity before preparation;
+  every failure remains visible and retains suspension instead of partially
+  exiting.
+- **Overlay rebuild/performance:** the reveal lease changes one root class only;
+  regression tests pin zero row/geometry rebuild.
+- **Consent/ownership drift:** keep those existing authorities untouched and
+  re-run their live/source cells.
+- **Device flicker regression:** do not modify R22 code without contradictory
+  evidence; repeat its high-cadence fit/cancel proof on the final build.
+
+## 8. Acceptance criteria
+
+- `EL03-R1-AC-01` With-JavaScript produces one enabled-JavaScript reload and an
+  exact `reload-acknowledged` document terminal, with zero reveal/freeze,
+  curtain, animation-frame paint proof, fallback, or annotation activation.
+- `EL03-R1-AC-02` Without-JavaScript still ends only through exact
+  `paint-acknowledged` proof from the full-viewport visible interactive curtain,
+  using normal frames or the guarded starvation fallback.
+- `EL03-R1-AC-03` No incompatible/stale ACK can clear or terminalize the current
+  generation, and every failure/cancellation/restoration path leaves scripts on
+  and presentation state truthful.
+- `EL03-R1-AC-04` Leaving Render view completes reveal/lazy-load/freeze and
+  cleanup before the first Silent annotation appears. Any retained/new Marking,
+  Silent, Preview, hover, focus, or interaction layer is physically hidden for
+  the complete ritual and restored exactly once afterward.
+- `EL03-R1-AC-05` Consent is hidden in every mode; Content List annotations use
+  Silent styling and bidirectional semantic-button sync; stable owners on
+  candidate pages see no label; sanctioned banner states remain intact.
+- `EL03-R1-AC-06` Aleris expanded exclusions preserve approved plain/Ctrl/Alt
+  behavior with Shift/Meta inert, and Preview does not fabricate inclusion rows
+  beneath exclusion coverage.
+- `EL03-R1-AC-07` R22 emulation remains exact and physically fitted on every
+  acknowledged mobile/desktop frame; resize cannot clip, and deliberate
+  debugger cancellation immediately reinforces the held mode at a safe scale.
+- `EL03-R1-AC-08` Focused/full/build/P17/P25 gates pass on the exact pushed
+  source with no AI, Save, takeover, final publication, release, deployment, or
+  production mutation.
+- `EL03-R1-AC-09` The final commit is pushed and synchronized; an independent
+  criterion-by-criterion conformance audit approves every acceptance criterion
+  before EL-04 begins.
+
+## 9. Todo chain
+
+1. `el03-r1-reload-contract` -> 0
+2. `el03-r1-reveal-paint-lease` -> 1
+3. `el03-r1-regression-matrix` -> 2
+4. `el03-r1-focused-full-gates` -> 3
+5. `el03-r1-review-push` -> 4
+6. `el03-r1-headed-aleris` -> 5
+7. `el03-r1-headed-candidate-matrix` -> 6
+8. `el03-r1-conformance` -> 7

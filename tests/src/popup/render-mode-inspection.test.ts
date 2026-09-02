@@ -62,7 +62,7 @@ describe("render-mode inspection watchdog", () => {
     }
   });
 
-  it("projects active work without inferring a view, then adopts only paint acknowledgment", () => {
+  it("projects active work without inferring a view, then adopts the mode-specific acknowledgement", () => {
     const active = projectRenderInspectionSession(
       EMPTY_RENDER_INSPECTION_PROJECTION,
       session(),
@@ -93,6 +93,39 @@ describe("render-mode inspection watchdog", () => {
         watchdogReleased: false,
       },
     });
+
+    const javascriptReload = projectRenderInspectionSession(
+      EMPTY_RENDER_INSPECTION_PROJECTION,
+      session({
+        phase: "terminal",
+        updatedAt: 21,
+        terminalReason: "reload-acknowledged",
+        javascriptEnabled: true,
+      }),
+      BINDING,
+    );
+    expect(javascriptReload).toMatchObject({
+      status: "updated",
+      refreshLock: true,
+      projection: { busy: false, view: "with_javascript", detail: "" },
+    });
+
+    const impossibleStaticReload = projectRenderInspectionSession(
+      EMPTY_RENDER_INSPECTION_PROJECTION,
+      session({
+        phase: "terminal",
+        updatedAt: 22,
+        terminalReason: "reload-acknowledged",
+        javascriptEnabled: false,
+      }),
+      BINDING,
+    );
+    expect(impossibleStaticReload).toMatchObject({
+      status: "updated",
+      refreshLock: false,
+      projection: { busy: false, view: "unknown" },
+    });
+    expect(impossibleStaticReload.projection.detail).not.toBe("");
   });
 
   it.each([
@@ -264,7 +297,7 @@ describe("render-mode inspection watchdog", () => {
       session({
         phase: "terminal",
         updatedAt: 12,
-        terminalReason: "paint-acknowledged",
+        terminalReason: "reload-acknowledged",
         javascriptEnabled: true,
       }),
       BINDING,

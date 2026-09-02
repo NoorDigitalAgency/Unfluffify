@@ -1001,6 +1001,17 @@ describe("P6 DOM bridge", () => {
     expect(engine.overlayRoot().className).toContain("uf-marking-temporarily-disabled");
     engine.setPassthrough(false);
     expect(engine.overlayRoot().style.pointerEvents).toBe("auto");
+    const interactionLayer = engine.overlayRoot().children.find((layer) =>
+      layer.getAttribute("data-layer") === "interaction"
+    );
+    expect(interactionLayer?.children.length).toBeGreaterThan(0);
+    engine.setPageInspectionActive(true);
+    expect(engine.overlayRoot().className).toContain("uf-page-inspection-active");
+    expect(engine.overlayRoot().children
+      .some((layer) => layer.children.some((candidate) => candidate === renderedOverlay))).toBe(true);
+    expect(interactionLayer?.children).toHaveLength(0);
+    engine.setPageInspectionActive(false);
+    expect(engine.overlayRoot().className).not.toContain("uf-page-inspection-active");
     expect(engine.overlayRoot().style.position).toBe("fixed");
     expect(engine.overlayRoot().getAttribute("data-uf-extension-ui")).toBe("true");
     expect(doc.documentElement.children.some((element) => element.id === MARKING_OVERLAY_STYLE_ID)).toBe(true);

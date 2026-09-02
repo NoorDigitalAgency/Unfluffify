@@ -3653,13 +3653,15 @@ async function restoreJavascriptView(): Promise<boolean> {
     return false;
   }
   const current = renderInspectionController.snapshot().session;
-  const javascriptPaintAlreadyConfirmed =
+  const javascriptReloadAlreadyConfirmed =
     observed === "terminal" &&
     current?.phase === "terminal" &&
-    current.terminalReason === "paint-acknowledged" &&
+    (current.terminalReason === "reload-acknowledged" ||
+      // Backward-compatible adoption of a terminal written by an older build.
+      current.terminalReason === "paint-acknowledged") &&
     current.javascriptEnabled &&
     renderInspectionController.snapshot().view === "with_javascript";
-  if (javascriptPaintAlreadyConfirmed) {
+  if (javascriptReloadAlreadyConfirmed) {
     return true;
   }
   const active = observed === "active" && current?.phase !== "terminal";
@@ -3675,16 +3677,16 @@ async function restoreJavascriptView(): Promise<boolean> {
     return false;
   }
   const restored = renderInspectionController.snapshot().session;
-  const javascriptPaintConfirmed =
+  const javascriptReloadConfirmed =
     restored?.phase === "terminal" &&
-    restored.terminalReason === "paint-acknowledged" &&
+    restored.terminalReason === "reload-acknowledged" &&
     restored.javascriptEnabled &&
     renderInspectionController.snapshot().view === "with_javascript";
-  if (!javascriptPaintConfirmed) {
+  if (!javascriptReloadConfirmed) {
     notifyBoundEvent(binding, "JavaScript view not confirmed", "stay here and retry before leaving", "warn");
     render();
   }
-  return javascriptPaintConfirmed;
+  return javascriptReloadConfirmed;
 }
 
 /** A property with no render mode had nothing worth preparing at page load, and the
@@ -3798,8 +3800,8 @@ async function commitRenderMode(): Promise<void> {
   pendingRenderMode = null;
   render();
   try {
-    // The view stays put until the replacement document has acknowledged a
-    // JavaScript-on paint; only then is Set complete from the operator's view.
+    // The view stays put until the JavaScript-on replacement document has been
+    // adopted; only then is Set complete from the operator's view.
     advanceOperatorAction(action, "persist");
     await setRenderMode(chosen);
     if (!await restoreJavascriptView()) {

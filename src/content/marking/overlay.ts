@@ -8,6 +8,7 @@ export const MARKING_OVERLAY_CLASSES = [
   "uf-layer",
   "uf-scrolling",
   "uf-marking-temporarily-disabled",
+  "uf-page-inspection-active",
   "uf-preview-presentation",
   "uf-rect",
   "uf-hover",
@@ -42,9 +43,6 @@ export const MARKING_OVERLAY_STYLES = `
   transition: opacity 0.15s ease;
   will-change: opacity;
 }
-.uf-marking-layer-root.uf-page-inspection-active {
-  background: rgba(16, 20, 28, 0.2);
-}
 .uf-marking-layer-root .uf-layer {
   position: absolute;
   inset: 0;
@@ -71,9 +69,6 @@ export const MARKING_OVERLAY_STYLES = `
      through the root's shared 150 ms transition. */
   opacity: 0;
   transition-duration: 0s;
-}
-.uf-marking-layer-root.uf-page-inspection-active .uf-layer {
-  opacity: 0;
 }
 .uf-marking-layer-root.uf-marking-temporarily-disabled .uf-layer {
   opacity: 0.28;
@@ -106,6 +101,12 @@ export const MARKING_OVERLAY_STYLES = `
      not the grayed mutable-session affordance. */
   opacity: 1;
   filter: none;
+}
+.uf-marking-layer-root.uf-page-inspection-active .uf-layer {
+  /* Reveal/freeze and Render view outrank Preview and paused Marking. The
+     retained boxes remain allocated, but no annotation or hit surface paints. */
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 .uf-marking-layer-root.uf-marking-temporarily-disabled .uf-rect,
 .uf-marking-layer-root.uf-marking-temporarily-disabled .uf-silent-rect {

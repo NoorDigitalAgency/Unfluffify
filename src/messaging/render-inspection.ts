@@ -15,6 +15,7 @@ export const RenderInspectionPhaseSchema = z.enum([
 
 export const RenderInspectionTerminalReasonSchema = z.enum([
   "paint-acknowledged",
+  "reload-acknowledged",
   "cancelled",
   "superseded",
   "start-failed",
@@ -140,6 +141,8 @@ export const RenderInspectionDocumentFenceSchema = z.object({
 });
 
 export const RenderInspectionAckPaintRequestSchema = RenderInspectionDocumentFenceSchema;
+
+export const RenderInspectionAckReloadRequestSchema = RenderInspectionDocumentFenceSchema;
 
 export const RenderInspectionFailRequestSchema = RenderInspectionDocumentFenceSchema.extend({
   reason: z.string().trim().min(1).max(512),

@@ -662,7 +662,8 @@ describe("P6 content marking engine", () => {
   });
 
   it("maps every evaluation category into the legacy overlay grammar", () => {
-    expect(MARKING_OVERLAY_CLASSES).toHaveLength(14);
+    expect(MARKING_OVERLAY_CLASSES).toHaveLength(15);
+    expect(MARKING_OVERLAY_CLASSES).toContain("uf-page-inspection-active");
     expect(MARKING_OVERLAY_CLASSES).toContain("uf-preview-presentation");
     expect(overlayClassFor("implicit-include")).toBe("uf-default");
     expect(overlayClassFor("explicit-include")).toBe("uf-explicit-include");
@@ -697,6 +698,18 @@ describe("P6 content marking engine", () => {
     // Removing uf-scrolling restores the shared root 150 ms transition; only
     // the stale-geometry edge is synchronous.
     expect(MARKING_OVERLAY_STYLES).toContain("transition: opacity 0.15s ease");
+  });
+
+  it("physically hides every annotation layer during inspection without tinting the page", () => {
+    expect(MARKING_OVERLAY_STYLES).toContain(
+      '.uf-marking-layer-root.uf-page-inspection-active .uf-layer {\n  /* Reveal/freeze',
+    );
+    expect(MARKING_OVERLAY_STYLES).toContain("opacity: 0 !important;\n  pointer-events: none !important;");
+    expect(MARKING_OVERLAY_STYLES.indexOf("uf-page-inspection-active .uf-layer"))
+      .toBeGreaterThan(MARKING_OVERLAY_STYLES.lastIndexOf("uf-preview-presentation .uf-layer"));
+    expect(MARKING_OVERLAY_STYLES).not.toContain(
+      ".uf-marking-layer-root.uf-page-inspection-active {\n  background:",
+    );
   });
 
   it("retains silent highlights with the shared visibility policy", () => {

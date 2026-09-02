@@ -93,6 +93,16 @@ const ACTIVE_PHASES = new Set<RenderInspectionRecord["phase"]>([
   "adopted",
 ]);
 
+/** `paint-acknowledged` on JavaScript-on is retained only for durable records
+ * created by older builds. New JavaScript-on occurrences can succeed only via
+ * `reload-acknowledged`; acknowledgePaint() mode-gates that invariant. */
+function isSuccessfulTerminal(record: RenderInspectionRecord): boolean {
+  return record.phase === "terminal" && (
+    record.terminalReason === "paint-acknowledged" ||
+    record.javascriptEnabled && record.terminalReason === "reload-acknowledged"
+  );
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error && error.message ? error.message : "render-inspection-failed";
 }
@@ -434,7 +444,9 @@ export function createRenderInspectionRuntime(input: Readonly<{
   const terminalRequiresRestore = (
     record: RenderInspectionRecord,
     reason: RenderInspectionTerminalReason,
-  ): boolean => reason !== "paint-acknowledged" || record.javascriptEnabled;
+  ): boolean => reason === "reload-acknowledged" && record.javascriptEnabled
+    ? false
+    : reason !== "paint-acknowledged" || record.javascriptEnabled;
 
   type TerminalizeOptions = Readonly<{
     reloadAfterRestore?: boolean;
@@ -484,7 +496,9 @@ export function createRenderInspectionRuntime(input: Readonly<{
     const reloadAfterRestore = options.reloadAfterRestore ?? (
       options.restoreRequired !== false && !record.javascriptEnabled
     );
-    const reloadPending = reason === "paint-acknowledged"
+    const successAcknowledgement = reason === "paint-acknowledged" ||
+      reason === "reload-acknowledged";
+    const reloadPending = successAcknowledgement
       ? false
       : record.reloadPending || reloadAfterRestore;
     const restoreAt = reason === "paint-acknowledged" && !record.javascriptEnabled
@@ -515,7 +529,7 @@ export function createRenderInspectionRuntime(input: Readonly<{
       // Failing open must not discard this generation. A popup may still hold
       // its token, and a fresh token must never reuse the same generation just
       // because the terminal write failed.
-      const failOpenReason = reason === "paint-acknowledged" ? "content-failed" : reason;
+      const failOpenReason = successAcknowledgement ? "content-failed" : reason;
       forcedFailOpenTabs.add(record.tabId);
       urgentTerminalRestores.set(record.tabId, failOpenReason);
       try {
@@ -612,25 +626,32 @@ export function createRenderInspectionRuntime(input: Readonly<{
 
   const terminalizeExact = (
     fence: DocumentFence,
-    reason: "paint-acknowledged" | "content-failed",
+    reason: "paint-acknowledged" | "reload-acknowledged" | "content-failed",
+    expectedJavascriptEnabled?: boolean,
   ): Promise<RenderInspectionMutationResponse> => withOperation(fence.tabId, async () => {
     const loaded = await loadCurrent(fence.tabId);
     if (!loaded) {
       return { status: "inactive" };
     }
     const record = await expireIfNeeded(loaded);
+    if (
+      expectedJavascriptEnabled !== undefined &&
+      record.javascriptEnabled !== expectedJavascriptEnabled
+    ) {
+      return staleMutation("inspection-acknowledgement-mode-mismatch", record);
+    }
     if (debuggerDetachedTabs.has(fence.tabId) && !record.javascriptEnabled && (
-      ACTIVE_PHASES.has(record.phase) || record.terminalReason === "paint-acknowledged"
+      ACTIVE_PHASES.has(record.phase) || isSuccessfulTerminal(record)
     )) {
       const terminal = await terminalize(record, "content-failed", { reloadAfterRestore: true });
       await rescheduleAlarm();
       return staleMutation("inspection-debugger-detached", terminal);
     }
     if (pendingNavigationStarts.has(fence.tabId) && (
-      ACTIVE_PHASES.has(record.phase) || record.terminalReason === "paint-acknowledged"
+      ACTIVE_PHASES.has(record.phase) || isSuccessfulTerminal(record)
     )) {
       const terminal = await terminalize(record, "unexpected-navigation", {
-        reloadAfterRestore: true,
+        reloadAfterRestore: !record.javascriptEnabled,
         deferReload: true,
       });
       await rescheduleAlarm();
@@ -736,7 +757,7 @@ export function createRenderInspectionRuntime(input: Readonly<{
     if (record.phase === "terminal") {
       if (record.restorePending || record.reloadPending) {
         await retryTerminalRecovery(record);
-      } else if (record.terminalReason === "paint-acknowledged") {
+      } else if (isSuccessfulTerminal(record)) {
         // Reassert the exact successful posture after worker recreation. A
         // debugger detach is handled separately and invalidates static truth.
         try {
@@ -1019,9 +1040,7 @@ export function createRenderInspectionRuntime(input: Readonly<{
         // Fence every older identity-less cleanup before that transition so a
         // post-commit stale classification cannot erase its tombstone.
         await dismissIdentitylessCleanupMarkers(tabId);
-        if (
-          loaded.phase === "terminal" && loaded.terminalReason !== "paint-acknowledged"
-        ) {
+        if (loaded.phase === "terminal" && !isSuccessfulTerminal(loaded)) {
           return;
         }
         await terminalize(loaded, "unexpected-navigation", {
@@ -1043,9 +1062,7 @@ export function createRenderInspectionRuntime(input: Readonly<{
           return;
         }
         await dismissIdentitylessCleanupMarkers(tabId);
-        if (
-          loaded.phase === "terminal" && loaded.terminalReason !== "paint-acknowledged"
-        ) {
+        if (loaded.phase === "terminal" && !isSuccessfulTerminal(loaded)) {
           return;
         }
         await terminalize(loaded, "unexpected-navigation", {
@@ -1230,7 +1247,7 @@ export function createRenderInspectionRuntime(input: Readonly<{
         if (record !== loaded) await rescheduleAlarm();
         return isUnchangedCommittedDocument(record, commit) && (
           ACTIVE_PHASES.has(record.phase) ||
-          record.phase === "terminal" && record.terminalReason === "paint-acknowledged"
+          isSuccessfulTerminal(record)
         );
       });
     },
@@ -1298,7 +1315,11 @@ export function createRenderInspectionRuntime(input: Readonly<{
 
     async acknowledgePaint(request: DocumentFence): Promise<RenderInspectionMutationResponse> {
       await ensureTabInitialized(request.tabId);
-      return terminalizeExact(request, "paint-acknowledged");
+      return terminalizeExact(request, "paint-acknowledged", false);
+    },
+    async acknowledgeReload(request: DocumentFence): Promise<RenderInspectionMutationResponse> {
+      await ensureTabInitialized(request.tabId);
+      return terminalizeExact(request, "reload-acknowledged", true);
     },
 
     async fail(
@@ -1371,9 +1392,7 @@ export function createRenderInspectionRuntime(input: Readonly<{
           }
           if (
             isUnchangedCommittedDocument(loaded, commit) &&
-            (ACTIVE_PHASES.has(loaded.phase) || (
-              loaded.phase === "terminal" && loaded.terminalReason === "paint-acknowledged"
-            ))
+            (ACTIVE_PHASES.has(loaded.phase) || isSuccessfulTerminal(loaded))
           ) {
             // MV3 recreation loses the lifecycle module's process-local last
             // document map. Its first history/fragment notification therefore
@@ -1384,7 +1403,7 @@ export function createRenderInspectionRuntime(input: Readonly<{
             return;
           }
           if (loaded.phase === "terminal") {
-            if (loaded.terminalReason === "paint-acknowledged") {
+            if (isSuccessfulTerminal(loaded)) {
               await terminalize(loaded, "unexpected-navigation", { reloadAfterRestore: !loaded.javascriptEnabled });
               await rescheduleAlarm();
             } else if (loaded.restorePending || loaded.reloadPending) {
@@ -1522,7 +1541,7 @@ export function createRenderInspectionRuntime(input: Readonly<{
             await clearNamedAlarm(renderInspectionFailOpenAlarmName(failOpenTabId));
             return;
           }
-          const terminal = ACTIVE_PHASES.has(record.phase) || record.terminalReason === "paint-acknowledged"
+          const terminal = ACTIVE_PHASES.has(record.phase) || isSuccessfulTerminal(record)
             ? await terminalize(record, urgentTerminalRestores.get(failOpenTabId) ?? "content-failed", {
               reloadAfterRestore: !record.javascriptEnabled,
             })

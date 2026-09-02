@@ -1025,7 +1025,11 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
   };
 
   const setRootState = (
-    className: "uf-scrolling" | "uf-marking-temporarily-disabled" | "uf-preview-presentation",
+    className:
+      | "uf-scrolling"
+      | "uf-marking-temporarily-disabled"
+      | "uf-preview-presentation"
+      | "uf-page-inspection-active",
     active: boolean,
   ): void => {
     const classes = new Set(root.className.split(/\s+/).filter(Boolean));
@@ -1556,6 +1560,17 @@ export function createOverlayRenderer(options: OverlayRendererOptions) {
     },
     setSuspended(active: boolean): void {
       setRootState("uf-marking-temporarily-disabled", active);
+    },
+    setPageInspectionActive(active: boolean): void {
+      setRootState("uf-page-inspection-active", active);
+      if (active) {
+        // Keep the retained classification geometry allocation-free for the
+        // eventual restore, but retire transient interaction paint immediately.
+        hoverElement = null;
+        hoverXpath = "";
+        drawHover();
+        clearAcknowledgement();
+      }
     },
     setPreviewPresentation(active: boolean): void {
       previewPresentationActive = active;

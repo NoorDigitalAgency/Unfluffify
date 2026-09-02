@@ -46,6 +46,10 @@ export type RenderInspectionCurtainOptions = Readonly<{
     delayMs: number,
   ) => VoidFunction;
   onPaintReady: (session: AdoptedRenderInspectionSession) => void;
+  /** JavaScript-on is a reload-only view. This acknowledges only that the exact
+   * replacement document root was adopted; it must not inspect or wait for
+   * paint, frames, visibility, or a curtain. */
+  onReloadReady: (session: AdoptedRenderInspectionSession) => void;
   onFailure?: (session: AdoptedRenderInspectionSession, reason: string) => void;
   onSurfaceChanged?: () => void;
   onLifecycleStage?: (
@@ -121,6 +125,7 @@ export function createRenderInspectionCurtain(
   let syncScheduled = false;
   let paintEpoch = 0;
   let paintScheduledFor = "";
+  let reloadReadyFor = "";
   let failureReportedFor = "";
   let deadlineHandle: number | null = null;
   let cancelPaintFallback: VoidFunction | null = null;
@@ -329,11 +334,14 @@ export function createRenderInspectionCurtain(
   };
 
   const schedulePaintAcknowledgement = (): void => {
-    if (!session || (!session.javascriptEnabled && !curtain?.isConnected)) {
+    // Paint proof belongs exclusively to the JavaScript-off curtain. The
+    // JavaScript-on view is a plain document reload and acknowledges adoption
+    // through onReloadReady without requesting animation frames or consulting
+    // viewport paint state.
+    if (!session || session.javascriptEnabled || !curtain?.isConnected) {
       return;
     }
     const candidate = session;
-    const headless = candidate.javascriptEnabled;
     const key = identityKey(candidate);
     if (paintScheduledFor === key) {
       return;
@@ -344,11 +352,7 @@ export function createRenderInspectionCurtain(
       !terminated &&
       epoch === paintEpoch &&
       sameIdentity(session, candidate) &&
-      (headless || curtain?.isConnected === true);
-    const headlessDocumentReady = (): boolean =>
-      headless &&
-      document.visibilityState === "visible" &&
-      document.documentElement?.isConnected === true;
+      curtain?.isConnected === true;
     const finish = (stage: "frame-two" | "fallback"): void => {
       if (!stillCurrent()) {
         return;
@@ -359,7 +363,7 @@ export function createRenderInspectionCurtain(
         paintScheduledFor = "";
         return;
       }
-      if (headless ? !headlessDocumentReady() : !curtainHasVisibleViewportCoverage()) {
+      if (!curtainHasVisibleViewportCoverage()) {
         clearPaintFallback();
         paintEpoch += 1;
         paintScheduledFor = "";
@@ -440,7 +444,7 @@ export function createRenderInspectionCurtain(
         paintScheduledFor = "";
         return;
       }
-      if (headless ? headlessDocumentReady() : curtainHasVisibleViewportCoverage()) {
+      if (curtainHasVisibleViewportCoverage()) {
         finish("fallback");
         return;
       }
@@ -499,9 +503,9 @@ export function createRenderInspectionCurtain(
     }
     try {
       if (session.javascriptEnabled) {
-        // "With JavaScript" is a plain refresh in the product. Retain the
-        // exact generation/document paint acknowledgement without creating any
-        // page curtain or input boundary visible to the operator.
+        // "With JavaScript" is a plain refresh in the product. The durable
+        // occurrence keeps presentation suspended across document replacement,
+        // but completion is document adoption—not paint inspection.
         observer?.disconnect();
         observer = null;
         curtain?.remove();
@@ -509,8 +513,16 @@ export function createRenderInspectionCurtain(
         card = null;
         spinner = null;
         copy = null;
-        reportLifecycleStage(session, "mounted");
-        schedulePaintAcknowledgement();
+        const key = identityKey(session);
+        if (reloadReadyFor !== key && document.documentElement.isConnected) {
+          reloadReadyFor = key;
+          try {
+            options.onReloadReady(session);
+          } catch {
+            reloadReadyFor = "";
+            reportFailure(session, "reload-acknowledgement-callback-failed");
+          }
+        }
         options.onSurfaceChanged?.();
         return true;
       }
@@ -556,6 +568,7 @@ export function createRenderInspectionCurtain(
   const clearLocal = (): void => {
     paintEpoch += 1;
     paintScheduledFor = "";
+    reloadReadyFor = "";
     failureReportedFor = "";
     syncScheduled = false;
     clearDeadline();
@@ -587,7 +600,9 @@ export function createRenderInspectionCurtain(
     if (!same) {
       clearLocal();
       session = adopted;
-      reportLifecycleStage(adopted, "adopted");
+      if (!adopted.javascriptEnabled) {
+        reportLifecycleStage(adopted, "adopted");
+      }
       document.addEventListener("DOMContentLoaded", scheduleSync);
       document.addEventListener("readystatechange", scheduleSync);
       document.addEventListener("visibilitychange", scheduleSync);
@@ -597,7 +612,10 @@ export function createRenderInspectionCurtain(
         if (!sameIdentity(session, adopted)) {
           return;
         }
-        reportFailure(adopted, "paint-deadline-expired");
+        reportFailure(
+          adopted,
+          adopted.javascriptEnabled ? "reload-deadline-expired" : "paint-deadline-expired",
+        );
         clearLocal();
       };
       deadlineHandle = view

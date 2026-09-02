@@ -782,3 +782,19 @@ painted" decision from the replaced document.
   navigation, detach, or a newer refit invalidates it. Same-mode physical
   correction is metrics-only and must not churn UA, touch, media, page scale,
   neutral posture, or the opposite device mode.
+- EL-03 RENDER RELOAD/PAINT SPLIT: `With JavaScript` is a durable cross-document
+  Render-view lease but not a paint inspection. Its exact adopted replacement
+  document emits one typed `renderInspection.ackReload` and terminalizes as
+  `reload-acknowledged`; it creates no curtain, animation-frame proof, paint
+  fallback, or lifecycle-stage stream. `Without JavaScript` alone owns the
+  full-viewport curtain, two-frame/fallback proof, and `paint-acknowledged`.
+  Both acknowledgement handlers are exact-document and mode-gated. Legacy
+  JavaScript-on paint terminals may be read for migration, but new ones cannot
+  be written.
+- EL-03 PHYSICAL NO-ANNOTATION LEASE: Render view and reveal/freeze/cleanup
+  toggle only `uf-page-inspection-active` on the retained marking root. The
+  final CSS rule uses inspection precedence over paused Marking and Preview, so
+  every Marking, Silent, Preview, hover, focus, and interaction layer is hidden
+  without tinting the page, rebuilding rows, or rereading geometry. Newly
+  created engines adopt the same state immediately. Clear the class only after
+  Render view exits and the exact cleanup fence is gone; then Silent may paint.

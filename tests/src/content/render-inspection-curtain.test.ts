@@ -273,6 +273,7 @@ function harness(
   }
   const observers: FakeMutationObserver[] = [];
   const painted = vi.fn();
+  const reloaded = vi.fn();
   const failed = vi.fn();
   const surfaceChanged = vi.fn();
   const lifecycleStage = vi.fn();
@@ -286,12 +287,23 @@ function harness(
     },
     schedulePaintFallback,
     onPaintReady: painted,
+    onReloadReady: reloaded,
     onFailure: failed,
     onSurfaceChanged: surfaceChanged,
     onLifecycleStage: lifecycleStage,
     now: () => 0,
   });
-  return { controller, document, window, observers, painted, failed, surfaceChanged, lifecycleStage };
+  return {
+    controller,
+    document,
+    window,
+    observers,
+    painted,
+    reloaded,
+    failed,
+    surfaceChanged,
+    lifecycleStage,
+  };
 }
 
 async function flushMutation(): Promise<void> {
@@ -300,28 +312,21 @@ async function flushMutation(): Promise<void> {
 }
 
 describe("render inspection replacement-document curtain", () => {
-  it("keeps the JavaScript-on reload headless while retaining two-frame paint proof", () => {
-    const { controller, window, painted, lifecycleStage } = harness();
+  it("acknowledges JavaScript-on from document adoption with no paint inspection", () => {
+    const { controller, window, painted, reloaded, lifecycleStage } = harness();
     const adopted = { ...session("token-js", 1, "nonce-js"), javascriptEnabled: true };
 
     expect(controller.adopt(adopted)).toBe(true);
     expect(controller.element()).toBeNull();
-    expect(window.pendingFrames()).toBe(1);
-
-    window.flushFrame();
-    expect(painted).not.toHaveBeenCalled();
-    window.flushFrame();
-
+    expect(window.pendingFrames()).toBe(0);
     expect(controller.element()).toBeNull();
-    expect(painted).toHaveBeenCalledOnce();
-    expect(painted).toHaveBeenCalledWith(adopted);
-    expect(lifecycleStage.mock.calls.map(([, stage]) => stage)).toEqual([
-      "adopted",
-      "mounted",
-      "frame-one",
-      "frame-two",
-      "acknowledged",
-    ]);
+    expect(painted).not.toHaveBeenCalled();
+    expect(reloaded).toHaveBeenCalledOnce();
+    expect(reloaded).toHaveBeenCalledWith(adopted);
+    expect(lifecycleStage).not.toHaveBeenCalled();
+
+    controller.refresh();
+    expect(reloaded).toHaveBeenCalledOnce();
   });
 
   it("waits for a document-start null root, mounts there, and acknowledges only after two animation frames", async () => {

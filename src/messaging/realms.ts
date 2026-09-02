@@ -50,6 +50,7 @@ import {
 } from "./shield-posture";
 import {
   RenderInspectionAckPaintRequestSchema,
+  RenderInspectionAckReloadRequestSchema,
   RenderInspectionAdoptRequestSchema,
   RenderInspectionAdoptResponseSchema,
   RenderInspectionCancelRequestSchema,
@@ -560,6 +561,10 @@ export const applicationContract = defineContract({
     },
     "renderInspection.ackPaint": {
       request: RenderInspectionAckPaintRequestSchema,
+      response: RenderInspectionMutationResponseSchema,
+    },
+    "renderInspection.ackReload": {
+      request: RenderInspectionAckReloadRequestSchema,
       response: RenderInspectionMutationResponseSchema,
     },
     "renderInspection.fail": {

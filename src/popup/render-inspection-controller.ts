@@ -138,7 +138,10 @@ export function createPopupRenderInspectionController(
     publish(next);
 
     if (result.status === "updated" && session.phase === "terminal") {
-      if (session.terminalReason === "paint-acknowledged") {
+      if (
+        session.terminalReason === "paint-acknowledged" ||
+        session.javascriptEnabled && session.terminalReason === "reload-acknowledged"
+      ) {
         ports.recordActivity(
           "Render-mode view loaded",
           session.javascriptEnabled ? "with JavaScript" : "without JavaScript",

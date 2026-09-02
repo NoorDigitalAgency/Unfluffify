@@ -1501,7 +1501,7 @@ describe("rewrite popup entrypoint", () => {
     expect(remembered).toEqual([]);
   });
 
-  it("starts an exactly bound durable inspection and adopts only paint acknowledgment", async () => {
+  it("starts an exactly bound durable inspection and adopts only its mode acknowledgement", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
@@ -1515,7 +1515,9 @@ describe("rewrite popup entrypoint", () => {
             phase: "terminal",
             javascriptEnabled: request.javascriptEnabled,
             updatedAt: Date.now() + 1,
-            terminalReason: "paint-acknowledged",
+            terminalReason: request.javascriptEnabled
+              ? "reload-acknowledged"
+              : "paint-acknowledged",
           }),
         });
       }
@@ -1589,7 +1591,9 @@ describe("rewrite popup entrypoint", () => {
               phase: "terminal",
               javascriptEnabled: request.javascriptEnabled,
               updatedAt: Date.now() + 1,
-              terminalReason: "paint-acknowledged",
+              terminalReason: request.javascriptEnabled
+                ? "reload-acknowledged"
+                : "paint-acknowledged",
             }),
           });
         }
@@ -1687,7 +1691,9 @@ describe("rewrite popup entrypoint", () => {
               phase: "terminal",
               javascriptEnabled: request.javascriptEnabled,
               updatedAt: Date.now() + 1,
-              terminalReason: "paint-acknowledged",
+              terminalReason: request.javascriptEnabled
+                ? "reload-acknowledged"
+                : "paint-acknowledged",
             }),
           });
         }
@@ -1922,7 +1928,7 @@ describe("rewrite popup entrypoint", () => {
     expect(runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "renderInspection.cancel")).toBe(false);
   });
 
-  it("keeps the last painted view when a newer durable inspection fails", async () => {
+  it("keeps the last confirmed view when a newer durable inspection fails", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
@@ -1941,7 +1947,11 @@ describe("rewrite popup entrypoint", () => {
             phase: "terminal",
             javascriptEnabled: request.javascriptEnabled,
             updatedAt: Date.now() + generation,
-            terminalReason: generation === 1 ? "paint-acknowledged" : "content-failed",
+            terminalReason: generation === 1
+              ? request.javascriptEnabled
+                ? "reload-acknowledged"
+                : "paint-acknowledged"
+              : "content-failed",
           }),
         });
       }
@@ -2023,7 +2033,7 @@ describe("rewrite popup entrypoint", () => {
     expect(props().diagnostics.renderModeDetail).toContain("retry this view");
   });
 
-  it("does not open connection settings until the static tab confirms JavaScript paint", async () => {
+  it("does not open connection settings until the static tab confirms the JavaScript reload", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
@@ -2097,7 +2107,7 @@ describe("rewrite popup entrypoint", () => {
 
     props().onOpenConfiguration();
     await waitFor(() => javascriptStartFrame !== null, "JavaScript restoration start");
-    const commandsBeforeJavascriptPaint = tabsSendMessage.mock.calls.map(([, frame]) =>
+    const commandsBeforeJavascriptReload = tabsSendMessage.mock.calls.map(([, frame]) =>
       ((frame as BusFrame).payload as { name?: string } | undefined)?.name,
     );
 
@@ -2108,7 +2118,7 @@ describe("rewrite popup entrypoint", () => {
     }));
     expect(tabsSendMessage.mock.calls.some(([, message]) =>
       JSON.stringify(message).includes("activateContentMain"))).toBe(false);
-    expect(commandsBeforeJavascriptPaint).not.toContain("preparePageVisit");
+    expect(commandsBeforeJavascriptReload).not.toContain("preparePageVisit");
 
     holdExitSilentProjection = true;
 
@@ -2121,13 +2131,13 @@ describe("rewrite popup entrypoint", () => {
         phase: "terminal",
         javascriptEnabled: true,
         updatedAt: staticTerminal.updatedAt + 1,
-        terminalReason: "paint-acknowledged",
+        terminalReason: "reload-acknowledged",
       }),
     }));
     await waitFor(
       () => tabsSendMessage.mock.calls.some(([, frame]) =>
         ((frame as BusFrame).payload as { name?: string } | undefined)?.name === "preparePageVisit"),
-      "reveal/freeze request after JavaScript paint",
+      "reveal/freeze request after JavaScript reload",
     );
     await waitFor(
       () => releaseExitSilentProjection !== null,
@@ -2142,7 +2152,7 @@ describe("rewrite popup entrypoint", () => {
 
     holdExitSilentProjection = false;
     releaseExitSilentProjection?.();
-    await waitFor(() => props().view === "configuration", "connection settings after JavaScript paint");
+    await waitFor(() => props().view === "configuration", "connection settings after JavaScript reload");
 
     expect(props().diagnostics).toMatchObject({
       renderModeBusy: false,

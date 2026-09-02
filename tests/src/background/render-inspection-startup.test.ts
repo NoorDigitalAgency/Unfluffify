@@ -500,6 +500,59 @@ describe("background render inspection integration", () => {
     });
   });
 
+  it("routes a JavaScript-on replacement document through reload acknowledgement only", async () => {
+    installLockRuntime(SCOPE);
+    const browser = installBrowser();
+    const { startRewriteBackground } = await import("../../../src/background/index");
+    startRewriteBackground();
+    const call = caller(browser.listener());
+
+    browser.commit("document-a", SCOPE.pageUrl);
+    await Promise.resolve();
+    await expect(call("renderInspection.start", {
+      tabId: 7,
+      property: {
+        environmentKey: SCOPE.environmentKey,
+        siteId: SCOPE.siteId,
+        baseUrl: SCOPE.baseUrl,
+      },
+      pageUrl: SCOPE.pageUrl,
+      javascriptEnabled: true,
+    }, "popup")).resolves.toMatchObject({
+      ok: true,
+      payload: { status: "started", session: { phase: "awaiting_document" } },
+    });
+
+    browser.commit("document-b", SCOPE.pageUrl);
+    const adopted = await call("renderInspection.adopt", {
+      pageUrl: SCOPE.pageUrl,
+      documentNonce: "replacement-nonce",
+    }, "content", "document-b");
+    const session = (adopted.payload as {
+      session: { token: string; generation: number };
+    }).session;
+    const fence = {
+      token: session.token,
+      generation: session.generation,
+      pageUrl: SCOPE.pageUrl,
+      documentNonce: "replacement-nonce",
+    };
+
+    await expect(call("renderInspection.ackPaint", fence, "content", "document-b"))
+      .resolves.toMatchObject({
+        ok: true,
+        payload: { status: "stale", reason: "inspection-acknowledgement-mode-mismatch" },
+      });
+    await expect(call("renderInspection.ackReload", fence, "content", "document-b"))
+      .resolves.toMatchObject({
+        ok: true,
+        payload: {
+          status: "ok",
+          session: { phase: "terminal", terminalReason: "reload-acknowledged" },
+        },
+      });
+  });
+
   it("acknowledges a JavaScript-off curtain from the debugger-owned starvation fallback", async () => {
     vi.useFakeTimers();
     try {

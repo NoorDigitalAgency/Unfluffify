@@ -107,7 +107,11 @@ function createAuthoritativeMarkingEngine(
   ...args: Parameters<typeof createMarkingEngine>
 ): ReturnType<typeof createMarkingEngine> {
   retireSupersededMarkingRoots(typeof document === "undefined" ? null : document);
-  return createMarkingEngine(...args);
+  const engine = createMarkingEngine(...args);
+  engine.setPageInspectionActive?.(
+    pageInspectionActive || pageWorldCleanupFenceNonce !== "" || renderModeViewActive,
+  );
+  return engine;
 }
 
 let markingActive = false;
@@ -529,6 +533,9 @@ function ensureRenderInspectionCurtain(): RenderInspectionCurtainController | nu
     onPaintReady(session) {
       void acknowledgeRenderInspectionPaint(session);
     },
+    onReloadReady(session) {
+      void acknowledgeRenderInspectionReload(session);
+    },
     onFailure(session, reason) {
       void reportRenderInspectionFailure(session, reason);
     },
@@ -646,6 +653,46 @@ async function acknowledgeRenderInspectionPaint(
     reconcileRenderInspectionMutation(identity, response.data);
   } catch {
     await reportRenderInspectionFailure(session, "paint-acknowledgement-unavailable");
+  }
+}
+
+async function acknowledgeRenderInspectionReload(
+  session: AdoptedRenderInspectionSession,
+): Promise<void> {
+  const identity = renderInspectionIdentity(session);
+  if (!identity || !session.javascriptEnabled || !isCurrentRenderInspection(identity)) {
+    return;
+  }
+  const pageUrl = session.pageUrl;
+  if (!sameDocumentPageUrl(pageUrl, currentPageUrl())) {
+    await reportRenderInspectionFailure(session, "same-document-navigation");
+    renderInspectionCurtain?.failOpenMatching(identity);
+    return;
+  }
+  const lifecycleGeneration = contentLifecycleGeneration;
+  const routeGeneration = documentLifecycleGeneration;
+  try {
+    const response = await getContentBus().request("renderInspection.ackReload", {
+      token: identity.token,
+      generation: identity.generation,
+      pageUrl,
+      documentNonce: identity.documentNonce,
+    }, { target: "background" });
+    if (
+      !isCurrentRenderInspection(identity) ||
+      lifecycleGeneration !== contentLifecycleGeneration ||
+      routeGeneration !== documentLifecycleGeneration ||
+      !sameDocumentPageUrl(pageUrl, currentPageUrl())
+    ) {
+      return;
+    }
+    if (!response.ok) {
+      await reportRenderInspectionFailure(session, "reload-acknowledgement-rejected");
+      return;
+    }
+    reconcileRenderInspectionMutation(identity, response.data);
+  } catch {
+    await reportRenderInspectionFailure(session, "reload-acknowledgement-unavailable");
   }
 }
 
@@ -2796,6 +2843,13 @@ function ensureContentSurfaceRoot(): HTMLElement | null {
 }
 
 function renderContentSurface(): void {
+  // Reveal/freeze and Render view are physical no-annotation leases. Toggle a
+  // single pre-composited root class before any retained-surface signature
+  // shortcut; this hides existing Marking, Silent, Preview, focus, and hover
+  // paint without recomputing their rows or geometry.
+  markingEngine?.setPageInspectionActive?.(
+    pageInspectionActive || pageWorldCleanupFenceNonce !== "" || renderModeViewActive,
+  );
   if (!interactionShieldAuthorityActive) {
     contentSurfaceRoot?.remove();
     contentSurfaceRoot = null;

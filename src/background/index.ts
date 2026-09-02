@@ -2288,6 +2288,18 @@ export function startRewriteBackground(): void {
         documentId: sender.documentId,
       }));
   });
+  bus.onCommand("renderInspection.ackReload", async (request, meta) => {
+    const sender = renderInspectionDocument(request, meta);
+    if (!sender) {
+      return Promise.resolve({ status: "stale" as const, reason: "main-content-document-required" });
+    }
+    return withRenderInspectionDocument(sender, request.pageUrl, () =>
+      renderInspection.acknowledgeReload({
+        ...request,
+        tabId: sender.tabId,
+        documentId: sender.documentId,
+      }));
+  });
   bus.onCommand("renderInspection.fail", async (request, meta) => {
     const sender = renderInspectionDocument(request, meta);
     if (!sender) {

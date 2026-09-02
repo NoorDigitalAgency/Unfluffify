@@ -41,7 +41,10 @@ export const EMPTY_RENDER_INSPECTION_PROJECTION: RenderInspectionProjection = {
 export const RENDER_INSPECTION_WATCHDOG_DETAIL =
   "The page reload is still running in the background. You can retry this view.";
 
-const TERMINAL_DETAIL: Readonly<Record<Exclude<RenderInspectionTerminalReason, "paint-acknowledged">, string>> = {
+const TERMINAL_DETAIL: Readonly<Record<
+  Exclude<RenderInspectionTerminalReason, "paint-acknowledged" | "reload-acknowledged">,
+  string
+>> = {
   cancelled: "The page view change was cancelled. Retry when you are ready.",
   superseded: "A newer page view replaced this reload. Retry the view you want to inspect.",
   "start-failed": "The page could not start reloading in that mode. Retry when the tab is ready.",
@@ -93,7 +96,8 @@ function sameSessionSnapshot(left: RenderInspectionSession, right: RenderInspect
 /**
  * Projects one durable background snapshot. Generation, token, timestamp and
  * phase are all fenced so an older popup request can never repaint a newer
- * result. Only a paint acknowledgment is evidence of which view is visible.
+ * result. Static view needs paint proof; JavaScript-on needs exact replacement-
+ * document adoption only.
  */
 export function projectRenderInspectionSession(
   previous: RenderInspectionProjection,
@@ -113,7 +117,7 @@ export function projectRenderInspectionSession(
       if (session.token !== prior.token || session.updatedAt < prior.updatedAt) {
         return { status: "ignored", projection: previous, refreshLock: false };
       }
-      // A successful paint can be invalidated later by the background when the
+      // A successful view can be invalidated later by the background when the
       // same document generation unexpectedly navigates. That one successor is
       // authoritative, but it must not erase the view whose paint was already
       // confirmed. Every other terminal mutation remains fenced out.
@@ -121,12 +125,16 @@ export function projectRenderInspectionSession(
         if (sameSessionSnapshot(prior, session)) {
           return { status: "unchanged", projection: previous, refreshLock: false };
         }
-        const invalidatesPaintAcknowledgement =
-          prior.terminalReason === "paint-acknowledged" &&
+        const priorWasSuccessful =
+          prior.terminalReason === "paint-acknowledged" ||
+          prior.terminalReason === "reload-acknowledged";
+        const currentIsSameSuccess = session.terminalReason === prior.terminalReason;
+        const invalidatesSuccessfulAcknowledgement =
+          priorWasSuccessful &&
           session.phase === "terminal" &&
-          session.terminalReason !== "paint-acknowledged" &&
+          !currentIsSameSuccess &&
           session.updatedAt > prior.updatedAt;
-        if (!invalidatesPaintAcknowledgement) {
+        if (!invalidatesSuccessfulAcknowledgement) {
           return { status: "ignored", projection: previous, refreshLock: false };
         }
       }
@@ -156,7 +164,12 @@ export function projectRenderInspectionSession(
     return { status: "updated", projection, refreshLock: false };
   }
 
-  if (session.terminalReason === "paint-acknowledged") {
+  // Accept a JavaScript-on paint terminal written by an older installed build
+  // as migration history. New occurrences cannot create it because the
+  // background ACK handlers are mode-gated.
+  const terminalIsSuccessful = session.terminalReason === "paint-acknowledged" ||
+    session.javascriptEnabled && session.terminalReason === "reload-acknowledged";
+  if (terminalIsSuccessful) {
     return {
       status: "updated",
       projection: {
@@ -178,7 +191,10 @@ export function projectRenderInspectionSession(
       busy: false,
       detail: session.terminalReason === null
         ? "The page view did not finish. Retry when the tab is ready."
-        : TERMINAL_DETAIL[session.terminalReason],
+        : session.terminalReason === "reload-acknowledged" ||
+            session.terminalReason === "paint-acknowledged"
+          ? "The page acknowledgement did not match this view. Retry when the tab is ready."
+          : TERMINAL_DETAIL[session.terminalReason],
       watchdogReleased: false,
     },
     refreshLock: false,

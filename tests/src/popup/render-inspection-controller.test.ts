@@ -159,7 +159,7 @@ describe("popup render-inspection controller", () => {
       pageUrl: ownerB.pageUrl,
       phase: "terminal",
       updatedAt: 30,
-      terminalReason: "paint-acknowledged",
+      terminalReason: "reload-acknowledged",
       javascriptEnabled: true,
     });
     const current = vi.fn()
@@ -189,7 +189,7 @@ describe("popup render-inspection controller", () => {
     const terminal = session({
       phase: "terminal",
       updatedAt: 20,
-      terminalReason: "paint-acknowledged",
+      terminalReason: "reload-acknowledged",
       javascriptEnabled: true,
     });
     const harness = createHarness({

@@ -105,6 +105,7 @@ vi.mock("../src/content/interaction-shield", () => {
 vi.mock("../src/content/render-inspection-curtain", () => {
   inspectionCurtainHarness.create.mockImplementation((options: {
     onPaintReady: (session: unknown) => void;
+    onReloadReady: (session: unknown) => void;
     onFailure?: (session: unknown, reason: string) => void;
     onSurfaceChanged?: () => void;
     schedulePaintFallback?: (
@@ -148,6 +149,7 @@ vi.mock("../src/content/render-inspection-curtain", () => {
       current: vi.fn(() => active),
       element: vi.fn(() => active ? root : null),
       paint: options.onPaintReady,
+      reload: options.onReloadReady,
       starve: () => {
         if (active) {
           options.schedulePaintFallback?.(active, () => options.onPaintReady(active), 1_000);
@@ -1178,7 +1180,7 @@ describe("C4 rewrite content entrypoints", () => {
     expect(engine.projectPreview).not.toHaveBeenCalledWith(nextPageUrl, expect.anything());
   });
 
-  it("adopts durable inspection before page context and fences paint completion from generic and stale work", async () => {
+  it("adopts the durable Render-view reload before page context and fences stale completion", async () => {
     const addListener = vi.fn();
     const pageUrl = installTestLocation("https://example.com/replacement");
     installMinimalContentDom();
@@ -1228,7 +1230,7 @@ describe("C4 rewrite content entrypoints", () => {
           },
         ]);
       }
-      if (message.name === "renderInspection.ackPaint") {
+      if (message.name === "renderInspection.ackReload") {
         const current = adopted!;
         if (firstAck) {
           firstAck = false;
@@ -1240,7 +1242,7 @@ describe("C4 rewrite content entrypoints", () => {
             ...current,
             phase: "terminal",
             updatedAt: 3,
-            terminalReason: "paint-acknowledged",
+            terminalReason: "reload-acknowledged",
           },
         });
       }
@@ -1284,8 +1286,8 @@ describe("C4 rewrite content entrypoints", () => {
 
     // The old generation's exact ack starts, then a newer durable generation is
     // adopted before its response. That late response cannot clear generation 2.
-    curtain?.paint(adopted);
-    for (let attempt = 0; attempt < 20 && !requestNames.includes("renderInspection.ackPaint"); attempt += 1) {
+    curtain?.reload(adopted);
+    for (let attempt = 0; attempt < 20 && !requestNames.includes("renderInspection.ackReload"); attempt += 1) {
       await Promise.resolve();
     }
     const newer = adoptedInspectionSession(
@@ -1302,7 +1304,7 @@ describe("C4 rewrite content entrypoints", () => {
     expect(curtain?.current()).toBe(newer);
     expect(curtain?.clearMatching).not.toHaveBeenCalled();
 
-    curtain?.paint(newer);
+    curtain?.reload(newer);
     for (let attempt = 0; attempt < 20 && curtain?.current() !== null; attempt += 1) {
       await Promise.resolve();
     }
@@ -1450,12 +1452,12 @@ describe("C4 rewrite content entrypoints", () => {
     expect(shieldHarness.instances.at(-1)?.suspend).toHaveBeenCalledOnce();
     expect(shieldHarness.instances.at(-1)?.dispose).not.toHaveBeenCalled();
 
-    // Queued paint work from the hidden page has lost its local identity and
-    // therefore cannot acknowledge after pagehide.
-    curtain?.paint(adopted);
+    // Queued reload adoption from the hidden page has lost its local identity
+    // and therefore cannot acknowledge after pagehide.
+    curtain?.reload(adopted);
     await Promise.resolve();
     expect(sendMessage.mock.calls.some(([frame]) =>
-      (frame as BusFrame).name === "renderInspection.ackPaint")).toBe(false);
+      (frame as BusFrame).name === "renderInspection.ackReload")).toBe(false);
 
     dispatchTestEvent(windowListeners, "pageshow", {} as Event);
     for (let attempt = 0; attempt < 20 && adoptionRequests < 2; attempt += 1) {
@@ -1973,6 +1975,7 @@ describe("C4 rewrite content entrypoints", () => {
       renderSilentHighlights: vi.fn(() => ["/html[1]/body[1]/main[1]"]),
       parkPresentation: vi.fn(),
       setInputTransparent: vi.fn(),
+      setPageInspectionActive: vi.fn(),
       setSilentDebugAnnotations: vi.fn(),
     };
     const createMarkingEngine = vi.fn(() => engine);
@@ -2051,7 +2054,9 @@ describe("C4 rewrite content entrypoints", () => {
     });
     expect((await dispatchContentCommand(listener, "getContentMainStatus")).data)
       .toMatchObject({ renderModeViewActive: false });
+    expect(engine.setPageInspectionActive).toHaveBeenCalledWith(true);
     await dispatchContentCommand(listener, "applySilentSelectors", { selectors });
+    expect(engine.setPageInspectionActive).toHaveBeenLastCalledWith(false);
     expect(engine.renderSilentHighlights).toHaveBeenCalledTimes(2);
     expect(postureSetRequests).toBe(2);
 

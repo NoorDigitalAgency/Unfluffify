@@ -3462,6 +3462,9 @@ type DeferredBranchRenderChunk = Readonly<{
     setSuspended(active: boolean): void {
       renderer.setSuspended(active);
     },
+    setPageInspectionActive(active: boolean): void {
+      renderer.setPageInspectionActive(active);
+    },
     setSilentDebugAnnotations(active: boolean): void {
       renderer.setSilentDebugAnnotations(active);
     },
