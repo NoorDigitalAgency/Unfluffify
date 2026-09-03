@@ -7469,3 +7469,146 @@ removed or softened.
   manifest checks. `pnpm build:debug` also passes. Clean-source P17/P14/P25 and
   exact-pushed-commit live conformance remain pending; no production-readiness
   approval is recorded at this checkpoint.
+
+# EL-03-R13-D3 — Stale Render Inspection authority retirement
+
+## Entering finding and exact evidence
+
+The exact pushed D2 production commit is
+`9e4fd2438ac2563682497280256a824e77bc33e0`, synchronized `0 0` with
+`origin/re-write`. Clean-source P17 passed 19/19, standalone P14 passed all 192
+scenarios, and the complete P25 composite passed all seven children. A managed
+two-cycle HumaNova compositor run then closed the D2 geometry/revision race:
+both cycles produced revision deltas `1/0/1/0`, zero unsafe 50 Hz samples, zero
+unsafe compositor frames, and zero unexpected debugger detaches. The same run
+failed the unchanged 2.5-second terminal bound, with close/reopen/resize maxima
+of 13,476/3,005/1,678 ms.
+
+Source-mapped profiling confined to the extension popup and service worker
+identified a separate product-owned blocker, `EL-03-F010` (High). The managed
+profile contained 334 valid `renderInspection:state` records for historical tab
+IDs. Every record was terminal with `restorePending`, none matched a live tab,
+and the one-second deadline alarm retained all of them indefinitely. The worker
+spent roughly 60–90% of one CPU core in IndexedDB completion work. A reversible
+three-second transaction probe observed 821 reads of the single `kv` store:
+approximately one complete 334-record sweep per second, not 274 independent
+alarm firings per second.
+
+The root cause is twofold:
+
+- startup recovery uses exact document recovery for every persisted record but
+  never invokes the already-wired authoritative tab-presence classifier; a
+  missing tab therefore becomes `unexpected-navigation`, then retries an
+  impossible debugger restore forever instead of using closed-occurrence
+  cleanup; and
+- `rescheduleAlarm()` obtains the tab index and then calls `repo.load(tabId)`
+  for every record. Because each repository read reparses the same envelope,
+  every one-second projection is quadratic in the number of durable records.
+
+This is independent of the now-correct D2 emulation handoff. It starves all
+background work and invalidates lifecycle timing, so production readiness
+remains rejected until it is fixed and the headed contract is rerun.
+
+## Locked decisions and non-goals
+
+- A `stale` result from `classifyTabCleanupOccurrence` is authoritative proof
+  that the numeric tab occurrence is gone. Before deleting its record, create
+  the existing token+generation cleanup alarm and use
+  `clearClosedTabAuthority()` so tab-ID reuse remains ABA-fenced.
+- `current` and `unknown` are never deletion authority. They continue through
+  the existing exact-document/fail-open recovery path; classifier errors are
+  treated as unknown.
+- If the record changes after classification, the occurrence-specific compare
+  must preserve the replacement and recovery must reload that current record.
+- Alarm projection will use the repository's existing whole-envelope `list()`
+  result once. An invalid envelope schedules the conservative one-second retry;
+  the deadline sweep retains its per-tab load/salvage repair authority.
+- Do not weaken JavaScript restoration, generation watermarks, cleanup-alarm
+  durability, navigation fencing, or successful static-inspection recovery.
+- Do not change emulation, marking, Alt transfer, popup activation, payloads,
+  consent, Save/Load, endpoints, permissions, or production services. Do not
+  deploy.
+
+## Executable delta
+
+1. Make occurrence cleanup report whether its exact token+generation was
+   cleared. Add a narrow startup-recovery helper which classifies the loaded
+   occurrence, arms the existing specific cleanup marker on `stale`, clears
+   only that occurrence, and reloads rather than discarding any replacement.
+2. Replace the N per-tab alarm-projection loads with one `repo.list()` read.
+   Preserve conservative retry on an invalid or unreadable envelope and leave
+   `sweepExpired()` as the fail-open repair owner.
+3. Add focused runtime regressions for a multi-record missing-tab backlog, live
+   and unknown classifications, token/generation replacement during cleanup,
+   deletion failure/retry, and constant-read alarm projection. Keep the
+   background wiring test proving only authoritative tab presence can return
+   `stale`.
+4. Run the Render Inspection runtime/repository/startup suites, expanded
+   background lifecycle impact tests, targeted lint/TypeScript, and diff check.
+   Then run authoritative `pnpm verify`, debug build, and review the complete
+   error/ABA surface.
+5. Commit and push normally through `review-push`, refresh the code graph, and
+   prove exact upstream equality. Rebuild/relaunch only the repository-managed
+   browser profile and verify that its 334-record backlog retires without CDP
+   writes, the deadline alarm goes idle, and worker CPU returns to idle.
+6. Rerun D2's two-cycle calibration, then the required 50-cycle HumaNova and
+   50-cycle Aleris mobile/desktop lifecycle proofs. Only after every terminal is
+   below 2.5 seconds may the 17-property matrix and cumulative expert-check
+   resume. 3DPrima remains externally blocked while its SQL error persists.
+
+## Acceptance criteria
+
+- `EL03-R13-D3-AC-01` Every definitively missing persisted tab occurrence is
+  retired on initialization with no debugger or reload call. Its deletion is
+  fenced by the exact durable token+generation cleanup alarm.
+- `EL03-R13-D3-AC-02` A current, unknown, classifier-error, or concurrently
+  replaced occurrence is never deleted; existing exact recovery and retry
+  behavior remains intact.
+- `EL03-R13-D3-AC-03` A valid N-record alarm projection performs one repository
+  list read and zero per-tab envelope loads. Invalid/unreadable state keeps a
+  bounded conservative retry and remains repairable by the deadline sweep.
+- `EL03-R13-D3-AC-04` The reused managed profile reaches zero dead Render
+  Inspection records and no recurring deadline-alarm CPU load. HumaNova and
+  Aleris then satisfy D2's exact `1/0/1/0`, zero-unsafe-frame, zero-unexpected-
+  detach, and sub-2.5-second lifecycle contract.
+- `EL03-R13-D3-AC-05` Focused/full/build/P14/P17/P25 gates pass on the exact
+  pushed commit; F008 activation and F009 nested Alt transfer stay closed, and
+  the unchanged property-matrix/cumulative criteria remain mandatory.
+
+## Todo chain
+
+1. `el03-r13-d3-plan` -> 0
+2. `el03-r13-d3-stale-retirement` -> 1
+3. `el03-r13-d3-alarm-projection` -> 2
+4. `el03-r13-d3-regressions` -> 3
+5. `el03-r13-d3-focused-review` -> 4
+6. `el03-r13-d3-full-gates` -> 5
+7. `el03-r13-d3-review-push` -> 6
+8. `el03-r13-d3-headed-conformance` -> 7
+9. `el03-r13-d3-property-matrix` -> 8
+10. `el03-r13-d3-cumulative-audit` -> 9
+
+## Implementation checkpoint — 2026-09-03
+
+- `el03-r13-d3-stale-retirement`, `el03-r13-d3-alarm-projection`, and
+  `el03-r13-d3-regressions` are complete in the candidate worktree.
+  Definitively missing records now enter the existing occurrence-specific
+  cleanup path before any CDP restore. Current/unknown/query-error records keep
+  ordinary recovery, and a token/generation replacement detected at the final
+  compare is reloaded and preserved.
+- Deadline projection now calls `repo.list()` once per projection. The
+  per-record deadline sweep remains the repair owner for invalid state and now
+  also retries authoritative stale-tab classification, so a transient unknown
+  result cannot make a dead record permanent.
+- Focused Render Inspection runtime/startup/repository validation passes 3
+  files / 81 tests. The expanded Render Inspection, emulation, popup, content,
+  storage, and background-startup impact set passes 9 files / 216 distinct
+  tests. Targeted ESLint, the main TypeScript configuration, and
+  `git diff --check` pass.
+- `pnpm check` passes. Authoritative `pnpm verify` passes lint, generated assets,
+  all three TypeScript configurations, 152 files / 1,757 tests, the production
+  build, and generated-manifest permissions 7/7. `pnpm build:debug` passes.
+- Review/commit/push, clean exact-source browser gates, managed-profile backlog
+  retirement, CPU proof, lifecycle endurance, the property matrix, and the
+  cumulative expert-check remain mandatory. This checkpoint does not approve
+  production readiness.

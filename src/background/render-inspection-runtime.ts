@@ -385,36 +385,21 @@ export function createRenderInspectionRuntime(input: Readonly<{
 
   const rescheduleAlarm = (): Promise<void> => {
     const run = async (): Promise<void> => {
-      const active: RenderInspectionRecord[] = [];
-      let uncertain = false;
-      for (const tabId of await input.repo.listTabIds()) {
-        try {
-          // Alarm projection is read-only. Calling the fail-open `load` helper
-          // from inside the alarm FIFO could recursively await a newly queued
-          // per-tab alarm behind itself.
-          const stored = await input.repo.load(tabId);
-          if (!stored.ok) {
-            uncertain = true;
-            continue;
-          }
-          const loaded = stored.value;
-          if (loaded && (
-            ACTIVE_PHASES.has(loaded.phase) ||
-            loaded.restorePending ||
-            loaded.reloadPending ||
-            loaded.restoreAt !== null ||
-            loaded.failOpenPending ||
-            urgentTerminalRestores.has(tabId) ||
-            forcedFailOpenTabs.has(tabId)
-          )) {
-            active.push(loaded);
-          }
-        } catch {
-          // `load` has already restored scripts and best-effort cleared this
-          // tab. One bad record must not suppress every other tab's deadline.
-          uncertain = true;
-        }
-      }
+      // Alarm projection is read-only. Read and validate the envelope once;
+      // loading every tab separately reparses that same envelope N times and
+      // turns a durable backlog into quadratic work on every retry tick.
+      const stored = await input.repo.list();
+      const uncertain = !stored.ok;
+      const active = stored.ok
+        ? (stored.value ?? []).filter((record) =>
+          ACTIVE_PHASES.has(record.phase) ||
+          record.restorePending ||
+          record.reloadPending ||
+          record.restoreAt !== null ||
+          record.failOpenPending ||
+          urgentTerminalRestores.has(record.tabId) ||
+          forcedFailOpenTabs.has(record.tabId))
+        : [];
       if (active.length === 0 && !uncertain) {
         await Promise.resolve(input.clearAlarm?.(RENDER_INSPECTION_DEADLINE_ALARM));
         return;
@@ -712,9 +697,16 @@ export function createRenderInspectionRuntime(input: Readonly<{
   const sweepExpired = async (): Promise<void> => {
     const tabIds = await input.repo.listTabIds();
     await Promise.allSettled(tabIds.map((tabId) => withOperation(tabId, async () => {
-      const record = await load(tabId);
+      let record = await load(tabId);
       if (!record) {
         return;
+      }
+      const retirement = await retireDefinitivelyStaleTabOccurrence(record);
+      if (retirement.status === "retired") {
+        return;
+      }
+      if (retirement.status === "changed") {
+        record = retirement.record;
       }
       const urgentReason = urgentTerminalRestores.get(tabId);
       if (forcedFailOpenTabs.has(tabId) || record.failOpenPending || urgentReason) {
@@ -733,28 +725,35 @@ export function createRenderInspectionRuntime(input: Readonly<{
   };
 
   const recoverTab = async (tabId: number): Promise<void> => {
-    const loaded = await load(tabId);
-    if (!loaded) {
+    let record = await load(tabId);
+    if (!record) {
       return;
     }
     if (pendingNavigationCommits.has(tabId) && !pendingNavigationStarts.has(tabId)) {
       return;
     }
-    if (forcedFailOpenTabs.has(tabId) || loaded.failOpenPending) {
-      await terminalize(loaded, urgentTerminalRestores.get(tabId) ?? "content-failed", {
-        reloadAfterRestore: !loaded.javascriptEnabled,
+    const retirement = await retireDefinitivelyStaleTabOccurrence(record);
+    if (retirement.status === "retired") {
+      return;
+    }
+    if (retirement.status === "changed") {
+      record = retirement.record;
+    }
+    if (forcedFailOpenTabs.has(tabId) || record.failOpenPending) {
+      await terminalize(record, urgentTerminalRestores.get(tabId) ?? "content-failed", {
+        reloadAfterRestore: !record.javascriptEnabled,
       });
       return;
     }
-    if (input.canRecover && !await input.canRecover(loaded)) {
+    if (input.canRecover && !await input.canRecover(record)) {
       // A valid stale-document authority still owns its generation. Retire it
       // fail-open instead of clearing and allowing an ABA generation reset.
-      await terminalize(loaded, "unexpected-navigation", {
-        reloadAfterRestore: !loaded.javascriptEnabled,
+      await terminalize(record, "unexpected-navigation", {
+        reloadAfterRestore: !record.javascriptEnabled,
       });
       return;
     }
-    const record = await expireIfNeeded(loaded);
+    record = await expireIfNeeded(record);
     if (record.phase === "terminal") {
       if (record.restorePending || record.reloadPending) {
         await retryTerminalRecovery(record);
@@ -847,7 +846,7 @@ export function createRenderInspectionRuntime(input: Readonly<{
   const clearClosedTabAuthority = async (
     marker: TabCleanupMarker,
     resolveUnknownOccurrence = false,
-  ): Promise<void> => {
+  ): Promise<boolean> => {
     // A closed target cannot be restored through CDP. Its dedicated alarm is a
     // durable deletion intent scoped to the record occurrence that was closed.
     // A surviving alarm can therefore never delete a generation created after
@@ -857,7 +856,7 @@ export function createRenderInspectionRuntime(input: Readonly<{
         if (await input.repo.isCleanupAlarmDismissed?.(marker.alarmName) ?? false) {
           pendingTabCleanupMarkers.delete(marker.alarmName);
           await clearNamedAlarm(marker.alarmName).catch(() => undefined);
-          return;
+          return false;
         }
       } catch (error) {
         pendingTabCleanupMarkers.set(marker.alarmName, marker);
@@ -893,7 +892,7 @@ export function createRenderInspectionRuntime(input: Readonly<{
       }
       if (classification === "current") {
         await dismissIdentitylessCleanup(marker);
-        return;
+        return false;
       }
       activeMarker = {
         alarmName: renderInspectionTabCleanupAlarmName(marker.tabId, loaded.value),
@@ -915,7 +914,7 @@ export function createRenderInspectionRuntime(input: Readonly<{
     )) {
       pendingTabCleanupMarkers.delete(marker.alarmName);
       await clearNamedAlarm(marker.alarmName).catch(() => undefined);
-      return;
+      return false;
     }
 
     if (
@@ -944,6 +943,51 @@ export function createRenderInspectionRuntime(input: Readonly<{
     if (activeMarker.alarmName !== marker.alarmName) {
       await clearNamedAlarm(activeMarker.alarmName).catch(() => undefined);
     }
+    return true;
+  };
+
+  const retireDefinitivelyStaleTabOccurrence = async (
+    record: RenderInspectionRecord,
+  ): Promise<
+    | Readonly<{ status: "not-stale" }>
+    | Readonly<{ status: "retired" }>
+    | Readonly<{ status: "changed"; record: RenderInspectionRecord }>
+  > => {
+    if (!input.classifyTabCleanupOccurrence) {
+      return { status: "not-stale" };
+    }
+    let classification: TabCleanupOccurrenceClassification;
+    try {
+      classification = await input.classifyTabCleanupOccurrence(record);
+    } catch {
+      // A transient presence query is not deletion authority. Ordinary exact
+      // recovery below retains the generation and its fail-open obligations.
+      return { status: "not-stale" };
+    }
+    if (classification !== "stale") {
+      return { status: "not-stale" };
+    }
+
+    const marker: TabCleanupMarker = {
+      alarmName: renderInspectionTabCleanupAlarmName(record.tabId, record),
+      tabId: record.tabId,
+      token: record.token,
+      generation: record.generation,
+    };
+    pendingTabCleanupMarkers.set(marker.alarmName, marker);
+    await armTabCleanupAlarm(marker).catch(() => undefined);
+    if (await clearClosedTabAuthority(marker)) {
+      await clearNamedAlarm(renderInspectionFailOpenAlarmName(record.tabId)).catch(() => undefined);
+      return { status: "retired" };
+    }
+
+    // Classification and deletion are separated by browser/storage turns. If
+    // a newer occurrence won that race, continue with a fresh read instead of
+    // either deleting it or recovering the stale snapshot.
+    const current = await load(record.tabId);
+    return current
+      ? { status: "changed", record: current }
+      : { status: "retired" };
   };
 
   const processTabCleanupMarkers = async (tabId: number): Promise<void> => {

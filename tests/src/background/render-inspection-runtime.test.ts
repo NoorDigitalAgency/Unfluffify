@@ -12,6 +12,7 @@ import {
   createMemoryStore,
   createRenderInspectionRepo,
   type KeyValueStore,
+  type RenderInspectionRecord,
   type RenderInspectionRepo,
 } from "../../../src/storage";
 
@@ -21,6 +22,34 @@ const PROPERTY = {
   baseUrl: "https://example.com",
 } as const;
 const PAGE_URL = "https://example.com/jobs/1";
+
+function persistedRecord(
+  tabId: number,
+  overrides: Partial<RenderInspectionRecord> = {},
+): RenderInspectionRecord {
+  return {
+    version: 1,
+    tabId,
+    token: `persisted-${tabId}`,
+    generation: 1,
+    phase: "terminal",
+    property: PROPERTY,
+    pageUrl: PAGE_URL,
+    javascriptEnabled: false,
+    sourceDocumentId: "document-a",
+    documentId: null,
+    documentNonce: null,
+    startedAt: 1_000,
+    updatedAt: 1_001,
+    deadlineAt: 1_500,
+    terminalReason: "cancelled",
+    restorePending: true,
+    reloadPending: true,
+    restoreAt: null,
+    failOpenPending: false,
+    ...overrides,
+  };
+}
 
 function harness(options: Readonly<{
   store?: KeyValueStore;
@@ -408,6 +437,195 @@ describe("durable render inspection runtime", () => {
       pageUrl: PAGE_URL,
       documentNonce: "restart-nonce",
     })).resolves.toMatchObject({ status: "adopt" });
+  });
+
+  it("retires a persisted missing-tab backlog without touching CDP", async () => {
+    const repo = createRenderInspectionRepo(createMemoryStore());
+    await Promise.all([7, 8, 9].map((tabId) => repo.save(persistedRecord(tabId))));
+    const classifyTabCleanupOccurrence = vi.fn().mockResolvedValue("stale" as const);
+    const setJavascriptEnabled = vi.fn().mockResolvedValue(undefined);
+    const reload = vi.fn().mockResolvedValue(undefined);
+    const createdAlarms: string[] = [];
+    const runtime = createRenderInspectionRuntime({
+      repo,
+      now: () => 2_000,
+      classifyTabCleanupOccurrence,
+      driver: { setJavascriptEnabled, reload },
+      createAlarm(name) {
+        createdAlarms.push(name);
+      },
+      clearAlarm: vi.fn().mockResolvedValue(true),
+    });
+
+    await runtime.initialize();
+
+    expect(classifyTabCleanupOccurrence).toHaveBeenCalledTimes(3);
+    expect(setJavascriptEnabled).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
+    await expect(repo.listTabIds()).resolves.toEqual([]);
+    expect(new Set(createdAlarms.filter((name) =>
+      name.startsWith("rewrite-render-inspection-tab-cleanup:"))))
+      .toEqual(new Set([7, 8, 9].map((tabId) =>
+        renderInspectionTabCleanupAlarmName(tabId, persistedRecord(tabId)))));
+  });
+
+  it.each(["current", "unknown", "error"] as const)(
+    "retains a %s persisted occurrence and follows ordinary recovery",
+    async (classification) => {
+      const repo = createRenderInspectionRepo(createMemoryStore());
+      await repo.save(persistedRecord(7, { reloadPending: false }));
+      const clear = vi.spyOn(repo, "clear");
+      const classifyTabCleanupOccurrence = vi.fn(async () => {
+        if (classification === "error") {
+          throw new Error("tab presence temporarily unavailable");
+        }
+        return classification;
+      });
+      const setJavascriptEnabled = vi.fn().mockResolvedValue(undefined);
+      const createdAlarms: string[] = [];
+      const runtime = createRenderInspectionRuntime({
+        repo,
+        now: () => 2_000,
+        classifyTabCleanupOccurrence,
+        driver: { setJavascriptEnabled, reload: vi.fn() },
+        createAlarm(name) {
+          createdAlarms.push(name);
+        },
+      });
+
+      await runtime.initialize();
+
+      expect(clear).not.toHaveBeenCalled();
+      expect(setJavascriptEnabled).toHaveBeenCalledWith(7, true);
+      await expect(repo.load(7)).resolves.toMatchObject({
+        ok: true,
+        value: { token: "persisted-7", generation: 1, restorePending: false },
+      });
+      expect(createdAlarms.some((name) =>
+        name.startsWith("rewrite-render-inspection-tab-cleanup:"))).toBe(false);
+    },
+  );
+
+  it("preserves and recovers a replacement that wins the stale-cleanup compare", async () => {
+    const repo = createRenderInspectionRepo(createMemoryStore());
+    const stale = persistedRecord(7, { token: "stale-occurrence", generation: 4 });
+    const replacement = persistedRecord(7, {
+      token: "replacement-occurrence",
+      generation: 1,
+      javascriptEnabled: true,
+      restorePending: false,
+      reloadPending: false,
+    });
+    await repo.save(stale);
+    const clear = vi.spyOn(repo, "clear");
+    const classifyTabCleanupOccurrence = vi.fn(async () => {
+      await repo.save(replacement);
+      return "stale" as const;
+    });
+    const createdAlarms: string[] = [];
+    const clearedAlarms: string[] = [];
+    const setJavascriptEnabled = vi.fn().mockResolvedValue(undefined);
+    const runtime = createRenderInspectionRuntime({
+      repo,
+      classifyTabCleanupOccurrence,
+      driver: { setJavascriptEnabled, reload: vi.fn() },
+      createAlarm(name) {
+        createdAlarms.push(name);
+      },
+      clearAlarm(name) {
+        clearedAlarms.push(name);
+      },
+    });
+
+    await runtime.initialize();
+
+    expect(clear).not.toHaveBeenCalled();
+    expect(setJavascriptEnabled).not.toHaveBeenCalled();
+    await expect(repo.load(7)).resolves.toMatchObject({
+      ok: true,
+      value: { token: "replacement-occurrence", generation: 1 },
+    });
+    const staleAlarm = renderInspectionTabCleanupAlarmName(7, stale);
+    expect(createdAlarms).toContain(staleAlarm);
+    expect(clearedAlarms).toContain(staleAlarm);
+  });
+
+  it("retains a failed stale deletion and completes it from the occurrence alarm", async () => {
+    const durable = createRenderInspectionRepo(createMemoryStore());
+    await durable.save(persistedRecord(7));
+    let rejectClear = true;
+    const repo: RenderInspectionRepo = {
+      ...durable,
+      async clear(tabId) {
+        if (rejectClear) {
+          throw new Error("delete temporarily unavailable");
+        }
+        await durable.clear(tabId);
+      },
+    };
+    const createdAlarms: string[] = [];
+    const setJavascriptEnabled = vi.fn().mockResolvedValue(undefined);
+    const runtime = createRenderInspectionRuntime({
+      repo,
+      now: () => 2_000,
+      classifyTabCleanupOccurrence: vi.fn().mockResolvedValue("stale" as const),
+      driver: { setJavascriptEnabled, reload: vi.fn() },
+      createAlarm(name) {
+        createdAlarms.push(name);
+      },
+      clearAlarm: vi.fn().mockResolvedValue(true),
+    });
+
+    await runtime.initialize();
+    await expect(durable.load(7)).resolves.toMatchObject({
+      ok: true,
+      value: { token: "persisted-7", generation: 1 },
+    });
+    expect(setJavascriptEnabled).not.toHaveBeenCalled();
+    const cleanupAlarm = createdAlarms.find((name) =>
+      name === renderInspectionTabCleanupAlarmName(7, persistedRecord(7)));
+    if (!cleanupAlarm) throw new Error("stale cleanup alarm was not armed");
+
+    rejectClear = false;
+    await runtime.handleAlarm({ name: cleanupAlarm });
+
+    await expect(durable.load(7)).resolves.toEqual({ ok: true, value: null });
+    expect(setJavascriptEnabled).not.toHaveBeenCalled();
+  });
+
+  it("projects a valid durable backlog with one envelope read and no per-tab loads", async () => {
+    const projected = [7, 8, 9].map((tabId) => persistedRecord(tabId, {
+      phase: "awaiting_document",
+      terminalReason: null,
+      restorePending: false,
+      reloadPending: false,
+    }));
+    const load = vi.fn<RenderInspectionRepo["load"]>();
+    const listTabIds = vi.fn().mockResolvedValue([]);
+    const list = vi.fn().mockResolvedValue({ ok: true as const, value: projected });
+    const createAlarm = vi.fn();
+    const repo: RenderInspectionRepo = {
+      load,
+      listTabIds,
+      list,
+      save: vi.fn().mockResolvedValue(undefined),
+      clear: vi.fn().mockResolvedValue(undefined),
+    };
+    const runtime = createRenderInspectionRuntime({
+      repo,
+      now: () => 1_000,
+      driver: { setJavascriptEnabled: vi.fn(), reload: vi.fn() },
+      createAlarm,
+    });
+
+    await runtime.initialize();
+
+    expect(listTabIds).toHaveBeenCalledTimes(1);
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(load).not.toHaveBeenCalled();
+    expect(createAlarm).toHaveBeenCalledWith(RENDER_INSPECTION_DEADLINE_ALARM, {
+      when: 1_500,
+    });
   });
 
   it("serializes first use behind initialization so a crossing start reloads exactly once", async () => {
@@ -2104,7 +2322,7 @@ describe("durable render inspection runtime", () => {
       value: { token: "commit-window-occurrence", generation: 1, phase: "terminal" },
     });
 
-    const restartedClassifier = vi.fn().mockResolvedValue("stale" as const);
+    const restartedClassifier = vi.fn().mockResolvedValue("current" as const);
     const restarted = createRenderInspectionRuntime({
       repo,
       now: () => 2_000,
@@ -2120,7 +2338,7 @@ describe("durable render inspection runtime", () => {
       },
     });
     await restarted.initialize();
-    expect(restartedClassifier).not.toHaveBeenCalled();
+    expect(restartedClassifier).toHaveBeenCalledTimes(1);
     await expect(repo.load(7)).resolves.toMatchObject({
       ok: true,
       value: { token: "commit-window-occurrence", generation: 1, phase: "terminal" },
@@ -2239,7 +2457,7 @@ describe("durable render inspection runtime", () => {
     expect(classifier).toHaveBeenCalledTimes(1);
     await expect(repo.isCleanupAlarmDismissed?.(genericCleanupAlarm)).resolves.toBe(true);
 
-    const restartedClassifier = vi.fn().mockResolvedValue("stale" as const);
+    const restartedClassifier = vi.fn().mockResolvedValue("current" as const);
     const restarted = createRenderInspectionRuntime({
       repo,
       now: () => 2_000,
@@ -2254,7 +2472,7 @@ describe("durable render inspection runtime", () => {
       },
     });
     await restarted.initialize();
-    expect(restartedClassifier).not.toHaveBeenCalled();
+    expect(restartedClassifier).toHaveBeenCalledTimes(1);
 
     const nextPageUrl = "https://example.com/jobs/2";
     expect(restarted.observeNavigationStart(7, nextPageUrl)).toBe(false);
@@ -2264,7 +2482,10 @@ describe("durable render inspection runtime", () => {
     await restarted.navigationCommitted(nextCommit);
     await restarted.handleAlarm({ name: genericCleanupAlarm });
 
-    expect(restartedClassifier).not.toHaveBeenCalled();
+    // The persisted dismissal prevents the replayed generic alarm from
+    // reclassifying the live occurrence; startup's independent presence check
+    // accounts for the single call above.
+    expect(restartedClassifier).toHaveBeenCalledTimes(1);
     await expect(repo.load(7)).resolves.toMatchObject({
       ok: true,
       value: {
