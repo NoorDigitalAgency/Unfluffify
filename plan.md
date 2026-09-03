@@ -7612,3 +7612,123 @@ remains rejected until it is fixed and the headed contract is rerun.
   retirement, CPU proof, lifecycle endurance, the property matrix, and the
   cumulative expert-check remain mandatory. This checkpoint does not approve
   production readiness.
+
+# EL-03-R13-D4 — Refit coordinator drain handoff
+
+## Entering finding and exact evidence
+
+The D3 implementation is committed and pushed as
+`b05fe8a1b993f2ac9e29f0f36311172c0ade77cd`, synchronized `0 0` with
+`origin/re-write`. Its clean-source P17 gate passed 19/19, standalone P14
+passed all 192 scenarios, and the complete seven-child P25 gate passed. The
+reused managed profile retired all 334 stale Render Inspection records, its
+deadline alarms reached zero, idle IndexedDB traffic reached zero transactions
+over five seconds, and extension-worker CPU returned from 60–90% to an
+approximately 1.9% ten-second average. A two-cycle HumaNova calibration then
+passed exact mobile geometry, revision deltas `1/0/1/0`, zero unsafe samples,
+zero unexpected debugger detaches, and sub-second close/reopen/resize maxima.
+
+Longer exact-source lifecycle runs exposed a separate release blocker,
+`EL-03-F011` (High): active resize can remain safely opaque for approximately
+15.5 seconds despite reaching exact geometry and `paint-proven` in roughly
+105 ms. The completed five-cycle artifact
+`.temp/expert-live-r13/compositor/www.humanova.com-mobile-2026-09-03T11-23-52-133Z/evidence.json`
+reproduced the delay on three of five active resizes while retaining zero
+unsafe samples, zero detach/terminal failures, and exact `1/0/1/0` revisions.
+
+A reversible service-worker probe recorded every relevant timer and Chrome API
+call. Each final 240 ms refit timer fired on time, no Chrome API call approached
+the 2.5-second contract, and the delayed bursts remained dormant until a later
+observation arrived. The root cause is a lost wakeup in `requestRefit()`:
+
+- the async drain can observe `coordinator.pending === null` and resolve;
+- before the promise's external `.finally()` clears `coordinator.processing`,
+  a newer observation can publish pending work and a newer version, see the
+  still-present processing promise, and return it; and
+- `.finally()` then clears the owner without draining or restarting that
+  pending observation. The already-armed timer rejects its stale version as
+  designed, so the opaque lease remains until an unrelated refit request wakes
+  the stranded queue.
+
+## Locked decisions and non-goals
+
+- Drain ownership must be released synchronously inside the same async
+  continuation that proves the pending queue empty. There must be no promise-
+  reaction gap between the final empty check and clearing `processing`.
+- An observation admitted before that release remains owned by the current
+  drain; one admitted after release starts a new drain. Every returned refit
+  promise must cover the observation it admitted.
+- Preserve last-write/coalesced observation semantics, per-tab serialization,
+  generation fences, one retained guard lease, immediate safety shrink,
+  trailing growth, and the 240 ms quiet proof. Do not add a periodic wakeup or
+  weaken the stale-version rejection.
+- Do not relax the 2.5-second acceptance bound or change popup polling, browser
+  event cadence, emulation identity, permissions, endpoints, marking, consent,
+  storage, or production services. Do not deploy.
+
+## Executable delta
+
+1. Add a deterministic runtime regression that admits a second refit at the
+   drain-to-cleanup handoff and proves it cannot remain pending behind a
+   resolved processing owner. Assert one retained generation, one final settle,
+   exact scale, and no full posture/identity churn.
+2. Move coordinator-owner release and empty-coordinator cleanup into the
+   drain's own `try/finally`, scheduling the drain only after its processing
+   promise has been installed. Preserve rejection cleanup and all request
+   promise semantics.
+3. Run the focused emulation runtime/guardian suites, the expanded lifecycle
+   impact set, targeted lint/TypeScript, and diff check. Review the complete
+   coordinator, timer, error, and teardown surface.
+4. Run authoritative `pnpm check`, `pnpm verify`, and the debug build. Commit
+   and push normally through `review-push`, refresh the code graph, prove exact
+   upstream equality, and relaunch only the repository-managed browser.
+5. Rerun HumaNova calibration and 50-cycle HumaNova/Aleris mobile and desktop
+   lifecycle evidence. Only after all transitions remain below 2.5 seconds may
+   the unchanged 17-property matrix and cumulative expert-check resume.
+
+## Acceptance criteria
+
+- `EL03-R13-D4-AC-01` A refit admitted at the former drain/finalizer boundary is
+  executed without a third request, and its returned promise cannot resolve
+  while that admitted work remains stranded.
+- `EL03-R13-D4-AC-02` Multi-source resize bursts retain one opaque generation,
+  immediate conservative shrink, one quiet-edge growth, one final fade, and no
+  UA/touch/media or posture-revision churn.
+- `EL03-R13-D4-AC-03` Managed HumaNova and Aleris close/reopen/active-resize
+  endurance has zero unsafe samples/frames, zero unexpected detach or terminal
+  failure, exact `1/0/1/0` revision deltas, and every terminal below 2.5 seconds.
+- `EL03-R13-D4-AC-04` Focused/full/build/P14/P17/P25 gates pass on the exact
+  pushed commit; F008, F009, F010, and the D2 safety handoff stay closed. The
+  original property-matrix/cumulative criteria remain mandatory.
+
+## Todo chain
+
+1. `el03-r13-d4-plan` -> 0
+2. `el03-r13-d4-handoff-regression` -> 1
+3. `el03-r13-d4-drain-ownership` -> 2
+4. `el03-r13-d4-focused-review` -> 3
+5. `el03-r13-d4-full-gates` -> 4
+6. `el03-r13-d4-review-push` -> 5
+7. `el03-r13-d4-headed-conformance` -> 6
+8. `el03-r13-d4-property-matrix` -> 7
+9. `el03-r13-d4-cumulative-audit` -> 8
+
+## Implementation checkpoint — 2026-09-03
+
+- `el03-r13-d4-handoff-regression`, `el03-r13-d4-drain-ownership`, and the
+  focused source review are complete. The deterministic regression failed on
+  the prior implementation with only the initial `0.5` safety shrink and no
+  settle, then passed after ownership release moved into the drain's own
+  synchronous `finally`.
+- A later observation admitted during a failing executor now also installs a
+  successor drain before the shared promise completes. Multi-source merge,
+  generation fencing, one retained lease, immediate shrink, 240 ms quiet
+  growth, and posture revision behavior are unchanged.
+- The focused emulation runtime/guardian set passes 2 files / 116 tests.
+  Targeted ESLint, all main TypeScript checks, and `git diff --check` pass.
+  Authoritative `pnpm verify` passes lint, generated assets, all three
+  TypeScript configurations, 152 files / 1,758 tests, the production build,
+  and generated-manifest permissions 7/7.
+- This is a stable source checkpoint only. Exact-pushed-commit P14/P17/P25,
+  managed-browser lifecycle endurance, the 17-property matrix, and cumulative
+  expert approval remain pending; production readiness remains rejected.

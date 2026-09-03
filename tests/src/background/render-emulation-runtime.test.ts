@@ -2688,6 +2688,67 @@ describe("render emulation runtime", () => {
     }
   });
 
+  it("does not strand a refit admitted at the drain-owner release boundary", async () => {
+    vi.useFakeTimers();
+    const originalFinally = Promise.prototype.finally;
+    let finallySpy: ReturnType<typeof vi.spyOn> | null = null;
+    try {
+      const presenter = transitionPresenter();
+      const debuggerApi = fakeDebugger();
+      const viewport = { width: 900, height: 720, windowId: 4 };
+      const runtime = createRenderEmulationRuntime({
+        debuggerApi: debuggerApi.api,
+        tabs: tabsWithViewport(viewport),
+        presentTransition: presenter.presentTransition,
+      });
+      await runtime.apply(7, "mobile", 1);
+      await flush();
+      presenter.requests.length = 0;
+      debuggerApi.sent.length = 0;
+
+      let boundaryRefit: Promise<void> | null = null;
+      finallySpy = vi.spyOn(Promise.prototype, "finally");
+      finallySpy.mockImplementationOnce(function <T>(
+        this: Promise<T>,
+        onFinally?: (() => void) | null,
+      ): Promise<T> {
+        return originalFinally.call(this, () => {
+          viewport.height = 700;
+          boundaryRefit = runtime.refit(7, {
+            source: "popup",
+            physicalViewportHint: { height: 700 },
+          });
+          return onFinally?.();
+        });
+      });
+
+      viewport.height = 480;
+      await runtime.refit(7, { source: "window-bounds" });
+      await flush();
+      expect(boundaryRefit).not.toBeNull();
+      await boundaryRefit;
+
+      await vi.advanceTimersByTimeAsync(240);
+      await flush();
+
+      const metrics = debuggerApi.sent.filter((call) =>
+        call.method === "Emulation.setDeviceMetricsOverride"
+      );
+      expect(metrics.map((call) => call.params?.scale)).toEqual([
+        0.5,
+        700 / 960,
+      ]);
+      expect(presenter.requests.map((request) => request.phase)).toEqual([
+        "begin",
+        "settle",
+      ]);
+      expect(new Set(presenter.requests.map((request) => request.generation)).size).toBe(1);
+    } finally {
+      finallySpy?.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("owns a multi-source shrink/grow burst with one guard lease and one final fade", async () => {
     vi.useFakeTimers();
     try {

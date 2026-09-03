@@ -2630,6 +2630,47 @@ export function createRenderEmulationRuntime(input: Readonly<{
     (timer as unknown as { unref?: () => void }).unref?.();
     leaseWatchdogTimers.set(tabId, timer);
   };
+  const startRefitDrain = (
+    tabId: number,
+    coordinator: RefitCoordinator,
+  ): Promise<void> => {
+    if (coordinator.processing) return coordinator.processing;
+    const run = async (): Promise<void> => {
+      try {
+        while (coordinator.pending) {
+          const next = coordinator.pending;
+          const version = coordinator.version;
+          coordinator.pending = null;
+          const held = await hydratePosture(tabId);
+          if (!held || !postureIsActive(tabId, held)) continue;
+          await withEmulationOperation(tabId, () =>
+            executeRefitObservation(tabId, held, next, version)
+          );
+        }
+      } finally {
+        if (coordinator.processing === processing) {
+          // Release ownership in the same continuation that observed the queue
+          // empty. A promise-level finally leaves a microtask gap in which a
+          // new observation can see the old owner and become stranded.
+          coordinator.processing = null;
+        }
+        if (coordinator.pending) {
+          // An executor failure can leave a later admitted observation behind.
+          // Install its successor synchronously, and keep the shared caller
+          // promise pending until that already-admitted work has drained.
+          await startRefitDrain(tabId, coordinator);
+        }
+        if (!coordinator.pending && !refitBursts.has(tabId)) {
+          refitCoordinators.delete(tabId);
+        }
+      }
+    };
+    // Defer execution by one microtask so the promise identity is installed
+    // before run() can reach its synchronous ownership-release finally.
+    const processing = Promise.resolve().then(run);
+    coordinator.processing = processing;
+    return processing;
+  };
   const requestRefit = (
     tabId: number,
     observation: EmulationRefitObservation,
@@ -2668,29 +2709,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       effectiveObservation,
     );
     coordinator.version += 1;
-    if (coordinator.processing) return coordinator.processing;
-    const run = async (): Promise<void> => {
-      while (coordinator.pending) {
-        const next = coordinator.pending;
-        const version = coordinator.version;
-        coordinator.pending = null;
-        const held = await hydratePosture(tabId);
-        if (!held || !postureIsActive(tabId, held)) continue;
-        await withEmulationOperation(tabId, () =>
-          executeRefitObservation(tabId, held, next, version)
-        );
-      }
-    };
-    const processing = run().finally(() => {
-      if (coordinator.processing === processing) {
-        coordinator.processing = null;
-      }
-      if (!coordinator.pending && !refitBursts.has(tabId)) {
-        refitCoordinators.delete(tabId);
-      }
-    });
-    coordinator.processing = processing;
-    return processing;
+    return startRefitDrain(tabId, coordinator);
   };
   input.tabs?.onUpdated?.addListener((tabId, changeInfo) => {
     if (changeInfo.status !== "loading") {
