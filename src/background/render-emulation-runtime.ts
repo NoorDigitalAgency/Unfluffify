@@ -97,6 +97,7 @@ class EmulationPresentationUnavailableError extends Error {
   constructor(
     readonly detail: string,
     readonly mutationPossible = false,
+    readonly guardedHandoffGeneration: number | null = null,
   ) {
     super(`Emulation transition presentation unavailable: ${detail}`);
     this.name = "EmulationPresentationUnavailableError";
@@ -730,9 +731,22 @@ export function createRenderEmulationRuntime(input: Readonly<{
       response.guarded ||
       !response.exactGeometry
     ) {
+      const guardedHandoffGeneration =
+        !response.ok &&
+        response.reason === "stale-generation" &&
+        response.mode === lease.mode &&
+        Number.isSafeInteger(response.generation) &&
+        response.generation > 0 &&
+        response.generation > lease.generation &&
+        (response.stage === "guarding" || response.stage === "paint-proven") &&
+        response.guarded &&
+        response.coverage
+          ? response.generation
+          : null;
       throw new EmulationPresentationUnavailableError(
         response.reason || "exact-presentation-not-settled",
         true,
+        guardedHandoffGeneration,
       );
     }
   };
@@ -1616,7 +1630,36 @@ export function createRenderEmulationRuntime(input: Readonly<{
       if (!postureIsActive(tabId, held)) {
         throw new Error("Emulation owner was released during transition");
       }
-      await settlePresentation(tabId, presentation);
+      try {
+        await settlePresentation(tabId, presentation);
+      } catch (error) {
+        const physicalGuardSupersededApply =
+          cause === "apply" &&
+          error instanceof EmulationPresentationUnavailableError &&
+          error.mutationPossible &&
+          error.guardedHandoffGeneration !== null &&
+          error.detail === "stale-generation" &&
+          postureIsActive(tabId, held);
+        if (!physicalGuardSupersededApply) throw error;
+
+        // A physical viewport occurrence can synchronously replace the final
+        // apply-retirement epoch with a newer opaque content generation. The
+        // browser posture is already exact at this point, so restoring the
+        // pre-resume suspended posture would clear CDP and expose native
+        // geometry. Keep the exact proof and let the ordinary serialized refit
+        // adopt and settle the newer generation after this operation exits.
+        void Promise.resolve()
+          .then(() => requestRefit(tabId, {
+            source: "content",
+            presentationGeneration: error.guardedHandoffGeneration ?? undefined,
+            physicalBoundsChanged: true,
+          }))
+          .catch(() => {
+            if (postureIsActive(tabId, held)) {
+              scheduleReassertRetry(tabId, held);
+            }
+          });
+      }
     }
     return proof;
   };

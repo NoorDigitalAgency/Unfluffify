@@ -442,6 +442,146 @@ describe("render emulation runtime", () => {
     expect((await repo.load(7)).value).not.toHaveProperty("suspended");
   });
 
+  it("hands a resumed exact apply to a newer physical guard without restoring suspension", async () => {
+    const viewport = { width: 1_180, height: 820, windowId: 4 };
+    const debuggerApi = fakeDebugger();
+    const repo = createEmulationPostureRepo(createMemoryStore());
+    let ownerActive = false;
+    let applyGeneration: number | null = null;
+    const presenter = transitionPresenter((request) => {
+      if (request.phase === "begin" && request.cause === "apply") {
+        applyGeneration = request.generation;
+      }
+      if (request.phase === "settle" && request.cause === "apply") {
+        viewport.width = 980;
+        viewport.height = 700;
+        const newerGeneration = request.generation + 1;
+        return {
+          status: "ready",
+          result: {
+            ...transitionAcknowledgement(request),
+            ok: false,
+            generation: newerGeneration,
+            stage: "guarding",
+            guarded: true,
+            coverage: true,
+            exactGeometry: false,
+            paintProof: "none",
+            reason: "stale-generation",
+          },
+        };
+      }
+      return { status: "ready", result: transitionAcknowledgement(request) };
+    });
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: tabsWithViewport(viewport),
+      postureRepo: repo,
+      ownerActive: () => ownerActive,
+      presentTransition: presenter.presentTransition,
+      setContentLifecycleSuspended: vi.fn(async () => true),
+      leaseWatchdogMs: 0,
+    });
+    await expect(runtime.suspend(7, { mode: "mobile", scale: 1 })).resolves.toBe(true);
+    const suspendedRecord = await repo.load(7);
+    expect(suspendedRecord).toMatchObject({
+      ok: true,
+      value: { mode: "mobile", suspended: true },
+    });
+    ownerActive = true;
+
+    await expect(runtime.apply(7, "mobile", 1)).resolves.toMatchObject({
+      active: true,
+      mode: "mobile",
+    });
+    await vi.waitFor(() => {
+      expect(presenter.requests.some(
+        ({ phase, cause }) => phase === "settle" && cause === "refit",
+      )).toBe(true);
+    });
+
+    expect(runtime.desired(7)).toEqual({ mode: "mobile", scale: 1, suspended: false });
+    const resumedRecord = await repo.load(7);
+    expect(resumedRecord).toMatchObject({
+      ok: true,
+      value: {
+        mode: "mobile",
+        revision: Number(suspendedRecord.value?.revision) + 1,
+      },
+    });
+    expect(resumedRecord.value).not.toHaveProperty("suspended");
+    expect(debuggerApi.sent.filter(
+      ({ method }) => method === "Emulation.setDeviceMetricsOverride",
+    )).toHaveLength(2);
+    expect(debuggerApi.sent.some(
+      ({ method }) => method === "Emulation.clearDeviceMetricsOverride",
+    )).toBe(false);
+    expect(debuggerApi.detaches).toEqual([]);
+    const applyRequests = presenter.requests.filter(({ cause }) => cause === "apply");
+    const refitRequests = presenter.requests.filter(({ cause }) => cause === "refit");
+    expect(applyRequests).toMatchObject([
+      { phase: "begin", generation: applyGeneration },
+      { phase: "settle", generation: applyGeneration },
+    ]);
+    expect(refitRequests).toMatchObject([
+      { phase: "begin", generation: Number(applyGeneration) + 1 },
+      { phase: "settle", generation: Number(applyGeneration) + 1 },
+    ]);
+    expect(presenter.requests.some(({ cause }) => cause === "panel-suspend")).toBe(false);
+  });
+
+  it.each(["unguarded", "same-generation"] as const)(
+    "does not accept a %s stale settle as a physical handoff",
+    async (variant) => {
+      const debuggerApi = fakeDebugger();
+      const repo = createEmulationPostureRepo(createMemoryStore());
+      let ownerActive = false;
+      const presenter = transitionPresenter((request) => {
+        if (request.phase === "settle" && request.cause === "apply") {
+          return {
+            status: "ready",
+            result: {
+              ...transitionAcknowledgement(request),
+              ok: false,
+              generation: variant === "same-generation"
+                ? request.generation
+                : request.generation + 1,
+              stage: variant === "same-generation" ? "guarding" : "released",
+              guarded: variant === "same-generation",
+              coverage: variant === "same-generation",
+              exactGeometry: false,
+              paintProof: "none",
+              reason: "stale-generation",
+            },
+          };
+        }
+        return { status: "ready", result: transitionAcknowledgement(request) };
+      });
+      const runtime = createRenderEmulationRuntime({
+        debuggerApi: debuggerApi.api,
+        tabs: tabsWithViewport(),
+        postureRepo: repo,
+        ownerActive: () => ownerActive,
+        presentTransition: presenter.presentTransition,
+        setContentLifecycleSuspended: vi.fn(async () => true),
+        leaseWatchdogMs: 0,
+      });
+      await runtime.suspend(7, { mode: "mobile", scale: 1 });
+      ownerActive = true;
+
+      await expect(runtime.apply(7, "mobile", 1)).rejects.toThrow("stale-generation");
+
+      expect(runtime.desired(7)).toEqual({ mode: "mobile", scale: 1, suspended: true });
+      expect(debuggerApi.sent.some(
+        ({ method }) => method === "Emulation.clearDeviceMetricsOverride",
+      )).toBe(true);
+      expect(debuggerApi.detaches).toEqual([7]);
+      expect(presenter.requests.some(
+        ({ phase, cause }) => phase === "begin" && cause === "panel-suspend",
+      )).toBe(true);
+    },
+  );
+
   it("does not depend on throttled page animation frames after clearing emulation", async () => {
     const debuggerApi = fakeDebugger({ failFrameEvaluationAfterClear: true });
     const runtime = createRenderEmulationRuntime({

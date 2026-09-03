@@ -7271,3 +7271,201 @@ normal/cold suspension, neutral restore, and explicit clear call paths. This is
 not yet a production-readiness approval: clean-source P17/P14/P25, exact commit
 and upstream equality, headed latency/compositor endurance, the supplied
 property matrix, and cumulative expert-check remain mandatory.
+
+# EL-03-R13-D2 — Resume/refit presentation handoff
+
+## Goal
+
+Preserve one exact, guarded active emulation transaction when the browser is
+physically resized during the final retirement portion of first-owner resume.
+An already-applied and browser-proved target whose old presentation generation
+is superseded by the exact document's newer physical-viewport guard must hand
+off to the ordinary serialized refit. It must never restore the pre-resume
+`suspended` record, clear CDP, detach, expose native geometry, or make the popup
+apply the same retained desire a second time.
+
+## Entering identity and confirmed facts
+
+- Branch `re-write` is synchronized `0 0` with `origin/re-write` at exact
+  commit `e7ce475976e34360f9f82e5ebb28443298c582b3`. The managed production
+  browser provenance nonce is `171ab6c1-892d-401a-83b1-4d663e65d694` and the
+  exact unpacked extension id is `mfdmappjajojdcmkkmfbgocbgmlbkgaj`.
+- D1 is effective: last-owner close and first-owner reopen complete in roughly
+  0.6–1.6 seconds instead of 10.5–10.8 seconds. Its post-clear browser-
+  compositor acknowledgements remain approved and unchanged.
+- The latest non-attaching one-cycle HumaNova reproduction is
+  `.temp/expert-live-r13/compositor/www.humanova.com-mobile-2026-09-03T09-41-10-454Z/evidence.json`.
+  Close was 936 ms, reopen 644 ms, and active resize 810 ms, but revision
+  deltas were `1/0/1/2` and three 50 Hz samples were unsafe. The earlier
+  three-cycle rejection is
+  `.temp/expert-live-r13/compositor/www.humanova.com-mobile-2026-09-03T09-31-11-254Z/evidence.json`.
+- A source-mapped worker breakpoint at
+  `src/background/render-emulation-runtime.ts:3079` captured the exact failed
+  resume error: `EmulationPresentationUnavailableError`, detail
+  `stale-generation`, `mutationPossible=true`. The catch immediately called
+  `restorePriorPosture()` with the captured suspended prior.
+- `writeProveAndPresentPosture()` reaches `settlePresentation()` only after
+  `writeAndProvePosture()` returned an exact browser posture. The content
+  guardian's `guardPhysicalViewportChange()` deliberately advances the active
+  generation, stays fully opaque, and makes the older settle return
+  `stale-generation`; its focused guardian regression already proves that
+  contract.
+- `requestRefit()` publishes a physical-guard admission before it waits for the
+  per-tab emulation-operation queue. Consequently the queued refit can adopt
+  the newer exact-document generation as soon as the resume operation releases
+  the lane. Refit does not increment the durable posture revision.
+- `apply()` currently groups this safe supersession with arbitrary errors and
+  invokes the generic rollback. For a suspended prior, that rollback writes a
+  new suspended revision, clears CDP, waits two compositor acknowledgements,
+  detaches, and releases; popup recovery then performs a second active apply.
+  This explains both the `+2` active-resize delta and the visible native gap.
+
+The proven root cause remains the open `EL-03-F007` physical-resize contract.
+`EL-03-F008` priority activation and `EL-03-F009` Alt transfer remain closed and
+must pass unchanged regression/live checks.
+
+## Decisions already made
+
+- INV-8.1/I-33 remain binding: a live owner requires exact emulation; only a
+  real last-owner boundary may establish suspended native posture.
+- A newer physical viewport guard is a safe presentation handoff, not failure
+  authority. The old resume settle must neither fade nor abort that newer
+  generation.
+- The handoff is admitted only after the attempted posture obtained an exact
+  browser proof, the settle failed specifically with mutation-possible
+  `stale-generation`, and the same held posture still has a live owner. Every
+  other presentation, identity, geometry, persistence, ownership, debugger,
+  and content failure retains its existing fail-closed rollback behavior.
+- Handoff schedules/coalesces the existing verification/refit path after the
+  current operation releases the queue. It does not create a new posture,
+  revision, debugger attach, mode write, or bespoke resize authority.
+- There are no open behavior or architecture questions. This is a narrow
+  correction within the already-approved R8/R11/R13 generation and ownership
+  model.
+
+## Non-goals
+
+- Do not weaken guard paint proof, exact geometry proof, physical fit, debugger
+  identity, owner fencing, or suspended-owner semantics.
+- Do not accept `settle-proof-failed`, `settle-refresh-failed`, delivery loss,
+  mode/generation mismatch at begin, physical viewport absence, or an owner
+  loss as a successful handoff.
+- Do not change D1 compositor acknowledgement, popup polling/activation, Alt
+  transfer, marking semantics, payloads, Save/Load, consent, or Render
+  inspection.
+- Do not deploy or publish production state.
+
+## Implementation phases
+
+1. In `src/background/render-emulation-runtime.ts`, preserve the exact proof at
+   the `writeProveAndPresentPosture()` settle boundary. Add one named predicate
+   for the approved supersession tuple: cause `apply`, mutation-possible
+   `EmulationPresentationUnavailableError`, detail `stale-generation`, and the
+   same live active posture. On that tuple only, retain the exact proof, leave
+   the newer content guard untouched, and enqueue/coalesce `requestRefit()` with
+   a verification observation. If that async refit fails, use the existing
+   bounded reassert retry; do not swallow it as terminal success.
+2. Keep `apply()`'s ordinary exact-proof commit path: one active held record,
+   one verified posture, one safe fitted-scale persistence, and one successful
+   popup result. The generic catch and `restorePriorPosture()` remain the owner
+   for every non-handoff failure.
+3. In `tests/src/background/render-emulation-runtime.test.ts`, add a regression
+   starting from a suspended desired posture. During the resumed apply settle,
+   publish a newer content physical-guard generation and return the guardian's
+   `stale-generation`; then prove the apply resolves once, refit adopts/settles
+   the newer generation, the durable revision increments only for resume, no
+   panel-suspend/clear/detach occurs, and final physical fit is exact. Add the
+   inverse cases needed to prove a non-stale error and owner loss still roll
+   back/fail closed if existing coverage does not already pin them.
+4. Run the focused runtime and guardian suites, the expanded R13 impact set,
+   targeted ESLint/TypeScript, and `git diff --check`. Review the delta against
+   all error paths before running `pnpm verify`, debug build, clean P17,
+   standalone P14, and P25.
+5. Invoke `review-push`: stage only the intended runtime/test/ledger files,
+   commit normally, refresh the code graph, fetch/push without force, prove
+   upstream `0 0`, and refresh the graph again.
+6. Stop only the currently owned launcher, rebuild and relaunch through
+   `pnpm browser:live https://www.humanova.com/`, then run the non-attaching
+   compositor harness. Require a two-cycle calibration followed by 50 cycles
+   on HumaNova and 50 cycles on authoritative Aleris mobile/desktop posture.
+7. After inner conformance approval, resume the unchanged 17-property matrix,
+   warm Enable latency, nested Alt transfer, and cumulative expert-check.
+   Classify 3DPrima as externally blocked while its SQL failure persists.
+
+## Test matrix and regression risks
+
+- Unit/runtime: suspended resume + stale physical generation; owner disappears;
+  non-stale presentation failure; no admission/refit rejection; active prior;
+  exact revision/CDP/presentation ordering.
+- Guardian integration: the existing older-settle invalidation test must keep
+  proving generation `2` stays opaque with pointer capture and never fades.
+- R13 lifecycle: close `+1`, closed resize `0`, reopen `+1`, active resize `0`;
+  no unexpected debugger detach; no native/Googlebot false sample while owned.
+- R8/R11 refit: one adopted guard, immediate safe shrink, trailing growth,
+  identical-bounds no-op, no UA/touch/media churn, and one final fade.
+- Highest regression risk: treating an unrelated stale response as exact. The
+  tuple is therefore cause-, error-, mutation-, posture-, and owner-fenced and
+  is reachable only after exact CDP proof. All other errors exercise the
+  unchanged rollback path.
+- Secondary risk: queuing verification before `verifiedPostures` commits. The
+  refit joins the same per-tab operation lane and can execute only after apply
+  stores proof and exits, so the regression must assert scale-only refit rather
+  than a second full apply.
+
+Focused commands:
+
+```bash
+pnpm vitest run tests/src/background/render-emulation-runtime.test.ts tests/src/content/emulation-transition-guardian.test.ts
+pnpm eslint src/background/render-emulation-runtime.ts tests/src/background/render-emulation-runtime.test.ts
+pnpm exec tsc --noEmit -p tsconfig.json
+git --no-pager diff --check
+```
+
+Full and browser gates remain the same as D1/R13; no acceptance threshold is
+removed or softened.
+
+## Delta acceptance criteria
+
+- `EL03-R13-D2-AC-01` A resumed exact apply superseded during retirement by a
+  newer physical guard resolves from its one active revision and hands that
+  opaque generation to refit. It emits no `panel-suspend`, CDP clear, detach,
+  native posture, second apply, or second active revision.
+- `EL03-R13-D2-AC-02` Owner loss and every non-qualified failure still end in
+  the prior proven active posture or proven suspended native posture; no broad
+  success fallback is introduced.
+- `EL03-R13-D2-AC-03` Non-attaching 50 Hz samples and compositor video show
+  zero released wrong-geometry/identity frames across close, closed resize,
+  reopen, and immediate active resize. HumaNova and Aleris each pass 50 cycles;
+  every close/reopen/active-resize terminal remains below 2.5 seconds and
+  revision deltas are exactly `1/0/1/0`.
+- `EL03-R13-D2-AC-04` Focused/full tests, production/debug builds, P17, P14,
+  and P25 pass on the exact pushed commit. F008 activation and F009 Alt transfer
+  remain passing, and the original 17-property/cumulative gates remain
+  mandatory.
+
+## Todo chain
+
+1. `el03-r13-d2-plan` -> 0
+2. `el03-r13-d2-runtime-handoff` -> 1
+3. `el03-r13-d2-regression-tests` -> 2
+4. `el03-r13-d2-focused-review` -> 3
+5. `el03-r13-d2-full-gates` -> 4
+6. `el03-r13-d2-review-push` -> 5
+7. `el03-r13-d2-headed-conformance` -> 6
+8. `el03-r13-d2-property-matrix` -> 7
+9. `el03-r13-d2-cumulative-audit` -> 8
+
+## Implementation checkpoint — 2026-09-03
+
+- `el03-r13-d2-runtime-handoff`, `el03-r13-d2-regression-tests`, and
+  `el03-r13-d2-focused-review` are complete in the candidate worktree. The
+  accepted tuple now requires a strictly newer positive safe generation, the
+  same mode, `stale-generation`, and an opaque covered guardian in `guarding`
+  or `paint-proven`; same-generation and unguarded replies retain rollback.
+- Focused runtime/guardian validation passes 115 tests, the expanded lifecycle
+  impact set passes 173 tests, targeted ESLint and all TypeScript checks pass,
+  and `git diff --check` is clean.
+- `pnpm verify` passes 152 files / 1,750 tests, production build, and seven
+  manifest checks. `pnpm build:debug` also passes. Clean-source P17/P14/P25 and
+  exact-pushed-commit live conformance remain pending; no production-readiness
+  approval is recorded at this checkpoint.
