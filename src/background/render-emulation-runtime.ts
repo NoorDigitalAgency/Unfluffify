@@ -1320,6 +1320,28 @@ export function createRenderEmulationRuntime(input: Readonly<{
       returnByValue: true,
     });
   };
+  /** Native posture release cannot depend on a page rAF: Chromium can throttle
+   * the inspected renderer as soon as its side panel disappears. A surface
+   * screenshot is a browser/compositor acknowledgement and therefore proves a
+   * completed presentation turn without waiting on page-main-thread work. The
+   * response is deliberately a low-quality one-pixel clip and is discarded, so
+   * this scheduling proof never retains meaningful page imagery. */
+  const waitForBrowserCompositorFrame = async (tabId: number): Promise<void> => {
+    const result = await send(tabId, "Page.captureScreenshot", {
+      format: "jpeg",
+      quality: 1,
+      fromSurface: true,
+      captureBeyondViewport: false,
+      clip: { x: 0, y: 0, width: 1, height: 1, scale: 1 },
+    }) as { data?: unknown } | undefined;
+    if (typeof result?.data !== "string" || result.data.length === 0) {
+      throw new Error("Browser compositor frame acknowledgement was empty");
+    }
+  };
+  const waitForClearedBrowserCompositorTurns = async (tabId: number): Promise<void> => {
+    await waitForBrowserCompositorFrame(tabId);
+    await waitForBrowserCompositorFrame(tabId);
+  };
   const proveCurrentPosture = async (
     tabId: number,
     state: EmulationState,
@@ -1645,8 +1667,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
           active: true,
         },
       ).catch(() => undefined);
-      await waitForBrowserFrame(tabId).catch(() => undefined);
-      await waitForBrowserFrame(tabId).catch(() => undefined);
+      await waitForClearedBrowserCompositorTurns(tabId);
       // A failed detach is not proof of native browser posture. Keep the guard
       // opaque and the suspended durable intent for a later lifecycle retry.
       await detach(tabId);
@@ -1714,8 +1735,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
         { send: (method, params) => sendEmulationCommand(tabId, method, params) },
         { mode: attempted.mode, width: 412, height: 960, scale: attempted.scale, active: true },
       );
-      await waitForBrowserFrame(tabId).catch(() => undefined);
-      await waitForBrowserFrame(tabId).catch(() => undefined);
+      await waitForClearedBrowserCompositorTurns(tabId);
     } finally {
       await detach(tabId).catch(() => undefined);
       realUserAgents.delete(tabId);
@@ -3123,8 +3143,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
             if (ownerReturned()) {
               throw new Error("Emulation owner returned during suspension");
             }
-            await waitForBrowserFrame(tabId).catch(() => undefined);
-            await waitForBrowserFrame(tabId).catch(() => undefined);
+            await waitForClearedBrowserCompositorTurns(tabId);
             if (ownerReturned()) {
               throw new Error("Emulation owner returned during suspension");
             }
@@ -3233,8 +3252,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
         if (ownerReturned()) {
           throw new Error("Emulation owner returned during suspension");
         }
-        await waitForBrowserFrame(tabId).catch(() => undefined);
-        await waitForBrowserFrame(tabId).catch(() => undefined);
+        await waitForClearedBrowserCompositorTurns(tabId);
         if (ownerReturned()) {
           throw new Error("Emulation owner returned during suspension");
         }
@@ -3340,8 +3358,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
           );
           // Give the natural browser viewport two compositor opportunities
           // behind the opaque plane before the debugger is detached.
-          await waitForBrowserFrame(tabId).catch(() => undefined);
-          await waitForBrowserFrame(tabId).catch(() => undefined);
+          await waitForClearedBrowserCompositorTurns(tabId);
           return cleared;
         } finally {
           // Detaching drops every override with it, including the user agent, so

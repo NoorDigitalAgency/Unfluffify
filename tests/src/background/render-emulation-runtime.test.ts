@@ -16,6 +16,8 @@ import {
 const REAL_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36";
 
 function fakeDebugger(options: Readonly<{
+  emptyCompositorFrames?: number;
+  failFrameEvaluationAfterClear?: boolean;
   keepDocumentIdentityStale?: boolean;
   mobileInnerViewportOffset?: Readonly<{ width: number; height: number }>;
   onMetricsCommand?: (params: Record<string, unknown> | undefined) => void;
@@ -33,6 +35,8 @@ function fakeDebugger(options: Readonly<{
   let mismatchedProofsRemaining = 0;
   let rejectedAttachesRemaining = 0;
   let attached = false;
+  let deviceMetricsCleared = false;
+  let emptyCompositorFramesRemaining = options.emptyCompositorFrames ?? 0;
   let media = {
     pointerCoarse: false,
     pointerFine: true,
@@ -141,6 +145,7 @@ function fakeDebugger(options: Readonly<{
           return;
         }
         if (method === "Emulation.setDeviceMetricsOverride") {
+          deviceMetricsCleared = false;
           options.onMetricsCommand?.(params);
           width = Number(params?.width ?? width);
           height = Number(params?.height ?? height);
@@ -167,6 +172,16 @@ function fakeDebugger(options: Readonly<{
           if (!options.keepDocumentIdentityStale) {
             documentUserAgent = overrideUserAgent;
           }
+        } else if (method === "Emulation.clearDeviceMetricsOverride") {
+          deviceMetricsCleared = true;
+        } else if (method === "Page.captureScreenshot") {
+          if (emptyCompositorFramesRemaining > 0) {
+            emptyCompositorFramesRemaining -= 1;
+            callback?.({});
+          } else {
+            callback?.({ data: "compositor-frame" });
+          }
+          return;
         }
         if (method === "Runtime.evaluate") {
           const expression = String(params?.expression ?? "");
@@ -194,6 +209,9 @@ function fakeDebugger(options: Readonly<{
             return;
           }
           if (expression.includes("requestAnimationFrame")) {
+            if (options.failFrameEvaluationAfterClear && deviceMetricsCleared) {
+              throw new Error("page-rAF-throttled-after-clear");
+            }
             callback?.({ result: { value: true } });
             return;
           }
@@ -363,6 +381,7 @@ describe("render emulation runtime", () => {
     });
 
     await expect(runtime.apply(7, "mobile", 1)).resolves.toMatchObject({ active: true });
+    const suspendCommandStart = debuggerApi.sent.length;
     await expect(runtime.suspend(7)).resolves.toBe(true);
 
     expect(contentLifecycle).toHaveBeenCalledWith(7, true);
@@ -374,6 +393,37 @@ describe("render emulation runtime", () => {
       value: { mode: "mobile", maximumScale: 1, suspended: true },
     });
     expect(debuggerApi.sent.map((call) => call.method)).toContain("Emulation.clearDeviceMetricsOverride");
+    const suspensionCommands = debuggerApi.sent.slice(suspendCommandStart);
+    expect(suspensionCommands.map(({ method }) => method)).toEqual([
+      "Emulation.setTouchEmulationEnabled",
+      "Emulation.setEmulatedMedia",
+      "Emulation.setPageScaleFactor",
+      "Emulation.clearDeviceMetricsOverride",
+      "Page.captureScreenshot",
+      "Page.captureScreenshot",
+    ]);
+    expect(suspensionCommands.slice(-2)).toEqual([
+      {
+        method: "Page.captureScreenshot",
+        params: {
+          format: "jpeg",
+          quality: 1,
+          fromSurface: true,
+          captureBeyondViewport: false,
+          clip: { x: 0, y: 0, width: 1, height: 1, scale: 1 },
+        },
+      },
+      {
+        method: "Page.captureScreenshot",
+        params: {
+          format: "jpeg",
+          quality: 1,
+          fromSurface: true,
+          captureBeyondViewport: false,
+          clip: { x: 0, y: 0, width: 1, height: 1, scale: 1 },
+        },
+      },
+    ]);
     expect(debuggerApi.detaches).toEqual([7]);
     expect(presenter.requests.slice(-2)).toMatchObject([
       { phase: "begin", cause: "panel-suspend", mode: "mobile" },
@@ -390,6 +440,58 @@ describe("render emulation runtime", () => {
       value: { mode: "mobile", maximumScale: 1 },
     });
     expect((await repo.load(7)).value).not.toHaveProperty("suspended");
+  });
+
+  it("does not depend on throttled page animation frames after clearing emulation", async () => {
+    const debuggerApi = fakeDebugger({ failFrameEvaluationAfterClear: true });
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: tabsWithViewport(),
+      postureRepo: createEmulationPostureRepo(createMemoryStore()),
+      setContentLifecycleSuspended: vi.fn(async () => true),
+    });
+    await runtime.apply(7, "mobile", 1);
+    const suspendCommandStart = debuggerApi.sent.length;
+
+    await expect(runtime.suspend(7)).resolves.toBe(true);
+
+    const suspensionCommands = debuggerApi.sent.slice(suspendCommandStart);
+    expect(suspensionCommands.filter(({ method }) => method === "Page.captureScreenshot")).toHaveLength(2);
+    expect(suspensionCommands.some(({ method, params }) =>
+      method === "Runtime.evaluate" &&
+      String(params?.expression ?? "").includes("requestAnimationFrame"),
+    )).toBe(false);
+    expect(debuggerApi.detaches).toEqual([7]);
+  });
+
+  it("fails closed and retries when the native compositor acknowledgement is empty", async () => {
+    const debuggerApi = fakeDebugger({ emptyCompositorFrames: 1 });
+    const presenter = transitionPresenter();
+    const runtime = createRenderEmulationRuntime({
+      debuggerApi: debuggerApi.api,
+      tabs: tabsWithViewport(),
+      postureRepo: createEmulationPostureRepo(createMemoryStore()),
+      presentTransition: presenter.presentTransition,
+      setContentLifecycleSuspended: vi.fn(async () => true),
+    });
+    await runtime.apply(7, "mobile", 1);
+
+    await expect(runtime.suspend(7)).rejects.toThrow(
+      "Browser compositor frame acknowledgement was empty",
+    );
+    expect(runtime.isSuspended(7)).toBe(true);
+    expect(debuggerApi.detaches).toEqual([]);
+    expect(presenter.requests.at(-1)).toMatchObject({
+      phase: "begin",
+      cause: "panel-suspend",
+    });
+
+    await expect(runtime.suspend(7)).resolves.toBe(true);
+    expect(debuggerApi.detaches).toEqual([7]);
+    expect(presenter.requests.at(-1)).toMatchObject({
+      phase: "release",
+      cause: "panel-suspend",
+    });
   });
 
   it("retries a lost terminal guard release after native suspension without repeating CDP", async () => {
@@ -3134,6 +3236,9 @@ describe("render emulation runtime", () => {
         }
         if (method === "Emulation.setTouchEmulationEnabled") {
           maxTouchPoints = params?.enabled === true ? Number(params.maxTouchPoints ?? 1) : 0;
+        }
+        if (method === "Page.captureScreenshot") {
+          return { data: "compositor-frame" };
         }
         if (method !== "Runtime.evaluate") {
           return {};

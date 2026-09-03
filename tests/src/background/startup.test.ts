@@ -554,6 +554,8 @@ describe("rewrite background startup", () => {
                 },
               },
             });
+          } else if (method === "Page.captureScreenshot") {
+            callback({ data: "compositor-frame" });
           } else {
             callback({ result: { value: true } });
           }

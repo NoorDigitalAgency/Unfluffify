@@ -7177,3 +7177,97 @@ This is not a production-readiness approval. Debug/P14/P17/P25 gates, exact
 review/commit/push proof, HumaNova and Aleris 50-cycle compositor
 falsification, the supplied 17-property matrix, and the fresh cumulative
 expert-check remain open.
+
+# EL-03-R13-D1 — Bounded native compositor acknowledgement
+
+## Entering conformance rejection
+
+The exact pushed R13 source `5cd598f58bf95960f4662090b036c1e61f0b1789`
+passes its automated gates and preserves every guarded geometry boundary, but
+the first non-attaching headed conformance calibration rejects the close
+latency. After `Emulation.clearDeviceMetricsOverride` has already restored
+native geometry behind the opaque `panel-suspend` guard, `suspend` awaits two
+`Runtime.evaluate(requestAnimationFrame)` turns. Chromium throttles those page
+callbacks in the launcher-owned headed/Xvfb lifecycle, so both calls consume
+the five-second browser-API timeout. Native geometry appears in roughly 0.5
+seconds but UA/debugger teardown and guard release take 10.5–10.8 seconds.
+
+Current evidence is retained at
+`.temp/expert-live-r13/compositor/www.humanova.com-mobile-2026-09-03T08-36-13-318Z/evidence.json`.
+The two earlier screencast calibrations are explicitly non-authoritative: a
+persistent website-target CDP session and even `Page.startScreencast` on the
+extension-owned session perturb debugger teardown. The authoritative harness
+therefore attaches only to the extension worker, samples the page through
+`chrome.scripting`, records the launcher-owned Xvfb compositor, and uses no
+website-target CDP client.
+
+## Delta implementation
+
+1. Add a narrow browser-compositor turn primitive for the post-clear native
+   boundary using `Page.captureScreenshot` with a low-quality, surface-backed,
+   viewport-only JPEG. The response is discarded; its browser/compositor
+   acknowledgement replaces page-main-thread scheduling as the turn proof.
+2. Use two such compositor acknowledgements only after emulation has been
+   cleared and before debugger detach in suspension, suspended cold recovery,
+   rollback-to-suspended, neutral clear, and explicit clear paths. Retain the
+   existing page-rAF wait for active emulation settle/proof loops where a
+   document animation turn is intentionally required.
+3. Add focused command-order and throttled-rAF regressions proving clear -> two
+   compositor acknowledgements -> detach -> terminal guard release, with no
+   post-clear `Runtime.evaluate` dependency and no weakening of failure or
+   rapid-owner fences.
+4. Run focused tests, targeted lint/typecheck, `git diff --check`, full
+   `pnpm verify`, debug build, P17, P14, and P25; then review, commit, non-force
+   push, and prove upstream equality before repeating headed evidence.
+
+## Delta acceptance criteria
+
+- `EL03-R13-D1-AC-01` Every guarded path that clears emulation obtains two
+  browser-compositor acknowledgements before detach and never waits on a
+  post-clear page `requestAnimationFrame`.
+- `EL03-R13-D1-AC-02` In the non-attaching managed browser, last-owner close
+  completes native identity/debugger teardown and releases the guard within
+  2.5 seconds, with zero unsafe 50 Hz state samples or compositor-visible
+  wrong-geometry frames.
+- `EL03-R13-D1-AC-03` Reopen remains below 2.5 seconds, restores the retained
+  exact mode once, and live-owner physical resize changes fitted scale without
+  a suspend/apply revision pair.
+- `EL03-R13-D1-AC-04` All R13 tests and full release gates remain green on the
+  exact pushed delta commit; the original 50-cycle/property/cumulative gates
+  remain mandatory and unchanged.
+
+No product decision is open. This delta does not alter desired mode,
+ownership, persistence, annotation, capture, payload, or deployment contracts.
+
+## EL-03-R13-D1 implementation and local-gate checkpoint — 2026-09-03
+
+The bounded compositor acknowledgement delta is implemented. Every guarded
+post-clear path now waits for two surface-backed, viewport-only one-pixel JPEG
+acknowledgements through the debugger session the extension already owns. The
+responses are validated as non-empty and discarded; no website-target client
+is attached and active-emulation proof/refit paths retain their intentional
+page animation-frame waits.
+
+Failure remains closed: an absent compositor response leaves suspended durable
+intent, the debugger attachment, and the opaque guard available for the next
+ownerless retry. Focused regressions also prove the exact clear -> compositor
+acknowledgement -> detach ordering and that a throttled post-clear page rAF is
+never consulted. The background startup integration mock was updated to model
+Chrome's non-empty `Page.captureScreenshot` result.
+
+Local evidence on the intended source is green:
+
+- focused runtime suite: 80/80 tests;
+- expanded R13 impact set: 11 files / 334 tests;
+- targeted ESLint and the main TypeScript configuration;
+- `git diff --check`;
+- authoritative `pnpm verify`: lint, generated assets, all three TypeScript
+  configurations, 152 files / 1,747 tests, production build, and generated
+  manifest permissions 7/7; and
+- debug extension build.
+
+Graph impact review confirms the helper is confined to rollback-to-suspended,
+normal/cold suspension, neutral restore, and explicit clear call paths. This is
+not yet a production-readiness approval: clean-source P17/P14/P25, exact commit
+and upstream equality, headed latency/compositor endurance, the supplied
+property matrix, and cumulative expert-check remain mandatory.
