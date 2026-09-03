@@ -1258,7 +1258,9 @@ describe("rewrite popup entrypoint", () => {
   it("requests a background refit when side-panel geometry changes without reapplying a mode", async () => {
     installEntrypointDom("chrome-extension://extension-id/popup.html");
     let resizeListener: ((event: Event) => void) | null = null;
+    let boundsChangedListener: ((window: chrome.windows.Window) => void) | null = null;
     Object.assign(window, {
+      innerWidth: 360,
       outerWidth: 1_200,
       outerHeight: 900,
       setTimeout: globalThis.setTimeout.bind(globalThis),
@@ -1270,7 +1272,21 @@ describe("rewrite popup entrypoint", () => {
     });
     const render = createReactRenderProbe();
     vi.doMock("react-dom/client", () => ({ createRoot: vi.fn(() => ({ render })) }));
-    const query = vi.fn().mockResolvedValue([{ id: 77, url: "https://example.com" }]);
+    const tabState = {
+      id: 77,
+      windowId: 12,
+      url: "https://example.com",
+      width: 814,
+      height: 740,
+    };
+    const query = vi.fn().mockResolvedValue([tabState]);
+    const get = vi.fn((
+      _tabId: number,
+      callback?: (tab: chrome.tabs.Tab) => void,
+    ) => {
+      callback?.(tabState as chrome.tabs.Tab);
+      return Promise.resolve(tabState as chrome.tabs.Tab);
+    });
     const runtime = makeRuntime(async (message) => replyFrame(message, []));
     const tabsSendMessage = makeTabsSendMessage((_tabId, message) =>
       message.type === "emulationViewportGuard"
@@ -1284,17 +1300,39 @@ describe("rewrite popup entrypoint", () => {
             generation: 88,
           }
         : { ok: true, tree: "rewrite" });
+    const debuggerSendCommand = vi.fn((
+      _target: chrome.debugger.Debuggee,
+      _method: string,
+      _params?: object,
+      callback?: (result?: object) => void,
+    ) => {
+      callback?.();
+      return Promise.resolve();
+    });
     globalThis.chrome = {
       runtime: { ...runtime },
-      tabs: { query, sendMessage: tabsSendMessage },
+      tabs: { query, get, sendMessage: tabsSendMessage },
       windows: {
         getCurrent(_getInfo: unknown, callback?: (window: chrome.windows.Window) => void) {
           callback?.({
+            id: 12,
+            width: window.outerWidth,
+            height: window.outerHeight,
+          } as chrome.windows.Window);
+          return Promise.resolve({
+            id: 12,
             width: window.outerWidth,
             height: window.outerHeight,
           } as chrome.windows.Window);
         },
+        onBoundsChanged: {
+          addListener(listener: (window: chrome.windows.Window) => void) {
+            boundsChangedListener = listener;
+          },
+          removeListener: vi.fn(),
+        },
       },
+      debugger: { sendCommand: debuggerSendCommand },
     } as unknown as typeof chrome;
 
     await import("../../../src/entrypoints/popup/main.tsx");
@@ -1304,11 +1342,18 @@ describe("rewrite popup entrypoint", () => {
     );
     await flushEntrypointWork();
     await flushEntrypointWork();
+    await waitFor(
+      () => runtime.sendMessage.mock.calls.some(([frame]) => frame.name === "emulation.apply") &&
+        get.mock.calls.length > 0 && boundsChangedListener !== null,
+      "compositor prefit baseline",
+    );
     const applyCount = runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "emulation.apply").length;
     const refitCount = runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "emulation.refit").length;
     (document.documentElement as { clientHeight: number }).clientHeight = 640;
     window.innerHeight = 640;
     (window as unknown as { outerHeight: number }).outerHeight = 800;
+    tabState.height = 640;
+    boundsChangedListener?.({ id: 12, width: 1_200, height: 800 } as chrome.windows.Window);
     resizeListener?.({ type: "resize" } as Event);
     await waitFor(
       () => runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "emulation.refit").length > refitCount,
@@ -1329,10 +1374,30 @@ describe("rewrite popup entrypoint", () => {
     ]);
     expect(tabsSendMessage.mock.invocationCallOrder[guardIndex])
       .toBeLessThan(runtime.sendMessage.mock.invocationCallOrder[refitIndex]!);
+    const metricsIndex = debuggerSendCommand.mock.calls.findLastIndex(([_target, method]) =>
+      method === "Emulation.setDeviceMetricsOverride");
+    expect(metricsIndex).toBeGreaterThanOrEqual(0);
+    expect(debuggerSendCommand.mock.calls[metricsIndex]).toEqual([
+      { tabId: 77 },
+      "Emulation.setDeviceMetricsOverride",
+      {
+        width: 412,
+        height: 960,
+        deviceScaleFactor: 1,
+        mobile: true,
+        scale: 640 / 960,
+      },
+      expect.any(Function),
+    ]);
+    expect(tabsSendMessage.mock.invocationCallOrder[guardIndex])
+      .toBeLessThan(debuggerSendCommand.mock.invocationCallOrder[metricsIndex]!);
+    expect(debuggerSendCommand.mock.invocationCallOrder[metricsIndex])
+      .toBeLessThan(runtime.sendMessage.mock.invocationCallOrder[refitIndex]!);
     expect(refit?.payload).toMatchObject({
       tabId: 77,
       source: "popup",
       presentationGeneration: 88,
+      compositorPrefit: { mode: "mobile", scale: 640 / 960 },
       physicalViewportHint: { height: 640 },
     });
 
@@ -1344,6 +1409,8 @@ describe("rewrite popup entrypoint", () => {
     (document.documentElement as { clientHeight: number }).clientHeight = 705;
     window.innerHeight = 705;
     (window as unknown as { outerHeight: number }).outerHeight = 900;
+    tabState.height = 740;
+    boundsChangedListener?.({ id: 12, width: 1_200, height: 900 } as chrome.windows.Window);
     resizeListener?.({ type: "resize" } as Event);
     await waitFor(
       () => runtime.sendMessage.mock.calls.filter(([frame]) => frame.name === "emulation.refit").length > growthRefitCount,
@@ -1361,6 +1428,8 @@ describe("rewrite popup entrypoint", () => {
       presentationGeneration: 88,
       physicalViewportHint: { height: 705 },
     });
+    expect(debuggerSendCommand.mock.calls.filter(([_target, method]) =>
+      method === "Emulation.setDeviceMetricsOverride")).toHaveLength(1);
 
     const identicalRefitCount = runtime.sendMessage.mock.calls.filter(([frame]) =>
       frame.name === "emulation.refit").length;

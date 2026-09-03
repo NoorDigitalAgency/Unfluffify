@@ -6,8 +6,8 @@ This file preserves completed/historical implementation reasoning only and is no
 an active resume pointer or product-semantics authority. The binding rules are in
 [`../.reimplementation/rewrite-legacy-decision-spec.md`](../.reimplementation/rewrite-legacy-decision-spec.md),
 including one-shot selector actions, retrievable closed-root flattening, constrained
-silent/post-AI interaction, and continuously forced crawler mobile without manual
-device or scale controls.
+silent/post-AI interaction, and panel-owned crawler emulation without manual
+device or scale controls (last-owner native suspension was approved 2026-09-03).
 
 Last historical update: 2026-06-27
 

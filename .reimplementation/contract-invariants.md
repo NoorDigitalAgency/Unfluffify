@@ -183,14 +183,14 @@ conflicting older rows in this register. Where this register cites the legacy do
 
 | ID | Rule | Tag |
 |----|------|-----|
-| INV-8.1 | **Continuously forced crawler mobile.** Every recognized managed tab uses the fixed Googlebot Smartphone posture (viewport, UA/client hints, touch, and pointer media) from recognition through teardown. The user cannot disable it. | **CORRECTED** |
+| INV-8.1 | **Panel-owned crawler mobile.** Recognition retains the fixed Googlebot Smartphone desire (viewport, UA/client hints, touch, and pointer media), and every live side-panel owner sees that exact posture. Last-owner close returns the browser to native posture behind a paint-proven guard while retaining the desire as suspended; reopen restores it behind the guard. This lifecycle is automatic and is not a user-selectable device toggle. | **CORRECTED** |
 | INV-8.2 | **Desktop preview is a narrow exception, not a simulator.** Only the approved silent-only desktop preview may temporarily hold desktop posture; marking entry stays unavailable until the fixed mobile posture is restored. | **CORRECTED** |
 | INV-8.3 | **No manual scale or device controls.** The crawler profile owns scale and device metrics; production UI exposes neither. | **CORRECTED** |
-| INV-8.4 | **Emulation self-heals after navigation, debugger detach, and rebinding** and **must be active for Save.** A managed tab cannot remain in an unintended desktop/non-crawler posture. | **CORRECTED** |
+| INV-8.4 | **Owned emulation self-heals after navigation, debugger detach, and rebinding** and **must be active for marking entry, AI capture, and Save.** A suspended ownerless tab authorizes no CDP attach/refit/reassert, exposes no geometry-bound annotations, and remains native until a live panel restores the retained target. | **CORRECTED** |
 | INV-8.5 | **Render-mode inspection owns its own reveal/freeze lifecycle.** It must not run editor-acquisition reveal/freeze while the base URL's render mode is unconfirmed. The explicit With/Without-JavaScript action is the only render-mode path that reveals/freezes. | CONFIRMED |
 | INV-8.6 | **Render-mode capture sequence:** capture sanitized rendered HTML (JS on, after reveal, **before** highlighting) → reload JS-disabled via CDP → capture static/raw HTML (background `fetchStaticPageHtml`) → restore JS. The rendered capture uses the same extension-node stripping as saved snapshots. | CONFIRMED |
-| INV-8.7 | **No-JS hold is tracked and always cleared** on end/nav/inactivity. During inspection the editor sees a *reconnecting-after-inspection* status that **suppresses the 70s connection-loss countdown** (see §9). | CONFIRMED |
-| INV-8.8 | **Render-mode inspection restores the standing managed-tab posture.** It must not leave the tab outside fixed crawler mobile after its explicit comparison lifecycle ends. | **CORRECTED** |
+| INV-8.7 | **No-JS hold is tracked and always cleared** on end/nav/inactivity or last-panel close. Panel close is a fenced cancellation: JavaScript restore and any healing reload precede debugger suspension. During inspection the editor sees a *reconnecting-after-inspection* status that **suppresses the 70s connection-loss countdown** (see §9). | CONFIRMED |
+| INV-8.8 | **Render-mode inspection restores the posture appropriate to ownership.** It returns to fixed crawler mobile while a panel owner remains; last-panel close instead terminalizes inspection and then establishes the suspended native posture from INV-8.1. | **CORRECTED** |
 
 ---
 
@@ -283,7 +283,7 @@ conflicting older rows in this register. Where this register cites the legacy do
 | Lock timings | Client-owned | Backend-authoritative; client mirrors (INV-9.6) |
 | Closed shadow | Every closed host treated as inaccessible/excluded | Flatten captured roots; omit only a genuinely inaccessible root while retaining host/light DOM (INV-5.11) |
 | Silent interaction | Passive overlay allowed page actions | Frozen constrained surface: scroll/preview interaction only; block page actions (INV-7.8) |
-| Managed emulation | User-disableable mobile plus manual scale/device controls | Continuously forced Googlebot Smartphone; silent-only desktop exception (INV-8.1–8.4) |
+| Managed emulation | User-disableable mobile plus manual scale/device controls | Panel-owned Googlebot Smartphone; ownerless native suspension with retained desire; silent-only desktop exception (INV-8.1–8.4) |
 | SPA nav | Route change without fresh capture | Force full reload while active (INV-7.9) |
 | Presentation | Dual PopupState/ViewState bags + local re-derivation | One store per organ; brain signals guarantee consistency (INV-10.4) |
 

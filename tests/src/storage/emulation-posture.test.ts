@@ -14,6 +14,7 @@ describe("emulation posture repository", () => {
       mode: "desktop",
       maximumScale: 0.85,
       fittedScale: 0.62,
+      suspended: true,
       revision: 3,
     });
 
@@ -24,6 +25,7 @@ describe("emulation posture repository", () => {
         mode: "desktop",
         maximumScale: 0.85,
         fittedScale: 0.62,
+        suspended: true,
         revision: 3,
       },
     });
@@ -34,6 +36,7 @@ describe("emulation posture repository", () => {
         mode: "desktop",
         maximumScale: 0.85,
         fittedScale: 0.62,
+        suspended: true,
         revision: 3,
       }],
     });
@@ -50,6 +53,28 @@ describe("emulation posture repository", () => {
     await expect(repo.load(7)).resolves.toMatchObject({
       ok: true,
       value: { mode: "desktop", revision: 8 },
+    });
+  });
+
+  it("arbitrates active and suspended intent with the same monotonic revision", async () => {
+    const repo = createEmulationPostureRepo(createMemoryStore());
+    await repo.save({
+      tabId: 7,
+      mode: "mobile",
+      maximumScale: 1,
+      suspended: true,
+      revision: 9,
+    });
+    await repo.save({
+      tabId: 7,
+      mode: "mobile",
+      maximumScale: 1,
+      revision: 8,
+    });
+
+    await expect(repo.load(7)).resolves.toMatchObject({
+      ok: true,
+      value: { suspended: true, revision: 9 },
     });
   });
 

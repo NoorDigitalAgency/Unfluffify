@@ -133,6 +133,7 @@ function installBrowser(options: Readonly<{
   runtimeEvaluateValue?: unknown;
   createAlarm?: (name: string, info: unknown) => Promise<void> | void;
   clearAlarm?: (name: string) => Promise<boolean> | boolean | void;
+  ownerTabId?: number | null;
 }> = {}) {
   const addMessageListener = vi.fn();
   const reload = vi.fn((_tabId: number, _options: unknown, callback?: () => void) => callback?.());
@@ -157,6 +158,8 @@ function installBrowser(options: Readonly<{
   let debuggerDetached: ((source: { tabId?: number }, reason?: string) => void) | null = null;
   let alarmListener: ((alarm: { name: string }) => void) | null = null;
   let removed: ((tabId: number) => void) | null = null;
+  let ownerDisconnectListener: (() => void) | null = null;
+  let ownerMessageListener: ((message: unknown) => void) | null = null;
   let currentDocumentId = "document-a";
   let currentUrl = "https://example.com/jobs/1";
   let frameUnavailable = options.frameUnavailable === true;
@@ -168,6 +171,38 @@ function installBrowser(options: Readonly<{
     runtime: {
       sendMessage: vi.fn(),
       onMessage: { addListener: addMessageListener },
+      onConnect: {
+        addListener(listener: (port: unknown) => void) {
+          const port = {
+            name: "uf-emulation-compositor-owner/v1",
+            postMessage: vi.fn(),
+            onMessage: {
+              addListener(next: (message: unknown) => void) {
+                ownerMessageListener = next;
+              },
+              removeListener(next: (message: unknown) => void) {
+                if (ownerMessageListener === next) ownerMessageListener = null;
+              },
+            },
+            onDisconnect: {
+              addListener(next: () => void) {
+                ownerDisconnectListener = next;
+              },
+              removeListener(next: () => void) {
+                if (ownerDisconnectListener === next) ownerDisconnectListener = null;
+              },
+            },
+          };
+          listener(port);
+          const ownerTabId = options.ownerTabId === undefined ? 7 : options.ownerTabId;
+          if (ownerTabId !== null) {
+            ownerMessageListener?.({
+              kind: "uf-emulation-compositor-owner/bind/1",
+              tabId: ownerTabId,
+            });
+          }
+        },
+      },
     },
     debugger: {
       attach(_target: unknown, _version: string, callback?: () => void) {
@@ -309,6 +344,12 @@ function installBrowser(options: Readonly<{
     detachDebugger(reason = "canceled_by_user") {
       if (!debuggerDetached) throw new Error("debugger detach listener missing");
       debuggerDetached({ tabId: 7 }, reason);
+    },
+    disconnectOwner() {
+      if (!ownerDisconnectListener) throw new Error("owner disconnect listener missing");
+      const listener = ownerDisconnectListener;
+      ownerDisconnectListener = null;
+      listener();
     },
     alarm(name: string) {
       if (!alarmListener) throw new Error("alarm listener missing");
@@ -774,6 +815,42 @@ describe("background render inspection integration", () => {
     }, "popup");
     await contextStarted.promise;
     browser.before("https://example.com/jobs/2");
+    contextGate.resolve();
+
+    await expect(response).resolves.toMatchObject({
+      ok: false,
+      failure: { code: "HANDLER_FAILED" },
+    });
+    expect(browser.commands).not.toContainEqual(expect.objectContaining({
+      method: "Emulation.setScriptExecutionDisabled",
+    }));
+    expect(browser.reload).not.toHaveBeenCalled();
+  });
+
+  it("rejects a start whose panel owner closes during context authorization", async () => {
+    const contextGate = deferred();
+    const contextStarted = deferred();
+    installLockRuntime(SCOPE, {
+      contextResolveGate: contextGate.promise,
+      onContextResolveStarted: () => contextStarted.resolve(),
+    });
+    const browser = installBrowser();
+    const { startRewriteBackground } = await import("../../../src/background/index");
+    startRewriteBackground();
+    const call = caller(browser.listener());
+
+    const response = call("renderInspection.start", {
+      tabId: 7,
+      property: {
+        environmentKey: SCOPE.environmentKey,
+        siteId: SCOPE.siteId,
+        baseUrl: SCOPE.baseUrl,
+      },
+      pageUrl: SCOPE.pageUrl,
+      javascriptEnabled: false,
+    }, "popup");
+    await contextStarted.promise;
+    browser.disconnectOwner();
     contextGate.resolve();
 
     await expect(response).resolves.toMatchObject({

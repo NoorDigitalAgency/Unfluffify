@@ -38,6 +38,8 @@ import {
   admittedEmulationViewportGuardGeneration,
   createEmulationViewportGuardPortClient,
 } from "../../messaging/emulation-viewport-guard-port";
+import { createEmulationCompositorOwnerPortClient } from
+  "../../messaging/emulation-compositor-owner-port";
 import type { PropertyPublishRequest, PropertySaveRequest, SelectorSet } from "../../storage/config";
 import { canonicalPageKey } from "../../storage/property-snapshot-authority";
 import type { RenderMode } from "../../domain/schema/property";
@@ -82,6 +84,11 @@ import {
   type PopupRenderInspectionOwner,
   type RenderInspectionObservation,
 } from "../../popup/render-inspection-controller";
+import {
+  createEmulationCompositorPrefitController,
+  type EmulationCompositorPrefitMetrics,
+  type PhysicalViewportSize,
+} from "../../popup/emulation-compositor-prefit";
 import type { RenderInspectionPropertyScope } from "../../messaging/render-inspection";
 import { AI_RUN_TIMEOUT_MS } from "../../lynx/ai";
 import type { AiFailureStage } from "../../lynx/ai-job";
@@ -709,6 +716,11 @@ type TargetTabContext = Readonly<{
   url: string;
 }>;
 
+let emulationCompositorPrefitController: ReturnType<
+  typeof createEmulationCompositorPrefitController
+> | null = null;
+let emulationCompositorPrefitPrimeEpoch = 0;
+
 function getRuntimeBrowser() {
   return getInstalledBrowserApi() ?? browser;
 }
@@ -808,6 +820,9 @@ function getPopupBus(): RewriteSignalBus {
 let emulationViewportGuardPortClient: ReturnType<
   typeof createEmulationViewportGuardPortClient
 > | null = null;
+let emulationCompositorOwnerPortClient: ReturnType<
+  typeof createEmulationCompositorOwnerPortClient
+> | null = null;
 
 function getEmulationViewportGuardPortClient() {
   if (!emulationViewportGuardPortClient) {
@@ -817,6 +832,15 @@ function getEmulationViewportGuardPortClient() {
     );
   }
   return emulationViewportGuardPortClient;
+}
+
+function getEmulationCompositorOwnerPortClient() {
+  if (!emulationCompositorOwnerPortClient) {
+    emulationCompositorOwnerPortClient = createEmulationCompositorOwnerPortClient(
+      getRuntimeBrowser().runtime,
+    );
+  }
+  return emulationCompositorOwnerPortClient;
 }
 
 function getDebugTabId(): number | null {
@@ -1013,6 +1037,9 @@ function bindToTab(context: TargetTabContext): { changed: boolean; sameTabNaviga
   boundTabKey = nextKey;
   boundTabUrl = context.url;
   resetBoundSessionState();
+  getEmulationCompositorOwnerPortClient().bind(context.tabId);
+  emulationCompositorPrefitController?.reset();
+  void primeEmulationCompositorPrefit(context, boundTabOccurrence);
   logEvent(sameTabNavigation ? "Page navigated" : "Tab bound", context.url);
   replacePopupStore();
   maintenanceController.bindingChanged();
@@ -2582,6 +2609,117 @@ function popupOuterViewport(): Readonly<{ width: number; height: number }> | nul
     : null;
 }
 
+function popupPanelViewport(): PhysicalViewportSize | null {
+  if (typeof window === "undefined" || typeof document === "undefined") return null;
+  const innerWidth = Number(window.innerWidth);
+  const innerHeight = Number(window.innerHeight);
+  const documentWidth = Number(document.documentElement?.clientWidth);
+  const documentHeight = Number(document.documentElement?.clientHeight);
+  const width = Number.isFinite(innerWidth) && innerWidth > 0
+    ? innerWidth
+    : documentWidth;
+  const height = Number.isFinite(innerHeight) && innerHeight > 0
+    ? innerHeight
+    : documentHeight;
+  return Number.isFinite(width) && width > 0 &&
+      Number.isFinite(height) && height > 0
+    ? { width, height }
+    : null;
+}
+
+async function primeEmulationCompositorPrefit(
+  context: TargetTabContext,
+  bindingOccurrence: number,
+): Promise<void> {
+  const runtimeBrowser = getRuntimeBrowser();
+  const controller = emulationCompositorPrefitController;
+  if (
+    !controller ||
+    typeof runtimeBrowser.tabs?.get !== "function" ||
+    typeof runtimeBrowser.windows?.getCurrent !== "function"
+  ) {
+    return;
+  }
+  const primeEpoch = ++emulationCompositorPrefitPrimeEpoch;
+  const expectedGeometryRevision = controller.revision();
+  try {
+    const tab = await callBrowserApi<chrome.tabs.Tab>(
+      (api, callback) => api.tabs.get(context.tabId, (value) => callback(value)),
+      async (api) => await api.tabs.get(context.tabId),
+    );
+    const current = await callBrowserApi<chrome.windows.Window>(
+      (api, callback) => api.windows.getCurrent({}, (value) => callback(value)),
+      async (api) => await api.windows.getCurrent({}),
+    );
+    const windowId = Number(tab?.windowId);
+    const currentWindowId = Number(current?.id);
+    const tabViewport = {
+      width: Number(tab?.width),
+      height: Number(tab?.height),
+    };
+    const windowBounds = {
+      width: Number(current?.width),
+      height: Number(current?.height),
+    };
+    const panelViewport = popupPanelViewport();
+    if (
+      boundTabId !== context.tabId ||
+      boundTabOccurrence !== bindingOccurrence ||
+      primeEpoch !== emulationCompositorPrefitPrimeEpoch ||
+      controller !== emulationCompositorPrefitController ||
+      !Number.isInteger(windowId) || windowId < 0 ||
+      currentWindowId !== windowId ||
+      !Number.isFinite(tabViewport.width) || tabViewport.width <= 0 ||
+      !Number.isFinite(tabViewport.height) || tabViewport.height <= 0 ||
+      !Number.isFinite(windowBounds.width) || windowBounds.width <= 0 ||
+      !Number.isFinite(windowBounds.height) || windowBounds.height <= 0 ||
+      !panelViewport
+    ) {
+      return;
+    }
+    controller.prime({
+      tabId: context.tabId,
+      windowId,
+      bindingOccurrence,
+      tabViewport,
+      windowBounds,
+      panelViewport,
+    }, expectedGeometryRevision);
+  } catch {
+    // The background bounds listener remains the standing fallback when popup
+    // geometry cannot be sampled or this side-panel occurrence has gone stale.
+  }
+}
+
+function sendEmulationCompositorPrefit(
+  tabId: number,
+  metrics: EmulationCompositorPrefitMetrics,
+): Promise<void> {
+  if (
+    tabId <= 0 ||
+    typeof getRuntimeBrowser().debugger?.sendCommand !== "function"
+  ) {
+    return Promise.reject(new Error("Debugger command API is unavailable"));
+  }
+  // Never attach here. The background's durable posture owns the debugger
+  // lease; this same-task command succeeds only while that exact lease exists.
+  return callBrowserApiVoid(
+    (api, callback) => api.debugger.sendCommand(
+      { tabId },
+      "Emulation.setDeviceMetricsOverride",
+      metrics,
+      callback,
+    ),
+    async (api) => {
+      await api.debugger.sendCommand(
+        { tabId },
+        "Emulation.setDeviceMetricsOverride",
+        metrics,
+      );
+    },
+  );
+}
+
 async function readPopupWindowBounds(): Promise<Readonly<{
   width: number;
   height: number;
@@ -2727,6 +2865,7 @@ async function applySessionEmulationResult(
   context: TargetTabContext,
   target: SessionEmulationTarget,
 ): Promise<SessionEmulationResult> {
+  const bindingOccurrence = boundTabOccurrence;
   let active = false;
   let reloadExpected = false;
   let priorDocumentNonce: string | null = null;
@@ -2764,6 +2903,13 @@ async function applySessionEmulationResult(
     // Change the popup cache only after this exact document is proved active.
     if (exact) {
       appliedEmulationMode = target.mode;
+      emulationCompositorPrefitController?.confirmPosture(
+        context.tabId,
+        bindingOccurrence,
+        target.mode,
+        response.data.scale,
+      );
+      void primeEmulationCompositorPrefit(context, bindingOccurrence);
     }
   });
   emulationApplyQueue = operation.catch(() => undefined);
@@ -2791,6 +2937,7 @@ async function verifySessionEmulation(
   context: TargetTabContext,
   mode: "mobile" | "desktop",
 ): Promise<boolean> {
+  const bindingOccurrence = boundTabOccurrence;
   const response = await getPopupBus().request("emulation.current", {
     tabId: context.tabId,
     mode,
@@ -2801,7 +2948,17 @@ async function verifySessionEmulation(
     response.data !== null &&
     response.data.active === true &&
     response.data.mode === mode;
-  if (!exact) appliedEmulationMode = null;
+  if (!exact) {
+    appliedEmulationMode = null;
+  } else {
+    emulationCompositorPrefitController?.confirmPosture(
+      context.tabId,
+      bindingOccurrence,
+      mode,
+      response.data.scale,
+    );
+    void primeEmulationCompositorPrefit(context, bindingOccurrence);
+  }
   return exact;
 }
 
@@ -6148,13 +6305,35 @@ if (DEBUG_BUILD && typeof window !== "undefined") {
 }
 const unsubscribeToast = toastController.subscribe(() => render());
 if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+  emulationCompositorPrefitController = createEmulationCompositorPrefitController({
+    boundsChanged: getRuntimeBrowser().windows?.onBoundsChanged,
+    currentState: () => ({
+      tabId: boundTabId,
+      bindingOccurrence: boundTabOccurrence,
+      desiredMode: desiredEmulationMode(),
+      appliedMode: appliedEmulationMode,
+      transitionPending: sessionTransitionPending > 0,
+    }),
+    popupGeometry: () => ({
+      windowBounds: popupOuterViewport(),
+      panelViewport: popupPanelViewport(),
+    }),
+    guard: guardPhysicalViewportFromPopup,
+    sendMetrics: sendEmulationCompositorPrefit,
+  });
   let lastPhysicalViewportSignature = "";
   let lastPopupOuterViewport = popupOuterViewport();
   let lastPopupPanelHeight: number | null = null;
   const requestPhysicalViewportRefit = (event?: Event): void => {
+    const physicalResizeOccurrence = event?.type === "resize";
+    // Enter Chrome's debugger queue before any browser API read or worker hop.
+    // A matching bounds event may already have performed this exact prefit; the
+    // controller returns its retained guard admission without issuing it twice.
+    const compositorPrefit = physicalResizeOccurrence
+      ? emulationCompositorPrefitController?.observePopupResize() ?? null
+      : null;
     const fields = physicalViewportRequestFields();
     const height = fields.physicalViewportHint?.height;
-    const physicalResizeOccurrence = event?.type === "resize";
     const priorPanelHeight = lastPopupPanelHeight;
     lastPopupPanelHeight = height ?? null;
     const immediateVerticalShrink = physicalResizeOccurrence &&
@@ -6176,9 +6355,13 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
       // builds where outerWidth/outerHeight lag one event. Start that obvious
       // shrink before the first await; an exact browser API read closes the
       // width-only and mixed-axis cases a few milliseconds later.
-      let guardAdmission = immediateVerticalShrink
-        ? guardPhysicalViewportFromPopup(context.tabId, desiredEmulationMode())
-        : null;
+      const mode = desiredEmulationMode();
+      let guardAdmission = compositorPrefit?.tabId === context.tabId &&
+          compositorPrefit.mode === mode
+        ? compositorPrefit.guardAdmission
+        : immediateVerticalShrink
+          ? guardPhysicalViewportFromPopup(context.tabId, mode)
+          : null;
       const outerViewport = await readPopupWindowBounds();
       const priorOuterViewport = lastPopupOuterViewport;
       if (outerViewport) lastPopupOuterViewport = outerViewport;
@@ -6201,17 +6384,30 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
       ) {
         guardAdmission = guardPhysicalViewportFromPopup(
           context.tabId,
-          desiredEmulationMode(),
+          mode,
         );
       }
       if (!changed && !guardAdmission) return;
-      const presentationGeneration = await guardAdmission ?? undefined;
+      const [presentationGeneration, compositorPrefitCompleted] = await Promise.all([
+        guardAdmission ?? Promise.resolve(undefined),
+        compositorPrefit?.metricsCompletion ?? Promise.resolve(false),
+      ]);
       await getPopupBus().request(
         "emulation.refit",
         {
           tabId: context.tabId,
           source: "popup",
           ...(presentationGeneration === undefined ? {} : { presentationGeneration }),
+          ...(compositorPrefitCompleted &&
+              compositorPrefit?.tabId === context.tabId &&
+              compositorPrefit.mode === mode
+            ? {
+                compositorPrefit: {
+                  mode: compositorPrefit.mode,
+                  scale: compositorPrefit.scale,
+                },
+              }
+            : {}),
           ...fields,
         },
         { target: "background" },
@@ -6222,8 +6418,13 @@ if (typeof window !== "undefined" && typeof window.addEventListener === "functio
   requestPhysicalViewportRefit();
   const disposeTransientNotifications = (): void => {
     window.removeEventListener("resize", requestPhysicalViewportRefit);
+    emulationCompositorPrefitController?.dispose();
+    emulationCompositorPrefitController = null;
+    emulationCompositorPrefitPrimeEpoch += 1;
     emulationViewportGuardPortClient?.dispose();
     emulationViewportGuardPortClient = null;
+    emulationCompositorOwnerPortClient?.dispose();
+    emulationCompositorOwnerPortClient = null;
     unsubscribeToast();
     toastController.dispose();
     maintenanceController.dispose();

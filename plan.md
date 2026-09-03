@@ -6822,3 +6822,358 @@ The clean P17/P14/P25 gates, exact-pushed HumaNova/Aleris headed proof, supplied
 17-property matrix, and cumulative expert adjudication remain pending until the
 reviewed commit is pushed. No production-readiness conclusion is declared by
 this pre-publication result.
+
+# EL-03-R11 exact-pushed compositor rejection — 2026-09-02
+
+R11 is **REJECTED** on exact pushed commit
+`7edeeaa7312a11fe3b3700bb272f83e44f726b13` (upstream 0:0). Clean P17 passed
+19/19, standalone P14 passed all 192 scenarios, and P25 passed its validated
+warm-up plus all seven children. Exact-pushed activation completed in 640 ms,
+and the slower HumaNova shrink/grow/no-op sequence passed. The strict 50-cycle
+HumaNova stress nevertheless reported released animation callbacks before three
+shrink guards, so it was not accepted on those aggregate results.
+
+An independent CDP screencast then proved the defect is compositor-visible, not
+a conservative harness artifact. In repeated 1279x899 -> 855x599 changes, Chrome
+presented a 469x448 frame containing the stale/clipped 412x960 page before the
+opaque guard on three of six sampled shrink occurrences. One representative
+cycle delivered the popup resize observation at `1788378647039`, mutated the
+guard opaque nine milliseconds later, but still presented stale content at
+`1788378647059` before the opaque frame. The direct port fixes transport and
+generation races, but it cannot retroactively cover a surface frame already
+queued while the idle guard lacks a retained compositor plane.
+
+Evidence:
+
+- `.temp/expert-live-r11/2026-09-02T19-43-58-710Z-resize-stress.json`
+- `.temp/expert-live-r11/screencast/2026-09-02T19-47-13-627Z/evidence.json`
+- `.temp/expert-live-r11/screencast/2026-09-02T19-50-43-137Z/evidence.json`
+- representative stale frame:
+  `.temp/expert-live-r11/screencast/2026-09-02T19-50-43-137Z/0066.jpg`
+- following opaque frame:
+  `.temp/expert-live-r11/screencast/2026-09-02T19-50-43-137Z/0067.jpg`
+
+# EL-03-R12 — Retained compositor safety plane
+
+## Goal and decision
+
+Keep the canonical, document-start transition guard mounted as a dedicated
+compositor candidate for the entire held emulation posture, including its
+transparent idle state. Guard admission must remain a synchronous opacity/input
+flip on that retained plane; it must not require first allocating or repainting
+the solid guard surface after a physical resize has already queued a frame.
+
+This is a falsifiable rendering hypothesis, not an acceptance relaxation. CDP
+screencast frames are the authority. If a promoted plane still exposes one stale
+shrink frame, reject this approach and continue the architecture loop rather
+than lowering the gate.
+
+## Acceptance criteria
+
+- `EL03-R12-AC-01` The idle guard remains mounted, visually transparent,
+  non-interactive, and compositor-promoted without changing the emulated page's
+  exact layout, interaction targeting, accessibility exposure, or screenshots.
+- `EL03-R12-AC-02` Guarding, paint proof, settle, fade, hostile-root repair,
+  suspension, release, navigation, and debugger recovery preserve their
+  generation/authority contracts with no extra entry or terminal fade.
+- `EL03-R12-AC-03` Exact-pushed HumaNova and Aleris each pass at least 50
+  alternating physical resize occurrences with one generation/write/terminal
+  lifecycle per occurrence and zero compositor-visible stale shrink frames.
+- `EL03-R12-AC-04` Focused tests, full `pnpm verify`, debug build, clean P17,
+  standalone P14, and P25 remain green before the 17-property matrix resumes.
+
+## Todo chain
+
+1. `el03-r12-compositor-plane` -> 0
+2. `el03-r12-rendering-regressions` -> 1
+3. `el03-r12-dirty-headed-falsification` -> 2
+4. `el03-r12-full-gates` -> 3
+5. `el03-r12-review-push` -> 4
+6. `el03-r12-exact-headed-conformance` -> 5
+7. `el03-r12-property-matrix` -> 6
+8. `el03-r12-cumulative-audit` -> 7
+
+## R12 prototype rejection — DOM promotion is insufficient
+
+The first retained-plane prototype added `will-change: opacity` plus a 3D
+transform to the permanently mounted guard and passed its focused unit suite.
+It is rejected by dirty-source compositor evidence: five of ten HumaNova shrink
+occurrences still presented stale page content before the guard. The guard's
+DOM mutation was prompt (10–17 ms after the popup boundary), but promotion
+cannot amend a physical WebContents surface frame Chrome queued before that
+renderer task. The prototype was removed; R12 now continues at the browser-owned
+emulation/compositor boundary, with no acceptance criterion weakened.
+
+Evidence:
+
+- `.temp/expert-live-r12/screencast/2026-09-02T19-56-22-683Z/evidence.json`
+- representative stale frame:
+  `.temp/expert-live-r12/screencast/2026-09-02T19-56-22-683Z/0002.jpg`
+
+## R12 browser-owned prefit result — open panel passes, closed panel rejected
+
+The next prototype moved the safety operation out of the page renderer. While
+the side panel is live, its native resize boundary now admits the retained
+content guard and submits one conservative scale-only
+`Emulation.setDeviceMetricsOverride` command directly to Chrome in the same
+task. A long-lived runtime port tells the worker which exact tab owns that
+earlier boundary, preventing a duplicate worker shrink command. The serialized
+background refit adopts a completed prefit only after re-proving the held
+posture and fresh physical geometry; stale, growing, detached, failed, or
+mode-mismatched attempts fall back to the authoritative refit path.
+
+Dirty-source compositor falsification passes the open-panel portion of the
+contract:
+
+- HumaNova: 50 alternating occurrences / 25 shrinks, exactly one popup prefit
+  per shrink, zero worker shrink duplicates, and zero non-412x960 shrink
+  frames across 1,389 compositor frames;
+- Aleris authoritative article: 50 alternating occurrences / 25 shrinks,
+  exactly one popup prefit per shrink, zero worker shrink duplicates, and zero
+  non-412x960 shrink frames across 836 compositor frames.
+
+Evidence:
+
+- `.temp/expert-live-r12/screencast/2026-09-02T21-10-57-456Z/evidence.json`
+- `.temp/expert-live-r12/screencast/2026-09-02T21-12-16-185Z/evidence.json`
+
+The same architecture is **REJECTED** for the approved durable posture while
+the side panel is closed. In that lifecycle there is no live panel document to
+receive the earlier native resize boundary. The worker submits its direct
+prefit before guard allocation as soon as `windows.onBoundsChanged` arrives,
+which was sufficient for HumaNova's 50-cycle run, but not deterministic on the
+Aleris candidate. Six of 25 Aleris shrink occurrences exposed one 855x456
+clipped frame before the worker command could affect the resized surface. The
+bounds event arrived roughly 95–136 ms after the physical resize request; the
+bad frame was already queued or presented within a few milliseconds of the
+event. An independent OS-level recording had already confirmed that this class
+of frame is user-visible rather than a screencast artifact.
+
+An isolated-world probe also found no usable earlier page signal: the emulated
+page continued to report 412x960 through `inner*`, `outer*`, `visualViewport`,
+screen, document root, resize events, observers, and interval samples. A page
+guard therefore cannot detect a closed-panel physical contraction before the
+browser-owned surface changes, and Chrome exposes no extension pre-resize hook
+for a user-driven window resize.
+
+Closed-panel evidence:
+
+- HumaNova control pass after command-before-guard ordering:
+  `.temp/expert-live-r12/screencast/2026-09-02T21-08-19-575Z/evidence.json`
+- Aleris rejection (six stale shrink frames):
+  `.temp/expert-live-r12/screencast/2026-09-02T21-13-18-495Z/evidence.json`
+- representative rejected frames: `0092.jpg`, `0136.jpg`, `0182.jpg`,
+  `0231.jpg`, `0291.jpg`, and `0323.jpg` in that evidence directory;
+- OS-level confirmation from the preceding ordering prototype:
+  `.temp/expert-live-r12/x11-closed-worker/closed-worker.mkv` and
+  `.temp/expert-live-r12/x11-closed-worker/bad-shrink-contact.png`.
+
+Focused validation of the retained prototype is green (5 files / 168 tests,
+targeted ESLint, TypeScript, and `git diff --check`). Full gates, publication,
+the exact-pushed property matrix, and cumulative approval remain intentionally
+withheld because `EL03-R12-AC-03` is not met. Continuing requires an explicit
+product-contract decision: keep a live side-panel resize owner while emulation
+is held; suspend/clear active emulation when that owner closes and restore it
+behind a guard on reopen; or accept a best-effort closed-panel posture that
+does not satisfy the current zero-frame contract.
+
+# EL-03-R13 — Panel-owned emulation lifecycle
+
+## Goal and approved decision
+
+On 2026-09-03 the product owner approved the production-safe lifecycle exposed
+by the R12 compositor falsification: actual browser emulation exists only while
+at least one live side-panel document owns the inspected tab. The desired
+mobile or silent-desktop mode remains durable for the tab session, but the last
+owner's close suspends that posture and restores the browser's native geometry,
+identity, touch, and media state behind the existing paint-proven transition
+guard. Reopening the panel restores the retained desired posture behind the
+same guard before marking interaction or annotation presentation resumes.
+
+This supersedes only the closed-panel continuity portions of I-33, N-03,
+INV-8.1, and INV-8.4. It does not relax exact emulation while the panel is live,
+permit manual scale/device controls, or weaken Save/AI capture requirements.
+The repository authority documents must record the amendment in the same
+change so future recovery work cannot recreate a continuously active
+closed-panel posture.
+
+## Current facts and resolved design
+
+- R12 proves the popup-owned compositor prefit is exact on both HumaNova and
+  Aleris while the panel is live; only the ownerless closed-panel path fails.
+  R13 retains that prefit unchanged for live owners.
+- The durable emulation record gains a backward-compatible `suspended` bit.
+  Missing means active for existing v1 records. A suspended record retains the
+  desired mode, maximum scale, fitted safety scale, and monotonic revision but
+  authorizes no debugger attach, refit, watchdog, startup/navigation recovery,
+  or compositor prefit.
+- The first live owner does not independently write CDP state. Normal popup
+  initialization calls `emulation.current`; suspended posture reports no active
+  proof, so the existing guarded `emulation.apply` transaction becomes the one
+  resume writer.
+- Last-owner loss is the authority to suspend. The long-lived runtime port is
+  primary and supports multiple/rebound owners; native `sidePanel.onClosed` is
+  an idempotent backup and may suspend only when no port owner remains.
+- Suspension is serialized with every other emulation operation. It first
+  obtains a paint-proven opaque guard, durably records the retained posture as
+  suspended, hides annotations and pauses marking listeners without discarding
+  decisions, clears CDP emulation, gives native geometry two compositor turns,
+  detaches, and only then releases the guard. Failure before browser mutation
+  restores the active durable/in-memory lease and presentation.
+- Content receives an explicit suspension projection both in `page.context`
+  and through the close transaction. Suspension is reason-scoped, so it cannot
+  accidentally undo Save/sync/property-lock pauses. It hides retained Marking,
+  Silent, Preview, hover, and focus paint and removes marking listeners while
+  leaving the ordinary page usable. Successful guarded resume clears it before
+  the opaque guard settles.
+- A managed document recognized without a live owner starts native and records
+  the default mobile desire directly as suspended; it must never briefly apply
+  mobile merely to clear it again. A cold worker never reasserts a suspended
+  record. An active legacy/recovered record discovered without an owner is
+  suspended through the guarded path as soon as a current content receiver can
+  provide the safety plane.
+- Panel closure cancels any active Render-mode inspection first, using its
+  existing token/generation-fenced fail-open path. JavaScript is restored and
+  any required reload is admitted before emulation detaches. A completed AI run
+  may remain locally resumable under I-26; marking decisions remain retained.
+  Thus N-03 continues to survive worker/reload recovery, but no longer survives
+  deliberate last-panel closure as an active debugger inspection.
+
+There are no open product questions for this round. If Chrome destroys the
+content receiver before suspension can prove the guard, R13 retains the active
+durable lease and retries; it never performs an unguarded clear. Tab closure and
+explicit unregister remain the existing terminal cleanup paths.
+
+## Non-goals
+
+- No best-effort allowance for a compositor-visible wrong frame.
+- No persistent offscreen/popup surrogate, forced always-open side panel, or
+  manipulation of the user's normal Chrome profile.
+- No change to marking semantics, AI result ownership, backend contracts,
+  consent suppression, or the supplied property set.
+- No deployment. Successful `run-plan` may review, commit, and exact-push only
+  after every local gate is green.
+
+## Implementation phases
+
+1. Amend durable posture/schema and runtime state with suspension, including
+   rollback, cold-start, navigation, detach, watchdog, bounds, refit, current,
+   clear, and failed-resume behavior.
+2. Promote the compositor owner port to first/last-owner lifecycle authority;
+   wire idempotent native close backup and token-fenced Render inspection
+   cancellation before suspension.
+3. Add content lifecycle projection/command, reason-scoped interaction pause,
+   annotation suppression, page-context hydration, and guarded resume release.
+4. Update decision spec, invariants, knowledge, marking reference, execution
+   plan, and README to the approved panel-owned contract.
+5. Run focused unit/contract/startup/content tests, targeted lint/typecheck,
+   `git diff --check`, full `pnpm verify`, debug build, P17, P14, and P25.
+6. Review the exact diff, commit/push with upstream equality proof, rebuild from
+   exact pushed source, and falsify at least 50 close/native-resize/reopen cycles
+   on both HumaNova and Aleris with compositor evidence.
+7. Run the supplied 17-property headed matrix from exact pushed source, record
+   the external 3DPrima SQL outcome truthfully, and perform the cumulative
+   expert-check. Production readiness requires explicit final approval.
+
+## Required test matrix
+
+- Storage: legacy active v1 hydration; suspended round trip; monotonic revision
+  arbitration between active/suspended writes.
+- Runtime: active-to-suspended guarded clear; already-suspended no-op; default
+  suspended creation; persistence/content-ack/CDP/detach failures; resume and
+  failed-resume rollback; no suspended refit, prefit, watchdog, navigation,
+  detach, or startup reassert; explicit clear still deletes intent.
+- Ownership: first/last owner edges, duplicate binding, tab transfer, multiple
+  owners, disconnect, unrelated/malformed ports, and native close ordering.
+- Content: page-context suspended adoption, close command idempotence, hidden
+  annotation roots, listener removal, retained dirty decisions, independent
+  Save/sync pauses, guarded resume, and replacement-document behavior.
+- Render inspection: active/static/dynamic/terminal/inactive states on close;
+  fail-open restoration precedes emulation detach and stale close occurrences
+  cannot cancel a newer session.
+- Headed: open-panel R12 resize proof remains exact; last close visibly returns
+  native geometry behind opacity; closed physical resize has no emulated stale
+  frame because no emulation is active; reopen restores exact desired
+  412x960/desktop posture before opacity releases; repeated and rapid
+  close/reopen/rebind cycles end with one owner-consistent posture.
+
+## Acceptance criteria
+
+- `EL03-R13-AC-01` With no live panel owner, every managed tab is in a proven
+  native browser posture and its durable desired emulation is suspended; no
+  recovery/refit path silently reattaches the debugger.
+- `EL03-R13-AC-02` Last-owner close and first-owner resume expose zero
+  compositor-visible wrong-geometry frames, retain mode and marking decisions,
+  and never leave annotation interaction active at native geometry.
+- `EL03-R13-AC-03` Render inspection fails open before suspension and every
+  persistence, receiver, debugger, navigation, worker-restart, and rapid owner
+  race ends in either the prior proven active posture or proven suspended
+  native posture—never an acknowledged ambiguous state.
+- `EL03-R13-AC-04` Focused and full automated gates pass; exact-pushed HumaNova
+  and Aleris each pass the 50-cycle compositor lifecycle proof; all reachable
+  supplied properties pass the headed matrix with external outages separated
+  from extension failures.
+- `EL03-R13-AC-05` A fresh cumulative expert-check explicitly approves the
+  exact pushed commit before the classification can change from alpha/develop.
+
+## Todo chain
+
+1. `el03-r13-authority-plan` -> 0
+2. `el03-r13-runtime-suspension` -> 1
+3. `el03-r13-owner-content-lifecycle` -> 2
+4. `el03-r13-authority-docs` -> 3
+5. `el03-r13-focused-validation` -> 4
+6. `el03-r13-full-gates` -> 5
+7. `el03-r13-review-push` -> 6
+8. `el03-r13-exact-headed-lifecycle` -> 7
+9. `el03-r13-property-matrix` -> 8
+10. `el03-r13-cumulative-audit` -> 9
+
+## EL-03-R13 implementation and local-gate checkpoint — 2026-09-03
+
+The approved panel-owned lifecycle is implemented across durable posture,
+background ownership, popup compositor prefit, content presentation, Render
+inspection cancellation, and the repository authority documents. The retained
+mobile or silent-desktop target is now stored with a backward-compatible
+`suspended` bit; a suspended target authorizes no attach, refit, navigation,
+watchdog, bounds, or startup reassertion. Last-owner loss completes Render
+inspection fail-open first, paint-guards suspension, parks annotations and
+marking input, persists the retained target, clears all CDP emulation, waits for
+native compositor turns, detaches, and only then releases the guard. Popup
+recreation verifies and reapplies the retained target through the ordinary
+guarded transaction.
+
+Review hardening added during this checkpoint:
+
+- terminal suspension-release delivery is retryable without repeating CDP;
+- cold-worker recovery completes a persisted suspended transaction when the
+  debugger target is still attached;
+- persistence, content-projection, physical-viewport, and detach failure paths
+  roll back to a proved active posture or retained suspended native posture;
+- owner-port reconnect, multiple-owner, tab-transfer, delivery-order, and
+  native-close races are fenced;
+- suspension uses a narrow per-tab lane so slow Hub/tab lifecycle work cannot
+  delay a last-owner close;
+- an admitted Render inspection start rechecks live owner authority before its
+  first debugger write, so a close during context authorization cannot reload
+  or disable scripts afterward; and
+- owner return at any suspension mutation boundary retains the existing opaque
+  generation and invalidates cached proof. The reopening popup's normal apply
+  supersedes that guard, preventing a native/exact-posture exposure gap during
+  rapid close/reopen overlap.
+
+The required codebase-memory graph was retried first but its MCP transport was
+closed, so review discovery used scoped repository reads and `rg` under the
+documented fallback rule. Local evidence is green:
+
+- focused lifecycle regression set: 7 files / 228 tests;
+- targeted ESLint and the main TypeScript configuration;
+- `git diff --check`; and
+- full `pnpm verify`: lint, generated page-world/icons, all three TypeScript
+  configurations, 152 files / 1,745 tests, production MV3 build, and 7/7
+  generated-manifest tests.
+
+This is not a production-readiness approval. Debug/P14/P17/P25 gates, exact
+review/commit/push proof, HumaNova and Aleris 50-cycle compositor
+falsification, the supplied 17-property matrix, and the fresh cumulative
+expert-check remain open.

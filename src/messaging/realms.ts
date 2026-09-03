@@ -148,6 +148,7 @@ const EmulationStateResponseSchema = z.object({
     "identity_mismatch",
     "proof_unavailable",
     "presentation_unavailable",
+    "owner_unavailable",
     "consent_suppression_disabled",
   ]).optional(),
 });
@@ -168,6 +169,9 @@ const PageContextResponseSchema = PageContextResolutionSchema.extend({
   /** Explicit Unregister is tab-scoped and survives its reload. Only the separate
    *  consent.suppression.register command clears this background-owned tombstone. */
   consentSuppressionAllowed: z.boolean().default(true),
+  /** True when the tab retains a desired device mode but no live side-panel
+   * owner currently authorizes browser emulation or annotation interaction. */
+  emulationSuspended: z.boolean().default(false),
   /** Whether the property has an established render mode. Marks taken under an
    *  unestablished one describe a page nobody has looked at, and the ritual is part
    *  of preparing the page to be marked. */
@@ -506,6 +510,13 @@ export const applicationContract = defineContract({
         source: z.enum(["content", "popup"]).optional(),
         /** Retained guard generation synchronously made opaque by content. */
         presentationGeneration: z.number().int().positive().optional(),
+        /** Popup-owned proof that its same-task scale-only compositor prefit
+         * completed. Background still re-reads physical geometry and proves the
+         * posture before adopting this as the authoritative refit write. */
+        compositorPrefit: z.object({
+          mode: z.enum(["mobile", "desktop"]),
+          scale: z.number().finite().positive(),
+        }).strict().optional(),
         physicalViewportHint: EmulationPhysicalViewportHintSchema.optional(),
       }),
       response: z.object({ status: z.literal("ok") }),

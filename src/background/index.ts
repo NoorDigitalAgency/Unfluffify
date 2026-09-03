@@ -27,6 +27,8 @@ import { getBrowserRuntimeLastError, getInstalledBrowserApi } from "../common/br
 import { createRealmBus } from "../messaging/realms";
 import { createRuntimeTransport } from "../messaging/transports/runtime";
 import { createTabTransport } from "../messaging/transports/tabs";
+import { installEmulationCompositorOwnerPortServer } from
+  "../messaging/emulation-compositor-owner-port";
 import {
   parseSenderDocumentId,
   parseSenderFrameId,
@@ -34,6 +36,7 @@ import {
 } from "../messaging/rewrite-signals";
 import { canonicalPageKey, PropertySnapshotIntegrityError } from "../storage/property-snapshot-authority";
 import { projectTodoCoverage } from "../domain/todo";
+import { DEVICE_EMULATION_PRESETS } from "../domain/constants";
 import type { ConfigSnapshot } from "../storage/config";
 import { fetchStaticPageHtml } from "./static-html";
 import { createTransferPayloadStore } from "./transfer-payload-store";
@@ -651,6 +654,7 @@ export function startRewriteBackground(): void {
     conflicts: [],
     upstreamCode: null,
     consentSuppressionAllowed: false,
+    emulationSuspended: false,
     renderModeSet: false,
     todo: projectTodoCoverage([], null, new Set()),
     shieldPosture: { status: "inactive" as const, revision: 0 },
@@ -1051,6 +1055,37 @@ export function startRewriteBackground(): void {
     }
     return { status: "no_receiver", reason: "content-receiver-unavailable" };
   };
+  const setContentEmulationLifecycleSuspended = async (
+    tabId: number,
+    suspended: boolean,
+  ): Promise<boolean> => {
+    if (!api.tabs?.sendMessage || tabId <= 0) return false;
+    const contentBus = createRealmBus({
+      realm: "background",
+      transport: createTabTransport(api.tabs, tabId),
+    });
+    try {
+      const response = await contentBus.request("command.dispatch", {
+        kind: "uf-command/1",
+        name: "setEmulationLifecycleSuspended",
+        tabId,
+        payload: { suspended },
+      }, { target: "content" });
+      if (!response.ok || !response.data.ok) return false;
+      const result = response.data.data;
+      return Boolean(
+        result &&
+        typeof result === "object" &&
+        !Array.isArray(result) &&
+        (result as Record<string, unknown>).ok === true &&
+        (result as Record<string, unknown>).suspended === suspended
+      );
+    } catch {
+      return false;
+    } finally {
+      contentBus.dispose();
+    }
+  };
   const guardPhysicalEmulationViewport = async (
     tabId: number,
     mode: "mobile" | "desktop",
@@ -1091,6 +1126,27 @@ export function startRewriteBackground(): void {
     }
   };
   let renderInspectionDetachHandler: ((tabId: number) => void) | null = null;
+  let emulationOwnershipChanged: ((tabId: number, active: boolean) => void) | null = null;
+  const emulationCompositorOwner = installEmulationCompositorOwnerPortServer(
+    api.runtime,
+    {
+      onOwnershipChanged(tabId, active) {
+        emulationOwnershipChanged?.(tabId, active);
+      },
+    },
+  );
+  const awaitEmulationCompositorOwner = async (tabId: number): Promise<boolean> => {
+    if (emulationCompositorOwner.active(tabId)) return true;
+    // Port binding and a typed request leave the popup through different Chrome
+    // channels. Give the earlier bind a short bounded window to reach this
+    // worker so initial activation cannot be misclassified as ownerless merely
+    // because the request channel won the delivery race.
+    for (const delay of [5, 10, 20, 40, 80] as const) {
+      await new Promise<void>((resolve) => setTimeout(resolve, delay));
+      if (emulationCompositorOwner.active(tabId)) return true;
+    }
+    return false;
+  };
   const renderEmulation = createRenderEmulationRuntime({
     debuggerApi: api.debugger,
     tabs: api.tabs,
@@ -1098,19 +1154,16 @@ export function startRewriteBackground(): void {
     postureRepo: createEmulationPostureRepo(emulationPostureStore),
     presentTransition: presentEmulationTransition,
     guardPhysicalViewport: guardPhysicalEmulationViewport,
+    ownerActive(tabId) {
+      return emulationCompositorOwner.active(tabId);
+    },
+    setContentLifecycleSuspended: setContentEmulationLifecycleSuspended,
+    popupCompositorPrefitActive(tabId) {
+      return emulationCompositorOwner.active(tabId);
+    },
     onDebuggerDetached(tabId) {
       renderInspectionDetachHandler?.(tabId);
     },
-  });
-  api.sidePanel?.onOpened?.addListener((info) => {
-    if (typeof info.tabId === "number") {
-      void renderEmulation.refit(info.tabId, { source: "side-panel" });
-    }
-  });
-  api.sidePanel?.onClosed?.addListener((info) => {
-    if (typeof info.tabId === "number") {
-      void renderEmulation.refit(info.tabId, { source: "side-panel" });
-    }
   });
   const pageContextRuntime = createPageContextRuntime({
     currentEnvironmentKey: services.lynx.currentEnvironmentKey,
@@ -1207,6 +1260,107 @@ export function startRewriteBackground(): void {
     });
     return queued;
   };
+  const emulationSuspensionRetryTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  const emulationSuspensionRetryAttempts = new Map<number, number>();
+  const emulationSuspensionOperations = new Map<number, Promise<void>>();
+  const emulationSuspensionRetryTargets = new Map<number, Readonly<{
+    mode: "mobile" | "desktop";
+    scale: number;
+  }>>();
+  const clearEmulationSuspensionRetry = (tabId: number): void => {
+    const timer = emulationSuspensionRetryTimers.get(tabId);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      emulationSuspensionRetryTimers.delete(tabId);
+    }
+    emulationSuspensionRetryAttempts.delete(tabId);
+    emulationSuspensionRetryTargets.delete(tabId);
+  };
+  const requestLastOwnerSuspension = (
+    tabId: number,
+    desired?: Readonly<{ mode: "mobile" | "desktop"; scale: number }>,
+  ): void => {
+    if (desired) emulationSuspensionRetryTargets.set(tabId, desired);
+    if (tabTerminations.has(tabId) || emulationCompositorOwner.active(tabId)) {
+      clearEmulationSuspensionRetry(tabId);
+      return;
+    }
+    if (emulationSuspensionRetryTimers.has(tabId)) {
+      return;
+    }
+    if (emulationSuspensionOperations.has(tabId)) return;
+    const retainedDesired = emulationSuspensionRetryTargets.get(tabId);
+    const operation = (async () => {
+      if (emulationCompositorOwner.active(tabId)) return;
+      const inspectionReady = await renderInspection.preparePanelSuspension(
+        tabId,
+        () => !emulationCompositorOwner.active(tabId) && !tabTerminations.has(tabId),
+      );
+      if (!inspectionReady) {
+        throw new Error("render-inspection-fail-open-pending");
+      }
+      if (emulationCompositorOwner.active(tabId) || tabTerminations.has(tabId)) return;
+      await renderEmulation.suspend(
+        tabId,
+        retainedDesired,
+      );
+    })();
+    emulationSuspensionOperations.set(tabId, operation);
+    const retireOperation = (): void => {
+      if (emulationSuspensionOperations.get(tabId) === operation) {
+        emulationSuspensionOperations.delete(tabId);
+      }
+    };
+    void operation.then(
+      () => {
+        retireOperation();
+        clearEmulationSuspensionRetry(tabId);
+      },
+      (error) => {
+        retireOperation();
+        if (tabTerminations.has(tabId) || emulationCompositorOwner.active(tabId)) {
+          clearEmulationSuspensionRetry(tabId);
+          return;
+        }
+        if (retainedDesired) {
+          emulationSuspensionRetryTargets.set(tabId, retainedDesired);
+        }
+        const attempt = emulationSuspensionRetryAttempts.get(tabId) ?? 0;
+        emulationSuspensionRetryAttempts.set(tabId, attempt + 1);
+        const delays = [100, 250, 500, 1_000, 2_000, 5_000] as const;
+        const timer = setTimeout(() => {
+          emulationSuspensionRetryTimers.delete(tabId);
+          requestLastOwnerSuspension(tabId);
+        }, delays[Math.min(attempt, delays.length - 1)]!);
+        (timer as unknown as { unref?: () => void }).unref?.();
+        emulationSuspensionRetryTimers.set(tabId, timer);
+        console.warn("[Unfluffify][rewrite] Panel-owned emulation suspension will retry", error);
+      },
+    );
+  };
+  emulationOwnershipChanged = (tabId, active) => {
+    if (active) {
+      clearEmulationSuspensionRetry(tabId);
+      return;
+    }
+    requestLastOwnerSuspension(tabId);
+  };
+  api.sidePanel?.onOpened?.addListener((info) => {
+    if (
+      typeof info.tabId === "number" &&
+      emulationCompositorOwner.active(info.tabId)
+    ) {
+      void renderEmulation.refit(info.tabId, { source: "side-panel" });
+    }
+  });
+  api.sidePanel?.onClosed?.addListener((info) => {
+    if (
+      typeof info.tabId === "number" &&
+      !emulationCompositorOwner.active(info.tabId)
+    ) {
+      requestLastOwnerSuspension(info.tabId);
+    }
+  });
   const factPersistenceTails = new Map<number, Promise<void>>();
   const enqueueFactPersistence = (tabId: number, facts: TabFacts): Promise<void> => {
     const previous = factPersistenceTails.get(tabId) ?? Promise.resolve();
@@ -1470,6 +1624,10 @@ export function startRewriteBackground(): void {
       const preserveSignalHead = reason !== "tab-closed";
       return beginTabCleanup(tabId, async () => {
         if (reason === "tab-closed") {
+          // A last-owner disconnect can race tabs.onRemoved. Retire any
+          // already-scheduled suspension retry so a dead numeric tab cannot
+          // leave a service-worker timer retrying forever.
+          clearEmulationSuspensionRetry(tabId);
           await settleRenderInspection("tab-close cleanup", () =>
             renderInspection.terminateTab(tabId, "tab-closed"));
           await clearConsentSuppression(tabId);
@@ -1735,6 +1893,25 @@ export function startRewriteBackground(): void {
           failureReason: "consent_suppression_disabled" as const,
         };
       }
+      if (!await awaitEmulationCompositorOwner(request.tabId)) {
+        const desired = {
+          mode: request.mode,
+          scale: request.scale,
+        } as const;
+        await renderEmulation.suspend(request.tabId, desired).catch(() => {
+          requestLastOwnerSuspension(request.tabId, desired);
+        });
+        const preset = DEVICE_EMULATION_PRESETS[request.mode];
+        return {
+          mode: request.mode,
+          width: preset.width,
+          height: preset.height,
+          scale: request.scale,
+          active: false,
+          identityStale: false,
+          failureReason: "owner_unavailable" as const,
+        };
+      }
       const current = await renderEmulation.current(
         request.tabId,
         request.mode,
@@ -1753,7 +1930,10 @@ export function startRewriteBackground(): void {
       );
     }));
   bus.onCommand("emulation.current", async (request) => {
-    if (await consentSuppressionDisabled(request.tabId)) return null;
+    if (
+      await consentSuppressionDisabled(request.tabId) ||
+      !await awaitEmulationCompositorOwner(request.tabId)
+    ) return null;
     return await renderEmulation.current(
       request.tabId,
       request.mode,
@@ -1789,6 +1969,13 @@ export function startRewriteBackground(): void {
           (contentOwnedRequest || meta.source === "popup")
         ? request.presentationGeneration
         : undefined;
+      if (request.compositorPrefit && meta.source === "popup") {
+        renderEmulation.adoptCompositorPrefit(
+          tabId,
+          request.compositorPrefit.mode,
+          request.compositorPrefit.scale,
+        );
+      }
       await renderEmulation.refit(tabId, {
         source: retainedPresentationGeneration !== undefined || contentOwnedRequest
           ? "content"
@@ -1970,6 +2157,7 @@ export function startRewriteBackground(): void {
       return {
         ...context,
         consentSuppressionAllowed: false,
+        emulationSuspended: false,
         renderModeSet: false,
         todo: projectTodoCoverage(context.pageTypes, context.pageKey, new Set()),
         shieldPosture: { status: "inactive" as const, revision: 0 },
@@ -1991,26 +2179,44 @@ export function startRewriteBackground(): void {
       }
     }
     // Content asks for page context at load time, before a popup necessarily
-    // exists. That is the earliest authoritative point at which the background
-    // knows this is a managed property tab, so establish the standing mobile
-    // posture here. An explicit desktop preview is a held override and remains
-    // untouched until the popup turns it off or marking begins.
+    // exists. Recognition establishes the desired default, but actual browser
+    // emulation belongs to a live side-panel owner. An ownerless document stays
+    // native and retains that desire as suspended instead of flashing mobile.
     await renderEmulation.hydrate(tabId);
+    const recognizedForEmulation = consentSuppressionAllowed &&
+      tabId > 0 &&
+      Boolean(context.environmentKey) &&
+      context.siteId !== null;
+    const retainedEmulation = renderEmulation.desired(tabId);
     const emulationDecision = managedEmulationDecision({
-      recognized: consentSuppressionAllowed &&
-        tabId > 0 &&
-        Boolean(context.environmentKey) &&
-        context.siteId !== null,
+      recognized: recognizedForEmulation,
       heldMode: renderEmulation.heldMode(tabId),
     });
-    if (emulationDecision) {
-      await renderEmulation.apply(
-        tabId,
-        emulationDecision.mode,
-        emulationDecision.scale,
-        emulationDecision.allowReload,
-      ).catch(() => undefined);
+    if (recognizedForEmulation) {
+      if (emulationCompositorOwner.active(tabId)) {
+        const target = retainedEmulation?.suspended
+          ? retainedEmulation
+          : emulationDecision;
+        if (target) {
+          await renderEmulation.apply(
+            tabId,
+            target.mode,
+            target.scale,
+            true,
+          ).catch(() => undefined);
+        }
+      } else {
+        const target = retainedEmulation ?? emulationDecision;
+        const desired = target
+          ? { mode: target.mode, scale: target.scale }
+          : undefined;
+        await renderEmulation.suspend(tabId, desired).catch(() => {
+          requestLastOwnerSuspension(tabId, desired);
+        });
+      }
     }
+    const emulationSuspended = recognizedForEmulation &&
+      (!emulationCompositorOwner.active(tabId) || renderEmulation.isSuspended(tabId));
     const propertyKey = context.environmentKey && context.siteId !== null
       ? `${context.environmentKey}\u0000${context.siteId}`
       : null;
@@ -2157,6 +2363,7 @@ export function startRewriteBackground(): void {
     return {
       ...context,
       consentSuppressionAllowed: !await consentSuppressionDisabled(tabId),
+      emulationSuspended,
       renderModeSet,
       todo,
       shieldPosture: currentShieldPosture,
@@ -2314,8 +2521,14 @@ export function startRewriteBackground(): void {
     if (meta.source !== "popup" || parseSenderDocumentId(meta.sourceInstance) !== null) {
       throw new Error("render-inspection-popup-required");
     }
+    if (!await awaitEmulationCompositorOwner(request.tabId)) {
+      throw new Error("render-inspection-owner-unavailable");
+    }
     await awaitTabTermination(request.tabId);
     return withTabLifecycleOperation(request.tabId, async () => {
+      if (!emulationCompositorOwner.active(request.tabId)) {
+        throw new Error("render-inspection-owner-unavailable");
+      }
       const sameUrl = (left: string, right: string): boolean => {
         try {
           const leftUrl = new URL(left);
@@ -2391,7 +2604,8 @@ export function startRewriteBackground(): void {
           !currentNavigation.pending &&
           Boolean(currentNavigation.pageUrl && sameUrl(currentNavigation.pageUrl, request.pageUrl)) &&
           mainDocumentByTab.get(request.tabId) === admittedDocumentId &&
-          !tabTerminations.has(request.tabId);
+          !tabTerminations.has(request.tabId) &&
+          emulationCompositorOwner.active(request.tabId);
       };
       // Context resolution and suppression storage both yield. Recheck the
       // admitted epoch before the runtime can perform even its first CDP write;

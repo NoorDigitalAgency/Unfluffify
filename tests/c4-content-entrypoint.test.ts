@@ -578,7 +578,11 @@ function installTestLocation(pageUrl = "https://example.com/page"): { href: stri
   return locationValue;
 }
 
-function managedPageContextReply(request: BusFrame, pageUrl: string): BusFrame {
+function managedPageContextReply(
+  request: BusFrame,
+  pageUrl: string,
+  options: Readonly<{ emulationSuspended?: boolean }> = {},
+): BusFrame {
   const url = new URL(pageUrl);
   const baseUrl = url.origin;
   const environmentKey = url.hostname;
@@ -597,6 +601,7 @@ function managedPageContextReply(request: BusFrame, pageUrl: string): BusFrame {
     conflicts: [],
     upstreamCode: null,
     consentSuppressionAllowed: true,
+    emulationSuspended: options.emulationSuspended === true,
     renderModeSet: false,
     todo: { covered: 0, actionable: 0, pageTypes: [] },
     shieldPosture: {
@@ -821,6 +826,55 @@ describe("C4 rewrite content entrypoints", () => {
         interactionsReason: "no-document",
         reason: "no-document",
         tree: "rewrite",
+      },
+    });
+  });
+
+  it("adopts ownerless emulation suspension from page context before accepting marking", async () => {
+    const addListener = vi.fn();
+    const pageUrl = installTestLocation();
+    const sendMessage = vi.fn(async (message: BusFrame) => message.name === "page.context"
+      ? managedPageContextReply(message, pageUrl.href, { emulationSuspended: true })
+      : undefined);
+    globalThis.chrome = {
+      runtime: {
+        onMessage: { addListener },
+        sendMessage,
+      },
+    } as unknown as typeof chrome;
+    vi.doMock("wxt/utils/define-content-script", () => ({
+      defineContentScript: (config: unknown) => config,
+    }));
+
+    const entrypoint = await import("../src/entrypoints/content-loader.content.ts");
+    (entrypoint.default as { main: () => void }).main();
+    for (let attempt = 0; attempt < 20 && !sendMessage.mock.calls.some(
+      ([message]) => (message as BusFrame).name === "page.context",
+    ); attempt += 1) {
+      await Promise.resolve();
+    }
+    const listener = addListener.mock.calls[0]?.[0] as (
+      message: unknown,
+      sender: unknown,
+      sendResponse: (value: unknown) => void,
+    ) => unknown;
+    await applyLockState(listener);
+
+    await expect(dispatchContentCommand(listener, "activateContentMain")).resolves.toEqual({
+      ok: true,
+      data: {
+        ok: false,
+        initialized: false,
+        interactionsReady: false,
+        reason: "emulation-suspended",
+        tree: "rewrite",
+      },
+    });
+    await expect(dispatchContentCommand(listener, "getContentMainStatus")).resolves.toMatchObject({
+      ok: true,
+      data: {
+        emulationLifecycleSuspended: true,
+        interactionsReason: "marking-inactive",
       },
     });
   });
@@ -4342,6 +4396,8 @@ describe("C4 rewrite content entrypoints", () => {
       toggle: vi.fn(),
       rows: vi.fn(() => [{ xpath: "/html[1]/body[1]/p[1]", excluded: true }]),
       lastInitializationSeededSelectors: vi.fn(() => true),
+      setSuspended: vi.fn(),
+      setPageInspectionActive: vi.fn(),
     };
     const createMarkingEngine = vi.fn(() => engine);
     globalThis.chrome = {
@@ -4377,10 +4433,41 @@ describe("C4 rewrite content entrypoints", () => {
     await applyLockState(listener);
     await dispatchContentCommand(listener, "activateContentMain");
     documentListeners.get("click")?.({ clientX: 1, clientY: 1, altKey: false, shiftKey: false, preventDefault: vi.fn(), stopPropagation: vi.fn() } as unknown as Event);
+    await expect(dispatchContentCommand(listener, "setEmulationLifecycleSuspended", {
+      suspended: true,
+    })).resolves.toMatchObject({
+      ok: true,
+      data: { ok: true, suspended: true, active: true, dirty: true },
+    });
+    expect(documentListeners.has("click")).toBe(false);
+    expect(engine.setPageInspectionActive).toHaveBeenLastCalledWith(true);
+    await expect(dispatchContentCommand(listener, "getContentMainStatus")).resolves.toMatchObject({
+      ok: true,
+      data: {
+        dirty: true,
+        interactionsReady: false,
+        interactionsReason: "emulation-suspended",
+        emulationLifecycleSuspended: true,
+      },
+    });
+    await dispatchContentCommand(listener, "setEmulationLifecycleSuspended", {
+      suspended: false,
+    });
+    expect(documentListeners.has("click")).toBe(true);
+    expect(engine.setPageInspectionActive).toHaveBeenLastCalledWith(false);
     const paused = await dispatchContentCommand(listener, "pauseContentMainInteractions");
     expect(documentListeners.has("click")).toBe(false);
     expect((document.documentElement as HTMLElement).className).toContain("uf-cursor-disabled");
     expect(paused).toEqual({ ok: true, data: { ok: true, active: true, dirty: true, tree: "rewrite" } });
+    await dispatchContentCommand(listener, "setEmulationLifecycleSuspended", {
+      suspended: true,
+    });
+    await dispatchContentCommand(listener, "setEmulationLifecycleSuspended", {
+      suspended: false,
+    });
+    // Lifecycle resume removes only its own pause reason. A Save/capture pause
+    // remains authoritative until its explicit resume command wins.
+    expect(documentListeners.has("click")).toBe(false);
     const clean = await dispatchContentCommand(listener, "markContentMainClean");
     expect(clean).toEqual({ ok: true, data: { ok: true, active: true, dirty: true, tree: "rewrite" } });
     await applyLockState(listener, {

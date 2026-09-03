@@ -13,6 +13,11 @@ export const EmulationPostureRecordSchema = z.object({
    * physical tab-fit proof. Older v1 records legitimately omit it; hydration
    * then establishes a new safe scale before persisting the enriched record. */
   fittedScale: z.number().finite().positive().optional(),
+  /** Desired posture is retained while the last side-panel owner is absent,
+   * but a suspended record authorizes no debugger attachment or CDP override.
+   * Older v1 records omit the bit and remain active until lifecycle
+   * reconciliation proves that they are ownerless. */
+  suspended: z.boolean().optional(),
   revision: z.number().int().nonnegative(),
 });
 

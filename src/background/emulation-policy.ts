@@ -1,4 +1,4 @@
-import type { EmulationMode } from "../content/stabilization";
+import type { EmulationMode } from "../domain/emulation";
 
 export type ManagedEmulationDecision = Readonly<{
   mode: "mobile";

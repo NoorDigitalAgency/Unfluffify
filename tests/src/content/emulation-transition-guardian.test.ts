@@ -343,6 +343,17 @@ describe("emulation transition guardian", () => {
       cause: "clear",
     })).toEqual({ phase: "release", generation: 2, cause: "clear" });
     expect(parseEmulationTransitionRequest({
+      phase: "begin",
+      generation: 3,
+      mode: "mobile",
+      cause: "panel-suspend",
+    })).toEqual({
+      phase: "begin",
+      generation: 3,
+      mode: "mobile",
+      cause: "panel-suspend",
+    });
+    expect(parseEmulationTransitionRequest({
       phase: "abort",
       generation: 3,
       cause: "restore",
@@ -495,6 +506,34 @@ describe("emulation transition guardian", () => {
       coverage: true,
     });
     expect(guardian.element()?.isConnected).toBe(true);
+  });
+
+  it("lets durable suspension supersede a lost guard and waits two native paint turns", async () => {
+    let requestedFrames = 0;
+    const { guardian } = fixture({
+      requestFrame(callback) {
+        requestedFrames += 1;
+        queueMicrotask(() => callback(Date.now()));
+        return requestedFrames;
+      },
+    });
+    await guardian.handle({ ...beginMobile, cause: "panel-suspend" });
+    const framesAfterBegin = requestedFrames;
+
+    await expect(guardian.handle({
+      phase: "release",
+      generation: 2,
+      cause: "panel-suspend",
+    })).resolves.toMatchObject({
+      ok: true,
+      generation: 2,
+      mode: null,
+      stage: "released",
+      guarded: false,
+      coverage: false,
+    });
+    expect(requestedFrames - framesAfterBegin).toBe(2);
+    expect(guardian.element()).toBeNull();
   });
 
   it("keeps coverage when Chrome exposes the intermediate 1.025 mobile frame", async () => {

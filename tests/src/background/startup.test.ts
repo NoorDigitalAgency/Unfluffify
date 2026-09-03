@@ -9,13 +9,24 @@ function emulationTransitionContentReply(message: unknown): BusFrame | undefined
     name?: unknown;
     payload?: { phase?: unknown; generation?: unknown; mode?: unknown };
   } | undefined;
-  if (
-    frame.name !== "command.dispatch" ||
-    (envelope?.name !== "emulationTransition" &&
-      envelope?.name !== "emulationViewportGuard")
-  ) {
+  if (frame.name !== "command.dispatch") {
     return undefined;
   }
+  if (envelope?.name === "setEmulationLifecycleSuspended") {
+    const suspended = (envelope.payload as { suspended?: unknown } | undefined)?.suspended;
+    return {
+      ...frame,
+      frameType: "reply",
+      source: "content",
+      target: frame.source,
+      ok: true,
+      payload: { ok: true, data: { ok: true, suspended } },
+    };
+  }
+  if (
+    envelope?.name !== "emulationTransition" &&
+    envelope?.name !== "emulationViewportGuard"
+  ) return undefined;
   const request = envelope.payload ?? {};
   const phase = request.phase;
   const physicalGuard = envelope.name === "emulationViewportGuard";
@@ -494,6 +505,7 @@ describe("rewrite background startup", () => {
 
   it("serves CDP device emulation through the shipped typed bus", async () => {
     const addMessageListener = vi.fn();
+    const addConnectListener = vi.fn();
     const debuggerCalls: unknown[] = [];
     const viewport = { id: 5, width: 1_000, height: 1_000, windowId: 4 };
     const outer = { id: 4, width: 1_200, height: 900 };
@@ -505,6 +517,7 @@ describe("rewrite background startup", () => {
       runtime: {
         sendMessage: vi.fn(),
         onMessage: { addListener: addMessageListener },
+        onConnect: { addListener: addConnectListener },
       },
       debugger: {
         attach(target: unknown, version: string, callback: () => void) {
@@ -578,6 +591,27 @@ describe("rewrite background startup", () => {
 
     const { startRewriteBackground } = await import("../../../src/background/index");
     startRewriteBackground();
+    let ownerBindingListener: ((message: unknown) => void) | undefined;
+    let ownerDisconnectListener: (() => void) | undefined;
+    const ownerPort = {
+      name: "uf-emulation-compositor-owner/v1",
+      postMessage: vi.fn(),
+      onMessage: {
+        addListener(listener: (message: unknown) => void) {
+          ownerBindingListener = listener;
+        },
+        removeListener: vi.fn(),
+      },
+      onDisconnect: {
+        addListener(listener: () => void) {
+          ownerDisconnectListener = listener;
+        },
+        removeListener: vi.fn(),
+      },
+    };
+    const connectListener = addConnectListener.mock.calls[0]?.[0] as
+      ((port: typeof ownerPort) => void) | undefined;
+    connectListener?.(ownerPort);
     const runtimeListener = addMessageListener.mock.calls[0]?.[0] as (message: unknown, sender: unknown, sendResponse: (value: unknown) => void) => unknown;
     let response: unknown;
     runtimeListener({
@@ -598,9 +632,17 @@ describe("rewrite background startup", () => {
     }, {}, (value: unknown) => {
       response = value;
     });
-    await Promise.resolve();
-    await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The typed request is allowed to reach the worker just ahead of the port
+    // binding; the bounded owner fence must join that delivery race rather than
+    // misclassifying this live popup as ownerless.
+    setTimeout(() => ownerBindingListener?.({
+      kind: "uf-emulation-compositor-owner/bind/1",
+      tabId: 5,
+    }), 1);
+    for (let attempt = 0; attempt < 50 && response === undefined; attempt += 1) {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
 
     expect(response).toMatchObject({
       frameType: "reply",
@@ -630,6 +672,24 @@ describe("rewrite background startup", () => {
         payload: { mode: "mobile" },
       },
     });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    ownerDisconnectListener?.();
+    for (let attempt = 0; attempt < 20 && !debuggerCalls.some(
+      (call) => (call as { method?: string }).method === "detach",
+    ); attempt += 1) {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(sendMessage.mock.calls.some(([, message]) => {
+      const frame = message as BusFrame;
+      const envelope = frame.payload as { name?: string; payload?: unknown } | undefined;
+      return envelope?.name === "setEmulationLifecycleSuspended" &&
+        (envelope.payload as { suspended?: unknown } | undefined)?.suspended === true;
+    })).toBe(true);
+    expect(debuggerCalls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ method: "Emulation.clearDeviceMetricsOverride" }),
+      expect.objectContaining({ method: "detach", target: { tabId: 5 } }),
+    ]));
   });
 
   it("round-trips connection settings so the popup can configure the endpoints", async () => {
@@ -982,6 +1042,7 @@ describe("rewrite background startup", () => {
         payload: {
           status: "managed_candidate",
           consentSuppressionAllowed: true,
+          emulationSuspended: true,
         },
       });
 

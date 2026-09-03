@@ -118,7 +118,8 @@ function createAuthoritativeMarkingEngine(
     pageInspectionActive ||
       pageWorldCleanupFenceNonce !== "" ||
       renderModeViewActive ||
-      emulationTransitionGuarding,
+      emulationTransitionGuarding ||
+      emulationLifecycleSuspended,
   );
   return engine;
 }
@@ -261,6 +262,9 @@ let renderInspectionCurtain: RenderInspectionCurtainController | null = null;
 let emulationTransitionGuardian: EmulationTransitionGuardian | null = null;
 let disposeEmulationViewportGuardPortServer: (() => void) | null = null;
 let emulationTransitionGuarding = false;
+/** The desired mode remains a tab-session decision while the browser itself is
+ * native because no live side-panel document owns emulation. */
+let emulationLifecycleSuspended = false;
 let renderInspectionAdoptionGeneration = 0;
 let pendingRenderInspectionAdoptionGeneration: number | null = null;
 let provisionalBfcacheRenderInspectionFence = false;
@@ -2288,7 +2292,8 @@ function annotationPresentationSuppressed(): boolean {
   return pageInspectionActive ||
     pageWorldCleanupFenceNonce !== "" ||
     renderModeViewActive ||
-    emulationTransitionGuarding;
+    emulationTransitionGuarding ||
+    emulationLifecycleSuspended;
 }
 
 async function refreshViewportDependentPresentation(
@@ -2317,7 +2322,13 @@ function ensureEmulationTransitionGuardian(): EmulationTransitionGuardian | null
   const guardian = createEmulationTransitionGuardian({
     document,
     window,
-    async beforeSettle() {
+    async beforeSettle(request) {
+      // Resume annotation presentation while the guard is still opaque. Its
+      // normal settle proof then covers both exact browser geometry and the
+      // remeasured retained marking layer.
+      if (request?.cause !== "panel-suspend") {
+        applyEmulationLifecycleSuspended(false);
+      }
       await refreshViewportDependentPresentation(true);
     },
     onUnexpectedViewportChange(_mode, presentationGeneration) {
@@ -3293,6 +3304,7 @@ async function resolvePageContext(options: Readonly<{ ritualRequiresCandidate?: 
     // was in flight. A late managed answer must not revive DOM authority.
     return;
   }
+  applyEmulationLifecycleSuspended(response.data.emulationSuspended);
   if (!response.data.consentSuppressionAllowed) {
     terminateConsentSuppression({ terminal: true });
     terminateInteractionShieldAuthority();
@@ -4117,6 +4129,9 @@ function currentMarkingInteractionAvailability(): MarkingInteractionAvailability
   if (contentPresentation.markingEditsBlocked) {
     return { ready: false, reason: contentPresentation.blockedReason || "session-blocked" };
   }
+  if (emulationLifecycleSuspended) {
+    return { ready: false, reason: "emulation-suspended" };
+  }
   if (markingInteractionPauseRequested) {
     return { ready: false, reason: "interaction-pause-requested" };
   }
@@ -4146,6 +4161,15 @@ function reconcileMarkingInteractionAvailability(): MarkingInteractionAvailabili
     ready: removeMarkingListeners !== null,
     reason: removeMarkingListeners === null ? "marking-listeners-unavailable" : "",
   };
+}
+
+function applyEmulationLifecycleSuspended(suspended: boolean): void {
+  if (emulationLifecycleSuspended === suspended) return;
+  emulationLifecycleSuspended = suspended;
+  reconcileMarkingInteractionAvailability();
+  markingEngine?.setPageInspectionActive?.(annotationPresentationSuppressed());
+  lastContentSurfaceSignature = "";
+  renderContentSurface();
 }
 
 type MarkingDeactivationMode = "terminal" | "silent";
@@ -4671,6 +4695,7 @@ function contentStatus(): Record<string, unknown> {
     presentation: contentPresentation,
     interactionsReady: listenerReady,
     interactionsReason: interactions.reason || (markingInteractionsPaused ? "interactions-paused" : ""),
+    emulationLifecycleSuspended,
     presentationPhase: pageInspectionActive
       ? "preparing"
       : listenerReady
@@ -4695,6 +4720,9 @@ function markContentClean(): Record<string, unknown> {
 }
 
 function captureSubmissionSnapshot(payload: unknown): Record<string, unknown> {
+  if (emulationLifecycleSuspended) {
+    return { ok: false, reason: "emulation-suspended", tree: "rewrite" };
+  }
   if (!markingEngine) {
     return { ok: false, reason: "marking-inactive", tree: "rewrite" };
   }
@@ -4728,6 +4756,15 @@ function createContentRouter() {
     handlers: {
       "lock.state.changed": (payload) => applyContentLockState(payload),
       activateContentMain: async (payload, command) => {
+        if (emulationLifecycleSuspended) {
+          return {
+            ok: false,
+            initialized: false,
+            interactionsReady: false,
+            reason: "emulation-suspended",
+            tree: "rewrite",
+          };
+        }
         const lifecycleGeneration = contentLifecycleGeneration;
         if (!await resumeConsentSuppression(command.tabId, lifecycleGeneration)) {
           return { ok: false, initialized: false, tree: "rewrite", reason: "consent-registration-failed" };
@@ -4779,6 +4816,24 @@ function createContentRouter() {
         }
         return {
           ...await guardian.handle(request),
+          tree: "rewrite",
+        };
+      },
+      setEmulationLifecycleSuspended: (payload) => {
+        const suspended = payloadObject(payload).suspended;
+        if (typeof suspended !== "boolean") {
+          return {
+            ok: false,
+            reason: "invalid-emulation-lifecycle-suspension",
+            tree: "rewrite",
+          };
+        }
+        applyEmulationLifecycleSuspended(suspended);
+        return {
+          ok: true,
+          suspended: emulationLifecycleSuspended,
+          active: markingActive,
+          dirty: isUserMarkingDirty(),
           tree: "rewrite",
         };
       },

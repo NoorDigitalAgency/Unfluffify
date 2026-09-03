@@ -289,3 +289,31 @@ conflicting T1/T4/T6/T8/T10/T11 and Amendment A1 details. The important correcti
   `submittedSelectorsFingerprint` only after definitive GraphQL success.
 - Final normalized domain-wide selector values are the semantic product. Do not add a marking-corpus
   calculation-basis fingerprint or stale selectors solely because instrumental markings changed.
+
+---
+
+## Amendment A3 (2026-09-03) — panel-owned browser emulation
+
+**Supersedes the closed-panel continuity clauses of I-33, N-03, INV-8.1, and
+INV-8.4.** This amendment was selected after compositor traces proved that
+Chromium exposes a physically resized WebContents frame before its delayed
+service-worker bounds event when no side-panel document is alive. No extension
+hook can guard or prefit that ownerless frame deterministically.
+
+- Actual device/identity/touch/media emulation is owned by at least one live
+  side-panel document. Last-owner close transitions to native browser posture
+  behind the paint-proven guard; first-owner reopen restores the retained
+  mobile or silent-desktop desire behind that guard.
+- The desired target and marking decisions remain tab-session durable while
+  suspended. Geometry-bound annotations are hidden and marking listeners are
+  removed; no suspended startup, navigation, detach, watchdog, bounds, or
+  refit path may attach the debugger.
+- Render inspection does not stay active across deliberate last-panel close.
+  Its existing token/generation-fenced cancellation must restore JavaScript and
+  complete any healing reload before emulation detaches.
+- Exact crawler posture remains mandatory whenever the panel is live and before
+  marking entry, AI capture, or Save. No manual scale/device control or
+  best-effort wrong-frame exception is introduced.
+
+The implementation and acceptance record is `EL-03-R13` in the repository-root
+`plan.md`.

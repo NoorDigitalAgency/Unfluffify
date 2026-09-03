@@ -1,12 +1,14 @@
 # Unfluffify Knowledge
 
-> **Current product authority (2026-08-20):**
+> **Current product authority (amended 2026-09-03):**
 > [`.reimplementation/rewrite-legacy-decision-spec.md`](../.reimplementation/rewrite-legacy-decision-spec.md)
 > and its [active execution plan](../.reimplementation/rewrite-legacy-execution-plan.md) supersede
 > conflicting historical notes below. In particular: defaults are calculated before one-shot
 > selector actions; selectors retain no provenance/suppression; retrievable closed roots are
 > flattened; silent/post-AI mode blocks page actions while permitting scroll; and every managed
-> tab continuously uses the fixed Googlebot Smartphone posture with no manual device/scale control.
+> tab retains the fixed Googlebot Smartphone desire with no manual device/scale
+> control. Actual emulation is side-panel-owned: last-owner close returns to
+> native posture behind the guard and reopen restores the retained target.
 
 ## Agent Workflow Assets
 
@@ -668,14 +670,22 @@ painted" decision from the replaced document.
 - Extension-owned UI injected into the page (toasts, banners, notices, AI popover, motion-pause indicator) uses the shared `EXTENSION_UI_FONT_STACK` constant (mirrors the popup brand `--font-sans` = Inter) rather than ad-hoc per-element families. The Material Design Icons glyph font is intentionally separate.
 - Page motion pause is a shared marking/silent-highlighting lifecycle source. Marking/reveal warmup first hides consent chrome before inspection styling or any scroll, then shows a page-inspection spinner, blocks page/content-overlay input, performs the historical max-scroll reveal walk for lazy content, returns to the reserved scroll position, freezes, and renders overlays. Matching base-URL pages stay frozen even before selector overlays exist; the pause uses broad CSS/Web Animations/SVG/media/style-lock coverage plus a page-world timer/rAF gate, normalizes layout-present scroll/viewport/attribute-driven reveal candidates such as Webflow `data-w-id` blocks to visible posture, shows an Unfluffify-scoped Material Design Icons snowflake/code indicator without injecting global `.mdi` page styles, excludes extension-owned UI, keeps internal marking scheduling on extension-owned timers/rAF, and strips all freeze mechanics from snapshots.
 - The page freeze is a SINGLE page-visit-scoped lock, decoupled from the overlay layers: once the page is frozen it stays frozen for the whole visit and is released ONLY on navigation. `pausePageMotion(reason)` always also holds the `PAGE_VISIT_MOTION_PAUSE_REASON = "page-visit"` reason, so per-subsystem `resumePageMotion(reason)` calls (marking `disable()`, silent-highlighting teardown, AI run/preview/exit) drop only their own reason and leave the page frozen — they change which highlight/marking OVERLAY is showing, never the freeze. `resumeAllPageMotion()` is the single release, wired into `emitNavigationChangeIfUrlChanged` (history pushState/replaceState + popstate/hashchange) so the freeze lifts on any URL change and the new page re-freezes itself if still eligible; full-page navigations re-inject content anyway. `enableForBaseUrl` checks `isPageMotionPaused()` (not a specific reason) to keep an existing freeze and skip re-running the reveal warmup. Do NOT reintroduce per-phase freeze teardown (e.g. unfreezing in `disable()` or on AI-run/preview transitions) — that reintroduces the freeze-drop (#3) / stuck-freeze leak class of bugs.
-- Every recognized managed tab continuously uses the fixed Googlebot Smartphone posture. Users cannot disable or scale it; navigation, debugger detach, and rebinding self-heal. The sole desktop exception is the approved silent-only preview, which disables marking and restores crawler mobile when it ends.
+- Every recognized managed tab retains the fixed Googlebot Smartphone desire.
+  Users cannot select another device or manual scale. While at least one live
+  side-panel document owns the tab, navigation, debugger detach, and rebinding
+  self-heal that exact posture. Last-owner close returns Chrome to native
+  geometry/identity/input behind the transition guard, retains the desired mode
+  as suspended, and hides annotation paint/listeners without discarding marking
+  decisions. Reopen restores it behind the guard. The sole desktop exception is
+  the approved silent-only preview.
 - DEBUGGER POSTURE DURABILITY (EL-02-R19): the background is the sole
   mobile/desktop authority and persists each tab's desired mode, maximum scale,
   and fenced revision in `chrome.storage.session` before its first CDP write.
   Cold MV3 workers hydrate that record before applying any default; popup state
   is only a projection and verifies `emulation.current` before trusting a local
-  exact-mode cache. Window bounds, side-panel open/close, and popup viewport
-  resize request a coalesced same-mode refit. Shrink-to-fit is immediate,
+  exact-mode cache. While a panel owner is live, window bounds and popup
+  viewport resize request a coalesced same-mode refit; last close follows the
+  R13 suspension transaction instead. Shrink-to-fit is immediate,
   expansion is trailing, and an exact refit writes only
   `Emulation.setDeviceMetricsOverride`—never UA, touch, media, page scale,
   neutral posture, or the opposite mode. The normal 0.25 scale floor is a user-
@@ -689,6 +699,21 @@ painted" decision from the replaced document.
   truth must independently invalidate cached viewport/UA/touch/media proof and
   force a complete held-posture reapply. A healthy target check is browser
   metadata only and must not add CDP commands or touch the page main thread.
+- PANEL-OWNED EMULATION LIFECYCLE (EL-03-R13, product-approved 2026-09-03): the
+  popup's long-lived compositor-owner port is the primary first/last-owner
+  authority; native `sidePanel.onClosed` is an idempotent no-owner backup.
+  Durable posture v1 records may carry `suspended: true`; missing means legacy
+  active. Suspended records retain desired mode/scale/revision but categorically
+  authorize no startup/navigation/detach/watchdog/bounds/refit CDP work.
+  Last-owner suspension first cancels/fail-opens Render inspection, then proves
+  the content guard opaque, parks geometry-bound annotation interaction,
+  persists suspension, clears CDP posture, waits native compositor turns,
+  detaches, and releases. A managed document born without an owner records the
+  mobile desire directly as suspended and never flashes through an apply/clear.
+  Successful reopen applies the retained target and clears the content pause
+  during guarded settle. Persistence/receiver/detach failures retain either the
+  prior proven active posture or the proven suspended native posture and retry;
+  they never acknowledge ambiguous geometry.
 - Same-property pages that are no longer current Live Page candidates still keep silent highlighting and property-lock visibility for that property. Only marking entry is blocked there; the popup should not collapse the whole page UI just because the page is off-candidate.
 - USER-SPECIFIED reveal/freeze + consent + silent-highlight CONTRACT (2026-07-01; target behavior — current code has open gaps tracked as QA round #2 in `.copilot/lifecycle-resume-plan.md`, findings #4/#6/#7/#8):
   - Cookie-consent removal runs on ALL property pages (candidate or not), always/end-to-end, decoupled from reveal/freeze and candidacy — so users cannot click consent buttons that mutate the DOM.

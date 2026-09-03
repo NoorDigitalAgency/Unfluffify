@@ -234,9 +234,12 @@ contracts from all predecessors and does not modify their source of truth.
 - Maintain the freeze for late nodes, restarted animation/media, relevant
   style/class changes, hover targets, and lifecycle restoration. Teardown must
   restore only extension-owned changes.
-- Enforce Googlebot Smartphone emulation continuously for every managed tab and
-  self-heal after navigation/debugger detach/rebinding. Remove manual simulation
-  and scale controls while preserving the silent-only desktop-preview exception.
+- Retain Googlebot Smartphone as the managed tab's fixed desired target and
+  enforce it continuously while a live side-panel owner exists. Self-heal owned
+  posture after navigation/debugger detach/rebinding; on last-owner close,
+  paint-guard native suspension and retain the desire without annotations or
+  marking listeners until guarded reopen. Remove manual simulation and scale
+  controls while preserving the silent-only desktop-preview exception.
 
 **Likely files**
 
@@ -454,8 +457,9 @@ the workflow.
 - Todo candidate navigation targets the correct bound tab/page.
 - Reveal reaches each growth bottom, waits for lazy content, freezes at the final
   bottom, and restores the original scroll.
-- Mobile emulation is already active and remains forced without a desktop-toggle
-  workaround.
+- Mobile emulation is already exact while the panel is live; last close returns
+  to native geometry without an exposed transition frame, and reopen restores
+  the retained target before marking interaction resumes.
 - Silent and marking borders use rewrite colors plus legacy thickness, dash, and
   animation grammar.
 - Marking remains responsive on a large page; Shift/Alt/right-click/Space match
@@ -594,7 +598,9 @@ in the owning phase and rerun its focused gate plus P9–P11.
 
 - Persist an inspection session token, generation, property/tab scope, intended
   mode, and terminal status in the background-owned repository so the session
-  survives MV3 worker restart, page reload, and panel closure.
+  survives MV3 worker restart and page reload. Treat deliberate last-panel
+  closure as fenced cancellation: finish fail-open JavaScript restore/reload
+  before the panel-owned emulation debugger lease is suspended.
 - Have the replacement document adopt the pending session during earliest
   content bootstrap, render the requested inspection surface, then acknowledge
   paint with the matching token and generation after browser paint opportunity.
@@ -607,8 +613,8 @@ in the owning phase and rerun its focused gate plus P9–P11.
 **Exit gate**
 
 - Integration tests cover replacement-document adoption, paint acknowledgement,
-  stale generation rejection, panel close, worker restart, timeout, navigation,
-  failure, cancellation, and Unregister.
+  stale generation rejection, panel-close cancellation and fail-open ordering,
+  worker restart, timeout, navigation, failure, cancellation, and Unregister.
 - A browser reload test proves the inspection surface is present before the
   background clears the matching session.
 
@@ -1098,7 +1104,7 @@ in the owning phase and rerun its focused gate plus P9–P11.
     unchanged, the keyed silent node was retained without invisible stale paint,
     the scheduler drained, and page/console errors were empty.
   - The clean P14 pinned legacy/rewrite matrix and P23 headed gate are the durable
-    performance authorities. The host's unavailable Orca desktop sampler
+    performance authorities. The host's unavailable external desktop sampler
     prevented a retained post-fix DPJ frame-by-frame p95; no comparative number
     was fabricated. See
     [`p23-frozen-surface-performance-report-2026-08-27.md`](./p23-frozen-surface-performance-report-2026-08-27.md).

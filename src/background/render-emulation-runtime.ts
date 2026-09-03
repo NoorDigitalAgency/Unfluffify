@@ -3,11 +3,10 @@ import {
   applyEmulationViaCdp,
   clearEmulationViaCdp,
   deriveGooglebotSmartphoneUserAgent,
-  fitDeviceScale,
-  type EmulationMode,
   type EmulationState,
 } from "../content/stabilization";
 import { DEVICE_EMULATION_PRESETS } from "../domain/constants";
+import { fitDeviceScale, type EmulationMode } from "../domain/emulation";
 import type {
   EmulationPostureRecord,
   EmulationPostureRepo,
@@ -28,7 +27,8 @@ export type EmulationFailureReason =
   | "identity_unavailable"
   | "identity_mismatch"
   | "proof_unavailable"
-  | "presentation_unavailable";
+  | "presentation_unavailable"
+  | "owner_unavailable";
 
 export type EmulationTransitionDelivery =
   | Readonly<{ status: "ready"; result: EmulationTransitionResult }>
@@ -394,6 +394,19 @@ export function createRenderEmulationRuntime(input: Readonly<{
     tabId: number,
     mode: EmulationMode,
   ) => Promise<number | null>;
+  /** The live side panel owns the earlier native resize boundary. Background
+   * uses its own direct compositor prefit only when that popup boundary is not
+   * present for the target tab/window. */
+  popupCompositorPrefitActive?: (tabId: number, windowId: number) => boolean;
+  /** Actual browser emulation is owned by a live side-panel document. Tests
+   * and embedders that omit this seam retain the legacy always-owned posture. */
+  ownerActive?: (tabId: number) => boolean;
+  /** Reason-scoped content projection used to hide retained annotation paint
+   * and pause marking listeners while browser geometry is native. */
+  setContentLifecycleSuspended?: (
+    tabId: number,
+    suspended: boolean,
+  ) => Promise<boolean>;
   onDebuggerDetached?: (tabId: number, reason?: string) => void;
   apiTimeoutMs?: number;
   apiMode?: "callback" | "promise";
@@ -419,6 +432,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
   type HeldPosture = Readonly<{
     mode: EmulationMode;
     scale: number;
+    suspended: boolean;
     revision: number;
     epoch: number;
   }>;
@@ -478,6 +492,9 @@ export function createRenderEmulationRuntime(input: Readonly<{
   };
   const postureIsCurrent = (tabId: number, held: HeldPosture): boolean =>
     heldPostures.get(tabId) === held && postureEpochs.get(tabId) === held.epoch;
+  const postureIsActive = (tabId: number, held: HeldPosture): boolean =>
+    postureIsCurrent(tabId, held) && !held.suspended &&
+    (input.ownerActive?.(tabId) ?? true);
   const nextPostureRevision = (tabId: number): number => {
     const revision = (postureRevisions.get(tabId) ?? 0) + 1;
     postureRevisions.set(tabId, revision);
@@ -516,6 +533,17 @@ export function createRenderEmulationRuntime(input: Readonly<{
   const refitBursts = new Map<number, RefitBurst>();
   const refitCoordinators = new Map<number, RefitCoordinator>();
   const lastPhysicalSignatures = new Map<number, string>();
+  type PendingCompositorPrefit = Readonly<{
+    held: HeldPosture;
+    mode: EmulationMode;
+    scale: number;
+    completion: Promise<boolean>;
+  }>;
+  const pendingCompositorPrefits = new Map<number, PendingCompositorPrefit>();
+  /** A successful debugger detach can precede a transient content release
+   * failure. Retain that exact lease so an ownerless retry removes the opaque
+   * guard instead of treating durable suspension as fully settled. */
+  const pendingSuspensionReleases = new Map<number, PresentationLease>();
   const nextPresentationGeneration = (tabId: number): number => {
     // A service-worker restart forgets its in-memory counter while the current
     // document can retain the last accepted generation. A time-derived floor
@@ -546,6 +574,25 @@ export function createRenderEmulationRuntime(input: Readonly<{
     }
     return delivery.result;
   };
+  const projectContentLifecycleSuspended = async (
+    tabId: number,
+    suspended: boolean,
+  ): Promise<void> => {
+    if (!input.setContentLifecycleSuspended) return;
+    let accepted: boolean;
+    try {
+      accepted = await input.setContentLifecycleSuspended(tabId, suspended);
+    } catch {
+      accepted = false;
+    }
+    if (!accepted) {
+      throw new EmulationPresentationUnavailableError(
+        suspended
+          ? "content-suspension-unavailable"
+          : "content-resume-unavailable",
+      );
+    }
+  };
   const releasePresentation = async (
     tabId: number,
     lease: PresentationLease,
@@ -567,6 +614,21 @@ export function createRenderEmulationRuntime(input: Readonly<{
         response.reason || "presentation-not-released",
         true,
       );
+    }
+  };
+  const releaseSuspendedPresentation = async (
+    tabId: number,
+    mode: EmulationMode,
+    lease = pendingSuspensionReleases.get(tabId) ?? {
+      generation: nextPresentationGeneration(tabId),
+      mode,
+      cause: "panel-suspend" as const,
+    },
+  ): Promise<void> => {
+    pendingSuspensionReleases.set(tabId, lease);
+    await releasePresentation(tabId, lease);
+    if (pendingSuspensionReleases.get(tabId) === lease) {
+      pendingSuspensionReleases.delete(tabId);
     }
   };
   const abortPresentation = async (
@@ -681,6 +743,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       mode: held.mode,
       maximumScale: held.scale,
       ...(safe?.mode === held.mode ? { fittedScale: safe.scale } : {}),
+      ...(held.suspended ? { suspended: true } : {}),
       revision: held.revision,
     };
   };
@@ -696,11 +759,14 @@ export function createRenderEmulationRuntime(input: Readonly<{
     const held: HeldPosture = {
       mode: record.mode,
       scale: record.maximumScale,
+      suspended: record.suspended === true,
       revision: record.revision,
       epoch: nextPostureEpoch(tabId),
     };
     heldPostures.set(tabId, held);
-    scheduleLeaseWatchdog(tabId);
+    if (!held.suspended && (input.ownerActive?.(tabId) ?? true)) {
+      scheduleLeaseWatchdog(tabId);
+    }
     if (record.fittedScale !== undefined) {
       safeFittedScales.set(tabId, {
         mode: record.mode,
@@ -796,16 +862,18 @@ export function createRenderEmulationRuntime(input: Readonly<{
       leaseWatchdogTimers.delete(tabId);
     }
   };
-  const releasePosture = (tabId: number): void => {
-    // Retire the standing lease before any intentional debugger detach. A
-    // trailing watchdog must never resurrect a posture the operator released.
+  const retireActiveRuntimeState = (
+    tabId: number,
+    options: Readonly<{ preserveSafeScale?: boolean }> = {},
+  ): void => {
     cancelLeaseWatchdog(tabId);
     cancelReassertRetry(tabId);
     clearRefitTimer(tabId);
-    nextPostureEpoch(tabId);
-    heldPostures.delete(tabId);
     verifiedPostures.delete(tabId);
-    safeFittedScales.delete(tabId);
+    pendingCompositorPrefits.delete(tabId);
+    if (options.preserveSafeScale !== true) {
+      safeFittedScales.delete(tabId);
+    }
     lastPhysicalViewports.delete(tabId);
     projectedPhysicalViewports.delete(tabId);
     const windowId = tabWindowIds.get(tabId);
@@ -816,6 +884,14 @@ export function createRenderEmulationRuntime(input: Readonly<{
     ) {
       lastWindowBounds.delete(windowId);
     }
+  };
+  const releasePosture = (tabId: number): void => {
+    // Retire the standing lease before any intentional debugger detach. A
+    // trailing watchdog must never resurrect a posture the operator released.
+    retireActiveRuntimeState(tabId);
+    pendingSuspensionReleases.delete(tabId);
+    nextPostureEpoch(tabId);
+    heldPostures.delete(tabId);
   };
   const normalizedWindowBounds = (
     window: Readonly<{ width?: number; height?: number }> | null | undefined,
@@ -943,6 +1019,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
     attachedTabs.delete(tabId);
     realUserAgents.delete(tabId);
     verifiedPostures.delete(tabId);
+    pendingCompositorPrefits.delete(tabId);
     invalidateGeometry(tabId);
     if (reason && TERMINAL_DETACH_REASONS.has(reason)) {
       releasePosture(tabId);
@@ -955,7 +1032,9 @@ export function createRenderEmulationRuntime(input: Readonly<{
     // the operator is still marking against. Re-establish it rather than waiting
     // for the next thing that happens to re-apply.
     void hydratePosture(tabId).then((held) => {
-      if (held) void reassertPosture(tabId, held, "debugger-detach");
+      if (held && postureIsActive(tabId, held)) {
+        void reassertPosture(tabId, held, "debugger-detach");
+      }
     });
   });
   const targetFor = (tabId: number): Debuggee => ({ tabId });
@@ -1059,6 +1138,116 @@ export function createRenderEmulationRuntime(input: Readonly<{
       }
       throw error;
     }
+  };
+  const validCompositorPrefit = (
+    tabId: number,
+    held: HeldPosture,
+    mode: EmulationMode,
+    scale: number,
+  ): boolean => {
+    const verified = verifiedPostures.get(tabId);
+    return postureIsActive(tabId, held) &&
+      attachedTabs.has(tabId) &&
+      verified?.active === true &&
+      verified.mode === held.mode &&
+      mode === held.mode &&
+      Number.isFinite(scale) &&
+      scale >= 0.01 &&
+      scale <= Math.min(held.scale, verified.scale) + 0.001;
+  };
+  const rememberCompositorPrefit = (
+    tabId: number,
+    held: HeldPosture,
+    mode: EmulationMode,
+    scale: number,
+    completion: Promise<boolean>,
+  ): boolean => {
+    if (!validCompositorPrefit(tabId, held, mode, scale)) return false;
+    const pending: PendingCompositorPrefit = {
+      held,
+      mode,
+      scale,
+      completion,
+    };
+    pendingCompositorPrefits.set(tabId, pending);
+    void completion.then((completed) => {
+      if (!completed && pendingCompositorPrefits.get(tabId) === pending) {
+        pendingCompositorPrefits.delete(tabId);
+      }
+    });
+    return true;
+  };
+  const startCompositorPrefit = (
+    tabId: number,
+    held: HeldPosture,
+    scale: number,
+  ): boolean => {
+    const debuggerApi = input.debuggerApi;
+    if (!debuggerApi || !validCompositorPrefit(tabId, held, held.mode, scale)) {
+      return false;
+    }
+    const preset = DEVICE_EMULATION_PRESETS[held.mode];
+    const params = {
+      width: preset.width,
+      height: preset.height,
+      deviceScaleFactor: 1,
+      mobile: held.mode === "mobile",
+      scale,
+    };
+    let completion: Promise<boolean>;
+    try {
+      completion = (apiMode === "promise"
+        ? Promise.resolve(debuggerApi.sendCommand(
+            targetFor(tabId),
+            "Emulation.setDeviceMetricsOverride",
+            params,
+          ))
+        : callbackToPromise(
+            (callback) => debuggerApi.sendCommand(
+              targetFor(tabId),
+              "Emulation.setDeviceMetricsOverride",
+              params,
+              callback,
+            ),
+            apiTimeoutMs,
+            "Debugger compositor prefit",
+          )
+      ).then(() => true, () => false);
+    } catch {
+      return false;
+    }
+    return rememberCompositorPrefit(
+      tabId,
+      held,
+      held.mode,
+      scale,
+      completion,
+    );
+  };
+  const adoptPendingCompositorPrefit = async (
+    tabId: number,
+    held: HeldPosture,
+    verified: VerifiedEmulationState,
+  ): Promise<VerifiedEmulationState> => {
+    const pending = pendingCompositorPrefits.get(tabId);
+    if (!pending || pending.held !== held || pending.mode !== held.mode) {
+      return verified;
+    }
+    if (pendingCompositorPrefits.get(tabId) === pending) {
+      pendingCompositorPrefits.delete(tabId);
+    }
+    const completed = await pending.completion;
+    if (!completed || !postureIsCurrent(tabId, held)) return verified;
+    const preset = DEVICE_EMULATION_PRESETS[held.mode];
+    return {
+      ...verified,
+      mode: held.mode,
+      width: preset.width,
+      height: preset.height,
+      scale: pending.scale,
+      active: true,
+      identityStale: false,
+    };
   };
   const detach = async (tabId: number): Promise<void> => {
     if (!input.debuggerApi) return;
@@ -1252,7 +1441,31 @@ export function createRenderEmulationRuntime(input: Readonly<{
       throw new Error("Emulation posture was released");
     }
     const preset = DEVICE_EMULATION_PRESETS[held.mode];
-    await writeMetricsScale(tabId, held, scale);
+    const prefit = pendingCompositorPrefits.get(tabId);
+    const matchingPrefit = prefit?.held === held &&
+      prefit.mode === held.mode
+      ? prefit
+      : null;
+    let appliedScale = scale;
+    if (matchingPrefit) {
+      if (pendingCompositorPrefits.get(tabId) === matchingPrefit) {
+        pendingCompositorPrefits.delete(tabId);
+      }
+      const completed = await matchingPrefit.completion;
+      if (completed && matchingPrefit.scale <= scale + 0.001) {
+        // A conservative speculative scale remains safe even when a stale
+        // projection undershot the fresh fit. Retain it until the ordinary
+        // trailing-growth fence converges instead of immediately oscillating.
+        appliedScale = Math.min(scale, matchingPrefit.scale);
+      } else {
+        await writeMetricsScale(tabId, held, scale);
+      }
+    } else {
+      if (prefit?.held === held && pendingCompositorPrefits.get(tabId) === prefit) {
+        pendingCompositorPrefits.delete(tabId);
+      }
+      await writeMetricsScale(tabId, held, scale);
+    }
     if (!postureIsCurrent(tabId, held)) {
       throw new Error("Emulation posture was released");
     }
@@ -1261,7 +1474,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       mode: held.mode,
       width: preset.width,
       height: preset.height,
-      scale,
+      scale: appliedScale,
       active: true,
       identityStale: false,
     };
@@ -1369,12 +1582,18 @@ export function createRenderEmulationRuntime(input: Readonly<{
       cause,
       preferredPresentationGeneration,
     );
+    // A successfully admitted newer guard supersedes any terminal suspension
+    // release whose acknowledgement was lost in an earlier worker turn.
+    pendingSuspensionReleases.delete(tabId);
     const realUserAgent = await realUserAgentFor(tabId);
     if (!postureIsCurrent(tabId, held)) {
       throw new Error("Emulation posture was released");
     }
     const proof = await writeAndProvePosture(tabId, held, realUserAgent, hint);
     if (proof.failureReason === null) {
+      if (!postureIsActive(tabId, held)) {
+        throw new Error("Emulation owner was released during transition");
+      }
       await settlePresentation(tabId, presentation);
     }
     return proof;
@@ -1387,15 +1606,64 @@ export function createRenderEmulationRuntime(input: Readonly<{
     if (!postureIsCurrent(tabId, attempted)) {
       return;
     }
-    if (prior) {
+    if (prior?.suspended) {
+      const presentation = await beginPresentation(
+        tabId,
+        prior.mode,
+        "panel-suspend",
+      );
+      await projectContentLifecycleSuspended(tabId, true);
       const restored: HeldPosture = {
         mode: prior.mode,
         scale: prior.scale,
+        suspended: true,
         revision: nextPostureRevision(tabId),
         epoch: nextPostureEpoch(tabId),
       };
       heldPostures.set(tabId, restored);
-      scheduleLeaseWatchdog(tabId);
+      try {
+        await persistPosture(tabId, restored);
+      } catch (error) {
+        const retainedAttempt: HeldPosture = {
+          ...attempted,
+          epoch: nextPostureEpoch(tabId),
+        };
+        heldPostures.set(tabId, retainedAttempt);
+        await projectContentLifecycleSuspended(tabId, false).catch(() => undefined);
+        await abortPresentation(tabId, presentation).catch(() => undefined);
+        scheduleLeaseWatchdog(tabId);
+        throw error;
+      }
+      retireActiveRuntimeState(tabId, { preserveSafeScale: true });
+      await clearEmulationViaCdp(
+        { send: (method, params) => sendEmulationCommand(tabId, method, params) },
+        {
+          mode: attempted.mode,
+          width: DEVICE_EMULATION_PRESETS[attempted.mode].width,
+          height: DEVICE_EMULATION_PRESETS[attempted.mode].height,
+          scale: attempted.scale,
+          active: true,
+        },
+      ).catch(() => undefined);
+      await waitForBrowserFrame(tabId).catch(() => undefined);
+      await waitForBrowserFrame(tabId).catch(() => undefined);
+      // A failed detach is not proof of native browser posture. Keep the guard
+      // opaque and the suspended durable intent for a later lifecycle retry.
+      await detach(tabId);
+      realUserAgents.delete(tabId);
+      await releaseSuspendedPresentation(tabId, prior.mode, presentation);
+      return;
+    }
+    if (prior) {
+      const restored: HeldPosture = {
+        mode: prior.mode,
+        scale: prior.scale,
+        suspended: prior.suspended,
+        revision: nextPostureRevision(tabId),
+        epoch: nextPostureEpoch(tabId),
+      };
+      heldPostures.set(tabId, restored);
+      if (postureIsActive(tabId, restored)) scheduleLeaseWatchdog(tabId);
       try {
         await persistPosture(tabId, restored);
         const proof = await writeProveAndPresentPosture(
@@ -1464,7 +1732,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
     cause: EmulationTransitionCause = "lease-recovery",
     preferredPresentationGeneration?: number,
   ): Promise<void> => {
-    if (!postureIsCurrent(tabId, held)) {
+    if (!postureIsActive(tabId, held)) {
       return;
     }
     try {
@@ -1491,14 +1759,14 @@ export function createRenderEmulationRuntime(input: Readonly<{
       // replacing DevTools/debugger ownership. Retain the exact desired target
       // and keep reinforcing it; forgetting it here lets the next generic page
       // reconciliation establish the default mode and creates a visible flash.
-      if (postureIsCurrent(tabId, held)) {
+      if (postureIsActive(tabId, held)) {
         verifiedPostures.delete(tabId);
         scheduleReassertRetry(tabId, held);
       }
     }
   };
   function scheduleReassertRetry(tabId: number, held: HeldPosture): void {
-    if (!postureIsCurrent(tabId, held) || reassertRetryTimers.has(tabId)) {
+    if (!postureIsActive(tabId, held) || reassertRetryTimers.has(tabId)) {
       return;
     }
     const attempt = reassertRetryAttempts.get(tabId) ?? 0;
@@ -1508,7 +1776,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
     reassertRetryAttempts.set(tabId, attempt + 1);
     const timer = setTimeout(() => {
       reassertRetryTimers.delete(tabId);
-      if (postureIsCurrent(tabId, held)) {
+      if (postureIsActive(tabId, held)) {
         void reassertPosture(tabId, held);
       }
     }, delay);
@@ -1519,7 +1787,9 @@ export function createRenderEmulationRuntime(input: Readonly<{
     held: HeldPosture,
     cause: EmulationTransitionCause = "lease-recovery",
   ): Promise<void> =>
-    withEmulationOperation(tabId, () => executeReassertPosture(tabId, held, undefined, cause));
+    postureIsActive(tabId, held)
+      ? withEmulationOperation(tabId, () => executeReassertPosture(tabId, held, undefined, cause))
+      : Promise.resolve();
   const coordinatorFor = (tabId: number): RefitCoordinator => {
     const existing = refitCoordinators.get(tabId);
     if (existing) return existing;
@@ -1857,7 +2127,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
     observation: EmulationRefitObservation,
     coordinatorVersion: number,
   ): Promise<VerifiedEmulationState | null> => {
-    if (!postureIsCurrent(tabId, held)) return null;
+    if (!postureIsActive(tabId, held)) return null;
     let effectiveObservation = await adoptPhysicalGuardAdmission(
       tabId,
       held,
@@ -1921,7 +2191,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       effectiveObservation,
     );
     if (!postureIsCurrent(tabId, held)) return null;
-    const verified = verifiedPostures.get(tabId);
+    let verified = verifiedPostures.get(tabId);
     if (!attachmentCurrent || !verified || verified.mode !== held.mode) {
       invalidateGeometry(tabId);
       await executeReassertPosture(
@@ -1948,6 +2218,19 @@ export function createRenderEmulationRuntime(input: Readonly<{
         active: false,
         failureReason: "physical_fit_mismatch",
       };
+    }
+    const adoptedPrefit = await adoptPendingCompositorPrefit(
+      tabId,
+      held,
+      verified,
+    );
+    if (!postureIsCurrent(tabId, held)) return null;
+    if (adoptedPrefit !== verified) {
+      verified = adoptedPrefit;
+      verifiedPostures.set(tabId, verified);
+      if (physicalViewportFits(verified, physicalViewport)) {
+        await rememberSafeFittedScale(tabId, held, verified.scale);
+      }
     }
     // A bounds event can publish its guard while an earlier popup/side-panel
     // executor is already awaiting browser geometry. Re-read the shared lane at
@@ -2122,7 +2405,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
   ): Promise<void> {
     if (
       refitBursts.get(tabId) !== burst ||
-      !postureIsCurrent(tabId, burst.held)
+      !postureIsActive(tabId, burst.held)
     ) {
       return;
     }
@@ -2141,11 +2424,24 @@ export function createRenderEmulationRuntime(input: Readonly<{
       return;
     }
     const physicalViewport = await visibleTabViewport(tabId, burst.hint);
-    const verified = verifiedPostures.get(tabId);
+    let verified = verifiedPostures.get(tabId);
     if (!physicalViewport || !verified || verified.mode !== burst.held.mode) {
       invalidateGeometry(tabId);
       scheduleReassertRetry(tabId, burst.held);
       return;
+    }
+    const adoptedPrefit = await adoptPendingCompositorPrefit(
+      tabId,
+      burst.held,
+      verified,
+    );
+    if (!postureIsCurrent(tabId, burst.held)) return;
+    if (adoptedPrefit !== verified) {
+      verified = adoptedPrefit;
+      verifiedPostures.set(tabId, verified);
+      if (physicalViewportFits(verified, physicalViewport)) {
+        await rememberSafeFittedScale(tabId, burst.held, verified.scale);
+      }
     }
     const signature = physicalSignature(physicalViewport);
     if (signature !== burst.physicalSignature) {
@@ -2211,11 +2507,11 @@ export function createRenderEmulationRuntime(input: Readonly<{
    */
   const reconcileLeaseWatchdog = async (tabId: number): Promise<void> => {
     const held = heldPostures.get(tabId);
-    if (!held) return;
+    if (!held || !postureIsActive(tabId, held)) return;
     await withEmulationOperation(tabId, async () => {
-      if (!postureIsCurrent(tabId, held)) return;
+      if (!postureIsActive(tabId, held)) return;
       const attachmentCurrent = await debuggerAttachmentIsCurrent(tabId);
-      if (!postureIsCurrent(tabId, held)) return;
+      if (!postureIsActive(tabId, held)) return;
       if (!attachmentCurrent) {
         invalidateGeometry(tabId);
         await executeReassertPosture(tabId, held);
@@ -2253,6 +2549,8 @@ export function createRenderEmulationRuntime(input: Readonly<{
       !input.debuggerApi?.getTargets ||
       !input.tabs?.get ||
       !heldPostures.has(tabId) ||
+      heldPostures.get(tabId)?.suspended === true ||
+      input.ownerActive?.(tabId) === false ||
       leaseWatchdogTimers.has(tabId)
     ) {
       return;
@@ -2260,7 +2558,8 @@ export function createRenderEmulationRuntime(input: Readonly<{
     const timer = setTimeout(() => {
       leaseWatchdogTimers.delete(tabId);
       void reconcileLeaseWatchdog(tabId).finally(() => {
-        if (heldPostures.has(tabId)) scheduleLeaseWatchdog(tabId);
+        const held = heldPostures.get(tabId);
+        if (held && postureIsActive(tabId, held)) scheduleLeaseWatchdog(tabId);
       });
     }, Math.max(25, leaseWatchdogMs));
     // Node test timers should not keep a completed Vitest worker alive. Browser
@@ -2274,6 +2573,9 @@ export function createRenderEmulationRuntime(input: Readonly<{
   ): Promise<void> => {
     const coordinator = coordinatorFor(tabId);
     const held = heldPostures.get(tabId);
+    if (held && !postureIsActive(tabId, held)) {
+      return Promise.resolve();
+    }
     let effectiveObservation = observation;
     if (
       held &&
@@ -2310,7 +2612,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
         const version = coordinator.version;
         coordinator.pending = null;
         const held = await hydratePosture(tabId);
-        if (!held) continue;
+        if (!held || !postureIsActive(tabId, held)) continue;
         await withEmulationOperation(tabId, () =>
           executeRefitObservation(tabId, held, next, version)
         );
@@ -2332,7 +2634,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       return;
     }
     void hydratePosture(tabId).then((held) => {
-      if (!held) return;
+      if (!held || !postureIsActive(tabId, held)) return;
       invalidateGeometry(tabId);
       verifiedPostures.delete(tabId);
       void reassertPosture(tabId, held, "navigation");
@@ -2356,6 +2658,10 @@ export function createRenderEmulationRuntime(input: Readonly<{
       ? priorBounds.width !== nextBounds.width ||
         priorBounds.height !== nextBounds.height
       : true;
+    const physicalBoundsContracted = priorBounds && nextBounds
+      ? nextBounds.width < priorBounds.width ||
+        nextBounds.height < priorBounds.height
+      : false;
     if (nextBounds) {
       lastWindowBounds.set(windowId, nextBounds);
     } else {
@@ -2364,7 +2670,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       lastWindowBounds.delete(windowId);
     }
     for (const [tabId, held] of heldPostures) {
-      if (tabWindowIds.get(tabId) !== windowId) {
+      if (!postureIsActive(tabId, held) || tabWindowIds.get(tabId) !== windowId) {
         continue;
       }
       // The page layout remains the same simulated device. Refit only the
@@ -2405,16 +2711,37 @@ export function createRenderEmulationRuntime(input: Readonly<{
       const projectionIsCurrent = validProjection !== null &&
         verified?.active === true &&
         verified.mode === held.mode;
+      const projectedScale = projectionIsCurrent && validProjection
+        ? fitDeviceScale(held.mode, validProjection, held.scale)
+        : null;
       const projectionNeedsRefit = projectionIsCurrent && validProjection
-        ? Math.abs(
-            fitDeviceScale(held.mode, validProjection, held.scale) - verified.scale,
-          ) > 0.001 || !physicalViewportFits(verified, validProjection)
+        ? Math.abs(Number(projectedScale) - verified.scale) > 0.001 ||
+          !physicalViewportFits(verified, validProjection)
         : false;
+      const projectionNeedsSafetyPrefit = projectionNeedsRefit &&
+        projectedScale !== null && verified !== undefined &&
+        (
+          projectedScale < verified.scale - 0.001 ||
+          !physicalViewportFits(verified, validProjection)
+        );
       const shouldFastGuard = physicalBoundsChanged && (
         projectionIsCurrent
           ? projectionNeedsRefit
           : true
       );
+      if (
+        physicalBoundsContracted &&
+        projectionNeedsSafetyPrefit &&
+        projectedScale !== null &&
+        input.popupCompositorPrefitActive?.(tabId, windowId) !== true
+      ) {
+        // Once a worker bounds task arrives, enter Chrome's compositor queue
+        // before allocating the independent content-guard fallback. The popup
+        // path has an earlier native resize boundary and remains guard-first;
+        // this worker-only lane has only a few milliseconds before the already
+        // queued resized surface can be presented.
+        startCompositorPrefit(tabId, held, projectedScale);
+      }
       let physicalGuardGeneration: Promise<number | null> | undefined;
       if (shouldFastGuard && input.guardPhysicalViewport) {
         try {
@@ -2455,7 +2782,9 @@ export function createRenderEmulationRuntime(input: Readonly<{
         if (!await visibleTabViewport(tabId)) return;
         hydratedTabs.add(tabId);
         const held = adoptDurableRecord(record, expectedEpoch);
-        if (held) await reassertPosture(tabId, held, "startup");
+        if (held && postureIsActive(tabId, held)) {
+          await reassertPosture(tabId, held, "startup");
+        }
       }));
     }).catch(() => undefined);
   }
@@ -2463,11 +2792,37 @@ export function createRenderEmulationRuntime(input: Readonly<{
   return {
     async hydrate(tabId: number): Promise<EmulationMode | null> {
       const held = await hydratePosture(tabId);
-      if (held) scheduleLeaseWatchdog(tabId);
+      if (held && postureIsActive(tabId, held)) scheduleLeaseWatchdog(tabId);
       return held?.mode ?? null;
     },
     heldMode(tabId: number): EmulationMode | null {
       return heldPostures.get(tabId)?.mode ?? null;
+    },
+    desired(tabId: number): Readonly<{
+      mode: EmulationMode;
+      scale: number;
+      suspended: boolean;
+    }> | null {
+      const held = heldPostures.get(tabId);
+      return held
+        ? { mode: held.mode, scale: held.scale, suspended: held.suspended }
+        : null;
+    },
+    adoptCompositorPrefit(
+      tabId: number,
+      mode: EmulationMode,
+      scale: number,
+    ): boolean {
+      const held = heldPostures.get(tabId);
+      return held && postureIsActive(tabId, held)
+        ? rememberCompositorPrefit(
+            tabId,
+            held,
+            mode,
+            scale,
+            Promise.resolve(true),
+          )
+        : false;
     },
     async refit(
       tabId: number,
@@ -2485,7 +2840,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
       return withEmulationOperation(tabId, async () => {
         const held = heldPostures.get(tabId);
         const verified = verifiedPostures.get(tabId);
-        if (!held || !verified || held.mode !== mode) {
+        if (!held || !postureIsActive(tabId, held) || !verified || held.mode !== mode) {
           return null;
         }
         if (!await debuggerAttachmentIsCurrent(tabId)) {
@@ -2549,6 +2904,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
         const held: HeldPosture = {
           mode,
           scale,
+          suspended: false,
           revision: nextPostureRevision(tabId),
           epoch: nextPostureEpoch(tabId),
         };
@@ -2641,6 +2997,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
               const restored: HeldPosture = {
                 mode: priorHeld.mode,
                 scale: priorHeld.scale,
+                suspended: priorHeld.suspended,
                 revision: nextPostureRevision(tabId),
                 epoch: nextPostureEpoch(tabId),
               };
@@ -2648,7 +3005,7 @@ export function createRenderEmulationRuntime(input: Readonly<{
               if (priorVerified) {
                 verifiedPostures.set(tabId, priorVerified);
               }
-              scheduleLeaseWatchdog(tabId);
+              if (postureIsActive(tabId, restored)) scheduleLeaseWatchdog(tabId);
               await persistPosture(tabId, restored).catch(() => undefined);
             } else {
               releasePosture(tabId);
@@ -2669,6 +3026,19 @@ export function createRenderEmulationRuntime(input: Readonly<{
             error instanceof PhysicalViewportUnavailableError &&
             postureIsCurrent(tabId, held)
           ) {
+            if (priorHeld?.suspended) {
+              await restorePriorPosture(tabId, held, priorHeld);
+              const preset = DEVICE_EMULATION_PRESETS[held.mode];
+              return {
+                mode: held.mode,
+                width: preset.width,
+                height: preset.height,
+                scale: fitDeviceScale(held.mode, null, safeScaleCeiling(tabId, held)),
+                active: false,
+                identityStale: false,
+                failureReason: "physical_fit_mismatch",
+              };
+            }
             // No metrics write was allowed without two transition samples plus
             // the final pre-write sample. Keep the desired posture durable and
             // retry; never clear or acknowledge a geometry assumption.
@@ -2704,12 +3074,233 @@ export function createRenderEmulationRuntime(input: Readonly<{
         }
       });
     },
+    async suspend(
+      tabId: number,
+      desired?: Readonly<{ mode: EmulationMode; scale: number }>,
+    ): Promise<boolean> {
+      await hydratePosture(tabId);
+      return withEmulationOperation(tabId, async () => {
+        const ownerReturned = (): boolean => input.ownerActive?.(tabId) === true;
+        if (ownerReturned()) return false;
+        const prior = heldPostures.get(tabId);
+        if (prior?.suspended) {
+          retireActiveRuntimeState(tabId, { preserveSafeScale: true });
+          if (await debuggerAttachmentIsCurrent(tabId)) {
+            // A worker can stop after persisting suspension but before clearing
+            // the already-attached browser target. Re-admit an opaque guard and
+            // finish that transaction; a suspended record never authorizes us
+            // to assume the debugger already became native.
+            const presentation = await beginPresentation(
+              tabId,
+              prior.mode,
+              "panel-suspend",
+            );
+            if (ownerReturned()) {
+              // A normal owner apply will supersede this opaque generation.
+              // Releasing it here would expose the retained debugger posture
+              // between the close and reopen transactions.
+              throw new Error("Emulation owner returned during suspension");
+            }
+            try {
+              await projectContentLifecycleSuspended(tabId, true);
+            } catch (error) {
+              await abortPresentation(tabId, presentation).catch(() => undefined);
+              throw error;
+            }
+            if (ownerReturned()) {
+              throw new Error("Emulation owner returned during suspension");
+            }
+            await clearEmulationViaCdp(
+              { send: (method, params) => sendEmulationCommand(tabId, method, params) },
+              {
+                mode: prior.mode,
+                width: DEVICE_EMULATION_PRESETS[prior.mode].width,
+                height: DEVICE_EMULATION_PRESETS[prior.mode].height,
+                scale: prior.scale,
+                active: true,
+              },
+            ).catch(() => undefined);
+            if (ownerReturned()) {
+              throw new Error("Emulation owner returned during suspension");
+            }
+            await waitForBrowserFrame(tabId).catch(() => undefined);
+            await waitForBrowserFrame(tabId).catch(() => undefined);
+            if (ownerReturned()) {
+              throw new Error("Emulation owner returned during suspension");
+            }
+            const detached = await detach(tabId).then(() => true, () => false);
+            if (!detached) {
+              throw new Error("Suspended emulation recovery could not detach debugger ownership");
+            }
+            realUserAgents.delete(tabId);
+            if (ownerReturned()) {
+              throw new Error("Emulation owner returned during suspension");
+            }
+            await releaseSuspendedPresentation(tabId, prior.mode, presentation);
+            return true;
+          }
+          // `release` is valid without a preceding `begin`; the time-derived
+          // generation is monotonic across worker recreation. This repairs a
+          // guard whose first terminal acknowledgement was lost without
+          // briefly presenting another overlay on the native page.
+          if (ownerReturned()) return false;
+          await releaseSuspendedPresentation(tabId, prior.mode);
+          return true;
+        }
+        if (!prior) {
+          if (!desired) return false;
+          const suspended: HeldPosture = {
+            mode: desired.mode,
+            scale: desired.scale,
+            suspended: true,
+            revision: nextPostureRevision(tabId),
+            epoch: nextPostureEpoch(tabId),
+          };
+          heldPostures.set(tabId, suspended);
+          try {
+            await persistPosture(tabId, suspended);
+          } catch (error) {
+            if (postureIsCurrent(tabId, suspended)) {
+              releasePosture(tabId);
+              hydratedTabs.add(tabId);
+            }
+            throw error;
+          }
+          retireActiveRuntimeState(tabId, { preserveSafeScale: true });
+          return !ownerReturned();
+        }
+
+        const presentation = await beginPresentation(
+          tabId,
+          prior.mode,
+          "panel-suspend",
+        );
+        if (ownerReturned()) {
+          verifiedPostures.delete(tabId);
+          throw new Error("Emulation owner returned during suspension");
+        }
+        try {
+          await projectContentLifecycleSuspended(tabId, true);
+        } catch (error) {
+          await abortPresentation(tabId, presentation).catch(() => undefined);
+          throw error;
+        }
+        if (ownerReturned()) {
+          verifiedPostures.delete(tabId);
+          throw new Error("Emulation owner returned during suspension");
+        }
+        const suspended: HeldPosture = {
+          mode: prior.mode,
+          scale: prior.scale,
+          suspended: true,
+          revision: nextPostureRevision(tabId),
+          epoch: nextPostureEpoch(tabId),
+        };
+        heldPostures.set(tabId, suspended);
+        try {
+          // Suspension intent is durable before the first CDP mutation. A cold
+          // worker may retain this desired mode, but may never reattach it.
+          await persistPosture(tabId, suspended);
+        } catch (error) {
+          const restored: HeldPosture = {
+            ...prior,
+            epoch: nextPostureEpoch(tabId),
+          };
+          heldPostures.set(tabId, restored);
+          await projectContentLifecycleSuspended(tabId, false).catch(() => undefined);
+          await abortPresentation(tabId, presentation).catch(() => undefined);
+          if (postureIsActive(tabId, restored)) scheduleLeaseWatchdog(tabId);
+          throw error;
+        }
+        retireActiveRuntimeState(tabId, { preserveSafeScale: true });
+        if (ownerReturned()) {
+          // Durable suspension plus the still-opaque guard is a safe handoff to
+          // the reopening popup. Its normal apply writes the retained mode and
+          // settles a newer generation; do not expose the old active posture.
+          throw new Error("Emulation owner returned during suspension");
+        }
+
+        await clearEmulationViaCdp(
+          { send: (method, params) => sendEmulationCommand(tabId, method, params) },
+          {
+            mode: prior.mode,
+            width: DEVICE_EMULATION_PRESETS[prior.mode].width,
+            height: DEVICE_EMULATION_PRESETS[prior.mode].height,
+            scale: prior.scale,
+            active: true,
+          },
+        ).catch(() => undefined);
+        if (ownerReturned()) {
+          throw new Error("Emulation owner returned during suspension");
+        }
+        await waitForBrowserFrame(tabId).catch(() => undefined);
+        await waitForBrowserFrame(tabId).catch(() => undefined);
+        if (ownerReturned()) {
+          throw new Error("Emulation owner returned during suspension");
+        }
+        const detached = await detach(tabId).then(() => true, () => false);
+        if (detached) {
+          realUserAgents.delete(tabId);
+          if (ownerReturned()) {
+            throw new Error("Emulation owner returned during suspension");
+          }
+          await releaseSuspendedPresentation(tabId, prior.mode, presentation);
+          return true;
+        }
+
+        // Detach is the final proof that identity/script overrides cannot
+        // survive a partially failed clear. Restore the prior active posture
+        // behind the still-opaque generation when that proof is unavailable.
+        const restored: HeldPosture = {
+          mode: prior.mode,
+          scale: prior.scale,
+          suspended: false,
+          revision: nextPostureRevision(tabId),
+          epoch: nextPostureEpoch(tabId),
+        };
+        heldPostures.set(tabId, restored);
+        await persistPosture(tabId, restored);
+        const realUserAgent = await realUserAgentFor(tabId);
+        const proof = await writeAndProvePosture(tabId, restored, realUserAgent);
+        if (proof.failureReason !== null) {
+          verifiedPostures.delete(tabId);
+          if (postureIsActive(tabId, restored)) scheduleReassertRetry(tabId, restored);
+          throw new Error(`Emulation suspension rollback failed: ${proof.failureReason}`);
+        }
+        const verified: VerifiedEmulationState = {
+          ...proof.state,
+          active: true,
+          identityStale: false,
+        };
+        verifiedPostures.set(tabId, verified);
+        await rememberSafeFittedScale(tabId, restored, verified.scale);
+        await projectContentLifecycleSuspended(tabId, false);
+        await settlePresentation(tabId, presentation);
+        if (postureIsActive(tabId, restored)) scheduleLeaseWatchdog(tabId);
+        throw new Error("Emulation suspension could not detach debugger ownership");
+      });
+    },
+    isSuspended(tabId: number): boolean {
+      return heldPostures.get(tabId)?.suspended === true;
+    },
     async clear(tabId: number) {
       // A restarted worker may not have adopted its durable lease yet. Hydrate
       // before deciding that there is no held posture to guard or release.
       await hydratePosture(tabId);
       return withEmulationOperation(tabId, async () => {
         const priorHeld = heldPostures.get(tabId);
+        if (priorHeld?.suspended) {
+          await input.postureRepo?.clear(tabId);
+          releasePosture(tabId);
+          hydratedTabs.add(tabId);
+          return {
+            mode: priorHeld.mode,
+            width: DEVICE_EMULATION_PRESETS[priorHeld.mode].width,
+            height: DEVICE_EMULATION_PRESETS[priorHeld.mode].height,
+            scale: priorHeld.scale,
+            active: false,
+          };
+        }
         // Clearing changes visible geometry even when the in-memory lease is
         // absent (for example after a worker restart). It is therefore never
         // allowed to fall through when the content plane cannot be paint-proven.

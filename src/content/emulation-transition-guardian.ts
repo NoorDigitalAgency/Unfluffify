@@ -25,6 +25,7 @@ export type EmulationTransitionCause =
   | "lease-recovery"
   | "navigation"
   | "startup"
+  | "panel-suspend"
   | "clear"
   | "viewport-change";
 export type EmulationTransitionStage =
@@ -161,6 +162,7 @@ const VALID_CAUSES = new Set<EmulationTransitionCause>([
   "lease-recovery",
   "navigation",
   "startup",
+  "panel-suspend",
   "clear",
   "viewport-change",
 ]);
@@ -918,11 +920,14 @@ export function createEmulationTransitionGuardian(
   const release = async (
     request: Extract<EmulationTransitionRequest, { phase: "release" }>,
   ): Promise<EmulationTransitionResult> => {
+    const supersedingSuspensionRelease = request.cause === "panel-suspend" &&
+      active !== null &&
+      request.generation > active.generation;
     if (
       disposed ||
       (active === null
         ? request.generation < lastGeneration
-        : request.generation !== active.generation)
+        : request.generation !== active.generation && !supersedingSuspensionRelease)
     ) {
       return result(
         false,
@@ -933,6 +938,23 @@ export function createEmulationTransitionGuardian(
             : "generation-mismatch",
         request,
       );
+    }
+    if (request.cause === "panel-suspend" && active !== null && guarding) {
+      const epoch = operationEpoch;
+      // Device metrics are cleared before debugger detach, but detaching can
+      // itself resize the tab by removing Chrome's debugger infobar. Keep the
+      // native page opaque through two post-detach paint opportunities.
+      for (let frameIndex = 0; frameIndex < 2; frameIndex += 1) {
+        if (!coverage() || !await frame()) {
+          return result(false, "release-paint-proof-failed", request);
+        }
+        if (
+          epoch !== operationEpoch || disposed || active === null ||
+          !guarding || !coverage()
+        ) {
+          return result(false, "stale-generation", request);
+        }
+      }
     }
     operationEpoch += 1;
     lastGeneration = Math.max(lastGeneration, request.generation);

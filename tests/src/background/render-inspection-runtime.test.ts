@@ -351,6 +351,38 @@ describe("durable render inspection runtime", () => {
     expect(unregistered.javascript.at(-1)).toEqual({ tabId: 7, enabled: true });
   });
 
+  it("terminalizes and fully fails open before panel-owned debugger suspension", async () => {
+    const staticInspection = harness();
+    await startStatic(staticInspection);
+
+    await expect(staticInspection.runtime.preparePanelSuspension(7)).resolves.toBe(true);
+    await expect(staticInspection.runtime.current(7)).resolves.toMatchObject({
+      status: "terminal",
+      session: { terminalReason: "cancelled", javascriptEnabled: false },
+    });
+    expect(staticInspection.javascript.at(-1)).toEqual({ tabId: 7, enabled: true });
+    expect(staticInspection.reloads).toEqual([7, 7]);
+
+    const inactive = harness();
+    await expect(inactive.runtime.preparePanelSuspension(7)).resolves.toBe(true);
+    expect(inactive.javascript).toEqual([]);
+    expect(inactive.reloads).toEqual([]);
+  });
+
+  it("does not cancel a newer inspection after panel ownership returns", async () => {
+    const probe = harness();
+    await startStatic(probe);
+    const javascriptCount = probe.javascript.length;
+    const reloadCount = probe.reloads.length;
+
+    await expect(probe.runtime.preparePanelSuspension(7, () => false)).resolves.toBe(true);
+    await expect(probe.runtime.current(7)).resolves.toMatchObject({
+      status: "active",
+    });
+    expect(probe.javascript).toHaveLength(javascriptCount);
+    expect(probe.reloads).toHaveLength(reloadCount);
+  });
+
   it("recovers an awaiting generation after worker restart and reissues only its missing reload", async () => {
     const first = harness();
     const started = await startStatic(first);

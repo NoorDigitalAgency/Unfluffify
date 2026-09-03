@@ -113,7 +113,7 @@ The pre-fix DPJ frame comparison is retained in `.temp/ab-performance/report.md`
 and was sufficient to identify the exact frozen-clock failure. This execution
 also launched copied-profile legacy and rewrite sessions through the repository
 live-browser workflow and proved the legacy overlay posture at 412×960. A clean
-post-fix desktop frame sampler could not be retained because the Orca
+post-fix desktop frame sampler could not be retained because the external
 computer-use runtime was unavailable on the host, while the repository browser
 contract requires external debugger observers to remain detached during
 extension-owned emulation.

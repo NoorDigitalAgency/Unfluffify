@@ -1358,6 +1358,35 @@ export function createRenderInspectionRuntime(input: Readonly<{
       });
     },
 
+    /** Last-panel closure is a debugger-ownership boundary. Terminalize any
+     * exact active inspection and prove its fail-open JS/reload obligations
+     * have completed before emulation is allowed to detach. */
+    async preparePanelSuspension(
+      tabId: number,
+      stillOwnerless: () => boolean = () => true,
+    ): Promise<boolean> {
+      await ensureTabInitialized(tabId);
+      return withOperation(tabId, async () => {
+        if (!stillOwnerless()) return true;
+        const loaded = await loadCurrent(tabId);
+        if (!loaded) return true;
+        let record = await expireIfNeeded(loaded);
+        if (!stillOwnerless()) return true;
+        if (ACTIVE_PHASES.has(record.phase) || !record.javascriptEnabled) {
+          record = await terminalize(record, "cancelled", {
+            reloadAfterRestore: !record.javascriptEnabled,
+          });
+        } else {
+          record = await retryTerminalRecovery(record);
+        }
+        await rescheduleAlarm();
+        return record.phase === "terminal" &&
+          !record.restorePending &&
+          !record.reloadPending &&
+          !record.failOpenPending;
+      });
+    },
+
     async navigationCommitted(commit: NavigationCommit): Promise<void> {
       expectedNavigationStarts.delete(commit.tabId);
       pendingNavigationStarts.delete(commit.tabId);

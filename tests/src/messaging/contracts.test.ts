@@ -164,10 +164,12 @@ describe("corrective messaging application contracts", () => {
     expect(refit.parse({
       tabId: 7,
       source: "popup",
+      compositorPrefit: { mode: "mobile", scale: 0.5 },
       physicalViewportHint,
     })).toEqual({
       tabId: 7,
       source: "popup",
+      compositorPrefit: { mode: "mobile", scale: 0.5 },
       physicalViewportHint,
     });
     expect(refit.parse({
@@ -188,6 +190,10 @@ describe("corrective messaging application contracts", () => {
     expect(refit.safeParse({
       tabId: 7,
       physicalViewportHint: { height: 0 },
+    }).success).toBe(false);
+    expect(refit.safeParse({
+      tabId: 7,
+      compositorPrefit: { mode: "mobile", scale: 0.5, width: 412 },
     }).success).toBe(false);
   });
 
@@ -320,6 +326,7 @@ describe("corrective messaging application contracts", () => {
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect(parsed.data.consentSuppressionAllowed).toBe(true);
+      expect(parsed.data.emulationSuspended).toBe(false);
     }
   });
 

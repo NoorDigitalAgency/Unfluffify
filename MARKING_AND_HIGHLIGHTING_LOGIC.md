@@ -989,9 +989,12 @@ Rules:
   content outside the mobile viewport width or document height is invisible;
   text merely clipped by a vertical CSS clamp (see Visibility and CSS Clamps) is
   not invisible-textual — it submits as included,
-- every recognized managed tab continuously uses the fixed Googlebot Smartphone
-  posture; users cannot disable it or change scale/device metrics, and
-  navigation, debugger detach, and tab rebinding self-heal,
+- every recognized managed tab retains the fixed Googlebot Smartphone desire;
+  users cannot choose another device or manual scale. While a live side-panel
+  owner exists, navigation, debugger detach, and tab rebinding self-heal that
+  exact posture. Last-owner close paint-guards native suspension, hides all
+  geometry-bound annotation layers, removes marking listeners, and retains the
+  decisions; reopen restores/re-measures them behind the guard before input,
 - the only desktop posture is the approved silent-only desktop preview; it is
   not a general simulator, disables marking entry, and restores crawler mobile
   when the preview ends,
